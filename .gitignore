@@ -1,0 +1,15 @@
+# Build output (scripts/build.sh builds in ~/emusuni-build; packages land in out/)
+/out/
+/build/
+*.pkg
+
+# Editors and operating systems
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Python
+__pycache__/

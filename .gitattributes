@@ -1,0 +1,5 @@
+# Text files keep LF line endings everywhere (the build scripts run in Linux / WSL).
+* text=auto eol=lf
+*.png binary
+*.ttf binary
+*.wav binary

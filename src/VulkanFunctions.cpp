@@ -1,0 +1,75 @@
+// EmuSuNi - Super Nintendo for PS4. GPL-2.0-or-later (see LICENSE).
+
+#include "VulkanFunctions.h"
+
+#include "Log.h"
+
+// Mesa's RADV entry points (scripts/build-mesa.sh of DolphinPS4, linked in whole).
+extern "C" VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vk_icdGetInstanceProcAddr(VkInstance instance,
+                                                                              const char* name);
+extern "C" VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vk_common_GetDeviceProcAddr(VkDevice device,
+                                                                           const char* name);
+
+#define EMUSUNI_VK_DEFINE(name) PFN_##name name = nullptr;
+EMUSUNI_VK_GLOBAL_FUNCTIONS(EMUSUNI_VK_DEFINE)
+EMUSUNI_VK_INSTANCE_FUNCTIONS(EMUSUNI_VK_DEFINE)
+EMUSUNI_VK_DEVICE_FUNCTIONS(EMUSUNI_VK_DEFINE)
+#undef EMUSUNI_VK_DEFINE
+
+namespace VulkanFunctions
+{
+bool LoadGlobal()
+{
+  bool ok = true;
+#define EMUSUNI_VK_LOAD(name)                                                                     \
+  name = reinterpret_cast<PFN_##name>(vk_icdGetInstanceProcAddr(VK_NULL_HANDLE, #name));          \
+  if (!name)                                                                                      \
+  {                                                                                               \
+    LogF("vulkan: %s missing", #name);                                                            \
+    ok = false;                                                                                   \
+  }
+  EMUSUNI_VK_GLOBAL_FUNCTIONS(EMUSUNI_VK_LOAD)
+#undef EMUSUNI_VK_LOAD
+  return ok;
+}
+
+bool LoadInstance(VkInstance instance)
+{
+  bool ok = true;
+#define EMUSUNI_VK_LOAD(name)                                                                     \
+  name = reinterpret_cast<PFN_##name>(vk_icdGetInstanceProcAddr(instance, #name));                \
+  if (!name)                                                                                      \
+  {                                                                                               \
+    LogF("vulkan: %s missing", #name);                                                            \
+    ok = false;                                                                                   \
+  }
+  EMUSUNI_VK_INSTANCE_FUNCTIONS(EMUSUNI_VK_LOAD)
+#undef EMUSUNI_VK_LOAD
+  return ok;
+}
+
+bool LoadDevice(VkDevice device)
+{
+  bool ok = true;
+#define EMUSUNI_VK_LOAD(name)                                                                     \
+  name = reinterpret_cast<PFN_##name>(vk_common_GetDeviceProcAddr(device, #name));                \
+  if (!name)                                                                                      \
+  {                                                                                               \
+    LogF("vulkan: %s missing", #name);                                                            \
+    ok = false;                                                                                   \
+  }
+  EMUSUNI_VK_DEVICE_FUNCTIONS(EMUSUNI_VK_LOAD)
+#undef EMUSUNI_VK_LOAD
+  return ok;
+}
+
+PFN_vkVoidFunction Lookup(VkInstance instance, VkDevice device, const char* name)
+{
+  PFN_vkVoidFunction function = nullptr;
+  if (device != VK_NULL_HANDLE)
+    function = vk_common_GetDeviceProcAddr(device, name);
+  if (!function)
+    function = vk_icdGetInstanceProcAddr(instance, name);
+  return function;
+}
+}  // namespace VulkanFunctions

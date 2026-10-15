@@ -1,0 +1,38 @@
+// EmuSuNi - Super Nintendo for PS4. GPL-2.0-or-later (see LICENSE).
+
+// Saved data: each game's battery save (the cartridge's SRAM, data_dir/saves/<id>.srm) and save
+// states (data_dir/states/<id>.state<N>, with a picture <id>.state<N>.png). Slot 0 is the state
+// "Resume Where You Left Off" keeps. The menu's Saved Data tab lists them (Dolphin for PS4 has
+// Memory Cards there).
+
+#pragma once
+
+#include <cstdint>
+#include <string>
+#include <vector>
+
+namespace Saves
+{
+constexpr int SLOTS = 8;  // slots 1..8 in the menus; 0 = resume state
+
+void Init(const std::string& data_dir);
+std::string SramPath(const std::string& game_id);
+std::string StatePath(const std::string& game_id, int slot);
+std::string StatePicturePath(const std::string& game_id, int slot);
+// Unix time of a file's last change, 0 when it doesn't exist.
+int64_t Modified(const std::string& path);
+uint64_t Size(const std::string& path);
+
+struct GameSaves
+{
+  std::string id;
+  int64_t sram_time = 0;
+  uint64_t sram_size = 0;
+  std::vector<int> slots;  // slots with a state (0 = resume)
+  int64_t latest = 0;
+};
+// Every game with saved data, the latest first.
+std::vector<GameSaves> List();
+bool DeleteSram(const std::string& game_id);
+bool DeleteState(const std::string& game_id, int slot);
+}  // namespace Saves
