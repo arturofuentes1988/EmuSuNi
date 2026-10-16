@@ -7,7 +7,7 @@
 #     PkgTool.Core
 #   - DolphinPS4's PS4 runtime: libc++ 21 and Mesa's RADV Vulkan driver on GNM
 #     (~/dolphinps4-build), built with its own scripts
-#   - Snes9x 1.63 and Dear ImGui 1.92.2b sources (~/src)
+#   - Snes9x 1.63, FCEUmm (libretro-fceumm) and Dear ImGui 1.92.2b sources (~/src)
 # Mesa takes the longest (about half an hour). Then: scripts/build.sh and scripts/package.sh.
 #
 #   sudo -i bash /path/to/EmuSuNi/scripts/setup.sh
@@ -20,6 +20,8 @@ OPENORBIS=/opt/pacbrew/ps4/openorbis
 DOLPHINPS4_COMMIT=720f60abc42d0d160ea19b81eb506de45fa0b17b
 SNES9X_COMMIT=1bcc369e89f08243e0a462882fb1f3e42e51de3a   # Snes9x 1.63
 IMGUI_COMMIT=45acd5e0e82f4c954432533ae9985ff0e1aad6d5    # Dear ImGui 1.92.2b
+FCEUMM_COMMIT=ac0d00a7fc01166f84c7bac01d1084ebfd2b865e   # libretro-fceumm, 2026-10-11
+MUPEN64PLUS_COMMIT=12edd2c74a517ff86dfa8cfc71ad75e4c10486d5   # mupen64plus-libretro-nx
 MESA_TAG=mesa-26.0.8
 LIBDRM_TAG=libdrm-2.4.125
 export DEBIAN_FRONTEND=noninteractive
@@ -40,7 +42,7 @@ checkout() {
 step "Packages"
 apt-get update -qq
 apt-get install -y -qq git wget curl ca-certificates gnupg lsb-release xz-utils cmake ninja-build \
-    python3 python3-venv python3-pil pkg-config bison flex glslang-tools libxml2 >/dev/null
+    python3 python3-venv python3-pil pkg-config bison flex glslang-tools libxml2 nasm make binutils >/dev/null
 if ! command -v clang-21 >/dev/null; then
     wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh
     bash /tmp/llvm.sh 21
@@ -89,8 +91,10 @@ fi
 ln -sf "$(command -v glslangValidator)" "$BUILD_ROOT/host-tools/bin/glslangValidator"
 PS4_BUILD_ROOT="$BUILD_ROOT" scripts/build-mesa.sh setup
 
-step "Snes9x and Dear ImGui"
+step "Snes9x, FCEUmm and Dear ImGui"
 checkout https://github.com/snes9xgit/snes9x.git "$SRC_ROOT/snes9x" "$SNES9X_COMMIT"
+checkout https://github.com/libretro/libretro-fceumm.git "$SRC_ROOT/fceumm" "$FCEUMM_COMMIT"
+checkout https://github.com/libretro/mupen64plus-libretro-nx.git "$SRC_ROOT/mupen64plus-next" "$MUPEN64PLUS_COMMIT"
 checkout https://github.com/ocornut/imgui.git "$SRC_ROOT/imgui" "$IMGUI_COMMIT"
 
 step "Ready: now scripts/build.sh and scripts/package.sh <version>"

@@ -27,6 +27,10 @@
 #include "Settings.h"
 #include "Tour.h"
 
+#ifdef EMUSUNI_N64
+extern "C" int ps4_exec_probe();  // port/ps4_runtime.cpp
+#endif
+
 namespace
 {
 // A start that never shows a picture (the GPU set-up stuck) would leave the console's screen
@@ -106,8 +110,13 @@ int main()
   }
   setvbuf(stdout, nullptr, _IONBF, 0);
   setvbuf(stderr, nullptr, _IONBF, 0);
-  LogF("EmuSuNi %s starting", App::VERSION);
+  LogF("%s %s starting", App::NAME, App::VERSION);
   LoadSystemModules();
+#ifdef EMUSUNI_N64
+  // How the PS4 lets code made at run time run (the N64 core's recompilers), once at start: every
+  // executable mapping after this is made that way (port/ps4_runtime.cpp's mmap wrapper).
+  LogF("n64: executable memory: method %d", ps4_exec_probe());
+#endif
   sceUserServiceInitialize(nullptr);
   scePadInit();
 

@@ -8,7 +8,10 @@
 #include <ctime>
 #include <map>
 #include <memory>
+#include <mutex>
+#include <set>
 #include <sstream>
+#include <unordered_map>
 
 #include <orbis/libkernel.h>
 
@@ -21,12 +24,10 @@ namespace CoverDownload
 {
 namespace
 {
-constexpr const char* REPO = "libretro-thumbnails/Nintendo_-_Super_Nintendo_Entertainment_System";
 // libretro's thumbnail server, the one RetroArch uses: the same pictures as the GitHub project, over
 // plain HTTP. The PS4's TLS fails on raw.githubusercontent.com ("RSA - The PKCS#1 verification
 // failed" in every handshake), so GitHub is only the second choice.
 constexpr const char* SERVER = "http://thumbnails.libretro.com/";
-constexpr const char* SYSTEM = "Nintendo - Super Nintendo Entertainment System";
 // The size the menu shows a cover at (the Library's selected one): bigger pictures are made
 // smaller once, when they are downloaded, instead of every time the menu reads them.
 constexpr uint32_t COVER_W = 600, COVER_H = 430;
@@ -35,16 +36,17 @@ constexpr uint32_t COVER_W = 600, COVER_H = 430;
 struct Kind
 {
   const char* folder;  // libretro's folder
-  const char* cache;   // its list of names, kept a week in covers/
+  const char* cache;   // its list of names, kept a week in covers/ (covers/nes/...)
   const char* label;   // for the log
 };
 constexpr Kind KINDS[] = {{"Named_Boxarts", ".libretro-thumbnails.txt", "box"},
                           {"Named_Titles", ".libretro-titles.txt", "title screen"}};
 constexpr int KIND_COUNT = 2;
 
-std::string FolderUrl(const Kind& kind)
+// A console's folder of a kind of pictures (Systems.h: thumbnails).
+std::string FolderUrl(const Kind& kind, const System& system)
 {
-  return std::string(SERVER) + Net::UrlEncode(SYSTEM) + "/" + kind.folder + "/";
+  return std::string(SERVER) + Net::UrlEncode(system.thumbnails) + "/" + kind.folder + "/";
 }
 
 void Log(const std::string& text)
@@ -187,12 +189,15 @@ std::vector<std::string> Paths(const std::string& json, std::vector<std::string>
   return paths;
 }
 
-// The names of a kind of pictures (without ".png"): from the list kept in covers/ (a week), else
-// from the server's folder listing, else from GitHub.
-std::vector<std::string> Names(const Kind& kind, const std::string& covers_dir, const std::string& ca_file,
-                               std::string* error, Net::Session* session)
+// The names of a console's kind of pictures (without ".png"): from the list kept in covers/ (a
+// week), else from the server's folder listing, else from GitHub.
+std::vector<std::string> Names(const Kind& kind, const System& system, const std::string& covers_dir,
+                               const std::string& ca_file, std::string* error, Net::Session* session)
 {
-  const std::string cache = covers_dir + "/" + kind.cache;
+  // One at a time per list (Download and Find Cover's thread): the second reads the list kept.
+  static std::mutex mutexes[SYSTEM_COUNT][KIND_COUNT];
+  std::lock_guard lock(mutexes[static_cast<int>(system.id)][&kind - KINDS]);
+  const std::string cache = covers_dir + "/" + system.prefix + kind.cache;
   const int64_t age = std::time(nullptr) - Saves::Modified(cache);
   std::vector<std::string> names;
   if (Saves::Modified(cache) > 0 && age < 7 * 24 * 3600)
@@ -212,11 +217,11 @@ std::vector<std::string> Names(const Kind& kind, const std::string& covers_dir, 
     for (const std::string& name : names)
       text += name + "\n";
     WriteTextFile(cache, text);
-    Log(std::to_string(names.size()) + " " + kind.label + " pictures listed by " + where);
+    Log(std::to_string(names.size()) + " " + system.tab + " " + kind.label + " pictures listed by " + where);
   };
   {
     Net::Request request;
-    request.url = FolderUrl(kind);
+    request.url = FolderUrl(kind, system);
     std::string html, server_error;
     const long status = Net::GetText(request, &html, 16 << 20, &server_error, session);
     if (status == 200)
@@ -235,7 +240,7 @@ std::vector<std::string> Names(const Kind& kind, const std::string& covers_dir, 
   std::string root;
   for (const char* branch : {"master", "main"})
   {
-    request.url = std::string("https://api.github.com/repos/") + REPO + "/git/trees/" + branch;
+    request.url = std::string("https://api.github.com/repos/") + system.thumbnails_repo + "/git/trees/" + branch;
     if (Net::GetText(request, &root, 1 << 20, error, session) == 200)
       break;
     root.clear();
@@ -260,7 +265,7 @@ std::vector<std::string> Names(const Kind& kind, const std::string& covers_dir, 
     return {};
   }
   std::string listing;
-  request.url = std::string("https://api.github.com/repos/") + REPO + "/git/trees/" + sha;
+  request.url = std::string("https://api.github.com/repos/") + system.thumbnails_repo + "/git/trees/" + sha;
   if (Net::GetText(request, &listing, 16 << 20, error, session) != 200)
   {
     if (error->empty())
@@ -522,29 +527,43 @@ private:
 // original release rather than a re-release.
 const std::string* Pick(const std::vector<const std::string*>& candidates, const Library::Game& game)
 {
+  // The NES list has TOSEC's names too: "Mega Man 2 (1989-06)(Capcom)(US)[b2]".
+  static const std::map<std::string, const char*> TOSEC_REGIONS = {
+      {"USA", "(US)"}, {"Europe", "(EU)"}, {"Japan", "(JP)"}};
   const std::string* best = nullptr;
   int best_score = -1000;
   for (const std::string* name : candidates)
   {
-    int score = 0;
+    int score = *name == game.id ? 20 : 0;  // the file's own name: the picture made for it
     if (!game.region.empty())
     {
       const std::string first = game.region.substr(0, game.region.find(','));
+      const auto tosec = TOSEC_REGIONS.find(first);
       if (name->find("(" + first) != std::string::npos || name->find(", " + first) != std::string::npos)
         score += 10;
+      else if (tosec != TOSEC_REGIONS.end() && name->find(tosec->second) != std::string::npos)
+        score += 9;
     }
     if (name->find("(USA") != std::string::npos)
       score += 2;  // a fallback when the region doesn't match
+    else if (name->find("(US)") != std::string::npos)
+      score += 1;
     for (const char* bad : {"(Beta", "(Proto", "(Sample", "(Demo", "(Pirate", "(Unl"})
     {
       if (name->find(bad) != std::string::npos)
         score -= 5;
     }
-    for (const char* rerelease : {"Virtual Console", "Switch Online", "Classic Mini", "Evercade"})
+    for (const char* rerelease : {"Virtual Console", "Switch Online", "Classic Mini", "Evercade", "Edition)",
+                                  "Aftermarket", "PlayChoice", "(VS"})
     {
       if (name->find(rerelease) != std::string::npos)
         score -= 3;
     }
+    // The plain box first: a point less for each more group ("(Rev 1)", "(En)"), more for TOSEC's
+    // dump marks ("[b]" a bad dump, "[h]" a hack, "[t]" a trainer).
+    score -= std::max(0, static_cast<int>(std::count(name->begin(), name->end(), '(')) - 1);
+    if (name->find('[') != std::string::npos)
+      score -= 4;
     if (score > best_score)
     {
       best_score = score;
@@ -553,19 +572,206 @@ const std::string* Pick(const std::vector<const std::string*>& candidates, const
   }
   return best;
 }
+// Covers are written one at a time (Download and Find Cover's thread), each to "<cover>.part" and
+// then renamed: a cut write never leaves a broken cover that counts as there.
+std::mutex g_cover_write;
+
+bool SaveCover(const ImageRGBA& image, const std::string& path)
+{
+  const std::string part = path + ".part";
+  if (!SavePng(part, image))
+  {
+    std::remove(part.c_str());
+    return false;
+  }
+  if (std::rename(part.c_str(), path.c_str()) != 0)
+  {
+    std::remove(part.c_str());
+    return false;
+  }
+  return true;
+}
+
+// ---- The closest picture, for a name Find() matches none of (Games Without Cover) ----
+// Words that don't name a game, in the languages of the file names (Words() leaves out "the", "a",
+// "an" and "and" already): "La Leyenda de Zelda" shares "leyenda" and "zelda" only.
+bool Filler(const std::string& word)
+{
+  static const std::set<std::string> FILLER = {"of", "in", "on", "to", "no", "vs", "de", "del", "la", "las",
+                                               "el", "los", "lo", "y", "e", "en", "un", "una", "da", "do",
+                                               "du", "le", "les", "des", "di", "il"};
+  return FILLER.count(word) > 0;
+}
+
+bool IsNumber(const std::string& word)
+{
+  return !word.empty() && std::all_of(word.begin(), word.end(),
+                                      [](char c) { return std::isdigit(static_cast<unsigned char>(c)) != 0; });
+}
+
+std::vector<std::string> ContentWords(const std::vector<std::string>& words)
+{
+  std::vector<std::string> out;
+  for (const std::string& word : words)
+  {
+    if (!Filler(word))
+      out.push_back(word);
+  }
+  return out;
+}
+
+// A list's titles: each one's words (no filler) joined and apart, its numbers and its names (the
+// regions and revisions), and in how many titles each word is.
+struct Title
+{
+  std::string joined;
+  std::vector<std::string> words, numbers;
+  std::vector<const std::string*> names;
+};
+struct Titles
+{
+  std::vector<Title> titles;
+  std::unordered_map<std::string, int> uses;
+};
+
+Titles ReadTitles(const std::vector<std::string>& names)
+{
+  Titles list;
+  std::unordered_map<std::string, size_t> at;
+  for (const std::string& name : names)
+  {
+    const std::vector<std::string> all = Words(TitlePart(name));
+    std::vector<std::string> words = ContentWords(all);
+    std::string joined = Joined(words);
+    if (joined.empty())
+      continue;
+    const auto it = at.find(joined);
+    if (it != at.end())
+    {
+      list.titles[it->second].names.push_back(&name);
+      continue;
+    }
+    at.emplace(joined, list.titles.size());
+    for (const std::string& word : std::set<std::string>(words.begin(), words.end()))
+      list.uses[word]++;
+    list.titles.push_back({std::move(joined), std::move(words), Numbers(all), {&name}});
+  }
+  return list;
+}
+
+// A word that names a game: 4 letters or more (a number: 3 digits or more, "2048"), in fewer than
+// 2% of the list's titles ("super", "mario", "world" are in more).
+bool Significant(const Titles& list, const std::string& word)
+{
+  if (word.size() < (IsNumber(word) ? 3u : 4u))
+    return false;
+  const auto it = list.uses.find(word);
+  return it == list.uses.end() || static_cast<size_t>(it->second) * 50 < list.titles.size();
+}
+
+// The title most like a name, and its best picture for the game (nullptr: none close enough).
+const std::string* Nearest(const Titles& list, const std::string& stem, const Library::Game& game, bool* sure)
+{
+  *sure = false;
+  const std::vector<std::string> all = Words(TitlePart(stem));
+  const std::vector<std::string> wanted = ContentWords(all);
+  if (wanted.empty())
+    return nullptr;
+  const std::string joined = Joined(wanted);
+  const std::vector<std::string> numbers = Numbers(all);
+  const Title* best = nullptr;
+  double best_score = 0.0;
+  for (const Title& title : list.titles)
+  {
+    // Another game of the series: a number it has and the name lacks, or the name's sequel number
+    // (one digit) it lacks. A longer number it lacks ("Olympic Summer Games 96") costs points.
+    bool other_game = false;
+    double number_penalty = 0.0;
+    for (const std::string& number : title.numbers)
+      other_game = other_game || std::find(numbers.begin(), numbers.end(), number) == numbers.end();
+    for (const std::string& number : numbers)
+    {
+      if (std::find(title.numbers.begin(), title.numbers.end(), number) == title.numbers.end())
+      {
+        if (number.size() == 1)
+          other_game = true;
+        else
+          number_penalty += 20.0;
+      }
+    }
+    if (other_game)
+      continue;
+    double shared = 0.0;
+    bool significant = false;
+    for (const std::string& word : wanted)
+    {
+      if (std::find(title.words.begin(), title.words.end(), word) != title.words.end())
+      {
+        shared += 1.0;
+        significant = significant || Significant(list, word);
+      }
+    }
+    const double close = Similarity(joined, title.joined);
+    const std::string& shorter = title.joined.size() <= joined.size() ? title.joined : joined;
+    const std::string& longer = title.joined.size() <= joined.size() ? joined : title.joined;
+    const bool inside = shorter.size() >= 6 && longer.find(shorter) != std::string::npos;
+    // A word that names a game in common, or one name inside the other, or spelt alike.
+    if (!significant && !(inside && shorter.size() >= 8) && close < 0.8)
+      continue;
+    const double coverage = shared / static_cast<double>(wanted.size());
+    const double precision = shared / static_cast<double>(title.words.size());
+    const double score = coverage * 60.0 + precision * 25.0 + close * 60.0 + (inside ? 15.0 : 0.0) - number_penalty;
+    if (score > best_score)
+    {
+      best_score = score;
+      best = &title;
+      // Sure: the same numbers and nearly the same spelling. Shared words alone are often another
+      // game ("Final Fight 3" -> "Final Fantasy III"): those are guesses, shown first by Find Cover.
+      *sure = number_penalty == 0.0 && close >= 0.9;
+    }
+  }
+  return best ? Pick(best->names, game) : nullptr;
+}
 }  // namespace
+
+// A list made ready for Closest(): Download()'s index and the titles.
+struct Prepared
+{
+  explicit Prepared(const std::vector<std::string>& names) : index(names), titles(ReadTitles(names)) {}
+  NameIndex index;
+  Titles titles;
+};
+
+std::shared_ptr<const Prepared> Prepare(const std::vector<std::string>& names)
+{
+  return std::make_shared<const Prepared>(names);
+}
+
+const std::string* Closest(const Prepared& list, const std::string& name, const Library::Game& game, bool* sure)
+{
+  std::string how;
+  if (const std::string* found = Pick(list.index.Find(name, &how), game))
+  {
+    *sure = true;
+    return found;
+  }
+  return Nearest(list.titles, name, game, sure);
+}
 
 Result Download(const std::vector<Library::Game>& games, const std::string& covers_dir,
                 const std::string& ca_file, const Progress& progress, const Saved& saved,
-                const std::atomic<bool>& pause, const std::atomic<bool>& cancel)
+                const std::atomic<bool>& pause, const std::atomic<bool>& cancel, bool closest)
 {
   Result result;
   MakeDirs(covers_dir);
-  // The games without a picture (a cover put there by hand counts: <file name> or <title>.png).
+  // The games without a picture (a cover put there by hand counts: <file name> or <title>.png, in
+  // the console's covers folder).
   std::vector<const Library::Game*> wanted;
   for (const Library::Game& game : games)
   {
-    if (FileExists(covers_dir + "/" + game.id + ".png") || FileExists(covers_dir + "/" + game.title + ".png"))
+    const std::string prefix = GetSystem(game.system).prefix;
+    if (FileExists(covers_dir + "/" + game.key + ".png") ||
+        FileExists(covers_dir + "/" + prefix + game.title + ".png"))
       result.already++;
     else
       wanted.push_back(&game);
@@ -579,16 +785,11 @@ Result Download(const std::vector<Library::Game>& games, const std::string& cove
     return result;
   }
   Net::Session session;
-  std::vector<std::string> names[KIND_COUNT];
-  std::unique_ptr<NameIndex> indexes[KIND_COUNT];
-  names[0] = Names(KINDS[0], covers_dir, ca_file, &result.error, &session);
-  if (names[0].empty())
-  {
-    result.failed = total;
-    Log("no list: " + result.error);
-    return result;
-  }
-  indexes[0] = std::make_unique<NameIndex>(names[0]);
+  // Each console's lists, read the first time one of its games needs them.
+  std::vector<std::string> names[SYSTEM_COUNT][KIND_COUNT];
+  std::unique_ptr<NameIndex> indexes[SYSTEM_COUNT][KIND_COUNT];
+  std::unique_ptr<Titles> titles[SYSTEM_COUNT][KIND_COUNT];  // closest: made the first time needed
+  bool listed[SYSTEM_COUNT][KIND_COUNT] = {};
   bool github = true;  // GitHub as the second choice, until its connection fails
   for (int i = 0; i < total; i++)
   {
@@ -597,43 +798,92 @@ Result Download(const std::vector<Library::Game>& games, const std::string& cove
     if (cancel)
       break;
     const Library::Game& game = *wanted[i];
+    const System& system = GetSystem(game.system);
+    const int s = static_cast<int>(game.system);
     if (progress)
       progress(i, total, game.title);
-    // The box, else the title screen (its list read the first time a game needs one).
+    // The box, else the title screen.
     const std::string* name = nullptr;
     const Kind* kind = nullptr;
     std::string how;
     for (int k = 0; k < KIND_COUNT && !name; k++)
     {
-      if (!indexes[k])
+      if (!listed[s][k])
       {
+        listed[s][k] = true;
         std::string error;
-        names[k] = Names(KINDS[k], covers_dir, ca_file, &error, &session);
-        indexes[k] = std::make_unique<NameIndex>(names[k]);
+        MakeDirs(covers_dir + "/" + system.prefix);  // the list is kept there
+        names[s][k] = Names(KINDS[k], system, covers_dir, ca_file, &error, &session);
+        indexes[s][k] = std::make_unique<NameIndex>(names[s][k]);
+        if (names[s][k].empty())
+        {
+          Log(std::string(system.tab) + " " + KINDS[k].label + ": no list: " + error);
+          if (k == 0 && result.error.empty())
+            result.error = error;
+        }
       }
-      name = Pick(indexes[k]->Find(game.id, &how), game);
+      name = Pick(indexes[s][k]->Find(game.custom_title ? game.title : game.id, &how), game);
+      if (!name && game.custom_title)
+        name = Pick(indexes[s][k]->Find(game.id, &how), game);
       kind = &KINDS[k];
     }
+    // Closest for All: the closest box art, else title screen, when it is sure of it (the doubtful
+    // ones stay for Find Cover, which shows them first).
+    std::string guesses;
+    for (int k = 0; closest && !name && k < KIND_COUNT; k++)
+    {
+      if (names[s][k].empty())
+        continue;
+      if (!titles[s][k])
+        titles[s][k] = std::make_unique<Titles>(ReadTitles(names[s][k]));
+      for (const std::string& stem : {game.custom_title ? game.title : game.id, game.id})
+      {
+        bool sure = false;
+        const std::string* guess = Nearest(*titles[s][k], stem, game, &sure);
+        if (guess && sure)
+        {
+          name = guess;
+          kind = &KINDS[k];
+          how = "closest";
+          break;
+        }
+        if (guess)
+          guesses += (guesses.empty() ? "" : ", ") + *guess;
+        if (!game.custom_title)
+          break;  // the same name twice
+      }
+    }
+    if (!name && !guesses.empty())
+      Log(game.key + ": maybe " + guesses + ": left for Find Cover");
     if (!name)
     {
-      result.not_found++;
-      Log(game.id + ": no picture found");
+      if (names[s][0].empty())
+        result.failed++;  // the console's list couldn't be read
+      else
+        result.not_found++;
+      Log(game.key + ": no picture found");
       continue;
     }
     if (kind != &KINDS[0] || how != "same name")
-      Log(game.id + " -> " + *name + " (" + kind->label + ", " + how + ")");
-    const std::string target = covers_dir + "/" + game.id + ".png";
+      Log(game.key + " -> " + *name + " (" + kind->label + ", " + how + ")");
+    MakeDirs(covers_dir + "/" + system.prefix);
+    const std::string target = covers_dir + "/" + game.key + ".png";
+    if (FileExists(target) || FileExists(covers_dir + "/" + system.prefix + game.title + ".png"))
+    {
+      result.already++;  // chosen with Find Cover meanwhile: kept
+      continue;
+    }
     auto is_png = [](const std::string& data) { return data.size() > 8 && data.compare(1, 3, "PNG") == 0; };
     Net::Request request;
-    request.url = FolderUrl(*kind) + Net::UrlEncode(*name) + ".png";
+    request.url = FolderUrl(*kind, system) + Net::UrlEncode(*name) + ".png";
     std::string picture, error;
     long status = Net::GetText(request, &picture, 8 << 20, &error, &session);
     if ((status != 200 || !is_png(picture)) && github)
     {
-      Log(game.id + ": thumbnails.libretro.com: " + (error.empty() ? "HTTP " + std::to_string(status) : error));
+      Log(game.key + ": thumbnails.libretro.com: " + (error.empty() ? "HTTP " + std::to_string(status) : error));
       request.ca_file = ca_file;
-      request.url = std::string("https://raw.githubusercontent.com/") + REPO + "/master/" + kind->folder + "/" +
-                    Net::UrlEncode(*name) + ".png";
+      request.url = std::string("https://raw.githubusercontent.com/") + system.thumbnails_repo + "/master/" +
+                    kind->folder + "/" + Net::UrlEncode(*name) + ".png";
       error.clear();
       status = Net::GetText(request, &picture, 8 << 20, &error, &session);
       if (status == 0)
@@ -644,25 +894,35 @@ Result Download(const std::vector<Library::Game>& games, const std::string& cove
       result.failed++;
       if (result.error.empty())
         result.error = error.empty() ? "HTTP " + std::to_string(status) : error;
-      Log(game.id + ": " + (error.empty() ? "HTTP " + std::to_string(status) : error));
+      Log(game.key + ": " + (error.empty() ? "HTTP " + std::to_string(status) : error));
       continue;
     }
     // Written as it came, then made smaller (when it is bigger than the menu shows it).
-    const std::string temp = target + ".download";
-    bool written = WriteTextFile(temp, picture);
-    if (written)
+    // Written under the covers' lock, unless one was chosen with Find Cover meanwhile (it wins).
+    bool written = false;
     {
-      ImageRGBA image;
-      if (LoadPng(temp, &image, COVER_W, COVER_H) && SavePng(target, image))
-        std::remove(temp.c_str());
-      else
-        written = std::rename(temp.c_str(), target.c_str()) == 0;
+      std::lock_guard lock(g_cover_write);
+      if (FileExists(target) || FileExists(covers_dir + "/" + system.prefix + game.title + ".png"))
+      {
+        result.already++;  // chosen with Find Cover while this one downloaded: kept
+        continue;
+      }
+      const std::string temp = target + ".auto";  // Find Cover's DownloadPicture uses ".download"
+      written = WriteTextFile(temp, picture);
+      if (written)
+      {
+        ImageRGBA image;
+        if (LoadPng(temp, &image, COVER_W, COVER_H) && SaveCover(image, target))
+          std::remove(temp.c_str());
+        else
+          written = std::rename(temp.c_str(), target.c_str()) == 0;
+      }
     }
     if (written)
     {
       result.downloaded++;
       if (saved)
-        saved(game.id, target);
+        saved(game.key, target);
     }
     else
     {
@@ -675,5 +935,112 @@ Result Download(const std::vector<Library::Game>& games, const std::string& cove
       " already there, " + std::to_string(result.not_found) + " not found, " +
       std::to_string(result.failed) + " failed");
   return result;
+}
+
+std::vector<std::string> PictureNames(SystemId system, bool title_screens, const std::string& covers_dir,
+                                      const std::string& ca_file, std::string* error)
+{
+  Net::Session session;
+  MakeDirs(covers_dir + "/" + GetSystem(system).prefix);
+  return Names(KINDS[title_screens ? 1 : 0], GetSystem(system), covers_dir, ca_file, error, &session);
+}
+
+std::vector<std::string> Search(const std::vector<std::string>& names, const std::string& text, size_t max)
+{
+  const std::vector<std::string> wanted = Words(TitlePart(text));
+  if (wanted.empty())
+    return {};
+  const std::string wanted_joined = Joined(wanted);
+  struct Hit
+  {
+    double score;
+    const std::string* name;
+  };
+  std::vector<Hit> hits;
+  for (const std::string& name : names)
+  {
+    const std::vector<std::string> words = Words(TitlePart(name));
+    if (words.empty())
+      continue;
+    // The words typed that the name has (a word begun counts half: "zeld" in "zelda").
+    double found = 0.0;
+    for (const std::string& word : wanted)
+    {
+      if (std::find(words.begin(), words.end(), word) != words.end())
+        found += 1.0;
+      else if (word.size() >= 3 && std::any_of(words.begin(), words.end(), [&](const std::string& w) {
+                 return w.compare(0, word.size(), word) == 0;
+               }))
+        found += 0.5;
+    }
+    const std::string joined = Joined(words);
+    const double close = Similarity(wanted_joined, joined);
+    if (found == 0.0 && close < 0.6)
+      continue;
+    double score = found / static_cast<double>(wanted.size()) * 100.0 + close * 40.0;
+    score -= std::abs(static_cast<double>(words.size()) - found) * 2.0;  // the plain name first
+    if (name.find("(USA") != std::string::npos)
+      score += 2.0;
+    if (name.find('[') != std::string::npos || name.find("(Beta") != std::string::npos ||
+        name.find("(Proto") != std::string::npos)
+      score -= 6.0;
+    hits.push_back({score, &name});
+  }
+  std::stable_sort(hits.begin(), hits.end(), [](const Hit& a, const Hit& b) { return a.score > b.score; });
+  std::vector<std::string> best;
+  for (const Hit& hit : hits)
+  {
+    if (best.size() >= max)
+      break;
+    best.push_back(*hit.name);
+  }
+  return best;
+}
+
+bool DownloadPicture(SystemId system, bool title_screen, const std::string& name, const std::string& path,
+                     uint32_t max_w, uint32_t max_h, const std::string& ca_file, std::string* error)
+{
+  const System& console = GetSystem(system);
+  const Kind& kind = KINDS[title_screen ? 1 : 0];
+  auto is_png = [](const std::string& data) { return data.size() > 8 && data.compare(1, 3, "PNG") == 0; };
+  Net::Session session;
+  Net::Request request;
+  request.url = FolderUrl(kind, console) + Net::UrlEncode(name) + ".png";
+  std::string picture;
+  error->clear();
+  long status = Net::GetText(request, &picture, 8 << 20, error, &session);
+  if (status != 200 || !is_png(picture))
+  {
+    request.ca_file = ca_file;
+    request.url = std::string("https://raw.githubusercontent.com/") + console.thumbnails_repo + "/master/" +
+                  kind.folder + "/" + Net::UrlEncode(name) + ".png";
+    error->clear();
+    status = Net::GetText(request, &picture, 8 << 20, error, &session);
+  }
+  if (status != 200 || !is_png(picture))
+  {
+    if (error->empty())
+      *error = "HTTP " + std::to_string(status);
+    Log(name + ": " + *error);
+    return false;
+  }
+  std::lock_guard lock(g_cover_write);  // one cover writer at a time (Download's thread too)
+  const std::string temp = path + ".download";
+  if (!WriteTextFile(temp, picture))
+  {
+    *error = "the picture couldn't be written";
+    return false;
+  }
+  ImageRGBA image;
+  if (LoadPng(temp, &image, max_w, max_h) && SaveCover(image, path))
+  {
+    std::remove(temp.c_str());
+    return true;
+  }
+  std::remove(path.c_str());
+  if (std::rename(temp.c_str(), path.c_str()) == 0)
+    return true;
+  *error = "the picture couldn't be written";
+  return false;
 }
 }  // namespace CoverDownload

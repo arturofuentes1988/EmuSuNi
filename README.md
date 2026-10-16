@@ -3,15 +3,15 @@
 </p>
 
 <p align="center">
-  <b>A Super Nintendo emulator for jailbroken PS4 consoles.</b><br>
-  Snes9x 1.63 inside a console-style launcher: automatic box art, HD upscaling up to 1080p,
-  favorites, search, and settings for every game.
+  <b>Super Nintendo, NES and Nintendo 64 for jailbroken PS4 consoles.</b><br>
+  Three consoles in a console-style launcher: automatic box art, AI-enhanced HD picture, quality
+  levels, bezels, favorites, search, and settings for every game.
 </p>
 
 <p align="center">
   <a href="https://github.com/arturofuentes1988/EmuSuNi/releases/latest"><img alt="Download" src="https://img.shields.io/github/v/release/arturofuentes1988/EmuSuNi?label=download&style=for-the-badge&color=7b4dff"></a>
   <img alt="PS4 with GoldHEN" src="https://img.shields.io/badge/PS4-GoldHEN-003791?style=for-the-badge&logo=playstation&logoColor=white">
-  <img alt="Snes9x 1.63" src="https://img.shields.io/badge/core-Snes9x%201.63-e5484d?style=for-the-badge">
+  <img alt="Snes9x, FCEUmm, Mupen64Plus" src="https://img.shields.io/badge/cores-Snes9x%20%C2%B7%20FCEUmm%20%C2%B7%20Mupen64Plus-e5484d?style=for-the-badge">
   <a href="LICENSE"><img alt="License GPL-2.0+" src="https://img.shields.io/badge/license-GPL--2.0%2B-3db46d?style=for-the-badge"></a>
 </p>
 
@@ -108,7 +108,10 @@
 ## Requirements
 
 - A PS4 with **[GoldHEN](https://github.com/GoldHEN/GoldHEN)** (any model).
-- Your own Super Nintendo games: `.sfc`, `.smc`, `.swc`, `.fig`, `.bs` or `.zip`.
+- Your own games:
+  - Super Nintendo: `.sfc`, `.smc`, `.swc`, `.fig`, `.bs` or `.zip`.
+  - NES: `.nes`, `.fds`, `.unf` or `.zip`.
+  - Nintendo 64: `.z64`, `.n64` or `.v64` (on the USB drive, folder `Roms/n64`; it can be changed).
 - Internet on the PS4 for the box art (optional).
 
 ## Installation
@@ -201,8 +204,8 @@ DolphinPS4's PS4 runtime (libc++ 21 and Mesa's RADV Vulkan driver).
 sudo -i bash /path/to/EmuSuNi/scripts/setup.sh
 
 # then
-EMUSUNI_VERSION=00.17 bash scripts/build.sh   # builds ~/emusuni-build/emusuni_eboot/eboot.bin
-bash scripts/package.sh 00.17                 # makes the .pkg in ~/emusuni-build/out
+EMUSUNI_VERSION=00.18 bash scripts/build.sh   # builds ~/emusuni-build/emusuni_eboot/eboot.bin
+bash scripts/package.sh 00.18                 # makes the .pkg in ~/emusuni-build/out
 ```
 
 `scripts/make-assets.py` regenerates the icon, the start-up pictures, the logo and the 8-bit
@@ -227,7 +230,12 @@ sounds (Python + Pillow); `scripts/make-lang.py` the language files.
 
 ## Credits
 
-- **[Snes9x](https://github.com/snes9xgit/snes9x)** — the emulator, by the Snes9x team.
+- **[Snes9x](https://github.com/snes9xgit/snes9x)** (Super Nintendo),
+  **[FCEUmm](https://github.com/libretro/libretro-fceumm)** (NES) and
+  **[Mupen64Plus-Next](https://github.com/libretro/mupen64plus-libretro-nx)** with ParaLLEl-RDP and
+  ParaLLEl-RSP (Nintendo 64) — the emulators.
+- **[Anime4K](https://github.com/bloc97/Anime4K)** and **AMD FidelityFX Super Resolution** — the
+  AI-enhanced HD picture and the smooth upscaling.
 - **[DolphinPS4](https://github.com/iHaiDeeZ/DolphinPS4)** — the launcher's design, the PS4
   runtime, the Mesa port and the build setup that EmuSuNi grew from.
 - **[Dear ImGui](https://github.com/ocornut/imgui)**, **[Mesa](https://mesa3d.org)**,
@@ -244,5 +252,5 @@ under its own license, which allows free, **non-commercial** use only; the EmuSu
 free builds. Other components keep their licenses ([THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)).
 
 **No games are included.** Use games you own. EmuSuNi is not affiliated with or endorsed by
-Nintendo or Sony. *Super Nintendo*, *Super Famicom* and *SNES* are trademarks of Nintendo;
+Nintendo or Sony. *Super Nintendo*, *Super Famicom*, *SNES*, *NES* and *Nintendo 64* are trademarks of Nintendo;
 *PlayStation* and *PS4* are trademarks of Sony Interactive Entertainment.

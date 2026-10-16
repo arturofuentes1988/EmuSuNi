@@ -14,6 +14,10 @@
 
 #include "Log.h"
 
+#ifdef __PS4__
+#include <orbis/libkernel.h>
+#endif
+
 // Snes9x's filters (filter/xbrz.cpp and filter/hq2x.cpp, built with the core).
 #include "filter/hq2x.h"
 #include "filter/xbrz.h"
@@ -56,6 +60,16 @@ uint16_t To16(uint32_t p)
 
 void Worker(int slice, unsigned seen)
 {
+#ifdef __PS4__
+  // As high as the emulation thread that waits for the slices (480), whatever a thread made by it
+  // inherits (what it did inherit is logged once: the PS4's rule for new threads).
+  int inherited = 0;
+  scePthreadGetprio(scePthreadSelf(), &inherited);
+  const int set = scePthreadSetprio(scePthreadSelf(), 480);
+  static std::atomic<bool> logged{false};
+  if (!logged.exchange(true))
+    LogF("upscaler: worker thread priority %d -> 480 (%#x)", inherited, static_cast<unsigned>(set));
+#endif
   for (;;)
   {
     const std::function<void(int)>* job;

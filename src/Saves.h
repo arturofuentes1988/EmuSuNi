@@ -1,9 +1,9 @@
 // EmuSuNi - Super Nintendo for PS4. GPL-2.0-or-later (see LICENSE).
 
-// Saved data: each game's battery save (the cartridge's SRAM, data_dir/saves/<id>.srm) and save
-// states (data_dir/states/<id>.state<N>, with a picture <id>.state<N>.png). Slot 0 is the state
-// "Resume Where You Left Off" keeps. The menu's Saved Data tab lists them (Dolphin for PS4 has
-// Memory Cards there).
+// Saved data: each game's battery save (the cartridge's SRAM, data_dir/saves/<key>.srm) and save
+// states (data_dir/states/<key>.state<N>, with a picture <key>.state<N>.png); the key of another
+// console's game puts them in its subfolder (saves/nes/...). Slot 0 is the state "Resume Where You
+// Left Off" keeps. The menu's Saved Data tab lists them (Dolphin for PS4 has Memory Cards there).
 
 #pragma once
 
@@ -25,7 +25,7 @@ uint64_t Size(const std::string& path);
 
 struct GameSaves
 {
-  std::string id;
+  std::string id;  // the game's key
   int64_t sram_time = 0;
   uint64_t sram_size = 0;
   std::vector<int> slots;  // slots with a state (0 = resume)

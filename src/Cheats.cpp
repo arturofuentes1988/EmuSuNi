@@ -88,18 +88,21 @@ void List::Save() const
     file << "cheat" << i << "_enable = " << (m_entries[i].enabled ? "true" : "false") << "\n\n";
   }
   if (!m_entries.empty())
+  {
+    MakeDirs(m_path.substr(0, m_path.rfind('/')));
     WriteTextFile(m_path, file.str());
+  }
 }
 
-void List::ApplyToCore() const
+void List::ApplyToCore(const CoreApi& core) const
 {
-  retro_cheat_reset();
+  core.cheat_reset();
   unsigned index = 0;
   for (const Entry& entry : m_entries)
   {
     // The core copies the code into a 256-byte buffer.
     if (entry.enabled)
-      retro_cheat_set(index++, true, entry.code.substr(0, 250).c_str());
+      core.cheat_set(index++, true, entry.code.substr(0, 250).c_str());
   }
 }
 }  // namespace Cheats

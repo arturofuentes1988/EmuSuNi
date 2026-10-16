@@ -2,6 +2,8 @@
 
 #include "VulkanFunctions.h"
 
+#include <cstring>
+
 #include "Log.h"
 
 // Mesa's RADV entry points (scripts/build-mesa.sh of DolphinPS4, linked in whole).
@@ -71,5 +73,34 @@ PFN_vkVoidFunction Lookup(VkInstance instance, VkDevice device, const char* name
   if (!function)
     function = vk_icdGetInstanceProcAddr(instance, name);
   return function;
+}
+
+namespace
+{
+// A loader's vkEnumerateInstanceVersion, should RADV's ICD entry point not offer it.
+VKAPI_ATTR VkResult VKAPI_CALL EnumerateInstanceVersion(uint32_t* version)
+{
+  *version = VK_API_VERSION_1_1;
+  return VK_SUCCESS;
+}
+}  // namespace
+
+VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL GetInstanceProcAddr(VkInstance instance, const char* name)
+{
+  if (std::strcmp(name, "vkGetInstanceProcAddr") == 0)
+    return reinterpret_cast<PFN_vkVoidFunction>(GetInstanceProcAddr);
+  if (std::strcmp(name, "vkGetDeviceProcAddr") == 0)
+    return reinterpret_cast<PFN_vkVoidFunction>(GetDeviceProcAddr);
+  PFN_vkVoidFunction function = vk_icdGetInstanceProcAddr(instance, name);
+  if (!function && std::strcmp(name, "vkEnumerateInstanceVersion") == 0)
+    function = reinterpret_cast<PFN_vkVoidFunction>(EnumerateInstanceVersion);
+  return function;
+}
+
+VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL GetDeviceProcAddr(VkDevice device, const char* name)
+{
+  if (std::strcmp(name, "vkGetDeviceProcAddr") == 0)
+    return reinterpret_cast<PFN_vkVoidFunction>(GetDeviceProcAddr);
+  return vk_common_GetDeviceProcAddr(device, name);
 }
 }  // namespace VulkanFunctions

@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <fstream>
 #include <iterator>
+#include <mutex>
 
 #include <sys/stat.h>
 #include <unistd.h>
@@ -16,8 +17,18 @@ extern "C" int32_t sceKernelAvailableFlexibleMemorySize(size_t* size);
 
 void LogLine(const std::string& text)
 {
+  // One line at a time: stderr is unbuffered, so lines written by several threads at once (the
+  // N64 core's threads start together) came out mixed into one another.
+  static std::mutex mutex;
+  std::lock_guard lock(mutex);
   fprintf(stderr, "%s\n", text.c_str());
   ps4_boot_trace(text.c_str());
+}
+
+// For C code (port/ps4_n64.c).
+extern "C" void emusuni_log_line(const char* text)
+{
+  LogLine(text);
 }
 
 void LogF(const char* format, ...)

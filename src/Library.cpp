@@ -16,6 +16,8 @@ namespace Library
 {
 namespace
 {
+constexpr long MAX_ROM = 96L * 1024 * 1024;  // the biggest N64 cartridges are 64 MiB
+
 std::string Lower(std::string text)
 {
   std::transform(text.begin(), text.end(), text.begin(),
@@ -37,7 +39,35 @@ bool HasExtension(const std::string& name, std::initializer_list<const char*> ex
 
 bool IsRomFile(const std::string& name)
 {
-  return HasExtension(name, {".sfc", ".smc", ".swc", ".fig", ".bs"});
+  return SystemOfFile(name) != nullptr;
+}
+
+// The console of the first ROM inside a .zip (nullptr: none).
+const System* SystemOfZip(const std::string& path)
+{
+  unzFile zip = unzOpen(path.c_str());
+  if (!zip)
+    return nullptr;
+  const System* found = nullptr;
+  for (int result = unzGoToFirstFile(zip); result == UNZ_OK && !found; result = unzGoToNextFile(zip))
+  {
+    char name[512];
+    unz_file_info info;
+    if (unzGetCurrentFileInfo(zip, &info, name, sizeof(name), nullptr, 0, nullptr, 0) == UNZ_OK)
+      found = SystemOfFile(name);
+  }
+  unzClose(zip);
+  return found;
+}
+
+// Is the file one of the console's games (a ROM, or a .zip with one inside; without open_zips,
+// any .zip)?
+bool IsGameOf(const std::filesystem::path& path, const System& system, bool open_zips = true)
+{
+  const std::string name = path.filename().string();
+  if (HasExtension(name, {".zip"}))
+    return !open_zips || SystemOfZip(path.string()) == &system;
+  return SystemOfFile(name) == &system;
 }
 
 const std::map<std::string, std::string>& Regions()
@@ -47,7 +77,8 @@ const std::map<std::string, std::string>& Regions()
       {"europe", "Europe"},  {"j", "Japan"},         {"japan", "Japan"},
       {"ue", "USA, Europe"}, {"usa, europe", "USA, Europe"},
       {"ju", "Japan, USA"},  {"japan, usa", "Japan, USA"},
-      {"jue", "World"},      {"world", "World"},     {"f", "France"},
+      {"jue", "World"},      {"world", "World"},     {"w", "World"},
+      {"f", "France"},
       {"france", "France"},  {"g", "Germany"},       {"germany", "Germany"},
       {"s", "Spain"},        {"spain", "Spain"},     {"i", "Italy"},
       {"italy", "Italy"},    {"b", "Brazil"},        {"brazil", "Brazil"},
@@ -59,7 +90,8 @@ const std::map<std::string, std::string>& Regions()
   return regions;
 }
 
-void ScanFolder(const std::filesystem::path& folder, int depth, std::vector<Game>* games)
+void ScanFolder(const std::filesystem::path& folder, int depth, const System& system, bool open_zips,
+                std::vector<Game>* games)
 {
   std::error_code ec;
   for (const auto& entry : std::filesystem::directory_iterator(folder, ec))
@@ -74,14 +106,16 @@ void ScanFolder(const std::filesystem::path& folder, int depth, std::vector<Game
     if (entry.is_directory(type_error))
     {
       if (depth < 4)
-        ScanFolder(entry.path(), depth + 1, games);
+        ScanFolder(entry.path(), depth + 1, system, open_zips, games);
       continue;
     }
-    if (!IsRomName(name))
+    if (!IsGameOf(entry.path(), system, open_zips))
       continue;
     Game game;
     game.path = entry.path().string();
     game.id = entry.path().stem().string();
+    game.system = system.id;
+    game.key = system.prefix + game.id;
     std::error_code size_error;
     game.size = entry.file_size(size_error);
     ParseName(game.id, &game.title, &game.region, &game.tags);
@@ -152,10 +186,10 @@ void ParseName(const std::string& stem, std::string* title, std::string* region,
   }
 }
 
-std::vector<Game> Scan(const std::string& folder)
+std::vector<Game> Scan(const std::string& folder, SystemId system, bool open_zips)
 {
   std::vector<Game> games;
-  ScanFolder(folder, 0, &games);
+  ScanFolder(folder, 0, GetSystem(system), open_zips, &games);
   std::sort(games.begin(), games.end(), [](const Game& a, const Game& b) {
     const std::string la = Lower(a.title), lb = Lower(b.title);
     return la != lb ? la < lb : a.id < b.id;
@@ -163,14 +197,14 @@ std::vector<Game> Scan(const std::string& folder)
   return games;
 }
 
-int CountGames(const std::string& folder)
+int CountGames(const std::string& folder, SystemId system)
 {
   int count = 0;
   std::error_code ec;
   for (const auto& entry : std::filesystem::directory_iterator(folder, ec))
   {
     std::error_code type_error;
-    if (!entry.is_directory(type_error) && IsRomName(entry.path().filename().string()))
+    if (!entry.is_directory(type_error) && IsGameOf(entry.path(), GetSystem(system)))
       count++;
   }
   return count;
@@ -190,10 +224,10 @@ bool ReadRom(const std::string& path, std::vector<uint8_t>* data, std::string* e
     fseek(file, 0, SEEK_END);
     const long size = ftell(file);
     fseek(file, 0, SEEK_SET);
-    if (size <= 0 || size > 16 * 1024 * 1024)
+    if (size <= 0 || size > MAX_ROM)
     {
       fclose(file);
-      *error = "not a Super Nintendo ROM (size)";
+      *error = "not a game (its size)";
       return false;
     }
     data->resize(static_cast<size_t>(size));
@@ -217,7 +251,7 @@ bool ReadRom(const std::string& path, std::vector<uint8_t>* data, std::string* e
     if (unzGetCurrentFileInfo(zip, &info, name, sizeof(name), nullptr, 0, nullptr, 0) != UNZ_OK)
       continue;
     if (!IsRomFile(name) || info.uncompressed_size == 0 ||
-        info.uncompressed_size > 16 * 1024 * 1024)
+        info.uncompressed_size > MAX_ROM)
     {
       continue;
     }
@@ -231,7 +265,7 @@ bool ReadRom(const std::string& path, std::vector<uint8_t>* data, std::string* e
   }
   unzClose(zip);
   if (!found)
-    *error = "no Super Nintendo ROM in the .zip";
+    *error = "no game in the .zip";
   return found;
 }
 }  // namespace Library

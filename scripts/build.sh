@@ -2,22 +2,41 @@
 # Builds EmuSuNi's eboot.bin in WSL (Ubuntu): clang 21, the PacBrew OpenOrbis toolchain in
 # /opt/pacbrew/ps4/openorbis, libc++ 21 and Mesa's RADV built by DolphinPS4's scripts
 # (toolchain/build-libcxx.sh, toolchain/build-runtime.sh, scripts/build-mesa.sh) in
-# ~/dolphinps4-build, Snes9x in /root/src/snes9x and Dear ImGui 1.92.2b in /root/src/imgui.
+# ~/dolphinps4-build, Snes9x in /root/src/snes9x, FCEUmm in /root/src/fceumm and Dear ImGui 1.92.2b
+# in /root/src/imgui.
 # Vulkan (RADV on GNM) runs under the plain homebrew identity (program authority ID
 # 0x3800000000000035, plain param.sfo: 4.5 GiB of direct memory), as DolphinPS4 packages it; the
 # system identity (0x3100000000000002, RetroArch's) is only for Sony's OpenGL (Piglet).
-#   build.sh [setup]   (setup: configure from scratch)
+# The Nintendo 64's core, Mupen64Plus-Next, is built first by scripts/build-n64-core.sh (in its
+# own source tree: again only what changed) and linked in.
+#   build.sh [setup] [no-n64]   (setup: configure from scratch; no-n64: without the Nintendo 64)
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SRC="$(cd "$HERE/.." && pwd)"
+SETUP=0
+N64=ON
+for arg in "$@"; do
+    case "$arg" in
+        setup) SETUP=1 ;;
+        no-n64) N64=OFF ;;
+    esac
+done
 BUILD="${EMUSUNI_BUILD:-$HOME/emusuni-build}"
+if [ "$N64" = ON ]; then
+    bash "$HERE/build-n64-core.sh" "$BUILD/n64"
+    EXTRA="-DEMUSUNI_N64=ON -DN64_CORE_OBJECT=$BUILD/n64/n64_core.o"
+else
+    EXTRA="-DEMUSUNI_N64=OFF"
+fi
 source "$HERE/ps4-env.sh"
-if [ "${1:-}" = setup ] || [ ! -f "$BUILD/build.ninja" ]; then
-    rm -rf "$BUILD"
+# From scratch also when the Nintendo 64 comes in or goes out.
+if [ "$SETUP" = 1 ] || [ ! -f "$BUILD/build.ninja" ] || \
+   ! grep -q "^EMUSUNI_N64:BOOL=$N64\$" "$BUILD/CMakeCache.txt"; then
+    rm -rf "$BUILD/CMakeFiles" "$BUILD/CMakeCache.txt" "$BUILD/build.ninja"
     ps4_cmake -S "$SRC" -B "$BUILD" -G Ninja \
         -DCMAKE_TOOLCHAIN_FILE="$SRC/toolchain/ps4-love-modern.cmake" \
         -DEMUSUNI_VERSION="${EMUSUNI_VERSION:-00.10}" \
-        -DPS4_PAID="${PS4_PAID:-0x3800000000000035}"
+        -DPS4_PAID="${PS4_PAID:-0x3800000000000035}" $EXTRA
 elif [ -n "${EMUSUNI_VERSION:-}" ] && \
      ! grep -q "^EMUSUNI_VERSION:STRING=${EMUSUNI_VERSION}\$" "$BUILD/CMakeCache.txt"; then
     # A new version number only: configure again, without building everything again.

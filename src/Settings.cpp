@@ -16,15 +16,32 @@ namespace Settings
 namespace
 {
 // The categories and their order follow Dolphin for PS4 (Video, Graphics, Performance, System);
-// Emulation holds what only the Super Nintendo has.
+// Emulation holds the consoles' own options. A setting for one console only says which (systems).
 const std::vector<Setting> SETTINGS = {
     // Video
+    {"quality", "Quality", "Video",
+     {{"custom", "Custom Quality", "Your own choices (they match none of the three levels)."},
+      {"low", "Low (fastest)", "The fastest: the consoles' own pictures, fit to the screen; the N64 at its own size."},
+      {"medium", "Medium (balanced)", "Sharper: SNES and NES redrawn at 3x (xBRZ); the N64 at 2x."},
+      {"high", "High (sharpest)",
+       "The sharpest: SNES and NES at 6x (xBRZ), the N64 at 4x; heavy N64 games can slow down."},
+      {"ultra", "Ultra (maximum)",
+       "The best each console can do: SNES and NES redrawn by the GPU with xBRZ and an AI network "
+       "(Anime4K); the N64 at 4x with HD 2D, sharpened. Heavy N64 games can slow down."}},
+     "custom", true,
+     "Sets the picture for a level at once: resolution, upscaling (CPU and GPU), picture size, and the "
+     "N64's size, sync and 2D. Changing one of them makes it Custom."},
+    {"n64_resolution", "N64 Resolution", "Video",
+     {{"1", "Native (240p)", "The N64's own picture: the smoothest."},
+      {"2", "2x (480p)", "Twice the size: sharper 3D; heavy scenes can slow down."},
+      {"4", "4x (960p)", "Four times (about Full HD): the sharpest; heavy games can slow down."}},
+     "1", false, "The size the GPU draws N64 games at (ParaLLEl-RDP). Native is the smoothest.", FOR_N64},
     {"aspect", "Aspect Ratio", "Video",
      {{"auto", "Auto (4:3)", "As on a TV of the time: a little wider than the console's own pixels."},
       {"pixel", "Pixel Perfect (8:7)", "Square pixels, exactly as the console draws them (a little narrower)."},
       {"wide", "16:9", "Stretched to a widescreen TV (everything looks wider)."},
       {"stretch", "Stretch", "Fills the whole screen, whatever its shape."}},
-     "auto", true, "The picture's shape on the TV. 4:3 is how a Super Nintendo looked on a TV."},
+     "auto", true, "The picture's shape on the TV. 4:3 is how the consoles looked on a TV."},
     {"resolution", "Resolution", "Video",
      {{"1", "Native (224p)", "The console's own 256x224 picture, enlarged by the TV (the fastest)."},
       {"2", "2x (448p)", "Redrawn at 512x448 before it is fitted to the TV."},
@@ -34,7 +51,7 @@ const std::vector<Setting> SETTINGS = {
       {"6", "6x (1440p)", "Redrawn at 1536x1344, then made smaller for the TV (a little smoother)."}},
      "1", true,
      "Redraws the game bigger with the Upscaling Filter (Graphics) before it is fitted to the TV: "
-     "3x for 720p, 5x for 1080p. Uses CPU time: lower it if a game slows down."},
+     "3x for 720p, 5x for 1080p. Uses CPU time: lower it if a game slows down.", FOR_RETRO},
     {"scaling", "Picture Size", "Video",
      {{"fit", "Fit to Screen", "As big as the TV allows."},
       {"integer", "Integer Scale (sharpest)",
@@ -52,11 +69,41 @@ const std::vector<Setting> SETTINGS = {
       {"110", "110%", "Bigger: more of the edges are cut."},
       {"120", "120%", "Much bigger: fills a widescreen TV more, the edges cut."}},
      "off", true, "Zooms in a little to fill more of the TV (the edges are cut)."},
+    {"snes_bezel", "Bezel", "Video",
+     {{"off", "Off", "The picture alone, on black."},
+      {"console", "Super Nintendo", "Dark grey with the purple line, the D-pad and the four buttons."},
+      {"sfc", "Super Famicom", "The Japanese console's light grey and its four colours."},
+      {"purple", "Purple Stars", "Deep purple with pixel stars."},
+      {"tv", "Retro TV", "An old wooden tube TV around the picture."},
+      {"custom", "Your Own",
+       "Your own 1920x1080 PNG, see-through where the game goes: /data/EmuSuNi/bezels/snes/ with the "
+       "ROM's name (The Bezel Project's names), or bezels/snes.png for every game."}},
+     "off", true, "A frame over the sides of the TV, see-through where the game goes.", FOR_SNES},
+    {"nes_bezel", "Bezel", "Video",
+     {{"off", "Off", "The picture alone, on black."},
+      {"console", "NES", "The NES's light grey and black, with POWER and RESET."},
+      {"famicom", "Famicom", "The Famicom's cream, dark red and gold, with the controller's D-pad and buttons."},
+      {"black", "Black and Red", "Black with red lines and the controller's buttons."},
+      {"tv", "Retro TV", "An old wooden tube TV around the picture."},
+      {"custom", "Your Own",
+       "Your own 1920x1080 PNG, see-through where the game goes: /data/EmuSuNi/bezels/nes/ with the "
+       "ROM's name (The Bezel Project's names), or bezels/nes.png for every game."}},
+     "off", true, "A frame over the sides of the TV, see-through where the game goes.", FOR_NES},
+    {"n64_bezel", "Bezel", "Video",
+     {{"off", "Off", "The picture alone, on black."},
+      {"console", "Nintendo 64", "Charcoal grey with the four colours and the stick."},
+      {"colors", "Four Colours", "The four colours of the Nintendo 64's logo, as bands."},
+      {"atomic", "Atomic Purple", "See-through purple, like the Atomic Purple console."},
+      {"tv", "Retro TV", "An old wooden tube TV around the picture."},
+      {"custom", "Your Own",
+       "Your own 1920x1080 PNG, see-through where the game goes: /data/EmuSuNi/bezels/n64/ with the "
+       "ROM's name (The Bezel Project's names), or bezels/n64.png for every game."}},
+     "off", true, "A frame over the sides of the TV, see-through where the game goes.", FOR_N64},
     {"overscan", "Crop Overscan", "Video",
      {{"enabled", "On", "224 lines: the empty lines at the top and bottom are hidden."},
-      {"disabled", "Off", "All 239 lines (some games show a black stripe)."},
+      {"disabled", "Off", "Every line (some games show a black stripe or glitches at the edges)."},
       {"auto", "Auto", "Hidden when the game doesn't draw on them."}},
-     "enabled", true, "Hides the empty lines at the top and bottom (224 lines instead of 239)."},
+     "enabled", true, "Hides the lines at the top and bottom that TVs hid (224 lines are shown).", FOR_RETRO},
     {"fps_limit", "Frame Rate Limit", "Video",
      {{"auto", "Auto (game speed)", "NTSC games at 60 and PAL games at 50 frames per second."},
       {"60", "60 FPS", "Every game at 60 (PAL games run faster than on their console)."},
@@ -77,13 +124,56 @@ const std::vector<Setting> SETTINGS = {
       {"pixels", "Sharp Pixels", "Bigger square pixels: crisp and even, like the original."}},
      "xbrz", true,
      "How Resolution redraws the pixels: xBRZ and HQx round the edges for an HD look; Sharp "
-     "Pixels keeps them square. HQx goes up to 4x."},
+     "Pixels keeps them square. HQx goes up to 4x.", FOR_RETRO},
+    {"gpu_filter", "GPU Upscaler", "Graphics",
+     {{"off", "Off", "The picture as Resolution and the Upscaling Filter make it."},
+      {"pixel", "Pixel Art HD (xBRZ)",
+       "SNES and NES redrawn by the GPU at the TV's full resolution: rounded, clean edges without blur; "
+       "frees the CPU. The N64 gets Smooth HD."},
+      {"ai", "AI (xBRZ + Anime4K)",
+       "xBRZ, then a neural network (Anime4K) cleans every edge and curve: the smoothest HD look for "
+       "SNES and NES. The N64 gets Smooth HD."},
+      {"fsr", "Smooth HD (AMD FSR)",
+       "AMD FidelityFX Super Resolution: smooth upscaling with sharp edges, made for 3D (the N64 at "
+       "Native and 2x; at 4x it sharpens)."},
+      {"sharpen", "HD Sharpen (AMD RCAS)",
+       "The picture as it is, made crisper by AMD's sharpening (RCAS): for the N64 at 4x and pictures "
+       "already made bigger."}},
+     "off", true,
+     "Draws the picture with the GPU's filters at the TV's resolution. Pixel Art HD, AI and Smooth HD "
+     "start from the console's own picture: Resolution and the Upscaling Filter are left out."},
     {"filter", "Texture Filtering", "Graphics",
      {{"sharp", "Sharp (nearest)", "Every pixel crisp (at Native some pixels can look wider than others)."},
       {"smooth", "Smooth (linear)", "Soft, blended pixels."}},
      "sharp", true,
      "Sharp keeps the pixels crisp; Smooth softens them. Above Native resolution the picture is "
      "always smooth."},
+    {"n64_aa", "N64 Anti-Aliasing", "Graphics",
+     {{"on", "On (the N64's)", "Smooth 3D edges, as the N64's video chip made them."},
+      {"off", "Off", "Jagged 3D edges, a little sharper: the picture before the N64's filter."}},
+     "on", true, "The N64's own edge smoothing (its video chip). Costs almost nothing.", FOR_N64},
+    {"n64_dither_filter", "N64 Dither Filter", "Graphics",
+     {{"on", "On (the N64's)", "Smooth colours: the N64's filter hides the dots of its 16-bit colours."},
+      {"off", "Off", "The dots stay: grainy skies, fog and shadows."}},
+     "on", true, "The N64 drew its 16-bit colours with a pattern of dots; its video chip blended them away.",
+     FOR_N64},
+    {"n64_2d", "N64 2D Graphics", "Graphics",
+     {{"native", "Exact", "Text, icons and 2D backgrounds as the N64 drew them: blocky, without seams."},
+      {"hd", "Smooth (HD)",
+       "Text, icons and 2D backgrounds at the N64 Resolution: smoother; some games show thin lines "
+       "between their pieces."}},
+     "native", true, "How the HUD, text and 2D pictures are drawn above Native resolution.", FOR_N64},
+    {"n64_texture_lod", "N64 Distant Textures", "Graphics",
+     {{"sharp", "Sharp (HD)", "Far textures as sharp as the N64 Resolution allows."},
+      {"native", "As the N64",
+       "Far textures as blurry as on the N64: for the few games that swap textures with the distance."}},
+     "sharp", true, "The texture detail of far surfaces above Native resolution.", FOR_N64},
+    {"n64_fb_effects", "N64 Screen Effects", "Graphics",
+     {{"exact", "Exact", "Blurs, pause screens and photos made from the game's own picture, at the N64's size."},
+      {"smooth", "Smooth (SSAA)", "Those effects made from the sharp picture: smoother; a few games glitch."}},
+     "exact", false,
+     "Effects some games make from their own picture (pause backgrounds, motion blur), above Native "
+     "resolution.", FOR_N64},
     {"ntsc_filter", "NTSC Filter", "Graphics",
      {{"disabled", "Off", "A clean picture."},
       {"composite", "Composite", "The yellow video cable: colours bleed, soft details."},
@@ -91,7 +181,7 @@ const std::vector<Setting> SETTINGS = {
       {"rgb", "RGB", "The best cable of the time: sharp, clean colours."},
       {"rf", "RF", "The aerial cable: the blurriest, with noise."},
       {"monochrome", "Monochrome", "A black and white TV."}},
-     "disabled", true, "The look of an old TV cable (blargg's NTSC filter). Costs CPU time."},
+     "disabled", true, "The look of an old TV cable (blargg's NTSC filter). Costs CPU time.", FOR_RETRO},
     {"scanlines", "Scanlines", "Graphics",
      {{"off", "Off", "No lines."},
       {"light", "Light", "Faint lines."},
@@ -104,15 +194,15 @@ const std::vector<Setting> SETTINGS = {
       {"blur", "Blur", "The columns softened."}},
      "disabled", true,
      "Blends the hi-res mode's columns (pseudo-transparency in Kirby's Dream Land 3, Jurassic "
-     "Park)."},
+     "Park).", FOR_SNES},
     {"sprite_flicker", "Reduce Sprite Flicker", "Graphics",
      {{"disabled", "Off", "As the console: sprites flicker when too many share a line."},
-      {"enabled", "On", "Up to 128 sprites per line: less flicker (a few games glitch)."}},
-     "disabled", true, "Draws more sprites per line than the console could (less flicker)."},
+      {"enabled", "On", "More sprites per line than the console could: less flicker (a few games glitch)."}},
+     "disabled", true, "Draws more sprites per line than the console could (less flicker).", FOR_RETRO},
     {"transparency", "Transparency Effects", "Graphics",
      {{"enabled", "On", "Water, shadows and fades as on the console."},
       {"disabled", "Off", "No colour math (to find graphic glitches)."}},
-     "enabled", true, "Colour math: water, shadows, fades. Off only to diagnose glitches."},
+     "enabled", true, "Colour math: water, shadows, fades. Off only to diagnose glitches.", FOR_SNES},
     // Performance
     {"cpu_clock", "Emulated CPU Clock", "Performance",
      {{"disabled", "100%", "The console's own speed."},
@@ -121,14 +211,27 @@ const std::vector<Setting> SETTINGS = {
       {"max", "Max Overclock", "Much faster; more games glitch."}},
      "disabled", true,
      "Overclocking the console's CPU removes slowdown in busy scenes (Gradius III, Super R-Type); "
-     "a few games glitch."},
+     "a few games glitch.", FOR_RETRO},
     {"superfx_clock", "SuperFX Clock", "Performance",
      {{"100", "100%", "The chip's own speed."},
       {"150", "150%", "A faster chip: smoother 3D."},
       {"200", "200%", "Twice as fast: much smoother 3D."},
       {"300", "300%", "Three times as fast (some scenes may run too fast)."},
       {"400", "400%", "Four times as fast (some scenes may run too fast)."}},
-     "100", true, "Faster SuperFX chip: smoother Star Fox, Stunt Race FX, Yoshi's Island."},
+     "100", true, "Faster SuperFX chip: smoother Star Fox, Stunt Race FX, Yoshi's Island.", FOR_SNES},
+    {"n64_sync", "N64 Graphics Sync", "Performance",
+     {{"fast", "Fast (asynchronous)", "The GPU draws while the N64 runs: much smoother on the PS4."},
+      {"accurate", "Accurate (synchronous)",
+       "The N64 waits for each picture: slower. For the few games whose effects read the screen back "
+       "(camera photos, some pause screens)."}},
+     "fast", false, "Whether the N64 waits for the GPU's pictures (ParaLLEl-RDP's Synchronous RDP).", FOR_N64},
+    {"n64_cores", "N64 CPU Cores", "Performance",
+     {{"fixed", "Fixed", "Each N64 thread on a PS4 core of its own: the emulation on core 2, its graphics "
+       "commands on core 3."},
+      {"system", "PS4's Choice", "The PS4 moves the threads between its cores, as before 00.27."}},
+     "fixed", false,
+     "Which PS4 cores run an N64 game's threads. Fixed gives the emulation and its graphics thread a core "
+     "each, so they run at the same time.", FOR_N64},
     {"speed", "Emulation Speed", "Performance",
      {{"100", "100%"}, {"50", "50%"}, {"75", "75%"}, {"150", "150%"}, {"200", "200%"},
       {"300", "300%"}},
@@ -149,16 +252,49 @@ const std::vector<Setting> SETTINGS = {
      {{"auto", "Auto", "As the game's own cartridge."},
       {"ntsc", "NTSC (60 Hz)", "As an American or Japanese console."},
       {"pal", "PAL (50 Hz)", "As a European console: the game and its music run slower."}},
-     "auto", false, "Auto uses the game's own region."},
+     "auto", false, "Auto uses the game's own region.", FOR_RETRO},
     {"block_vram", "Block Invalid VRAM Access", "Emulation",
      {{"enabled", "On", "As the console."}, {"disabled", "Off", "For hacks and translations that need it."}},
-     "enabled", true, "As the console does. A few hacks and translations need Off."},
+     "enabled", true, "As the console does. A few hacks and translations need Off.", FOR_SNES},
     {"echo_hack", "Echo Buffer Hack", "Emulation", {{"disabled", "Off"}, {"enabled", "On"}},
-     "disabled", true, "Fixes the sound in a few hacks (Super Mario World ROM hacks)."},
+     "disabled", true, "Fixes the sound in a few hacks (Super Mario World ROM hacks).", FOR_SNES},
     {"up_down", "Allow Opposing Directions", "Emulation", {{"disabled", "Off"}, {"enabled", "On"}},
-     "disabled", true, "Up+Down or Left+Right at once (some games glitch with it)."},
+     "disabled", true, "Up+Down or Left+Right at once (some games glitch with it).", FOR_RETRO},
     {"randomize_memory", "Randomize Memory", "Emulation", {{"disabled", "Off"}, {"enabled", "On"}},
-     "disabled", false, "Starts with random RAM, as a real console. Some games need it."},
+     "disabled", false, "Starts with random RAM, as a real console. Some games need it.", FOR_RETRO},
+    {"nes_palette", "NES Palette", "Emulation",
+     {{"default", "Default", "FCEUmm's own colours."},
+      {"asqrealc", "Real (AspiringSquire)", "Colours measured from a real console."},
+      {"restored-wii-vc", "Wii Virtual Console", "The colours of the Wii's Virtual Console (restored)."},
+      {"nes-classic-fbx-fs", "NES Classic", "Like Nintendo's NES Classic mini console."},
+      {"composite-direct-fbx", "Composite", "As through a composite cable on a tube TV."},
+      {"pvm-style-d93-fbx", "PVM Monitor", "Like a Sony PVM professional monitor: rich and sharp."},
+      {"smooth-v2-fbx", "Smooth", "Softer, balanced colours."},
+      {"sony-cxa2025as-us", "Sony CXA2025AS", "The colours of a Sony TV's decoder chip (USA)."},
+      {"pal", "PAL", "A European console's colours."},
+      {"raw", "Raw", "The console's colour numbers as they are (for testing)."}},
+     "default", true,
+     "The NES makes its colours in the TV signal: each palette is one way to see them.", FOR_NES},
+    {"n64_cpu", "N64 CPU", "Emulation",
+     {{"dynarec", "Dynamic Recompiler", "The N64's code made into PS4 code as it runs: the fastest."},
+      {"cached", "Cached Interpreter", "No recompiling: slower, for a game the recompiler breaks."}},
+     "dynarec", false, "How the N64's processor is emulated.", FOR_N64},
+    {"n64_rsp", "N64 RSP", "Emulation",
+     {{"hle", "Fast (HLE sound)",
+       "The N64's sound made the quick way, its graphics exactly (ParaLLEl): much faster on the PS4."},
+      {"parallel", "ParaLLEl (recompiler)",
+       "Everything exactly, recompiled: slower. For a game whose sound is wrong with Fast."},
+      {"cxd4", "CXD4 (interpreter)", "The same, interpreted: much slower."}},
+     "hle", false, "How the N64's graphics and sound processor is emulated.", FOR_N64},
+    {"n64_pak", "Controller Pak", "Emulation",
+     {{"memory", "Memory Pak", "Saves in the controller, as many games need."},
+      {"rumble", "Rumble Pak", "The DualShock 4 shakes (games that support it)."},
+      {"none", "None", "Nothing plugged into the controller."}},
+     "memory", false, "What is plugged into the N64 controller.", FOR_N64},
+    {"nes_turbo", "Turbo Buttons", "Emulation",
+     {{"on", "On", "Held, Square and Triangle press B and A over and over."},
+      {"off", "Off", "No turbo: Square and Triangle do nothing in the game."}},
+     "on", true, "The NES turbo buttons (Controls: Turbo B, Turbo A).", FOR_NES},
     // System
     {"language", "Language", "System",
      {{"en", "English"},
@@ -184,8 +320,8 @@ const std::vector<Setting> SETTINGS = {
       {"cubic", "Cubic", "Crisper high notes."},
       {"sinc", "Sinc", "The crispest and cleanest (more CPU time)."},
       {"linear", "Linear", "Simple, a little harsh."},
-      {"none", "None", "The raw samples: sharp and noisy."}},
-     "gaussian", true, "Gaussian sounds like the console; Cubic and Sinc are crisper."},
+      {"none", "No Interpolation", "The raw samples: sharp and noisy."}},
+     "gaussian", true, "Gaussian sounds like the console; Cubic and Sinc are crisper.", FOR_SNES},
     {"audio_buffer", "Audio Buffer", "System",
      {{"64", "64 ms", "The usual balance."},
       {"48", "48 ms", "Less delay; may crackle when the PS4 is busy."},
@@ -195,7 +331,7 @@ const std::vector<Setting> SETTINGS = {
      "Larger is smoother when a game runs below full speed; smaller has less delay."},
     {"multitap", "Multitap (3-5 Players)", "System",
      {{"off", "Off", "Two players."}, {"on", "On", "Up to five players with more DualShock 4s."}},
-     "off", true, "The Super Multitap in port 2, for Bomberman and other 3-5 player games."},
+     "off", true, "The Super Multitap in port 2, for Bomberman and other 3-5 player games.", FOR_SNES},
     {"resume", "Resume Where You Left Off", "System",
      {{"off", "Off", "Each start begins from the game's own start (or its battery save)."},
       {"on", "On", "Quit Game keeps the moment you left; the next start goes on from there."}},
@@ -204,6 +340,30 @@ const std::vector<Setting> SETTINGS = {
 
 const std::vector<const char*> CATEGORIES = {"Video", "Graphics", "Performance", "Emulation",
                                              "System"};
+
+// Quality's levels (Video): the values each one sets. Quality isn't stored: it is the level whose
+// values are all set, else Custom.
+struct Preset
+{
+  const char* name;
+  std::vector<std::pair<const char*, const char*>> values;
+};
+// Ultra: the AI for SNES and NES (Resolution 6x stays the CPU's picture while the GPU's filters
+// compile); for the N64 it means Smooth HD, which at 4x is HD Sharpen (Emulator.cpp's GpuMode).
+const std::vector<Preset> PRESETS = {
+    {"low", {{"resolution", "1"}, {"upscaler", "xbrz"}, {"ntsc_filter", "disabled"}, {"scaling", "fit"},
+             {"zoom", "off"}, {"n64_resolution", "1"}, {"n64_sync", "fast"}, {"n64_2d", "native"},
+             {"gpu_filter", "off"}}},
+    {"medium", {{"resolution", "3"}, {"upscaler", "xbrz"}, {"ntsc_filter", "disabled"}, {"scaling", "fit"},
+                {"zoom", "off"}, {"n64_resolution", "2"}, {"n64_sync", "fast"}, {"n64_2d", "native"},
+                {"gpu_filter", "off"}}},
+    {"high", {{"resolution", "6"}, {"upscaler", "xbrz"}, {"ntsc_filter", "disabled"}, {"scaling", "fit"},
+              {"zoom", "off"}, {"n64_resolution", "4"}, {"n64_sync", "fast"}, {"n64_2d", "native"},
+              {"gpu_filter", "off"}}},
+    {"ultra", {{"resolution", "6"}, {"upscaler", "xbrz"}, {"ntsc_filter", "disabled"}, {"scaling", "fit"},
+               {"zoom", "off"}, {"n64_resolution", "4"}, {"n64_sync", "fast"}, {"n64_2d", "hd"},
+               {"gpu_filter", "ai"}}},
+};
 
 std::mutex s_mutex;
 std::string s_path;
@@ -222,27 +382,69 @@ std::string Fallback(const std::string& key)
   return setting ? setting->fallback : "";
 }
 
+// A section's "custom" value ("" when there is none).
+std::string ModeLocked(const std::string& section)
+{
+  const auto it = s_sections.find(section);
+  if (it == s_sections.end())
+    return {};
+  const auto mode = it->second.find("custom");
+  return mode == it->second.end() ? std::string() : mode->second;
+}
+
+std::string ConsoleSection(const std::string& game_id)
+{
+  return std::string("console:") + SystemOfKey(game_id).key;
+}
+
+// Where the game's settings come from: its own section, its console's, or "global".
+std::string SectionLocked(const std::string& game_id)
+{
+  if (game_id.empty())
+    return "global";
+  const std::string mode = ModeLocked(game_id);
+  if (mode == "on")
+    return game_id;
+  if (mode == "global")
+    return "global";
+  // "console", or never set: the console's when it has settings of its own.
+  const std::string console = ConsoleSection(game_id);
+  return ModeLocked(console) == "on" ? console : "global";
+}
+
 std::string GetLocked(const std::string& key, const std::string& game_id)
 {
-  if (!game_id.empty())
+  // The game's place, then (for a game's own section) its console's, then global, then the default.
+  const std::string section = SectionLocked(game_id);
+  std::vector<std::string> order = {section};
+  if (section != "global" && section.rfind("console:", 0) != 0 && ModeLocked(ConsoleSection(game_id)) == "on")
+    order.push_back(ConsoleSection(game_id));
+  if (section != "global")
+    order.push_back("global");
+  for (const std::string& name : order)
   {
-    auto game = s_sections.find(game_id);
-    if (game != s_sections.end() && game->second.count("custom") &&
-        game->second.at("custom") == "on")
-    {
-      auto value = game->second.find(key);
-      if (value != game->second.end())
-        return value->second;
-    }
-  }
-  auto global = s_sections.find("global");
-  if (global != s_sections.end())
-  {
-    auto value = global->second.find(key);
-    if (value != global->second.end())
+    const auto it = s_sections.find(name);
+    if (it == s_sections.end())
+      continue;
+    const auto value = it->second.find(key);
+    if (value != it->second.end())
       return value->second;
   }
   return Fallback(key);
+}
+
+// The level whose values the game (or the global settings) uses, else "custom".
+std::string QualityLocked(const std::string& game_id)
+{
+  for (const Preset& preset : PRESETS)
+  {
+    bool same = true;
+    for (const auto& [key, value] : preset.values)
+      same = same && GetLocked(key, game_id) == value;
+    if (same)
+      return preset.name;
+  }
+  return "custom";
 }
 
 void SaveLocked()
@@ -320,6 +522,8 @@ void Save()
 std::string Get(const std::string& key, const std::string& game_id)
 {
   std::lock_guard lock(s_mutex);
+  if (key == "quality")
+    return QualityLocked(game_id);
   return GetLocked(key, game_id);
 }
 
@@ -337,7 +541,23 @@ bool GetOn(const std::string& key, const std::string& game_id)
 void Set(const std::string& key, const std::string& value, const std::string& game_id)
 {
   std::lock_guard lock(s_mutex);
-  s_sections[game_id.empty() ? "global" : game_id][key] = value;
+  auto& section = s_sections[SectionLocked(game_id)];
+  if (key == "quality")
+  {
+    // A level: its values (Custom changes nothing).
+    for (const Preset& preset : PRESETS)
+    {
+      if (value == preset.name)
+      {
+        for (const auto& [preset_key, preset_value] : preset.values)
+          section[preset_key] = preset_value;
+      }
+    }
+  }
+  else
+  {
+    section[key] = value;
+  }
   SaveLocked();
 }
 
@@ -354,24 +574,61 @@ std::vector<std::pair<std::string, std::string>> GlobalValues()
 bool IsCustom(const std::string& game_id)
 {
   std::lock_guard lock(s_mutex);
-  auto game = s_sections.find(game_id);
-  return game != s_sections.end() && game->second.count("custom") &&
-         game->second.at("custom") == "on";
+  return !game_id.empty() && SectionLocked(game_id) == game_id;
 }
 
-void SetCustom(const std::string& game_id, bool custom)
+Scope ScopeOf(const std::string& game_id)
+{
+  std::lock_guard lock(s_mutex);
+  const std::string section = SectionLocked(game_id);
+  return section == "global" ? Scope::Global : section.rfind("console:", 0) == 0 ? Scope::Console : Scope::Game;
+}
+
+void SetScope(const std::string& game_id, Scope scope)
 {
   if (game_id.empty())
     return;
   std::lock_guard lock(s_mutex);
-  auto& section = s_sections[game_id];
-  if (custom && section.size() <= 1)
+  // What the game uses now: a new place starts from it.
+  std::map<std::string, std::string> now;
+  for (const Setting& setting : SETTINGS)
   {
-    // First time: start from what the game uses now.
-    for (const Setting& setting : SETTINGS)
-      section[setting.key] = GetLocked(setting.key, "");
+    if (std::string(setting.key) != "quality")
+      now[setting.key] = GetLocked(setting.key, game_id);
   }
-  section["custom"] = custom ? "on" : "off";
+  if (scope == Scope::Game)
+  {
+    auto& section = s_sections[game_id];
+    if (section.size() <= 1)  // never its own values yet ("custom" only)
+    {
+      for (const auto& [key, value] : now)
+        section[key] = value;
+    }
+    section["custom"] = "on";
+  }
+  else if (scope == Scope::Console)
+  {
+    const std::string console = ConsoleSection(game_id);
+    auto& section = s_sections[console];
+    if (ModeLocked(console) != "on")
+    {
+      if (section.size() <= 1)  // the console's first settings: the ones its game uses now
+      {
+        const SystemId system = SystemOfKey(game_id).id;
+        for (const Setting& setting : SETTINGS)
+        {
+          if (now.count(setting.key) && AppliesTo(setting, system))
+            section[setting.key] = now[setting.key];
+        }
+      }
+      section["custom"] = "on";
+    }
+    s_sections[game_id]["custom"] = "console";
+  }
+  else
+  {
+    s_sections[game_id]["custom"] = "global";
+  }
   SaveLocked();
 }
 
@@ -383,15 +640,17 @@ void CopyGameToGlobal(const std::string& game_id)
   auto game = s_sections.find(game_id);
   if (game == s_sections.end())
     return;
+  const SystemId system = SystemOfKey(game_id).id;
   for (const Setting& setting : SETTINGS)
   {
-    if (std::string(setting.key) == "language")
+    if (std::string(setting.key) == "language" || std::string(setting.key) == "quality" ||
+        !AppliesTo(setting, system))
       continue;
     const auto value = game->second.find(setting.key);
     if (value != game->second.end())
       s_sections["global"][setting.key] = value->second;
   }
-  game->second["custom"] = "off";
+  game->second["custom"] = "global";  // it follows them (not its console's)
   SaveLocked();
 }
 
@@ -411,6 +670,13 @@ void ResetGame(const std::string& game_id)
   SaveLocked();
 }
 
+void ResetConsole(const std::string& game_id)
+{
+  std::lock_guard lock(s_mutex);
+  s_sections.erase(ConsoleSection(game_id));
+  SaveLocked();
+}
+
 void ResetAll()
 {
   std::lock_guard lock(s_mutex);
@@ -422,6 +688,31 @@ void ResetAll()
   if (!language.empty())
     s_sections["global"]["language"] = language;
   SaveLocked();
+}
+
+bool AppliesToAny(const Setting& setting)
+{
+  for (const System& system : Systems())
+  {
+    if (AppliesTo(setting, system.id))
+      return true;
+  }
+  return false;
+}
+
+std::string SystemTag(const Setting& setting)
+{
+  // No tag for a setting of every console this build plays.
+  std::string tags;
+  bool every = true;
+  for (const System& system : Systems())
+  {
+    if (AppliesTo(setting, system.id))
+      tags += (tags.empty() ? "" : ", ") + std::string(system.tab);
+    else
+      every = false;
+  }
+  return every ? std::string() : " (" + tags + ")";
 }
 
 std::string LabelOf(const Setting& setting, const std::string& value)
@@ -446,6 +737,20 @@ const Choice* FindChoice(const Setting& setting, const std::string& value)
 
 std::string Step(const Setting& setting, const std::string& value, int direction)
 {
+  if (std::string(setting.key) == "quality")
+  {
+    // The levels only (Custom is where the values match none of them).
+    const int count = static_cast<int>(PRESETS.size());
+    int index = -1;
+    for (int i = 0; i < count; i++)
+    {
+      if (value == PRESETS[i].name)
+        index = i;
+    }
+    if (index < 0)
+      return direction > 0 ? PRESETS.front().name : PRESETS.back().name;
+    return PRESETS[((index + direction) % count + count) % count].name;
+  }
   const int count = static_cast<int>(setting.choices.size());
   int index = 0;
   for (int i = 0; i < count; i++)

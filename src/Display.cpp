@@ -5,14 +5,18 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <mutex>
 #include <string>
 #include <vector>
 
 #include <orbis/VideoOut.h>
 #include <orbis/libkernel.h>
 
+#include "GpuFilter.h"
+#include "LibretroVulkan.h"
 #include "Log.h"
 #include "VulkanFunctions.h"
 
@@ -50,6 +54,9 @@ struct Frame
   // The image's pixels as the CPU sees them (linear, host-visible), for screenshots.
   const uint8_t* pixels = nullptr;
   size_t row_bytes = 0;
+  // A core's image as this frame draws it (sharp, smooth): one descriptor set each, rewritten
+  // when this frame is recorded again.
+  VkDescriptorSet external[2] = {VK_NULL_HANDLE, VK_NULL_HANDLE};
 };
 
 struct Texture
@@ -103,8 +110,25 @@ uint8_t* s_upload_map = nullptr;
 VkCommandBuffer s_upload_commands = VK_NULL_HANDLE;
 VkFence s_upload_fence = VK_NULL_HANDLE;
 
+// A core that draws with Vulkan: the device is ParaLLEl-RDP's, the queue shared under a lock; the
+// semaphores the next frame waits for and signals.
+bool s_shared = false;
+std::mutex s_queue_mutex;
+std::vector<VkSemaphore> s_wait_semaphores;
+std::vector<VkPipelineStageFlags> s_wait_stages;
+VkSemaphore s_signal_semaphore = VK_NULL_HANDLE;
+
 int s_video = -1;
 int s_buffer_set = -1;
+// Time spent waiting (for the TV, for the GPU) since TakeWaitMs: the speed line's drawing time
+// minus this is the work.
+double s_wait_ms = 0.0;
+
+double MsSince(std::chrono::steady_clock::time_point start)
+{
+  return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+}
+
 #ifndef ORBIS_VIDEO_OUT_TILING_MODE_LINEAR
 #define ORBIS_VIDEO_OUT_TILING_MODE_LINEAR 1  // older OpenOrbis headers lack it
 #endif
@@ -147,8 +171,34 @@ VKAPI_ATTR void VKAPI_CALL UnusedVulkanFunction()
   Log("unused Vulkan function called");
 }
 
+// ImGui's uses of the queue (texture uploads) under the queue's lock too, like every other.
+VKAPI_ATTR VkResult VKAPI_CALL LockedQueueSubmit(VkQueue queue, uint32_t count, const VkSubmitInfo* submits,
+                                                 VkFence fence)
+{
+  std::lock_guard lock(s_queue_mutex);
+  return vkQueueSubmit(queue, count, submits, fence);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL LockedQueueWaitIdle(VkQueue queue)
+{
+  std::lock_guard lock(s_queue_mutex);
+  return vkQueueWaitIdle(queue);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL LockedDeviceWaitIdle(VkDevice device)
+{
+  std::lock_guard lock(s_queue_mutex);
+  return vkDeviceWaitIdle(device);
+}
+
 PFN_vkVoidFunction LoadFunction(const char* name, void*)
 {
+  if (std::strcmp(name, "vkQueueSubmit") == 0)
+    return reinterpret_cast<PFN_vkVoidFunction>(LockedQueueSubmit);
+  if (std::strcmp(name, "vkQueueWaitIdle") == 0)
+    return reinterpret_cast<PFN_vkVoidFunction>(LockedQueueWaitIdle);
+  if (std::strcmp(name, "vkDeviceWaitIdle") == 0)
+    return reinterpret_cast<PFN_vkVoidFunction>(LockedDeviceWaitIdle);
   PFN_vkVoidFunction function = VulkanFunctions::Lookup(s_instance, s_device, name);
   if (!function)
   {
@@ -188,27 +238,59 @@ bool CreateDevice()
   vkGetPhysicalDeviceQueueFamilyProperties(s_gpu, &families, family_props.data());
   for (uint32_t i = 0; i < families; i++)
   {
+    LogF("display: queue family %u: %u queues, flags %#x", i, family_props[i].queueCount,
+         static_cast<unsigned>(family_props[i].queueFlags));
+  }
+  for (uint32_t i = 0; i < families; i++)
+  {
     if (family_props[i].queueFlags & VK_QUEUE_GRAPHICS_BIT)
     {
       s_queue_family = i;
       break;
     }
   }
-  const float priority = 1.0f;
-  VkDeviceQueueCreateInfo queue_info = {VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
-  queue_info.queueFamilyIndex = s_queue_family;
-  queue_info.queueCount = 1;
-  queue_info.pQueuePriorities = &priority;
-  VkDeviceCreateInfo device_info = {VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
-  device_info.queueCreateInfoCount = 1;
-  device_info.pQueueCreateInfos = &queue_info;
-  Log("creating the Vulkan device");
-  if (!Check(vkCreateDevice(s_gpu, &device_info, nullptr, &s_device), "vkCreateDevice") ||
-      !VulkanFunctions::LoadDevice(s_device))
+#ifdef EMUSUNI_N64
+  // ParaLLEl-RDP (N64 games) makes the device, with the features it needs (8 and 16-bit storage,
+  // subgroups...); the menus and every game draw on it. Its Vulkan context stays for the N64
+  // games (scripts/build-n64-core.sh).
   {
-    return false;
+    Log("creating the Vulkan device through ParaLLEl-RDP");
+    retro_vulkan_context context = {};
+    const VkPhysicalDeviceFeatures none = {};  // Granite reads it (a null pointer would crash)
+    if (parallel_create_device(&context, s_instance, s_gpu, VK_NULL_HANDLE, VulkanFunctions::GetInstanceProcAddr,
+                               nullptr, 0, nullptr, 0, &none) &&
+        context.device != VK_NULL_HANDLE)
+    {
+      s_device = context.device;
+      s_queue = context.queue;
+      s_queue_family = context.queue_family_index;
+      s_shared = true;
+      LogF("display: device made by ParaLLEl-RDP (queue family %u)", s_queue_family);
+    }
+    else
+    {
+      Log("ParaLLEl-RDP couldn't make the device: N64 games can't be drawn");
+    }
   }
-  vkGetDeviceQueue(s_device, s_queue_family, 0, &s_queue);
+  if (!s_shared)
+#endif
+  {
+    const float priority = 1.0f;
+    VkDeviceQueueCreateInfo queue_info = {VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
+    queue_info.queueFamilyIndex = s_queue_family;
+    queue_info.queueCount = 1;
+    queue_info.pQueuePriorities = &priority;
+    VkDeviceCreateInfo device_info = {VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
+    device_info.queueCreateInfoCount = 1;
+    device_info.pQueueCreateInfos = &queue_info;
+    Log("creating the Vulkan device");
+    if (!Check(vkCreateDevice(s_gpu, &device_info, nullptr, &s_device), "vkCreateDevice"))
+      return false;
+  }
+  if (!VulkanFunctions::LoadDevice(s_device))
+    return false;
+  if (!s_shared)
+    vkGetDeviceQueue(s_device, s_queue_family, 0, &s_queue);
   Log("device created");
 
   VkCommandPoolCreateInfo pool_info = {VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
@@ -413,7 +495,10 @@ void EndOneTimeCommands(VkCommandBuffer commands)
   VkSubmitInfo submit = {VK_STRUCTURE_TYPE_SUBMIT_INFO};
   submit.commandBufferCount = 1;
   submit.pCommandBuffers = &commands;
-  vkQueueSubmit(s_queue, 1, &submit, s_upload_fence);
+  {
+    std::lock_guard lock(s_queue_mutex);
+    vkQueueSubmit(s_queue, 1, &submit, s_upload_fence);
+  }
   vkWaitForFences(s_device, 1, &s_upload_fence, VK_TRUE, UINT64_MAX);
   vkResetFences(s_device, 1, &s_upload_fence);
 }
@@ -527,6 +612,16 @@ void Barrier(VkCommandBuffer commands, VkImage image, VkImageLayout from, VkImag
   vkCmdPipelineBarrier(commands, src_stage, dst_stage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
 }
 
+// Until the GPU has drawn every frame submitted.
+void WaitAllFrames()
+{
+  for (Frame& frame : s_frames)
+  {
+    if (frame.fence != VK_NULL_HANDLE)
+      vkWaitForFences(s_device, 1, &frame.fence, VK_TRUE, UINT64_MAX);
+  }
+}
+
 bool CreateGameTexture()
 {
   VkImageCreateInfo info = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
@@ -595,6 +690,110 @@ VkSampler CreateSampler(VkFilter filter)
 }
 }  // namespace
 
+bool Display::SharesVulkan() const
+{
+  return s_shared;
+}
+
+VkInstance Display::Instance() const
+{
+  return s_instance;
+}
+
+VkPhysicalDevice Display::Gpu() const
+{
+  return s_gpu;
+}
+
+VkDevice Display::Device() const
+{
+  return s_device;
+}
+
+VkQueue Display::Queue() const
+{
+  return s_queue;
+}
+
+uint32_t Display::QueueFamily() const
+{
+  return s_queue_family;
+}
+
+void Display::LockQueue()
+{
+  s_queue_mutex.lock();
+}
+
+void Display::UnlockQueue()
+{
+  s_queue_mutex.unlock();
+}
+
+uint32_t Display::SyncIndex() const
+{
+  return (s_current + 1) % IMAGES;
+}
+
+uint32_t Display::SyncIndexMask() const
+{
+  return (1u << IMAGES) - 1;
+}
+
+void Display::WaitSyncIndex()
+{
+  Frame& frame = s_frames[(s_current + 1) % IMAGES];
+  vkWaitForFences(s_device, 1, &frame.fence, VK_TRUE, UINT64_MAX);
+}
+
+void Display::WaitForSemaphores(uint32_t count, const VkSemaphore* semaphores)
+{
+  for (uint32_t i = 0; i < count; i++)
+  {
+    s_wait_semaphores.push_back(semaphores[i]);
+    s_wait_stages.push_back(VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+  }
+}
+
+void Display::SignalSemaphore(VkSemaphore semaphore)
+{
+  s_signal_semaphore = semaphore;
+}
+
+ImTextureID Display::ExternalTexture(VkImageView view, VkImageLayout layout, bool smooth)
+{
+  if (view == VK_NULL_HANDLE)
+    return ImTextureID{};
+  // The set of the frame EndFrame records next: the GPU is done with its last use.
+  Frame& frame = s_frames[(s_current + 1) % IMAGES];
+  const auto wait = std::chrono::steady_clock::now();
+  vkWaitForFences(s_device, 1, &frame.fence, VK_TRUE, UINT64_MAX);
+  s_wait_ms += MsSince(wait);
+  VkSampler sampler = smooth ? s_sampler : s_sampler_nearest;
+  VkDescriptorSet& set = frame.external[smooth ? 1 : 0];
+  if (set == VK_NULL_HANDLE)
+  {
+    set = ImGui_ImplVulkan_AddTexture(sampler, view, layout);
+  }
+  else
+  {
+    VkDescriptorImageInfo image = {sampler, view, layout};
+    VkWriteDescriptorSet write = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+    write.dstSet = set;
+    write.dstBinding = 0;
+    write.descriptorCount = 1;
+    write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    write.pImageInfo = &image;
+    vkUpdateDescriptorSets(s_device, 1, &write, 0, nullptr);
+  }
+  return reinterpret_cast<ImTextureID>(set);
+}
+
+void Display::WaitIdle()
+{
+  WaitAllFrames();
+}
+
 bool Display::Initialize()
 {
   if (!CreateDevice() || !CreateRenderPass())
@@ -633,6 +832,18 @@ bool Display::Initialize()
   Log("ImGui renderer ready");
   if (!CreateArena() || !CreateGameTexture())
     return false;
+  // The GPU filters (Graphics > GPU Upscaler); without them pictures are drawn as before.
+  GpuFilter::Context filters;
+  filters.device = s_device;
+  filters.gpu = s_gpu;
+  filters.screen = s_render_pass;
+  filters.width = WIDTH;
+  filters.height = HEIGHT;
+  filters.wait_idle = WaitAllFrames;
+  filters.cache_path = std::string(App::DATA_DIR) + "/cache/gpu-filters.bin";
+  filters.queue_family = s_queue_family;
+  if (!GpuFilter::Init(filters))
+    Log("GPU filters not available");
   Log("ready");
   return true;
 }
@@ -640,7 +851,20 @@ bool Display::Initialize()
 void Display::Shutdown()
 {
   if (s_device != VK_NULL_HANDLE)
+  {
+    std::lock_guard lock(s_queue_mutex);
     vkDeviceWaitIdle(s_device);
+  }
+  GpuFilter::Shutdown();
+  for (Frame& frame : s_frames)
+  {
+    for (VkDescriptorSet& set : frame.external)
+    {
+      if (set != VK_NULL_HANDLE)
+        ImGui_ImplVulkan_RemoveTexture(set);
+      set = VK_NULL_HANDLE;
+    }
+  }
   for (Texture& texture : s_textures)
   {
     if (texture.set != VK_NULL_HANDLE)
@@ -714,6 +938,13 @@ void Display::UploadGameFrame(const void* pixels, uint32_t width, uint32_t heigh
   frame.upload_row = row;
 }
 
+double Display::TakeWaitMs()
+{
+  const double ms = s_wait_ms;
+  s_wait_ms = 0.0;
+  return ms;
+}
+
 void Display::SetVsync(bool on)
 {
   s_flip_mode = on ? ORBIS_VIDEO_OUT_FLIP_VSYNC : FLIP_HSYNC;
@@ -741,12 +972,19 @@ ImTextureID Display::GameTexture(bool smooth) const
   return reinterpret_cast<ImTextureID>(smooth ? s_game_smooth : s_game_sharp);
 }
 
+VkImageView Display::GameView() const
+{
+  return s_game_view;
+}
+
 void Display::EndFrame()
 {
   s_current = (s_current + 1) % IMAGES;
+  const auto wait = std::chrono::steady_clock::now();
   WaitForImageOffScreen();
   Frame& frame = s_frames[s_current];
   vkWaitForFences(s_device, 1, &frame.fence, VK_TRUE, UINT64_MAX);
+  s_wait_ms += MsSince(wait);
   vkResetFences(s_device, 1, &frame.fence);
 
   vkResetCommandBuffer(frame.commands, 0);
@@ -774,6 +1012,8 @@ void Display::EndFrame()
             VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
             VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
   }
+  // The GPU filters' passes into their images (the last one draws inside the render pass).
+  GpuFilter::Record(frame.commands, s_current);
   VkClearValue clear = {};
   clear.color = {{0.0f, 0.0f, 0.0f, 1.0f}};
   VkRenderPassBeginInfo pass = {VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
@@ -790,10 +1030,26 @@ void Display::EndFrame()
   VkSubmitInfo submit = {VK_STRUCTURE_TYPE_SUBMIT_INFO};
   submit.commandBufferCount = 1;
   submit.pCommandBuffers = &frame.commands;
-  vkQueueSubmit(s_queue, 1, &submit, frame.fence);
-
+  // A core's image: after the semaphores it gave (none for ParaLLEl-RDP, which draws on this
+  // queue before).
+  submit.waitSemaphoreCount = static_cast<uint32_t>(s_wait_semaphores.size());
+  submit.pWaitSemaphores = s_wait_semaphores.empty() ? nullptr : s_wait_semaphores.data();
+  submit.pWaitDstStageMask = s_wait_stages.empty() ? nullptr : s_wait_stages.data();
+  if (s_signal_semaphore != VK_NULL_HANDLE)
+  {
+    submit.signalSemaphoreCount = 1;
+    submit.pSignalSemaphores = &s_signal_semaphore;
+  }
   const int64_t arg = static_cast<int64_t>(s_flips + 1);
-  int result = ac_ps4_submit_flip(s_video, s_current, static_cast<unsigned>(s_flip_mode), arg);
+  int result;
+  {
+    std::lock_guard lock(s_queue_mutex);
+    vkQueueSubmit(s_queue, 1, &submit, frame.fence);
+    result = ac_ps4_submit_flip(s_video, s_current, static_cast<unsigned>(s_flip_mode), arg);
+  }
+  s_wait_semaphores.clear();
+  s_wait_stages.clear();
+  s_signal_semaphore = VK_NULL_HANDLE;
   if (result != 0)
   {
     vkWaitForFences(s_device, 1, &frame.fence, VK_TRUE, UINT64_MAX);
@@ -901,7 +1157,10 @@ void Display::DestroyTexture(ImTextureID id)
   {
     if (reinterpret_cast<ImTextureID>(it->set) != id)
       continue;
-    vkDeviceWaitIdle(s_device);
+    {
+      std::lock_guard lock(s_queue_mutex);
+      vkDeviceWaitIdle(s_device);
+    }
     ImGui_ImplVulkan_RemoveTexture(it->set);
     vkDestroyImageView(s_device, it->view, nullptr);
     vkDestroyImage(s_device, it->image, nullptr);

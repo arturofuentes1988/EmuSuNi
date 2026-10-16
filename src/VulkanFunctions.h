@@ -19,6 +19,7 @@
   X(vkGetPhysicalDeviceQueueFamilyProperties)                                                     \
   X(vkGetPhysicalDeviceMemoryProperties)                                                          \
   X(vkGetPhysicalDeviceProperties)                                                                \
+  X(vkGetPhysicalDeviceFormatProperties)                                                          \
   X(vkCreateDevice)
 
 #define EMUSUNI_VK_DEVICE_FUNCTIONS(X)                                                            \
@@ -63,7 +64,33 @@
   X(vkCmdEndRenderPass)                                                                           \
   X(vkCmdPipelineBarrier)                                                                         \
   X(vkCmdCopyBufferToImage)                                                                       \
-  X(vkCmdClearColorImage)
+  X(vkCmdClearColorImage)                                                                         \
+  X(vkUpdateDescriptorSets)                                                                       \
+  X(vkCreateShaderModule)                                                                         \
+  X(vkDestroyShaderModule)                                                                        \
+  X(vkCreatePipelineLayout)                                                                       \
+  X(vkDestroyPipelineLayout)                                                                      \
+  X(vkCreateGraphicsPipelines)                                                                    \
+  X(vkDestroyPipeline)                                                                            \
+  X(vkCreatePipelineCache)                                                                        \
+  X(vkGetPipelineCacheData)                                                                       \
+  X(vkDestroyPipelineCache)                                                                       \
+  X(vkCreateDescriptorSetLayout)                                                                  \
+  X(vkDestroyDescriptorSetLayout)                                                                 \
+  X(vkCreateDescriptorPool)                                                                       \
+  X(vkDestroyDescriptorPool)                                                                      \
+  X(vkAllocateDescriptorSets)                                                                     \
+  X(vkCmdBindPipeline)                                                                            \
+  X(vkCmdBindDescriptorSets)                                                                      \
+  X(vkCmdPushConstants)                                                                           \
+  X(vkCmdSetViewport)                                                                             \
+  X(vkCmdSetScissor)                                                                              \
+  X(vkCmdDraw)                                                                                    \
+  X(vkCreateQueryPool)                                                                            \
+  X(vkDestroyQueryPool)                                                                           \
+  X(vkCmdResetQueryPool)                                                                          \
+  X(vkCmdWriteTimestamp)                                                                          \
+  X(vkGetQueryPoolResults)
 
 #define EMUSUNI_VK_DECLARE(name) extern PFN_##name name;
 EMUSUNI_VK_GLOBAL_FUNCTIONS(EMUSUNI_VK_DECLARE)
@@ -79,4 +106,8 @@ bool LoadInstance(VkInstance instance);
 bool LoadDevice(VkDevice device);
 // Any function, for ImGui's Vulkan renderer.
 PFN_vkVoidFunction Lookup(VkInstance instance, VkDevice device, const char* name);
+// vkGetInstanceProcAddr and vkGetDeviceProcAddr as a Vulkan loader would offer them, for a core
+// that draws with Vulkan (libretro's interface).
+VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL GetInstanceProcAddr(VkInstance instance, const char* name);
+VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL GetDeviceProcAddr(VkDevice device, const char* name);
 }  // namespace VulkanFunctions

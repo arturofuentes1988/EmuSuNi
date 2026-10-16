@@ -11,6 +11,7 @@
 #include <sys/stat.h>
 
 #include "Log.h"
+#include "Systems.h"
 
 namespace Saves
 {
@@ -22,8 +23,11 @@ std::string s_data_dir = App::DATA_DIR;
 void Init(const std::string& data_dir)
 {
   s_data_dir = data_dir;
-  MakeDirs(data_dir + "/saves");
-  MakeDirs(data_dir + "/states");
+  for (const System& system : Systems())
+  {
+    MakeDirs(data_dir + "/saves/" + system.prefix);
+    MakeDirs(data_dir + "/states/" + system.prefix);
+  }
 }
 
 std::string SramPath(const std::string& game_id)
@@ -57,30 +61,38 @@ std::vector<GameSaves> List()
 {
   std::map<std::string, GameSaves> games;
   std::error_code ec;
-  for (const auto& entry : std::filesystem::directory_iterator(s_data_dir + "/saves", ec))
+  // Each console's folder (its games' keys start with its prefix).
+  for (const System& system : Systems())
   {
-    const std::filesystem::path path = entry.path();
-    if (path.extension() != ".srm")
-      continue;
-    GameSaves& game = games[path.stem().string()];
-    game.id = path.stem().string();
-    game.sram_time = Modified(path.string());
-    game.sram_size = Size(path.string());
-    game.latest = std::max(game.latest, game.sram_time);
-  }
-  for (const auto& entry : std::filesystem::directory_iterator(s_data_dir + "/states", ec))
-  {
-    const std::string name = entry.path().filename().string();
-    const size_t at = name.rfind(".state");
-    if (at == std::string::npos || name.size() > at + 8 || name.size() == at + 6)
-      continue;  // pictures (.png) and other files
-    const std::string digits = name.substr(at + 6);
-    if (digits.find_first_not_of("0123456789") != std::string::npos)
-      continue;
-    GameSaves& game = games[name.substr(0, at)];
-    game.id = name.substr(0, at);
-    game.slots.push_back(std::atoi(digits.c_str()));
-    game.latest = std::max(game.latest, Modified(entry.path().string()));
+    const std::string prefix = system.prefix;
+    for (const auto& entry : std::filesystem::directory_iterator(s_data_dir + "/saves/" + prefix, ec))
+    {
+      const std::filesystem::path path = entry.path();
+      std::error_code type_error;
+      if (path.extension() != ".srm" || entry.is_directory(type_error))
+        continue;
+      const std::string key = prefix + path.stem().string();
+      GameSaves& game = games[key];
+      game.id = key;
+      game.sram_time = Modified(path.string());
+      game.sram_size = Size(path.string());
+      game.latest = std::max(game.latest, game.sram_time);
+    }
+    for (const auto& entry : std::filesystem::directory_iterator(s_data_dir + "/states/" + prefix, ec))
+    {
+      const std::string name = entry.path().filename().string();
+      const size_t at = name.rfind(".state");
+      if (at == std::string::npos || name.size() > at + 8 || name.size() == at + 6)
+        continue;  // pictures (.png), folders and other files
+      const std::string digits = name.substr(at + 6);
+      if (digits.find_first_not_of("0123456789") != std::string::npos)
+        continue;
+      const std::string key = prefix + name.substr(0, at);
+      GameSaves& game = games[key];
+      game.id = key;
+      game.slots.push_back(std::atoi(digits.c_str()));
+      game.latest = std::max(game.latest, Modified(entry.path().string()));
+    }
   }
   std::vector<GameSaves> list;
   for (auto& [id, game] : games)

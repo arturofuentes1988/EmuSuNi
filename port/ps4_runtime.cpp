@@ -381,6 +381,10 @@ void ps4_heap_error(void* msp, void* chunk, int corruption) {
         abort();
 }
 
+// A request the overflow heap could hold (it is 128-512 MiB): a bigger one must not take 512 MiB
+// of direct memory (the GPU's) for nothing.
+constexpr size_t kOverflowMax = 384 * MB;
+
 void* __wrap_malloc(size_t size) {
     t_op = "malloc";
     t_caller = __builtin_return_address(0);
@@ -388,7 +392,7 @@ void* __wrap_malloc(size_t size) {
     void* p = t_arena ? mspace_malloc(t_arena, size) : nullptr;
     if (!p)
         p = mspace_malloc(getHeap(), size);
-    if (!p)
+    if (!p && size <= kOverflowMax)
         if (mspace overflow = overflowHeap())
             p = mspace_malloc(overflow, size);
     if (!p)
@@ -420,7 +424,7 @@ void* __wrap_calloc(size_t nelem, size_t size) {
     void* p = t_arena ? mspace_calloc(t_arena, nelem, size) : nullptr;
     if (!p)
         p = mspace_calloc(getHeap(), nelem, size);
-    if (!p)
+    if (!p && size != 0 && nelem <= kOverflowMax / size)
         if (mspace overflow = overflowHeap())
             p = mspace_calloc(overflow, nelem, size);
     if (!p)
@@ -449,7 +453,7 @@ void* __wrap_realloc(void* ptr, size_t size) {
         p = t_arena ? mspace_malloc(t_arena, size) : nullptr;
         if (!p)
             p = mspace_malloc(getHeap(), size);
-        if (!p)
+        if (!p && size <= kOverflowMax)
             if (mspace overflow = overflowHeap())
                 p = mspace_malloc(overflow, size);
         if (p && ptr) {
@@ -470,7 +474,7 @@ void* __wrap_memalign(size_t alignment, size_t size) {
     void* p = t_arena ? mspace_memalign(t_arena, alignment, size) : nullptr;
     if (!p)
         p = mspace_memalign(getHeap(), alignment, size);
-    if (!p)
+    if (!p && size <= kOverflowMax)
         if (mspace overflow = overflowHeap())
             p = mspace_memalign(overflow, alignment, size);
     if (!p)

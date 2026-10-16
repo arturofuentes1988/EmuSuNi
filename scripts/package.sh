@@ -4,8 +4,9 @@
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SRC="$(cd "$HERE/.." && pwd)"
-BUILD="${EMUSUNI_BUILD:-$HOME/emusuni-build}"
 VERSION="${1:-${EMUSUNI_VERSION:-00.10}}"
+BUILD="${EMUSUNI_BUILD:-$HOME/emusuni-build}"
+TITLE_ID=EMSN00001; TITLE="EmuSuNi"; LABEL=EMUSUNI
 STAGE="$BUILD/stage"
 OUT="$BUILD/out"
 rm -rf "$STAGE"
@@ -20,5 +21,5 @@ echo "$VERSION" > "$STAGE/xmb/version.txt"
 # The Sony Piglet modules aren't used (the display is Mesa's RADV): an empty module folder.
 mkdir -p "$BUILD/no-modules"
 # Plain param.sfo values: the homebrew identity RADV needs (see build.sh).
-SFO_STYLE=plain DOLPHIN_PS4_MODULES_DIR="$BUILD/no-modules" "$HERE/make-pkg.sh" "$STAGE" EMSN00001 "EmuSuNi" "$VERSION" EMUSUNI "$OUT"
+SFO_STYLE=plain DOLPHIN_PS4_MODULES_DIR="$BUILD/no-modules" "$HERE/make-pkg.sh" "$STAGE" "$TITLE_ID" "$TITLE" "$VERSION" "$LABEL" "$OUT"
 ls -la "$OUT"

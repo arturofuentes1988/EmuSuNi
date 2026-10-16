@@ -14,6 +14,7 @@
 #include <imgui.h>
 
 #include "Cheats.h"
+#include "Systems.h"
 
 class Display;
 
@@ -31,7 +32,8 @@ public:
   };
 
   void Init(Display* display, ImFont* regular, ImFont* bold);
-  void SetGame(const std::string& data_dir, const std::string& game_id, const std::string& title);
+  void SetGame(const std::string& data_dir, const std::string& game_key, const std::string& title,
+               SystemId system);
   void Open();
   void Close();
   bool IsOpen() const { return m_open; }
@@ -76,6 +78,7 @@ private:
   ImFont* m_font = nullptr;
   ImFont* m_bold = nullptr;
   std::string m_data_dir, m_game_id, m_title;
+  SystemId m_system = SystemId::SNES;
   bool m_open = false;
   Page m_page = Page::Main;
   std::vector<Row> m_rows;

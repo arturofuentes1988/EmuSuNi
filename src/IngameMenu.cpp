@@ -52,11 +52,12 @@ void IngameMenu::Init(Display* display, ImFont* regular, ImFont* bold)
 }
 
 void IngameMenu::SetGame(const std::string& data_dir, const std::string& game_id,
-                         const std::string& title)
+                         const std::string& title, SystemId system)
 {
   m_data_dir = data_dir;
   m_game_id = game_id;
   m_title = title;
+  m_system = system;
   m_open = false;
   m_appear = 0.0f;
   m_hint_time = 0.0f;
@@ -150,25 +151,36 @@ void IngameMenu::BuildRows()
   }
   else
   {
-    const bool custom = Settings::IsCustom(m_game_id);
-    rows.push_back({"Apply To", custom ? "This Game" : "All Games", false, false, 0, "__scope__"});
-    if (custom)
+    const Settings::Scope scope = Settings::ScopeOf(m_game_id);
+    rows.push_back({"Apply To",
+                    scope == Settings::Scope::Game      ? "This Game" :
+                    scope == Settings::Scope::Console   ? "This Console" :
+                                                          "All Games",
+                    false, false, 0, "__scope__"});
+    if (scope == Settings::Scope::Game)
       rows.push_back({"Use for All Games", "", false, false, 0, "__toall__"});
+    // The settings of this game's console.
     for (const char* category : Settings::Categories())
     {
-      rows.push_back({category, "", true});
+      bool header = false;
       for (const Settings::Setting& setting : Settings::All())
       {
-        if (std::string(setting.category) != category || std::string(setting.key) == "language")
+        if (std::string(setting.category) != category || std::string(setting.key) == "language" ||
+            !Settings::AppliesTo(setting, m_system))
           continue;
+        if (!header)
+          rows.push_back({category, "", true});
+        header = true;
         const std::string value = Settings::Get(setting.key, m_game_id);
         rows.push_back({setting.label, Settings::LabelOf(setting, value), false, !setting.live, 0,
                         setting.key});
       }
     }
     rows.push_back({"", "", true});
-    rows.push_back({custom ? "Reset This Game" : "Reset to Defaults", "", false, false, 0,
-                    "__reset__"});
+    rows.push_back({scope == Settings::Scope::Game      ? "Reset This Game" :
+                    scope == Settings::Scope::Console   ? "Reset This Console" :
+                                                          "Reset to Defaults",
+                    "", false, false, 0, "__reset__"});
   }
   m_rows = std::move(rows);
   m_selected = std::clamp(m_selected, 0, std::max(0, static_cast<int>(m_rows.size()) - 1));
@@ -214,9 +226,15 @@ void IngameMenu::Change(int direction)
   }
   if (key == "__scope__")
   {
-    const bool custom = !Settings::IsCustom(m_game_id);
-    Settings::SetCustom(m_game_id, custom);
-    Toast(custom ? "Settings for this game only" : "This game follows the global settings");
+    // All Games -> This Console -> This Game (Right), the other way round with Left.
+    const Settings::Scope order[] = {Settings::Scope::Global, Settings::Scope::Console, Settings::Scope::Game};
+    const Settings::Scope now = Settings::ScopeOf(m_game_id);
+    const int at = now == Settings::Scope::Global ? 0 : now == Settings::Scope::Console ? 1 : 2;
+    const Settings::Scope next = order[(at + (direction > 0 ? 1 : 2)) % 3];
+    Settings::SetScope(m_game_id, next);
+    Toast(next == Settings::Scope::Game    ? "Settings for this game only" :
+          next == Settings::Scope::Console ? "Settings for this console's games" :
+                                             "This game follows the global settings");
     m_settings_changed = true;
     return;
   }
@@ -233,7 +251,12 @@ void IngameMenu::Change(int direction)
   {
     if (direction <= 0)
       return;
-    if (Settings::IsCustom(m_game_id))
+    if (Settings::ScopeOf(m_game_id) == Settings::Scope::Console)
+    {
+      Settings::ResetConsole(m_game_id);
+      Toast("This console's games use the global settings again");
+    }
+    else if (Settings::IsCustom(m_game_id))
     {
       Settings::ResetGame(m_game_id);
       Toast("This game uses the global settings again");
@@ -242,7 +265,7 @@ void IngameMenu::Change(int direction)
     {
       for (const Settings::Setting& setting : Settings::All())
       {
-        if (std::string(setting.key) != "language")
+        if (std::string(setting.key) != "language" && Settings::AppliesTo(setting, m_system))
           Settings::ResetGlobal(setting.key);
       }
       Toast("Settings reset to defaults");
@@ -254,7 +277,7 @@ void IngameMenu::Change(int direction)
   if (!setting)
     return;
   const std::string value = Settings::Step(*setting, Settings::Get(key, m_game_id), direction);
-  Settings::Set(key, value, Settings::IsCustom(m_game_id) ? m_game_id : std::string());
+  Settings::Set(key, value, m_game_id);  // where the game's settings come from (Apply To)
   if (!setting->live)
     Toast(std::string(setting->label) + ": next time a game starts");
   m_settings_changed = true;
@@ -292,7 +315,8 @@ std::string IngameMenu::RowHelp(const Row& row) const
     return {};
   }
   if (row.key == "__scope__")
-    return T("All Games: what you change here applies to every game. This Game: only to this game.");
+    return T("All Games: what you change here applies to every game. This Console: to every game of "
+             "this console. This Game: only to this game.");
   if (row.key == "__toall__")
     return T("Copies this game's settings to every game; this game follows them again.");
   if (row.key == "__reset__")
@@ -474,8 +498,9 @@ void IngameMenu::Draw(ImDrawList* dl, float dt)
     const ImU32 accent = IM_COL32(196, 170, 255, static_cast<int>(255 * a));
     const char* subtitle = m_page == Page::Main     ? "PAUSED" :
                            m_page == Page::Cheats   ? "CHEATS" :
-                           Settings::IsCustom(m_game_id) ? "SETTINGS - THIS GAME" :
-                                                           "SETTINGS - ALL GAMES";
+                           Settings::ScopeOf(m_game_id) == Settings::Scope::Game    ? "SETTINGS - THIS GAME" :
+                           Settings::ScopeOf(m_game_id) == Settings::Scope::Console ? "SETTINGS - THIS CONSOLE" :
+                                                                                       "SETTINGS - ALL GAMES";
     dl->AddText(regular, 26, ImVec2(x0 + 70, 90), accent, T(subtitle));
     dl->AddText(bold, 40, ImVec2(x0 + 70, 122), white, m_title.c_str(), nullptr, panel_w - 120);
 

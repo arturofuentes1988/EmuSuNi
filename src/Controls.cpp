@@ -28,10 +28,12 @@ enum JoypadId
   ID_X = 9,
   ID_L = 10,
   ID_R = 11,
+  ID_L2 = 12,
+  ID_R2 = 13,
 };
 
 // Same positions as on the SNES pad: B bottom, A right, Y left, X top.
-const std::vector<Binding> BINDINGS = {
+const std::vector<Binding> SNES_BINDINGS = {
     {"b", "B", "Cross", false},          {"a", "A", "Circle", false},
     {"y", "Y", "Square", false},         {"x", "X", "Triangle", false},
     {"l", "L", "L1", false},             {"r", "R", "R1", false},
@@ -39,6 +41,45 @@ const std::vector<Binding> BINDINGS = {
     {"dpad", "D-Pad", "D-Pad + Left Stick", true},
     {"fast_forward", "Fast Forward (hold)", "R2", false},
 };
+// The NES pad: B left, A right as on the SNES pad; turbo B and turbo A (Settings -> Emulation ->
+// Turbo Buttons) where Y and X are; FCEUmm's Famicom Disk System buttons on L and R.
+const std::vector<Binding> NES_BINDINGS = {
+    {"b", "B", "Cross", false},                 {"a", "A", "Circle", false},
+    {"turbo_b", "Turbo B", "Square", false},    {"turbo_a", "Turbo A", "Triangle", false},
+    {"start", "START", "Options", false},       {"select", "SELECT", "Touchpad", false},
+    {"l", "Disk Side (FDS)", "L1", false},      {"r", "Insert/Eject Disk (FDS)", "R1", false},
+    {"dpad", "D-Pad", "D-Pad + Left Stick", true},
+    {"fast_forward", "Fast Forward (hold)", "R2", false},
+};
+// The N64 pad: the left stick is its control stick and the right stick its C buttons (both
+// analog); C Up and C Down also on Triangle and Circle.
+const std::vector<Binding> N64_BINDINGS = {
+    {"n64_a", "A", "Cross", false},          {"n64_b", "B", "Square", false},
+    {"z", "Z", "L2", false},                 {"n64_l", "L", "L1", false},
+    {"n64_r", "R", "R1", false},             {"start", "START", "Options", false},
+    {"c_up", "C Up", "Triangle", false},     {"c_down", "C Down", "Circle", false},
+    {"c_left", "C Left", "None", false},     {"c_right", "C Right", "None", false},
+    {"dpad", "D-Pad", "D-Pad", true},
+    {"fast_forward", "Fast Forward (hold)", "R2", false},
+};
+
+// The libretro joypad id each binding key presses (turbo B and A: Y and X for FCEUmm; the N64's
+// buttons as Mupen64Plus-Next reads the RetroPad: A on B, B on Y, Z on L2, L on SELECT, R on R2,
+// the C buttons on X, A, L and R).
+const std::pair<const char*, int> KEY_IDS[] = {
+    {"b", ID_B},       {"a", ID_A},       {"y", ID_Y},         {"x", ID_X},
+    {"l", ID_L},       {"r", ID_R},       {"start", ID_START}, {"select", ID_SELECT},
+    {"turbo_b", ID_Y}, {"turbo_a", ID_X},
+    {"n64_a", ID_B},   {"n64_b", ID_Y},   {"z", ID_L2},        {"n64_l", ID_SELECT},
+    {"n64_r", ID_R2},  {"c_up", ID_X},    {"c_down", ID_A},    {"c_left", ID_L},
+    {"c_right", ID_R},
+};
+
+// The section of a console's normal layout ([global] stays the Super Nintendo's).
+std::string GlobalSection(SystemId system)
+{
+  return system == SystemId::SNES ? "global" : GetSystem(system).key;
+}
 
 const char* const STICK_CHOICES[] = {"D-Pad + Left Stick", "D-Pad", "Left Stick"};
 
@@ -75,8 +116,9 @@ uint32_t MaskOf(const std::string& name)
 void SaveLocked()
 {
   std::ostringstream file;
-  file << "# EmuSuNi controls: the DualShock 4 control for each Super Nintendo button.\n"
-          "# [global] is the normal layout; a [game] section is that game's own.\n";
+  file << "# EmuSuNi controls: the DualShock 4 control for each console button.\n"
+          "# [global] is the Super Nintendo's normal layout, [nes] the NES's; a [game] section is\n"
+          "# that game's own.\n";
   for (const auto& [name, values] : s_sections)
   {
     file << "\n[" << name << "]\n";
@@ -86,9 +128,9 @@ void SaveLocked()
   WriteTextFile(s_path, file.str());
 }
 
-std::string GetLocked(const Binding& binding, const std::string& game_id)
+std::string GetLocked(const Binding& binding, const std::string& game_id, SystemId system)
 {
-  for (const std::string& section : {game_id, std::string("global")})
+  for (const std::string& section : {game_id, GlobalSection(system)})
   {
     if (section.empty())
       continue;
@@ -103,9 +145,9 @@ std::string GetLocked(const Binding& binding, const std::string& game_id)
 }
 }  // namespace
 
-const std::vector<Binding>& Bindings()
+const std::vector<Binding>& Bindings(SystemId system)
 {
-  return BINDINGS;
+  return system == SystemId::N64 ? N64_BINDINGS : system == SystemId::NES ? NES_BINDINGS : SNES_BINDINGS;
 }
 
 std::vector<std::string> StickChoices()
@@ -137,16 +179,16 @@ void Load(const std::string& data_dir)
   }
 }
 
-std::string Get(const Binding& binding, const std::string& game_id)
+std::string Get(const Binding& binding, const std::string& game_id, SystemId system)
 {
   std::lock_guard lock(s_mutex);
-  return GetLocked(binding, game_id);
+  return GetLocked(binding, game_id, system);
 }
 
-void Set(const Binding& binding, const std::string& value, const std::string& game_id)
+void Set(const Binding& binding, const std::string& value, const std::string& game_id, SystemId system)
 {
   std::lock_guard lock(s_mutex);
-  s_sections[game_id.empty() ? "global" : game_id][binding.key] = value;
+  s_sections[game_id.empty() ? GlobalSection(system) : game_id][binding.key] = value;
   SaveLocked();
 }
 
@@ -156,14 +198,14 @@ bool HasGameProfile(const std::string& game_id)
   return !game_id.empty() && s_sections.count(game_id) && !s_sections[game_id].empty();
 }
 
-void CreateGameProfile(const std::string& game_id)
+void CreateGameProfile(const std::string& game_id, SystemId system)
 {
   if (game_id.empty())
     return;
   std::lock_guard lock(s_mutex);
   auto& section = s_sections[game_id];
-  for (const Binding& binding : BINDINGS)
-    section[binding.key] = GetLocked(binding, "");
+  for (const Binding& binding : Bindings(system))
+    section[binding.key] = GetLocked(binding, "", system);
   SaveLocked();
 }
 
@@ -174,11 +216,11 @@ void DeleteGameProfile(const std::string& game_id)
   SaveLocked();
 }
 
-void ResetToDefault(const std::string& game_id)
+void ResetToDefault(const std::string& game_id, SystemId system)
 {
   std::lock_guard lock(s_mutex);
-  auto& section = s_sections[game_id.empty() ? "global" : game_id];
-  for (const Binding& binding : BINDINGS)
+  auto& section = s_sections[game_id.empty() ? GlobalSection(system) : game_id];
+  for (const Binding& binding : Bindings(system))
     section[binding.key] = binding.fallback;
   SaveLocked();
 }
@@ -213,39 +255,35 @@ std::string Capture(const OrbisPadData& data)
   return "";
 }
 
-Layout LayoutFor(const std::string& game_id)
+Layout LayoutFor(const std::string& game_id, SystemId system)
 {
   Layout layout;
   std::lock_guard lock(s_mutex);
-  auto get = [&](const char* key) {
-    for (const Binding& binding : BINDINGS)
+  std::string dpad;
+  for (const Binding& binding : Bindings(system))
+  {
+    const std::string key = binding.key, value = GetLocked(binding, game_id, system);
+    if (key == "dpad")
+      dpad = value;
+    else if (key == "fast_forward")
+      layout.fast_forward = MaskOf(value);
+    for (const auto& [name, id] : KEY_IDS)
     {
-      if (std::string(binding.key) == key)
-        return GetLocked(binding, game_id);
+      if (key == name)
+        layout.button_mask[id] = MaskOf(value);
     }
-    return std::string();
-  };
-  layout.button_mask[ID_B] = MaskOf(get("b"));
-  layout.button_mask[ID_A] = MaskOf(get("a"));
-  layout.button_mask[ID_Y] = MaskOf(get("y"));
-  layout.button_mask[ID_X] = MaskOf(get("x"));
-  layout.button_mask[ID_L] = MaskOf(get("l"));
-  layout.button_mask[ID_R] = MaskOf(get("r"));
-  layout.button_mask[ID_START] = MaskOf(get("start"));
-  layout.button_mask[ID_SELECT] = MaskOf(get("select"));
-  layout.fast_forward = MaskOf(get("fast_forward"));
-  const std::string dpad = get("dpad");
+  }
   layout.dpad = dpad != "Left Stick";
   layout.left_stick = dpad != "D-Pad";
   // A D-pad direction bound to a button (Pad N...) still works as the D-pad too.
   return layout;
 }
 
-uint16_t SnesButtons(const Layout& layout, const OrbisPadData& data)
+uint16_t PadButtons(const Layout& layout, const OrbisPadData& data)
 {
   uint16_t out = 0;
   const uint32_t buttons = data.buttons;
-  for (int id : {ID_B, ID_A, ID_Y, ID_X, ID_L, ID_R, ID_START, ID_SELECT})
+  for (int id : {ID_B, ID_A, ID_Y, ID_X, ID_L, ID_R, ID_START, ID_SELECT, ID_L2, ID_R2})
   {
     if (layout.button_mask[id] && (buttons & layout.button_mask[id]))
       out |= 1u << id;

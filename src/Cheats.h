@@ -1,6 +1,6 @@
 // EmuSuNi - Super Nintendo for PS4. GPL-2.0-or-later (see LICENSE).
 
-// Cheat codes (Game Genie, Pro Action Replay, raw): data_dir/cheats/<game id>.cht, in RetroArch's
+// Cheat codes (Game Genie, Pro Action Replay, raw): data_dir/cheats/<game key>.cht, in RetroArch's
 // .cht format (cheats = N, cheat0_desc, cheat0_code, cheat0_enable). The ON/OFF choices are
 // written back to the file. Shown in the menu (Triangle on a game -> Cheats) and the in-game menu.
 
@@ -8,6 +8,8 @@
 
 #include <string>
 #include <vector>
+
+#include "Cores.h"
 
 namespace Cheats
 {
@@ -27,7 +29,7 @@ public:
   void SetAll(bool on);
   const std::string& Path() const { return m_path; }
   // Into the running core (retro_cheat_reset / retro_cheat_set).
-  void ApplyToCore() const;
+  void ApplyToCore(const CoreApi& core) const;
 
 private:
   void Save() const;
