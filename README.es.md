@@ -99,7 +99,10 @@
 - Tus propios juegos:
   - Super Nintendo: `.sfc`, `.smc`, `.swc`, `.fig`, `.bs` o `.zip`.
   - NES: `.nes`, `.fds`, `.unf` o `.zip`.
-  - Nintendo 64: `.z64`, `.n64` o `.v64` (en el pendrive, carpeta `Roms/n64`; se puede cambiar).
+  - Nintendo 64: `.z64`, `.n64` o `.v64`.
+
+  Pueden estar en cualquier lugar, en un pendrive o en la PS4: la carpeta de cada consola se elige
+  en Ajustes.
 - Internet en la PS4 para las carátulas (opcional).
 
 ## Instalación
