@@ -26,8 +26,8 @@ const std::vector<Setting> SETTINGS = {
       {"high", "High (sharpest)",
        "The sharpest: SNES and NES at 6x (xBRZ), the N64 at 4x; heavy N64 games can slow down."},
       {"ultra", "Ultra (maximum)",
-       "The best each console can do: SNES and NES redrawn by the GPU with xBRZ and an AI network "
-       "(Anime4K); the N64 at 4x with HD 2D, sharpened. Heavy N64 games can slow down."}},
+       "The best each console can do: SNES, NES and the Game Boys redrawn by the GPU with xBRZ and an "
+       "AI network (Anime4K); the N64 at 4x with HD 2D, sharpened. Heavy N64 games can slow down."}},
      "custom", true,
      "Sets the picture for a level at once: resolution, upscaling (CPU and GPU), picture size, and the "
      "N64's size, sync and 2D. Changing one of them makes it Custom."},
@@ -41,7 +41,9 @@ const std::vector<Setting> SETTINGS = {
       {"pixel", "Pixel Perfect (8:7)", "Square pixels, exactly as the console draws them (a little narrower)."},
       {"wide", "16:9", "Stretched to a widescreen TV (everything looks wider)."},
       {"stretch", "Stretch", "Fills the whole screen, whatever its shape."}},
-     "auto", true, "The picture's shape on the TV. 4:3 is how the consoles looked on a TV."},
+     "auto", true,
+     "The picture's shape on the TV. 4:3 is how the consoles looked on a TV; the Game Boys keep their "
+     "screen's own shape."},
     {"resolution", "Resolution", "Video",
      {{"1", "Native (224p)", "The console's own 256x224 picture, enlarged by the TV (the fastest)."},
       {"2", "2x (448p)", "Redrawn at 512x448 before it is fitted to the TV."},
@@ -51,7 +53,7 @@ const std::vector<Setting> SETTINGS = {
       {"6", "6x (1440p)", "Redrawn at 1536x1344, then made smaller for the TV (a little smoother)."}},
      "1", true,
      "Redraws the game bigger with the Upscaling Filter (Graphics) before it is fitted to the TV: "
-     "3x for 720p, 5x for 1080p. Uses CPU time: lower it if a game slows down.", FOR_RETRO},
+     "3x for 720p, 5x for 1080p. Uses CPU time: lower it if a game slows down.", FOR_PIXELS},
     {"scaling", "Picture Size", "Video",
      {{"fit", "Fit to Screen", "As big as the TV allows."},
       {"integer", "Integer Scale (sharpest)",
@@ -99,6 +101,36 @@ const std::vector<Setting> SETTINGS = {
        "Your own 1920x1080 PNG, see-through where the game goes: /data/EmuSuNi/bezels/n64/ with the "
        "ROM's name (The Bezel Project's names), or bezels/n64.png for every game."}},
      "off", true, "A frame over the sides of the TV, see-through where the game goes.", FOR_N64},
+    {"gb_bezel", "Bezel", "Video",
+     {{"off", "Off", "The picture alone, on black."},
+      {"console", "Game Boy", "The first Game Boy's grey, its screen frame, the D-pad and the A and B buttons."},
+      {"pocket", "Game Boy Pocket", "The Pocket's silver, slimmer frame and black buttons."},
+      {"green", "Dot Matrix", "The green of the Game Boy's screen, with its dots."},
+      {"tv", "Retro TV", "An old wooden tube TV around the picture."},
+      {"custom", "Your Own",
+       "Your own 1920x1080 PNG, see-through where the game goes: /data/EmuSuNi/bezels/gb/ with the "
+       "ROM's name (The Bezel Project's names), or bezels/gb.png for every game."}},
+     "off", true, "The handheld around the picture, see-through where the game goes.", FOR_GB},
+    {"gbc_bezel", "Bezel", "Video",
+     {{"off", "Off", "The picture alone, on black."},
+      {"console", "Berry", "The Game Boy Color in berry, with COLOR in its five colours."},
+      {"teal", "Teal", "The Game Boy Color in teal."},
+      {"atomic", "Atomic Purple", "See-through purple, the insides showing."},
+      {"tv", "Retro TV", "An old wooden tube TV around the picture."},
+      {"custom", "Your Own",
+       "Your own 1920x1080 PNG, see-through where the game goes: /data/EmuSuNi/bezels/gbc/ with the "
+       "ROM's name (The Bezel Project's names), or bezels/gbc.png for every game."}},
+     "off", true, "The handheld around the picture, see-through where the game goes.", FOR_GBC},
+    {"gba_bezel", "Bezel", "Video",
+     {{"off", "Off", "The picture alone, on black."},
+      {"console", "Indigo", "The Game Boy Advance in indigo, with L and R."},
+      {"glacier", "Glacier", "See-through ice blue, the insides showing."},
+      {"black", "Black", "A black Game Boy Advance with silver lines."},
+      {"tv", "Retro TV", "An old wooden tube TV around the picture."},
+      {"custom", "Your Own",
+       "Your own 1920x1080 PNG, see-through where the game goes: /data/EmuSuNi/bezels/gba/ with the "
+       "ROM's name (The Bezel Project's names), or bezels/gba.png for every game."}},
+     "off", true, "The handheld around the picture, see-through where the game goes.", FOR_GBA},
     {"overscan", "Crop Overscan", "Video",
      {{"enabled", "On", "224 lines: the empty lines at the top and bottom are hidden."},
       {"disabled", "Off", "Every line (some games show a black stripe or glitches at the edges)."},
@@ -124,7 +156,7 @@ const std::vector<Setting> SETTINGS = {
       {"pixels", "Sharp Pixels", "Bigger square pixels: crisp and even, like the original."}},
      "xbrz", true,
      "How Resolution redraws the pixels: xBRZ and HQx round the edges for an HD look; Sharp "
-     "Pixels keeps them square. HQx goes up to 4x.", FOR_RETRO},
+     "Pixels keeps them square. HQx goes up to 4x.", FOR_PIXELS},
     {"gpu_filter", "GPU Upscaler", "Graphics",
      {{"off", "Off", "The picture as Resolution and the Upscaling Filter make it."},
       {"pixel", "Pixel Art HD (xBRZ)",
@@ -132,7 +164,7 @@ const std::vector<Setting> SETTINGS = {
        "frees the CPU. The N64 gets Smooth HD."},
       {"ai", "AI (xBRZ + Anime4K)",
        "xBRZ, then a neural network (Anime4K) cleans every edge and curve: the smoothest HD look for "
-       "SNES and NES. The N64 gets Smooth HD."},
+       "SNES, NES and the Game Boys. The N64 gets Smooth HD."},
       {"fsr", "Smooth HD (AMD FSR)",
        "AMD FidelityFX Super Resolution: smooth upscaling with sharp edges, made for 3D (the N64 at "
        "Native and 2x; at 4x it sharpens)."},
@@ -187,7 +219,7 @@ const std::vector<Setting> SETTINGS = {
       {"light", "Light", "Faint lines."},
       {"medium", "Medium", "Clear lines."},
       {"strong", "Strong", "Dark lines, like an arcade monitor."}},
-     "off", true, "Dark lines between the picture's rows, like a CRT TV."},
+     "off", true, "Dark lines between the picture's rows, like a CRT TV; on the Game Boys, the grid between their screen's dots."},
     {"hires_blend", "Hi-Res Blending", "Graphics",
      {{"disabled", "Off", "The hi-res mode's columns as they are."},
       {"merge", "Merge", "Pairs of columns averaged: the see-through effects look as on a TV."},
@@ -203,6 +235,29 @@ const std::vector<Setting> SETTINGS = {
      {{"enabled", "On", "Water, shadows and fades as on the console."},
       {"disabled", "Off", "No colour math (to find graphic glitches)."}},
      "enabled", true, "Colour math: water, shadows, fades. Off only to diagnose glitches.", FOR_SNES},
+    {"gb_palette", "Game Boy Colours", "Graphics",
+     {{"gbc", "Game Boy Color", "As a Game Boy Color showed them: its own colours for Nintendo's games, green and blue for the others."},
+      {"dmg", "Game Boy (green)", "The first Game Boy's green screen."},
+      {"pocket", "Game Boy Pocket", "The Pocket's grey and black screen."},
+      {"light", "Game Boy Light", "The Light's blue-green backlight."},
+      {"gray", "Grey", "Four clean shades of grey."},
+      {"sgb", "Super Game Boy",
+       "As the Super Nintendo's Super Game Boy: the colours and the border the game made for it (Pokémon, "
+       "Donkey Kong, Kirby...); a TV's picture, a little faster."}},
+     "gbc", false, "The colours of the Game Boy's games (not those made for the Game Boy Color).", FOR_GB},
+    {"lcd_colors", "Screen Colours", "Graphics",
+     {{"vivid", "Vivid (as made)", "The colours the game made, bright and strong."},
+      {"lcd", "Handheld Screen", "As the handheld's screen showed them: softer, more natural colours."}},
+     "vivid", true,
+     "The games were made bright for the handheld's dark screen; Handheld Screen shows them as they looked "
+     "on it.", FOR_GBC | FOR_GBA},
+    {"lcd_ghosting", "LCD Ghosting", "Graphics",
+     {{"off", "Off", "Every frame as it is: the sharpest."},
+      {"smart", "Smart", "Only what flickers is blended: the see-through effects games made by flickering "
+       "(F-Zero, Boktai, Wave Race) look as on the handheld."},
+      {"mix", "Blend Frames", "Every frame blended with the one before."},
+      {"lcd", "LCD Ghosting", "Moving things leave a short trail, as on the slow screen of the handheld."}},
+     "off", true, "The handheld's screen kept a little of the frame before; some games count on it.", FOR_HANDHELD},
     // Performance
     {"cpu_clock", "Emulated CPU Clock", "Performance",
      {{"disabled", "100%", "The console's own speed."},
@@ -232,19 +287,43 @@ const std::vector<Setting> SETTINGS = {
      "fixed", false,
      "Which PS4 cores run an N64 game's threads. Fixed gives the emulation and its graphics thread a core "
      "each, so they run at the same time.", FOR_N64},
+    {"n64_picture", "N64 Picture Timing", "Performance",
+     {{"later", "One Frame Later",
+       "The graphics thread makes each picture while the N64 runs on: at 4x up to 3 ms less per frame; the "
+       "picture is shown one frame (17-20 ms) later."},
+      {"now", "At Once", "The N64 waits at every frame until its picture is made, as before."}},
+     "later", false,
+     "When the N64's picture is made: by the graphics thread one frame later (faster), or at once.", FOR_N64},
+    {"n64_cpu_timing", "N64 CPU Timing", "Performance",
+     {{"auto", "Auto", "Light for GoldenEye 007; Normal for the other games."},
+      {"normal", "Normal", "The emulator's own timing: the most frames the game can draw."},
+      {"light", "Light (as the N64)",
+       "The N64's processor a little slower against its clock: a game that drew few frames on the console "
+       "draws about as few, and the PS4 has much less to do (GoldenEye: about a third less). The game keeps "
+       "its speed; loading takes longer."}},
+     "auto", false,
+     "How much the N64's processor does between two pictures. Light keeps heavy games (GoldenEye 007) "
+     "smooth on the PS4.", FOR_N64},
     {"speed", "Emulation Speed", "Performance",
      {{"100", "100%"}, {"50", "50%"}, {"75", "75%"}, {"150", "150%"}, {"200", "200%"},
       {"300", "300%"}},
      "100", true, "The game's speed. 100% is the console's."},
-    {"fast_forward", "Fast Forward (R2)", "Performance",
-     {{"3", "3x"}, {"2", "2x"}, {"5", "5x"}, {"10", "10x"}, {"off", "Off", "R2 does nothing in the game."}},
-     "3", true, "Speed while R2 is held."},
+    {"fast_forward", "Fast Forward", "Performance",
+     {{"3", "3x"}, {"2", "2x"}, {"5", "5x"}, {"10", "10x"}, {"off", "Off", "The Fast Forward button does nothing."}},
+     "3", true, "Speed while the Fast Forward button is held (Controls: R2; on the N64, the touchpad)."},
     {"frameskip", "Frame Skip", "Performance",
      {{"off", "Off", "Every frame drawn."},
       {"auto", "Auto", "Skips drawing a frame only when the PS4 falls behind."},
       {"1", "1", "Draws every other frame."},
       {"2", "2", "Draws one frame in three."}},
-     "off", true, "Skips drawing some frames when the PS4 can't keep up (the game keeps its speed)."},
+     "off", true, "Skips drawing some frames when the PS4 can't keep up (the game keeps its speed).", FOR_RETRO},
+    {"frame_pacing", "N64 Frame Pacing", "Performance",
+     {{"even", "Even (V-Sync)",
+       "Each refresh shows the frame the game should be at when the TV shows it: PAL's 50 frames come out "
+       "even on the TV's 60, and a heavy frame doesn't make the next refresh jump two frames."},
+      {"clock", "By the Clock",
+       "By the time each pass of the emulator took, as 00.27: it catches up with two frames in one refresh."}},
+     "even", true, "How the N64's frames are spread over the TV's refreshes with V-Sync on.", FOR_N64},
     {"perf_overlay", "Performance Graphs", "Performance", {{"off", "Off"}, {"on", "On"}}, "off",
      true, "Frame time and speed graphs on screen."},
     // Emulation
@@ -259,7 +338,7 @@ const std::vector<Setting> SETTINGS = {
     {"echo_hack", "Echo Buffer Hack", "Emulation", {{"disabled", "Off"}, {"enabled", "On"}},
      "disabled", true, "Fixes the sound in a few hacks (Super Mario World ROM hacks).", FOR_SNES},
     {"up_down", "Allow Opposing Directions", "Emulation", {{"disabled", "Off"}, {"enabled", "On"}},
-     "disabled", true, "Up+Down or Left+Right at once (some games glitch with it).", FOR_RETRO},
+     "disabled", true, "Up+Down or Left+Right at once (some games glitch with it).", FOR_RETRO | FOR_HANDHELD},
     {"randomize_memory", "Randomize Memory", "Emulation", {{"disabled", "Off"}, {"enabled", "On"}},
      "disabled", false, "Starts with random RAM, as a real console. Some games need it.", FOR_RETRO},
     {"nes_palette", "NES Palette", "Emulation",
@@ -295,6 +374,22 @@ const std::vector<Setting> SETTINGS = {
      {{"on", "On", "Held, Square and Triangle press B and A over and over."},
       {"off", "Off", "No turbo: Square and Triangle do nothing in the game."}},
      "on", true, "The NES turbo buttons (Controls: Turbo B, Turbo A).", FOR_NES},
+    {"gb_bios", "Boot Logo (BIOS)", "Emulation",
+     {{"on", "On", "The handheld's own start, with its logo, when its BIOS is in the system folder."},
+      {"skip", "Skip the Logo", "The BIOS starts the game without its logo."},
+      {"off", "Off", "mGBA's own start: no BIOS needed."}},
+     "on", false,
+     "Optional: copy gb_bios.bin, gbc_bios.bin, sgb_bios.bin and gba_bios.bin to /data/EmuSuNi/system. "
+     "Without them mGBA starts the games itself.", FOR_HANDHELD},
+    {"gba_solar", "Sunlight (Boktai)", "Emulation",
+     {{"0", "0 (night)"}, {"2", "2"}, {"4", "4"}, {"6", "6 (sunny)"}, {"8", "8"}, {"10", "10 (full sun)"}},
+     "6", true, "The sunlight the solar sensor of the Boktai games sees.", FOR_GBA},
+    {"gb_tilt", "Tilt Sensor", "Emulation",
+     {{"stick", "Right Stick", "The right stick tilts and turns the handheld (WarioWare: Twisted!, Yoshi "
+       "Topsy-Turvy, Kirby Tilt 'n' Tumble)."},
+      {"motion", "DualShock 4 Motion", "Tilt and turn the DualShock 4 itself, starting from how you hold it "
+       "when the game starts (the right stick too)."}},
+     "stick", true, "For the games with a tilt or turn sensor in the cartridge.", FOR_GBC | FOR_GBA},
     // System
     {"language", "Language", "System",
      {{"en", "English"},
@@ -322,6 +417,10 @@ const std::vector<Setting> SETTINGS = {
       {"linear", "Linear", "Simple, a little harsh."},
       {"none", "No Interpolation", "The raw samples: sharp and noisy."}},
      "gaussian", true, "Gaussian sounds like the console; Cubic and Sinc are crisper.", FOR_SNES},
+    {"gb_audio_filter", "Sound Filter", "System",
+     {{"off", "Off", "The sound as the handheld made it."},
+      {"soft", "Soft", "A low-pass filter takes the harshness off the high notes."}},
+     "off", true, "Softens the handhelds' sharp sound.", FOR_HANDHELD},
     {"audio_buffer", "Audio Buffer", "System",
      {{"64", "64 ms", "The usual balance."},
       {"48", "48 ms", "Less delay; may crackle when the PS4 is busy."},
@@ -368,6 +467,7 @@ const std::vector<Preset> PRESETS = {
 std::mutex s_mutex;
 std::string s_path;
 std::map<std::string, std::map<std::string, std::string>> s_sections;  // "global", game IDs
+std::map<std::string, std::string> s_tour;  // the screenshot tour's values (SetTourValue)
 
 std::string Trim(std::string text)
 {
@@ -522,6 +622,9 @@ void Save()
 std::string Get(const std::string& key, const std::string& game_id)
 {
   std::lock_guard lock(s_mutex);
+  const auto tour = s_tour.find(key);
+  if (tour != s_tour.end())
+    return tour->second;
   if (key == "quality")
     return QualityLocked(game_id);
   return GetLocked(key, game_id);
@@ -569,6 +672,18 @@ std::vector<std::pair<std::string, std::string>> GlobalValues()
   if (global != s_sections.end())
     values.assign(global->second.begin(), global->second.end());
   return values;
+}
+
+void SetTourValue(const std::string& key, const std::string& value)
+{
+  std::lock_guard lock(s_mutex);
+  s_tour[key] = value;
+}
+
+void ClearTourValues()
+{
+  std::lock_guard lock(s_mutex);
+  s_tour.clear();
 }
 
 bool IsCustom(const std::string& game_id)

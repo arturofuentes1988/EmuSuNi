@@ -2,8 +2,9 @@
 
 // The screenshot tour (for the documentation): data_dir/tour.txt, when it is there at start-up, is
 // played by the app itself - waits, button presses, menu commands and screenshots of the screen
-// (data_dir/screenshots/<name>.png) - and renamed tour.txt.done at its end. The settings it
-// changes ("set <key> <value>") are put back then.
+// (data_dir/screenshots/<name>.png) - and renamed tour.txt.done at its end. The settings it sets
+// ("set <key> <value>") are the tour's own: above every game's, console's and global value, never
+// saved, gone at its end.
 //
 //   wait 1.5                      seconds before the next line
 //   press CROSS | L3+R3           DualShock 4 buttons, for one frame

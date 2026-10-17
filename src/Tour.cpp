@@ -24,8 +24,6 @@ std::vector<std::string> s_lines;
 size_t s_next = 0;
 float s_wait = 0.0f;
 bool s_active = false;
-// Global settings as they were before the tour changed them ("" = not set).
-std::map<std::string, std::string> s_saved;
 
 uint32_t Buttons(const std::string& names)
 {
@@ -111,19 +109,9 @@ Step Next(float dt)
   }
   else if (word == "set")
   {
+    // Above every game's, console's and global value, never saved (Settings::SetTourValue).
     const size_t gap = rest.find(' ');
-    const std::string key = rest.substr(0, gap);
-    if (!s_saved.count(key))
-    {
-      std::string before;
-      for (const auto& [global_key, value] : Settings::GlobalValues())
-      {
-        if (global_key == key)
-          before = value;
-      }
-      s_saved[key] = before;
-    }
-    Settings::Set(key, gap == std::string::npos ? std::string() : rest.substr(gap + 1));
+    Settings::SetTourValue(rest.substr(0, gap), gap == std::string::npos ? std::string() : rest.substr(gap + 1));
   }
   else if (word == "end")
   {
@@ -152,14 +140,7 @@ void Finish()
   if (!s_active)
     return;
   s_active = false;
-  for (const auto& [key, value] : s_saved)
-  {
-    if (value.empty())
-      Settings::ResetGlobal(key);
-    else
-      Settings::Set(key, value);
-  }
-  s_saved.clear();
+  Settings::ClearTourValues();
   const std::string path = s_data_dir + "/tour.txt";
   std::remove((path + ".done").c_str());
   std::rename(path.c_str(), (path + ".done").c_str());

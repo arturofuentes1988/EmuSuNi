@@ -12,6 +12,7 @@ EmuSuNi is built from these projects. Their licenses apply to their parts.
 | [Anime4K](https://github.com/bloc97/Anime4K) by bloc97: the Restore CNN (M) network (`src/third_party/anime4k`, made into `src/shaders/anime4k` by `scripts/make-anime4k.py`) | GPU Upscaler: AI | MIT |
 | snes_ntsc by Shay Green (blargg) | NTSC Filter | LGPL-2.1-or-later |
 | [FCEUmm](https://github.com/libretro/libretro-fceumm) (libretro-fceumm, with nes_ntsc by blargg and libretro-common) | The NES emulation, linked into the app | GPL-2.0-or-later (libretro-common: MIT) |
+| [mGBA](https://mgba.io) by Vicki Pfau and contributors ([libretro's fork](https://github.com/libretro/mgba), its libretro core; with inih by Ben Hoyt) | The Game Boy, Game Boy Color and Game Boy Advance emulation, linked into the app | [MPL-2.0](https://github.com/libretro/mgba/blob/master/LICENSE) (inih: BSD-3-Clause) |
 | [DolphinPS4](https://github.com/iHaiDeeZ/DolphinPS4) (based on the [Dolphin Emulator](https://dolphin-emu.org)) | The launcher's design, the PS4 runtime (`port/`), the build setup (`toolchain/`), the display code, language files, the Mesa patch | GPL-2.0-or-later |
 | [Mesa 3D](https://mesa3d.org) (RADV) with DolphinPS4's patch | Vulkan on the PS4's GPU | MIT |
 | [Dear ImGui](https://github.com/ocornut/imgui) 1.92.2b | Drawing the menus | MIT |

@@ -60,14 +60,23 @@ const System* SystemOfZip(const std::string& path)
   return found;
 }
 
+// The Game Boy and the Game Boy Color: their games' files are alike (a game made for both, like
+// Pokémon Yellow, is a .gb).
+bool GameBoyFamily(const System* system)
+{
+  return system && (system->id == SystemId::GB || system->id == SystemId::GBC);
+}
+
 // Is the file one of the console's games (a ROM, or a .zip with one inside; without open_zips,
-// any .zip)?
+// any .zip)? Without open_zips (the console's folder is its own) a Game Boy game in the Game Boy
+// Color's folder is the Game Boy Color's, and the other way round: the folder says where it goes.
 bool IsGameOf(const std::filesystem::path& path, const System& system, bool open_zips = true)
 {
   const std::string name = path.filename().string();
   if (HasExtension(name, {".zip"}))
     return !open_zips || SystemOfZip(path.string()) == &system;
-  return SystemOfFile(name) == &system;
+  const System* of = SystemOfFile(name);
+  return of == &system || (!open_zips && GameBoyFamily(of) && GameBoyFamily(&system));
 }
 
 const std::map<std::string, std::string>& Regions()
@@ -204,7 +213,10 @@ int CountGames(const std::string& folder, SystemId system)
   for (const auto& entry : std::filesystem::directory_iterator(folder, ec))
   {
     std::error_code type_error;
-    if (!entry.is_directory(type_error) && IsGameOf(entry.path(), GetSystem(system)))
+    const System& console = GetSystem(system);
+    if (!entry.is_directory(type_error) &&
+        (IsGameOf(entry.path(), console) ||
+         (GameBoyFamily(&console) && GameBoyFamily(SystemOfFile(entry.path().filename().string())))))
       count++;
   }
   return count;

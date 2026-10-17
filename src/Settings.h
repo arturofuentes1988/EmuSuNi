@@ -29,8 +29,15 @@ constexpr uint32_t FOR_ALL = 0xFF;
 constexpr uint32_t FOR_SNES = 1u << static_cast<int>(SystemId::SNES);
 constexpr uint32_t FOR_NES = 1u << static_cast<int>(SystemId::NES);
 constexpr uint32_t FOR_N64 = 1u << static_cast<int>(SystemId::N64);
+constexpr uint32_t FOR_GB = 1u << static_cast<int>(SystemId::GB);
+constexpr uint32_t FOR_GBC = 1u << static_cast<int>(SystemId::GBC);
+constexpr uint32_t FOR_GBA = 1u << static_cast<int>(SystemId::GBA);
+// The three Game Boys (mGBA).
+constexpr uint32_t FOR_HANDHELD = FOR_GB | FOR_GBC | FOR_GBA;
 // The Super Nintendo's and the NES's (the N64 draws on the GPU, its own way).
 constexpr uint32_t FOR_RETRO = FOR_SNES | FOR_NES;
+// The consoles whose picture the CPU hands over as pixels (Resolution, Upscaling Filter).
+constexpr uint32_t FOR_PIXELS = FOR_RETRO | FOR_HANDHELD;
 
 struct Setting
 {
@@ -82,6 +89,10 @@ bool GetOn(const std::string& key, const std::string& game_id = {});
 // Stores a value globally (game_id empty), or where the game's settings come from (its scope).
 void Set(const std::string& key, const std::string& value, const std::string& game_id = {});
 std::vector<std::pair<std::string, std::string>> GlobalValues();
+// The screenshot tour's values (Tour.cpp's "set"): above every game's, console's and global value
+// until cleared, never written to settings.ini.
+void SetTourValue(const std::string& key, const std::string& value);
+void ClearTourValues();
 bool IsCustom(const std::string& game_id);  // This Game
 // A custom game's values become the global ones (every game uses them); the game follows them.
 void CopyGameToGlobal(const std::string& game_id);

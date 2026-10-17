@@ -73,6 +73,9 @@ private:
   // Resampler state (producer side).
   double m_phase = 0.0;
   int16_t m_last[2] = {};
+  // Sound made faster than 1.2x the output's (the Game Boys' 131 kHz): two one-pole low-pass
+  // stages per channel before it is resampled, so its high notes don't fold back into it.
+  float m_low[2][2] = {};
   // Health (the log): counts since Start (the producer's and the sound thread's) and LogHealth's
   // last reading of them.
   struct Counts

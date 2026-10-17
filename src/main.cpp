@@ -4,6 +4,9 @@
 // in turn - all in this one process (a Super Nintendo is small enough that the menu and the
 // emulator share it; Dolphin for PS4 restarts itself between them).
 
+#include <cstdio>
+#include <cstdlib>
+#include <ctime>
 #include <fcntl.h>
 #include <string>
 #include <thread>
@@ -74,6 +77,32 @@ void LoadSystemModules()
   }
 }
 
+// The PS4's time zone for the C library (TZ), which is UTC without it: the menu's clock and dates,
+// and the cartridges' clocks (Pokémon Ruby, Sapphire and Emerald read the time through it).
+void SetTimeZone()
+{
+  int32_t minutes = 0, summer = 0;
+  if (sceSystemServiceParamGetInt(ORBIS_SYSTEM_SERVICE_PARAM_ID_TIME_ZONE, &minutes) != 0)
+  {
+    LogLine("time zone: unknown (UTC)");
+    return;
+  }
+  if (sceSystemServiceParamGetInt(ORBIS_SYSTEM_SERVICE_PARAM_ID_SUMMERTIME, &summer) != 0)
+    summer = 0;
+  const int offset = minutes + (summer ? 60 : 0);  // minutes ahead of UTC
+  // POSIX's sign is the other way round: "UTC-3" is three hours ahead of UTC.
+  char tz[32];
+  snprintf(tz, sizeof(tz), "UTC%c%d:%02d", offset > 0 ? '-' : '+', std::abs(offset) / 60, std::abs(offset) % 60);
+  setenv("TZ", tz, 1);
+  tzset();
+  const std::time_t now = std::time(nullptr);
+  std::tm local = {};
+  localtime_r(&now, &local);
+  char text[32];
+  std::strftime(text, sizeof(text), "%Y-%m-%d %H:%M", &local);
+  LogF("time zone: %d minutes, summer time %d: TZ=%s, local time %s", minutes, summer, tz, text);
+}
+
 // L1 held while the app starts: the menu instead of the default game.
 bool MenuButtonHeld()
 {
@@ -112,6 +141,7 @@ int main()
   setvbuf(stderr, nullptr, _IONBF, 0);
   LogF("%s %s starting", App::NAME, App::VERSION);
   LoadSystemModules();
+  SetTimeZone();
 #ifdef EMUSUNI_N64
   // How the PS4 lets code made at run time run (the N64 core's recompilers), once at start: every
   // executable mapping after this is made that way (port/ps4_runtime.cpp's mmap wrapper).

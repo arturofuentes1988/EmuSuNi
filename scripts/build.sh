@@ -8,7 +8,8 @@
 # 0x3800000000000035, plain param.sfo: 4.5 GiB of direct memory), as DolphinPS4 packages it; the
 # system identity (0x3100000000000002, RetroArch's) is only for Sony's OpenGL (Piglet).
 # The Nintendo 64's core, Mupen64Plus-Next, is built first by scripts/build-n64-core.sh (in its
-# own source tree: again only what changed) and linked in.
+# own source tree: again only what changed) and linked in; so is the Game Boy / Game Boy Color /
+# Game Boy Advance core, mGBA (/root/src/mgba), by scripts/build-gba-core.sh (in <build>/gba).
 #   build.sh [setup] [no-n64]   (setup: configure from scratch; no-n64: without the Nintendo 64)
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -28,6 +29,9 @@ if [ "$N64" = ON ]; then
 else
     EXTRA="-DEMUSUNI_N64=OFF"
 fi
+bash "$HERE/build-gba-core.sh" "$BUILD/gba"
+GBA_OBJECT="$BUILD/gba/gba_core.o"
+EXTRA="$EXTRA -DGBA_CORE_OBJECT=$GBA_OBJECT"
 source "$HERE/ps4-env.sh"
 # From scratch also when the Nintendo 64 comes in or goes out.
 if [ "$SETUP" = 1 ] || [ ! -f "$BUILD/build.ninja" ] || \
@@ -37,11 +41,20 @@ if [ "$SETUP" = 1 ] || [ ! -f "$BUILD/build.ninja" ] || \
         -DCMAKE_TOOLCHAIN_FILE="$SRC/toolchain/ps4-love-modern.cmake" \
         -DEMUSUNI_VERSION="${EMUSUNI_VERSION:-00.10}" \
         -DPS4_PAID="${PS4_PAID:-0x3800000000000035}" $EXTRA
-elif [ -n "${EMUSUNI_VERSION:-}" ] && \
-     ! grep -q "^EMUSUNI_VERSION:STRING=${EMUSUNI_VERSION}\$" "$BUILD/CMakeCache.txt"; then
-    # A new version number only: configure again, without building everything again.
-    env -u CFLAGS -u CXXFLAGS -u CPPFLAGS -u LDFLAGS -u LIBS \
-        cmake -DEMUSUNI_VERSION="$EMUSUNI_VERSION" "$BUILD" > /dev/null
+else
+    # A new version number, or the GBA core's object not yet in the cache (a build directory from
+    # before mGBA): configure again, without building everything again.
+    AGAIN=()
+    if [ -n "${EMUSUNI_VERSION:-}" ] && \
+       ! grep -q "^EMUSUNI_VERSION:STRING=${EMUSUNI_VERSION}\$" "$BUILD/CMakeCache.txt"; then
+        AGAIN+=(-DEMUSUNI_VERSION="$EMUSUNI_VERSION")
+    fi
+    if ! grep -q "^GBA_CORE_OBJECT:FILEPATH=$GBA_OBJECT\$" "$BUILD/CMakeCache.txt"; then
+        AGAIN+=(-DGBA_CORE_OBJECT="$GBA_OBJECT")
+    fi
+    if [ ${#AGAIN[@]} -gt 0 ]; then
+        env -u CFLAGS -u CXXFLAGS -u CPPFLAGS -u LDFLAGS -u LIBS cmake "${AGAIN[@]}" "$BUILD" > /dev/null
+    fi
 fi
 ninja -C "$BUILD"
 ls -la "$BUILD/emusuni_eboot/eboot.bin"

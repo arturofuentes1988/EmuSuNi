@@ -57,6 +57,20 @@ public:
   void SetVsync(bool on);
   // The time spent waiting for the TV and the GPU since the last call (ms).
   double TakeWaitMs();
+  // ---- Frame pacing (Emulator.cpp, src/Pacing.h) ----
+  // The TV's refresh rate as VideoOut reports it (59.94 Hz when it doesn't say).
+  double RefreshHz() const;
+  // VideoOut now: the newest flip on screen (flips are numbered 1, 2, ... in the order EndFrame
+  // submits them; NextFlip() is the next one's number), the flips queued behind it, and VideoOut's
+  // own count of vertical blanks (-1 when it can't be read).
+  struct FlipState
+  {
+    int64_t shown = 0;
+    int pending = 0;
+    int64_t vblanks = -1;
+  };
+  FlipState GetFlipState() const;
+  int64_t NextFlip() const;
   // The screen EndFrame just drew (WIDTH x HEIGHT, RGBA8), once the GPU has drawn it.
   bool Capture(std::vector<uint8_t>* rgba);
 

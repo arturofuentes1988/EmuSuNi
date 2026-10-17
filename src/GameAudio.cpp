@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstring>
 #include <mutex>
 
@@ -139,6 +140,7 @@ bool GameAudio::Start(int buffer_ms)
   m_write = 0;
   m_phase = 0.0;
   m_last[0] = m_last[1] = 0;
+  std::memset(m_low, 0, sizeof(m_low));
   m_stop = false;
   m_in = 0;
   m_dropped = 0;
@@ -213,9 +215,21 @@ void GameAudio::Push(const int16_t* samples, size_t frames, double input_rate)
   const size_t read = m_read.load(std::memory_order_acquire);
   size_t space = (read + m_capacity - write - 1) % m_capacity;
   uint64_t dropped = 0;
+  // Above 1.2x the output's rate: low-pass at 19 kHz first (std::exp: the stages' coefficient).
+  const bool filter = input_rate > RATE * 1.2;
+  const float alpha = filter ? static_cast<float>(1.0 - std::exp(-2.0 * 3.14159265358979 * 19000.0 / input_rate)) : 1.0f;
   for (size_t i = 0; i < frames; i++)
   {
-    const int16_t l = samples[i * 2], r = samples[i * 2 + 1];
+    int16_t l = samples[i * 2], r = samples[i * 2 + 1];
+    if (filter)
+    {
+      m_low[0][0] += alpha * (l - m_low[0][0]);
+      m_low[0][1] += alpha * (m_low[0][0] - m_low[0][1]);
+      m_low[1][0] += alpha * (r - m_low[1][0]);
+      m_low[1][1] += alpha * (m_low[1][0] - m_low[1][1]);
+      l = static_cast<int16_t>(std::clamp(m_low[0][1], -32768.0f, 32767.0f));
+      r = static_cast<int16_t>(std::clamp(m_low[1][1], -32768.0f, 32767.0f));
+    }
     while (m_phase < 1.0)
     {
       if (space == 0)

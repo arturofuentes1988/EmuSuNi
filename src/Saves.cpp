@@ -35,6 +35,11 @@ std::string SramPath(const std::string& game_id)
   return s_data_dir + "/saves/" + game_id + ".srm";
 }
 
+std::string RtcPath(const std::string& game_id)
+{
+  return s_data_dir + "/saves/" + game_id + ".rtc";
+}
+
 std::string StatePath(const std::string& game_id, int slot)
 {
   return s_data_dir + "/states/" + game_id + ".state" + std::to_string(slot);
@@ -107,6 +112,7 @@ std::vector<GameSaves> List()
 
 bool DeleteSram(const std::string& game_id)
 {
+  std::remove(RtcPath(game_id).c_str());
   return std::remove(SramPath(game_id).c_str()) == 0;
 }
 

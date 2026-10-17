@@ -29,6 +29,7 @@
 #include "IngameMenu.h"
 #include "LibretroVulkan.h"
 #include "Log.h"
+#include "Pacing.h"
 #include "PS4Lang.h"
 #include "Saves.h"
 #include "Settings.h"
@@ -55,6 +56,8 @@ extern "C" void ac_ps4_get_gpu_busy(uint64_t* busy_ticks, uint64_t* span_ticks);
 extern "C" int emusuni_get_affinity(OrbisPthread thread, uint64_t* mask) __asm__("scePthreadGetaffinity");
 extern "C" int emusuni_set_affinity(OrbisPthread thread, uint64_t mask) __asm__("scePthreadSetaffinity");
 extern "C" void ac_ps4_get_stats(uint64_t* submitted, uint64_t* completed, uint64_t* bo_bytes, uint64_t* bo_count);
+// libScePad's motion sensors on or off (OpenOrbis declares it without parameters).
+extern "C" int emusuni_pad_set_motion(int handle, bool enable) __asm__("scePadSetMotionSensorState");
 
 namespace Emulator
 {
@@ -118,7 +121,11 @@ bool SetRumble(unsigned port, enum retro_rumble_effect effect, uint16_t strength
 {
   if (port >= MAX_PLAYERS || s_pad_handles[port] < 0)
     return false;
-  s_rumble[port][effect == RETRO_RUMBLE_STRONG ? 0 : 1] = static_cast<uint8_t>(strength >> 8);
+  uint8_t& motor = s_rumble[port][effect == RETRO_RUMBLE_STRONG ? 0 : 1];
+  const uint8_t value = static_cast<uint8_t>(strength >> 8);
+  if (motor == value)
+    return true;  // mGBA sets both motors every frame, mostly to what they are
+  motor = value;
   OrbisPadVibeParam motors = {s_rumble[port][0], s_rumble[port][1]};
   scePadSetVibration(s_pad_handles[port], &motors);
   return true;
@@ -136,6 +143,89 @@ void StopRumble()
     s_rumble[i] = {};
   }
 }
+// ---- The Game Boys ----
+// The Game Boy game's cartridge header: made for the Game Boy Color (0x143), with Super Game Boy
+// features (0x146).
+bool s_gb_color_game = false, s_gb_sgb_game = false;
+// The N64 cartridge's name in its header ("GOLDENEYE"): N64 CPU Timing's Auto.
+std::string s_n64_name;
+
+// The name in an N64 ROM's header (0x20, 20 characters), whatever the file's byte order (.z64 as the
+// cartridge, .v64 with its bytes swapped in pairs, .n64 in fours).
+std::string N64Name(const std::vector<uint8_t>& rom)
+{
+  if (rom.size() < 0x40)
+    return {};
+  uint8_t header[0x40];
+  std::memcpy(header, rom.data(), sizeof(header));
+  if (header[0] == 0x37 && header[1] == 0x80)
+  {
+    for (size_t i = 0; i < sizeof(header); i += 2)
+      std::swap(header[i], header[i + 1]);
+  }
+  else if (header[0] == 0x40 && header[1] == 0x12)
+  {
+    for (size_t i = 0; i < sizeof(header); i += 4)
+    {
+      std::swap(header[i], header[i + 3]);
+      std::swap(header[i + 1], header[i + 2]);
+    }
+  }
+  std::string name(reinterpret_cast<const char*>(header + 0x20), 20);
+  while (!name.empty() && (name.back() == ' ' || name.back() == '\0'))
+    name.pop_back();
+  return name;
+}
+
+// The tilt and turn sensors of some cartridges (WarioWare: Twisted!, Yoshi Topsy-Turvy, Kirby Tilt
+// 'n' Tumble), through libretro's sensor interface in Android's units and axes, as mGBA reads it
+// (m/s^2 along the handheld's x to the right and y up its screen; rad/s around z, out of the screen,
+// anticlockwise): player 1's right stick, and with Tilt Sensor: DualShock 4 Motion the controller's
+// own sensors, from how it was held when the game started (or the in-game menu closed). The
+// DualShock 4's axes: x right, y up out of its face, z towards the player; held like the handheld
+// lying flat, the handheld's y is the DualShock's -z, and turning it like a wheel is around its z.
+struct Tilt
+{
+  float stick_x = 0.0f, stick_y = 0.0f;  // -1..1, y down
+  bool motion = false;                   // the DualShock 4's sensors too
+  bool calibrate = true;                 // the next reading is the controller at rest
+  vec_float3 accel{}, rest{};            // G
+  float turn = 0.0f;                     // rad/s around the DualShock 4's z
+};
+Tilt s_tilt;
+// libretro's sensor actions and inputs (Snes9x's libretro.h has the first two of each only).
+constexpr int SENSOR_ACCELEROMETER_ENABLE = 0, SENSOR_GYROSCOPE_ENABLE = 2;
+constexpr unsigned SENSOR_ACCELEROMETER_X = 0, SENSOR_ACCELEROMETER_Y = 1, SENSOR_GYROSCOPE_Z = 5;
+constexpr float MAX_TILT = 7.0f;  // m/s^2 (about 45 degrees): mGBA's scale keeps it inside 32 bits
+constexpr float MAX_TURN = 3.8f;  // rad/s
+
+bool SensorState(unsigned port, enum retro_sensor_action action, unsigned)
+{
+  const int what = static_cast<int>(action);
+  // Enabling the accelerometer or the gyroscope (not the light sensor: Sunlight is a setting).
+  return port == 0 && (what == SENSOR_ACCELEROMETER_ENABLE || what == SENSOR_GYROSCOPE_ENABLE ||
+                       what == SENSOR_ACCELEROMETER_ENABLE + 1 || what == SENSOR_GYROSCOPE_ENABLE + 1);
+}
+
+float SensorInput(unsigned port, unsigned id)
+{
+  if (port != 0)
+    return 0.0f;
+  const Tilt& t = s_tilt;
+  const float g = 9.81f;
+  switch (id)
+  {
+  case SENSOR_ACCELEROMETER_X:  // tilted right: the right side down reads negative
+    return std::clamp(-t.stick_x * MAX_TILT + (t.motion ? (t.accel.x - t.rest.x) * g : 0.0f), -MAX_TILT, MAX_TILT);
+  case SENSOR_ACCELEROMETER_Y:  // the top tilted away (the stick up): negative
+    return std::clamp(t.stick_y * MAX_TILT - (t.motion ? (t.accel.z - t.rest.z) * g : 0.0f), -MAX_TILT, MAX_TILT);
+  case SENSOR_GYROSCOPE_Z:  // turned clockwise (the stick right): negative
+    return std::clamp(-t.stick_x * MAX_TURN * 0.9f + (t.motion ? t.turn : 0.0f), -MAX_TURN, MAX_TURN);
+  default:
+    return 0.0f;
+  }
+}
+
 // The newest picture (valid until the next retro_run).
 const void* s_frame = nullptr;
 unsigned s_frame_w = 0, s_frame_h = 0;
@@ -249,13 +339,70 @@ void BuildN64Variables(const std::string& g)
       Settings::Get("n64_fb_effects", g) == "smooth" ? "True" : "False";
   s_variables[prefix + "aspect"] = "4:3";
   s_variables[prefix + "Framerate"] = "Original";
+  // N64 CPU Timing: Light is 3 counts per instruction (the core's game list uses it for 25 games),
+  // Normal the list's own (2 for the others). GoldenEye then draws about 23 frames a second instead
+  // of 33 (the console: about 20), with about a third less RSP and RDP work per second.
+  const std::string timing = Settings::Get("n64_cpu_timing", g);
+  const bool light = timing == "light" || (timing == "auto" && s_n64_name == "GOLDENEYE");
+  s_variables[prefix + "CountPerOp"] = light ? "3" : "0";
   s_variables[prefix + "virefresh"] = "Auto";
   s_variables[prefix + "pak1"] = Settings::Get("n64_pak", g);
   for (const char* pak : {"pak2", "pak3", "pak4"})
     s_variables[prefix + pak] = "memory";
   s_variables[prefix + "astick-deadzone"] = "15";
   s_variables[prefix + "astick-sensitivity"] = "100";
-  s_variables[prefix + "alt-map"] = "False";
+  // Independent C-button Controls: every N64 button on a RetroPad button of its own, as
+  // src/Controls.cpp sends them (without it R2 is a C-button mode that takes A and B away, R and L
+  // are R1 and L1, and the C buttons on the face buttons only work with R2 held).
+  s_variables[prefix + "alt-map"] = "True";
+}
+
+// A setting of the running game's console, else `other` (the global value of a setting for other
+// consoles isn't this one's).
+std::string ConsoleSetting(const char* key, const std::string& g, const char* other)
+{
+  const Settings::Setting* setting = Settings::Find(key);
+  return setting && Settings::AppliesTo(*setting, s_system) ? Settings::Get(key, g) : std::string(other);
+}
+
+// mGBA's options (the three Game Boys). A game for the first Game Boy runs on it with the colours
+// chosen (Game Boy Colours), or on the Super Game Boy: mGBA's Autodetect would make the ones with
+// Super Game Boy features (Pokémon) a Super Game Boy's 256x224 picture at 61 FPS. A Game Boy Color
+// game runs on the Game Boy Color, a Game Boy Advance game on its own.
+void BuildGbVariables(const std::string& g)
+{
+  const bool dmg = s_system != SystemId::GBA && !s_gb_color_game;
+  const std::string palette = Settings::Get("gb_palette", g);
+  const bool sgb = dmg && palette == "sgb";
+  s_variables["mgba_gb_model"] = !dmg ? "Autodetect" : sgb ? "Super Game Boy" : "Game Boy";
+  s_variables["mgba_sgb_borders"] = sgb ? "ON" : "OFF";
+  // The palette, and where the game's own colours come from: the Game Boy Color's list of
+  // Nintendo's games (the others get its green and blue, as on it), the Super Game Boy's.
+  s_variables["mgba_gb_colors_preset"] = palette == "gbc" ? "1" : sgb ? "2" : "0";
+  s_variables["mgba_gb_colors"] = palette == "dmg"    ? "DMG Green" :
+                                  palette == "pocket" ? "GB Pocket" :
+                                  palette == "light"  ? "GB Light" :
+                                  palette == "gray"   ? "Grayscale" :
+                                  sgb                 ? "SGB 1-A" :
+                                                        "GBC Dark Green \xE2\x86\x92" "A";  // "→A"
+  const std::string bios = ConsoleSetting("gb_bios", g, "on");
+  s_variables["mgba_use_bios"] = bios == "off" ? "OFF" : "ON";
+  s_variables["mgba_skip_bios"] = bios == "skip" ? "ON" : "OFF";
+  s_variables["mgba_color_correction"] = ConsoleSetting("lcd_colors", g, "vivid") == "lcd" ? "Auto" : "OFF";
+  const std::string ghosting = ConsoleSetting("lcd_ghosting", g, "off");
+  s_variables["mgba_interframe_blending"] = ghosting == "smart" ? "mix_smart" :
+                                            ghosting == "mix"   ? "mix" :
+                                            ghosting == "lcd"   ? "lcd_ghosting" :
+                                                                  "OFF";
+  const bool soft = ConsoleSetting("gb_audio_filter", g, "off") == "soft";
+  s_variables["mgba_audio_low_pass_filter"] = soft ? "enabled" : "disabled";
+  s_variables["mgba_audio_low_pass_range"] = "60";
+  s_variables["mgba_allow_opposing_directions"] = Settings::Get("up_down", g) == "enabled" ? "yes" : "no";
+  s_variables["mgba_solar_sensor_level"] = ConsoleSetting("gba_solar", g, "6");
+  s_variables["mgba_force_gbp"] = "OFF";
+  s_variables["mgba_idle_optimization"] = "Remove Known";
+  s_variables["mgba_frameskip"] = "disabled";
+  s_tilt.motion = ConsoleSetting("gb_tilt", g, "stick") == "motion";
 }
 
 void BuildVariables()
@@ -265,6 +412,8 @@ void BuildVariables()
     BuildNesVariables(s_game_id);
   else if (s_system == SystemId::N64)
     BuildN64Variables(s_game_id);
+  else if (IsHandheld(s_system))
+    BuildGbVariables(s_game_id);
   else
     BuildSnesVariables(s_game_id);
   s_variables_changed = true;
@@ -377,6 +526,18 @@ bool Environment(unsigned command, void* data)
   case RETRO_ENVIRONMENT_GET_RUMBLE_INTERFACE:
     static_cast<retro_rumble_interface*>(data)->set_rumble_state = SetRumble;
     return true;
+  case RETRO_ENVIRONMENT_GET_INPUT_BITMASKS:
+    // mGBA reads all the buttons at once (InputState's mask); the other cores as before.
+    return IsHandheld(s_system);
+  case RETRO_ENVIRONMENT_GET_SENSOR_INTERFACE:
+  {
+    if (!IsHandheld(s_system) || !data)
+      return false;
+    auto* sensors = static_cast<retro_sensor_interface*>(data);
+    sensors->set_sensor_state = SensorState;
+    sensors->get_sensor_input = SensorInput;
+    return true;
+  }
   case RETRO_ENVIRONMENT_SET_HW_RENDER:
   {
     // Vulkan only, on the display's device (made by ParaLLEl-RDP in the N64 build).
@@ -557,6 +718,7 @@ struct Picture
 {
   ImVec2 min, max;
   float rows = 224.0f;  // the game's lines (for scanlines)
+  float columns = 0.0f; // a handheld's screen: its dots across (for the grid between them)
 };
 
 // The bezel (Video: Bezel): a frame over the TV's sides, see-through where the game goes. The
@@ -673,9 +835,27 @@ void DrawScanlines(ImDrawList* dl, const Picture& picture, const std::string& ga
     return;
   const int alpha = scanlines == "light" ? 60 : scanlines == "medium" ? 110 : 160;
   const float row = (picture.max.y - picture.min.y) / picture.rows;
+  if (picture.columns > 0.0f)
+  {
+    // A handheld's LCD: thin dark lines between its dots, both ways.
+    const ImU32 grid = IM_COL32(0, 0, 0, alpha * 3 / 4);
+    const float column = (picture.max.x - picture.min.x) / picture.columns;
+    const float line = std::max(1.0f, std::min(row, column) * 0.18f);
+    for (float y = picture.min.y + row; y < picture.max.y - 0.5f; y += row)
+      dl->AddRectFilled(ImVec2(picture.min.x, y - line * 0.5f), ImVec2(picture.max.x, y + line * 0.5f), grid);
+    for (float x = picture.min.x + column; x < picture.max.x - 0.5f; x += column)
+      dl->AddRectFilled(ImVec2(x - line * 0.5f, picture.min.y), ImVec2(x + line * 0.5f, picture.max.y), grid);
+    return;
+  }
   const ImU32 dark = IM_COL32(0, 0, 0, alpha);
   for (float y = picture.min.y; y < picture.max.y; y += row)
     dl->AddRectFilled(ImVec2(picture.min.x, y + row * 0.55f), ImVec2(picture.max.x, y + row), dark);
+}
+
+// The NTSC filter makes the picture (the Super Nintendo's and the NES's).
+bool NtscFilterOn(const std::string& game)
+{
+  return (s_system == SystemId::SNES || s_system == SystemId::NES) && Settings::Get("ntsc_filter", game) != "disabled";
 }
 
 // The GPU filter for the picture (Graphics > GPU Upscaler), as this console and picture can use it.
@@ -696,8 +876,7 @@ GpuFilter::Mode GpuMode(const std::string& game)
     if (mode == GpuFilter::Mode::Smooth && s_frame_w >= 2560)
       mode = GpuFilter::Mode::Sharpen;
   }
-  else if ((mode == GpuFilter::Mode::PixelArt || mode == GpuFilter::Mode::AI) &&
-           Settings::Get("ntsc_filter", game) != "disabled")
+  else if ((mode == GpuFilter::Mode::PixelArt || mode == GpuFilter::Mode::AI) && NtscFilterOn(game))
   {
     mode = GpuFilter::Mode::Off;  // the NTSC filter's picture is a TV's look of its own
   }
@@ -731,7 +910,14 @@ Picture PlacePicture(const std::string& game)
   picture.rows = lines;
   const std::string aspect = Settings::Get("aspect", game);
   float ratio = 4.0f / 3.0f;
-  if (aspect == "pixel" && s_system != SystemId::N64)  // the N64's picture is 4:3 already
+  // A handheld's screen keeps its shape (10:9, the Game Boy Advance's 3:2) at Auto and Pixel
+  // Perfect: its dots are square. The Super Game Boy's 256x224 picture was a TV's.
+  const bool screen = IsHandheld(s_system) && s_frame_w != 256;
+  if (screen)
+    picture.columns = static_cast<float>(s_frame_w);
+  if (screen && (aspect == "auto" || aspect == "pixel"))
+    ratio = static_cast<float>(s_frame_w) / std::max(1.0f, frame_h);
+  else if (aspect == "pixel" && s_system != SystemId::N64)  // the N64's picture is 4:3 already
     ratio = 256.0f / std::max(1.0f, lines);
   else if (aspect == "wide")
     ratio = 16.0f / 9.0f;
@@ -833,7 +1019,7 @@ void UploadPicture(Display& display, const std::string& game)
   int factor = std::atoi(Settings::Get("resolution", game).c_str());
   if (s_frame_w > 300 || s_frame_h > 300)
     factor /= 2;  // hi-res and interlaced pictures are twice as big already
-  if (Settings::Get("ntsc_filter", game) != "disabled")
+  if (NtscFilterOn(game))
     factor = 1;  // the NTSC filter's picture is a TV's look of its own
   const GpuFilter::Mode gpu = GpuMode(game);
   if (GpuRedraws(gpu) && GpuFilter::Ready(gpu))
@@ -869,41 +1055,59 @@ void UploadPicture(Display& display, const std::string& game)
 }
 
 // ---- Saves ----
-std::vector<uint8_t> s_sram_saved;  // the battery save as last written
+// The battery save (RETRO_MEMORY_SAVE_RAM, <key>.srm) and a Game Boy cartridge's clock
+// (RETRO_MEMORY_RTC, <key>.rtc), each as last written.
+std::vector<uint8_t> s_sram_saved, s_rtc_saved;
+
+void LoadMemory(unsigned id, const std::string& path, std::vector<uint8_t>* saved, const char* what)
+{
+  uint8_t* data = static_cast<uint8_t*>(s_core->get_memory_data(id));
+  const size_t size = s_core->get_memory_size(id);
+  saved->clear();
+  if (!data || size == 0)
+    return;
+  FILE* file = fopen(path.c_str(), "rb");
+  if (file)
+  {
+    const size_t read = fread(data, 1, size, file);
+    fclose(file);
+    LogF("save: %zu of %zu bytes of %s loaded", read, size, what);
+  }
+  saved->assign(data, data + size);
+}
+
+// Writes it when the game changed it (or always, with force). A save the game never touched
+// (all 0xFF: a Game Boy Advance game's 128 KiB before it first saves) isn't written.
+void SaveMemory(unsigned id, const std::string& path, std::vector<uint8_t>* saved, const char* what, bool force)
+{
+  const uint8_t* data = static_cast<const uint8_t*>(s_core->get_memory_data(id));
+  const size_t size = s_core->get_memory_size(id);
+  if (!data || size == 0)
+    return;
+  if (!force && saved->size() == size && std::memcmp(saved->data(), data, size) == 0)
+    return;
+  if (std::all_of(data, data + size, [](uint8_t b) { return b == 0xFF; }) && !FileExists(path))
+  {
+    saved->assign(data, data + size);
+    return;
+  }
+  if (WriteTextFile(path, std::string(reinterpret_cast<const char*>(data), size)))
+  {
+    saved->assign(data, data + size);
+    LogF("save: %s written (%zu bytes)", what, size);
+  }
+}
 
 void LoadSram()
 {
-  uint8_t* sram = static_cast<uint8_t*>(s_core->get_memory_data(RETRO_MEMORY_SAVE_RAM));
-  const size_t size = s_core->get_memory_size(RETRO_MEMORY_SAVE_RAM);
-  s_sram_saved.clear();
-  if (!sram || size == 0)
-    return;
-  FILE* file = fopen(Saves::SramPath(s_game_id).c_str(), "rb");
-  if (file)
-  {
-    const size_t read = fread(sram, 1, size, file);
-    fclose(file);
-    LogF("save: %zu of %zu bytes of battery save loaded", read, size);
-  }
-  s_sram_saved.assign(sram, sram + size);
+  LoadMemory(RETRO_MEMORY_SAVE_RAM, Saves::SramPath(s_game_id), &s_sram_saved, "battery save");
+  LoadMemory(RETRO_MEMORY_RTC, Saves::RtcPath(s_game_id), &s_rtc_saved, "cartridge clock");
 }
 
-// Writes the battery save when the game changed it.
 void SaveSram(bool force)
 {
-  const uint8_t* sram = static_cast<const uint8_t*>(s_core->get_memory_data(RETRO_MEMORY_SAVE_RAM));
-  const size_t size = s_core->get_memory_size(RETRO_MEMORY_SAVE_RAM);
-  if (!sram || size == 0)
-    return;
-  if (!force && s_sram_saved.size() == size && std::memcmp(s_sram_saved.data(), sram, size) == 0)
-    return;
-  const std::string path = Saves::SramPath(s_game_id);
-  const std::string text(reinterpret_cast<const char*>(sram), size);
-  if (WriteTextFile(path, text))
-  {
-    s_sram_saved.assign(sram, sram + size);
-    LogF("save: battery save written (%zu bytes)", size);
-  }
+  SaveMemory(RETRO_MEMORY_SAVE_RAM, Saves::SramPath(s_game_id), &s_sram_saved, "battery save", force);
+  SaveMemory(RETRO_MEMORY_RTC, Saves::RtcPath(s_game_id), &s_rtc_saved, "cartridge clock", force);
 }
 
 bool SaveState(int slot)
@@ -955,7 +1159,93 @@ struct Stats
   int draws = 0;
   int frames10 = 0;
   float time10 = 0.0f;
+  // ---- The pacing line, over the same 10 s of play (the in-game menu left out) ----
+  int emulated10 = 0;
+  int64_t total = 0;                   // frames emulated since the game started
+  std::vector<float> pass_ms, run_ms;  // each pass of the loop, each emulated frame
+  std::array<int, 4> per_pass{};       // passes that ran 0, 1, 2, 3+ frames
+  int64_t let_go = 0;                  // frames skipped far behind (FramePacer)
+  int64_t vblanks0 = -1, shown0 = 0;   // VideoOut at the window's start
+  // Each flip's frame (`total` when it was drawn), by flip number % 8; the newest flip shown that
+  // was counted, its frame; and the flips shown by their step from the flip before: 0 = the same
+  // frame again (PAL's cadence on 60 Hz), 1 = the next frame, 2 and 3+ = frames jumped over.
+  std::array<int64_t, 8> flip_frame{};
+  int64_t counted = -1, counted_frame = -1;
+  std::array<int, 4> steps{};
 };
+
+// The p-th percentile (0-100) of the values (reorders them).
+float Percentile(std::vector<float>& values, double p)
+{
+  if (values.empty())
+    return 0.0f;
+  const size_t k = std::min(values.size() - 1, static_cast<size_t>(p / 100.0 * (values.size() - 1) + 0.5));
+  std::nth_element(values.begin(), values.begin() + static_cast<std::ptrdiff_t>(k), values.end());
+  return values[k];
+}
+
+// The flips VideoOut showed since the last call (shown: the newest one's number), by their steps.
+void CountShownFlips(Stats& stats, int64_t shown)
+{
+  if (stats.counted < 0 || shown < stats.counted || shown - stats.counted > 6)
+  {
+    stats.counted = shown;  // the start, after the menu, or more flips than the 8 kept
+    stats.counted_frame = -1;
+    return;
+  }
+  for (int64_t flip = stats.counted + 1; flip <= shown; flip++)
+  {
+    const int64_t frame = stats.flip_frame[static_cast<size_t>(flip % 8)];
+    if (stats.counted_frame >= 0)
+      stats.steps[static_cast<size_t>(std::clamp<int64_t>(frame - stats.counted_frame, 0, 3))]++;
+    stats.counted_frame = frame;
+  }
+  stats.counted = shown;
+}
+
+// A new 10 s window for the speed and pacing lines.
+void ResetWindow(Stats& stats, const Display::FlipState& flip)
+{
+  stats.draw_ms = stats.draw_wait_ms = 0.0;
+  stats.draws = 0;
+  stats.frames10 = 0;
+  stats.time10 = 0.0f;
+  stats.core_ms = 0.0;
+  stats.core_runs = 0;
+  stats.core_max = 0.0f;
+  stats.emulated10 = 0;
+  stats.pass_ms.clear();
+  stats.run_ms.clear();
+  stats.per_pass = {};
+  stats.let_go = 0;
+  stats.steps = {};
+  stats.vblanks0 = flip.vblanks;
+  stats.shown0 = flip.shown;
+}
+
+// How evenly the frames reached the TV in the window (after the speed line). Refreshes: VideoOut's
+// own count; late: refreshes no new flip was ready for (the picture before stayed on); the same
+// frame again: flips of the frame already shown (PAL on 60 Hz: one refresh in six by design);
+// jumped: flips 2+ frames after the one before; let go: frames skipped far behind.
+void LogPacing(Stats& stats, const Display::FlipState& flip)
+{
+  const long long refreshes =
+      stats.vblanks0 >= 0 && flip.vblanks >= stats.vblanks0 ? static_cast<long long>(flip.vblanks - stats.vblanks0) : -1;
+  const long long shown = static_cast<long long>(flip.shown - stats.shown0);
+  const float pass_max = stats.pass_ms.empty() ? 0.0f : *std::max_element(stats.pass_ms.begin(), stats.pass_ms.end());
+  const float run_max = stats.run_ms.empty() ? 0.0f : *std::max_element(stats.run_ms.begin(), stats.run_ms.end());
+  const float pass50 = Percentile(stats.pass_ms, 50), pass95 = Percentile(stats.pass_ms, 95);
+  const float pass99 = Percentile(stats.pass_ms, 99);
+  const float run50 = Percentile(stats.run_ms, 50), run95 = Percentile(stats.run_ms, 95);
+  const float run99 = Percentile(stats.run_ms, 99);
+  LogF("pacing: %lld refreshes, %lld late; %lld flips shown: %d the same frame again, %d the next, %d jumped 2+ "
+       "frames; %d frames (%lld let go), per pass 0:%d 1:%d 2:%d 3+:%d; passes p50/p95/p99/max %.1f/%.1f/%.1f/%.1f ms;"
+       " frames p50/p95/p99/max %.1f/%.1f/%.1f/%.1f ms",
+       refreshes, refreshes >= 0 ? refreshes - shown : -1LL, shown, stats.steps[0], stats.steps[1],
+       stats.steps[2] + stats.steps[3], stats.emulated10, static_cast<long long>(stats.let_go), stats.per_pass[0],
+       stats.per_pass[1], stats.per_pass[2], stats.per_pass[3], pass50, pass95, pass99, pass_max, run50, run95, run99,
+       run_max);
+}
 
 void DrawStats(ImDrawList* dl, ImFont* bold, const Stats& stats, bool fps, bool graphs, float fill)
 {
@@ -1046,6 +1336,22 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   s_save_dir = std::string(App::DATA_DIR) + "/saves";
   MakeDirs(s_system_dir);
   Saves::Init(App::DATA_DIR);
+  // A Game Boy cartridge's header: for the Game Boy Color (0x80: also the Game Boy, 0xC0: only it),
+  // with Super Game Boy features (0x03).
+  s_gb_color_game = rom.size() > 0x146 && (rom[0x143] & 0x80) != 0;
+  s_gb_sgb_game = rom.size() > 0x146 && rom[0x146] == 0x03;
+  s_tilt = {};
+  s_n64_name = s_system == SystemId::N64 ? N64Name(rom) : std::string();
+  if (s_system == SystemId::N64)
+  {
+    LogF("n64: cartridge \"%s\", N64 CPU Timing %s", s_n64_name.c_str(),
+         Settings::Get("n64_cpu_timing", game.key).c_str());
+  }
+  if (s_system == SystemId::GB || s_system == SystemId::GBC)
+  {
+    LogF("gb: a game for the %s%s", s_gb_color_game ? "Game Boy Color" : "Game Boy",
+         s_gb_sgb_game ? ", with Super Game Boy features" : "");
+  }
   BuildVariables();
   s_frame = nullptr;
   s_frame_w = s_frame_h = 0;
@@ -1091,6 +1397,9 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
         std::filesystem::remove(entry.path(), ec);  // an older version's
     }
     setenv("EMUSUNI_RDP_PIPELINE_CACHE", path.c_str(), 1);
+    // N64 Picture Timing: ParaLLEl-RDP's command thread makes the picture, shown one frame later
+    // (scripts/build-n64-core.sh: read by RDP::init() at the game's start).
+    setenv("EMUSUNI_ASYNC_SCANOUT", Settings::Get("n64_picture", game.key) == "now" ? "0" : "1", 1);
   }
   retro_game_info info = {};
   info.path = game.path.c_str();
@@ -1124,8 +1433,8 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
 #endif
   const bool loaded = s_core->load_game(&info);
   s_info_ext = {};
-  if (s_system == SystemId::N64)
-    std::vector<uint8_t>().swap(rom);  // Mupen64Plus copies the ROM: 32-64 MiB back to the heap
+  if (s_system == SystemId::N64 || IsHandheld(s_system))
+    std::vector<uint8_t>().swap(rom);  // Mupen64Plus and mGBA copy the ROM: up to 64 MiB back to the heap
   if (loaded && s_hw_vulkan && s_hw_render.context_reset)
   {
     // The context is ready (the display's device): the core sets up its renderer.
@@ -1176,6 +1485,18 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
 
   Pads pads;
   pads.Open();
+  // Tilt Sensor: DualShock 4 Motion - player 1's motion sensors on.
+  bool motion_on = false;
+  auto update_motion = [&]() {
+    const int handle = pads.pads[0].handle;
+    if (!IsHandheld(s_system) || handle < 0 || s_tilt.motion == motion_on)
+      return;
+    const int result = emusuni_pad_set_motion(handle, s_tilt.motion);
+    motion_on = s_tilt.motion;
+    s_tilt.calibrate = true;
+    LogF("gb: DualShock 4 motion sensors %s (%#x)", motion_on ? "on" : "off", static_cast<unsigned>(result));
+  };
+  update_motion();
   // The emulation thread first on its core while a game runs: a background thread on the same core
   // (ParaLLEl-RDP's shader compiles, the covers) waits instead of stopping the game. The PS4's
   // priorities: lower is higher, 700 the default. The thread never spins on another one (it blocks).
@@ -1199,6 +1520,12 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   Controls::Layout layout = Controls::LayoutFor(game.key, game.system);
 
   Stats stats;
+  stats.pass_ms.reserve(4096);
+  stats.run_ms.reserve(4096);
+  ResetWindow(stats, display.GetFlipState());
+  FramePacer pacer;
+  VblankCheck vblank_check;
+  const auto game_start = Clock::now();
   display.TakeWaitMs();  // the menu's waits aren't the game's
   auto last = Clock::now();
   double schedule = 0.0;  // frames owed
@@ -1284,6 +1611,7 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
       if (menu.TakeSettingsChanged())
       {
         BuildVariables();
+        update_motion();
         LoadBezel(display, game);
         audio.SetVolume(Settings::GetInt("volume", game.key));
         const bool want_multitap = snes && Settings::GetOn("multitap", game.key);
@@ -1302,7 +1630,11 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
         audio.LogHealth(0.0f);  // a new window: the time in the menu isn't the game's
         audio_log = 0.0f;
         layout = Controls::LayoutFor(game.key, game.system);
+        s_tilt.calibrate = true;  // how the DualShock 4 is held now is "level"
         schedule = 0.0;
+        pacer.Restart();  // the time the menu was open isn't caught up
+        ResetWindow(stats, display.GetFlipState());
+        stats.counted = -1;
       }
     }
     if (quit)
@@ -1310,6 +1642,10 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
 
     // ---- Emulation ----
     const auto emu_start = Clock::now();
+    // VideoOut now: the N64's pacing below, and the pacing line's count of the flips it showed.
+    const Display::FlipState flip = display.GetFlipState();
+    if (!menu.IsOpen())
+      CountShownFlips(stats, flip.shown);
     if (!menu.IsOpen())
     {
       // Buttons of every player (the in-game menu combo isn't passed on).
@@ -1329,6 +1665,33 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
         }
         if (i == 0 && pad.ok && !touring && layout.fast_forward && (pad.data.buttons & layout.fast_forward))
           fast = true;
+        if (i == 0 && IsHandheld(s_system))
+        {
+          // The cartridge's tilt sensor: the right stick (a dead zone around the centre), the
+          // controller's own sensors.
+          const bool on = pad.ok && !touring;
+          auto axis = [](uint8_t value) {
+            const float v = (static_cast<int>(value) - 128) / 127.0f;
+            return std::abs(v) < 0.12f ? 0.0f : std::clamp((v - std::copysign(0.12f, v)) / 0.88f, -1.0f, 1.0f);
+          };
+          s_tilt.stick_x = on ? axis(pad.data.rightStick.x) : 0.0f;
+          s_tilt.stick_y = on ? axis(pad.data.rightStick.y) : 0.0f;
+          if (on && s_tilt.motion)
+          {
+            s_tilt.accel = pad.data.acell;
+            s_tilt.turn = pad.data.vel.z;
+            if (s_tilt.calibrate)
+            {
+              s_tilt.rest = pad.data.acell;
+              s_tilt.calibrate = false;
+            }
+          }
+          else
+          {
+            s_tilt.accel = s_tilt.rest;
+            s_tilt.turn = 0.0f;
+          }
+        }
       }
       // Frames per TV refresh: the game's own rate (60.1 FPS is run at the TV's 60, the sound
       // follows), times the speed setting or fast forward.
@@ -1338,20 +1701,54 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
         fps = 60.0;
       else if (limit == "50")
         fps = 50.0;
-      double ratio = std::abs(fps / 59.94 - 1.0) < 0.012 ? 1.0 : fps / 59.94;
+      const double hz = display.RefreshHz();
+      double ratio = std::abs(fps / hz - 1.0) < 0.012 ? 1.0 : fps / hz;
       ratio *= Settings::GetInt("speed", game.key) / 100.0;
       const std::string ff = Settings::Get("fast_forward", game.key);
-      if (fast && ff != "off")
+      const bool forward = fast && ff != "off";
+      if (forward)
         ratio = std::atoi(ff.c_str());
       if (limit == "0")
         ratio = std::max(ratio, 4.0);
-      if (s_system == SystemId::N64)
-        schedule += ratio * std::clamp(static_cast<double>(dt) * 59.94, 0.5, 2.0);
+      // N64 with V-Sync (N64 Frame Pacing: Even): the frames due by the vblank this pass's flip
+      // will be shown at - VideoOut's count + the flips queued + 1 (src/Pacing.h). By the clock
+      // (By the Clock, V-Sync off, fast forward, a vblank count that can't be trusted): as 00.27,
+      // the time the last pass took (0.5 to 2 refreshes: the 0.5 credits a short pass with time it
+      // didn't take - 104-108% in Mario Kart 64 - but taking it out alone makes the hitches worse in
+      // the model, so the clock's way stays as it was, for comparison).
+      int frames = 0;
+      bool paced = s_system == SystemId::N64 && !forward && ratio <= 1.25 && flip.vblanks >= 0 &&
+                   Settings::Get("vsync", game.key) != "off" && Settings::Get("frame_pacing", game.key) != "clock";
+      if (paced)
+      {
+        // (emu_start: the clock read next to VideoOut's count - not the pass's start, which can be
+        // a bezel's PNG earlier.)
+        bool failed = false;
+        paced = vblank_check.Ok(flip.vblanks, std::chrono::duration<double>(emu_start - game_start).count(), hz,
+                                &failed);
+        if (failed)
+        {
+          LogF("pacing: VideoOut counted %.0f vblanks where the clock says %.0f: paced by the clock",
+               vblank_check.Counted(), vblank_check.Expected());
+        }
+      }
+      if (paced)
+      {
+        frames = pacer.Frames(flip.vblanks + flip.pending + 1, ratio, &stats.let_go);
+        schedule = 0.0;
+      }
       else
-        schedule += ratio;
-      int frames = static_cast<int>(schedule);
-      schedule -= frames;
-      frames = std::min(frames, 10);
+      {
+        pacer.Restart();
+        if (s_system == SystemId::N64)
+          schedule += ratio * std::clamp(static_cast<double>(dt) * hz, 0.5, 2.0);
+        else
+          schedule += ratio;
+        frames = static_cast<int>(schedule);
+        schedule -= frames;
+        frames = std::min(frames, 10);
+      }
+      stats.per_pass[static_cast<size_t>(std::min(frames, 3))]++;
       audio.SetMuted(fast && ff != "off");
       const std::string skip = Settings::Get("frameskip", game.key);
       for (int f = 0; f < frames; f++)
@@ -1370,6 +1767,9 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
         stats.core_runs++;
         stats.core_max = std::max(stats.core_max, run_ms);
         stats.emulated++;
+        stats.emulated10++;
+        stats.total++;
+        stats.run_ms.push_back(run_ms);
       }
       // The core's messages (the Famicom Disk System's disk side, a missing BIOS).
       if (!s_message.empty())
@@ -1420,20 +1820,24 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
     stats.frames++;
     stats.fps_time += dt;
     stats.frame_ms[stats.at] = dt * 1000.0f;
-    stats.frames10++;
-    stats.time10 += dt;
+    if (!menu.IsOpen())
+    {
+      stats.frames10++;
+      stats.time10 += dt;
+      stats.pass_ms.push_back(dt * 1000.0f);
+    }
     stats.at = (stats.at + 1) % stats.frame_ms.size();
     if (stats.fps_time >= 1.0f)
     {
+      // The counter: the pictures the TV got per second (smoothness) and the game's speed.
       stats.fps = stats.frames / stats.fps_time;
       stats.speed = static_cast<float>(stats.emulated / stats.fps_time / s_game_fps * 100.0);
       stats.frames = stats.emulated = 0;
       stats.fps_time = 0.0f;
       // The N64's speed in the log every 10 seconds of play (how well the PS4 keeps up).
       // (Also for SNES/NES games drawn through a GPU filter: how busy the filter keeps the GPU.)
-      static int seconds = 0;
       if ((s_system == SystemId::N64 || GpuMode(game.key) != GpuFilter::Mode::Off) && !menu.IsOpen() &&
-          ++seconds % 10 == 0)
+          stats.time10 >= 10.0f)
       {
         // The core's time per frame against the game's frame (20 ms for PAL): above it, the PS4's
         // CPU (or, with Accurate sync, the GPU) can't keep up.
@@ -1448,7 +1852,8 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
         last_span = span;
         LogF("speed: %.1f FPS shown, %.0f%% of the game's speed; the core %.1f ms per frame (most %.1f) of %.1f; "
              "drawing %.1f ms (%.1f of it waiting); CPU %d; GPU busy %.0f%%, %llu MiB",
-             stats.time10 > 0.0f ? stats.frames10 / stats.time10 : 0.0f, stats.speed,
+             stats.time10 > 0.0f ? stats.frames10 / stats.time10 : 0.0f,
+             stats.time10 > 0.0f ? stats.emulated10 / stats.time10 / s_game_fps * 100.0 : 0.0,
              stats.core_runs ? stats.core_ms / stats.core_runs : 0.0, stats.core_max, 1000.0 / s_game_fps,
              stats.draws ? stats.draw_ms / stats.draws : 0.0, stats.draws ? stats.draw_wait_ms / stats.draws : 0.0,
              sceKernelGetCurrentCpu(), gpu_busy, static_cast<unsigned long long>(bo_bytes >> 20));
@@ -1456,14 +1861,8 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
         char filter_time[768];
         if (GpuFilter::TakeGpuTime(filter_time, sizeof(filter_time)))
           LogF("%s", filter_time);
-        stats.draw_wait_ms = 0.0;
-        stats.frames10 = 0;
-        stats.time10 = 0.0f;
-        stats.core_ms = 0.0;
-        stats.core_runs = 0;
-        stats.core_max = 0.0f;
-        stats.draw_ms = 0.0;
-        stats.draws = 0;
+        LogPacing(stats, flip);
+        ResetWindow(stats, flip);
       }
     }
 
@@ -1481,10 +1880,15 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
               Settings::GetOn("perf_overlay", game.key), audio.Fill());
     menu.Draw(fg, dt);
     ImGui::Render();
+    stats.flip_frame[static_cast<size_t>(display.NextFlip() % 8)] = stats.total;
     display.EndFrame();
-    stats.draw_wait_ms += display.TakeWaitMs();
-    stats.draw_ms += std::chrono::duration<double, std::milli>(Clock::now() - draw_start).count();
-    stats.draws++;
+    const double draw_wait = display.TakeWaitMs();
+    if (!menu.IsOpen())
+    {
+      stats.draw_wait_ms += draw_wait;
+      stats.draw_ms += std::chrono::duration<double, std::milli>(Clock::now() - draw_start).count();
+      stats.draws++;
+    }
     if (!tour.shot.empty())
       Tour::SaveShot(display, tour.shot);
     // V-Sync off: the flips don't wait for the TV; keep the game's pace by the clock.
@@ -1503,6 +1907,8 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   if (pinned)
     emusuni_set_affinity(scePthreadSelf(), old_mask);
   StopRumble();
+  if (motion_on && pads.pads[0].handle >= 0)
+    emusuni_pad_set_motion(pads.pads[0].handle, false);
   display.SetVsync(true);
   if (Settings::GetOn("resume", game.key))
     SaveState(0);

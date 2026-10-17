@@ -7,7 +7,8 @@
 #     PkgTool.Core
 #   - DolphinPS4's PS4 runtime: libc++ 21 and Mesa's RADV Vulkan driver on GNM
 #     (~/dolphinps4-build), built with its own scripts
-#   - Snes9x 1.63, FCEUmm (libretro-fceumm) and Dear ImGui 1.92.2b sources (~/src)
+#   - Snes9x 1.63, FCEUmm (libretro-fceumm), Mupen64Plus-Next, mGBA (libretro's fork) and Dear
+#     ImGui 1.92.2b sources (~/src)
 # Mesa takes the longest (about half an hour). Then: scripts/build.sh and scripts/package.sh.
 #
 #   sudo -i bash /path/to/EmuSuNi/scripts/setup.sh
@@ -22,6 +23,7 @@ SNES9X_COMMIT=1bcc369e89f08243e0a462882fb1f3e42e51de3a   # Snes9x 1.63
 IMGUI_COMMIT=45acd5e0e82f4c954432533ae9985ff0e1aad6d5    # Dear ImGui 1.92.2b
 FCEUMM_COMMIT=ac0d00a7fc01166f84c7bac01d1084ebfd2b865e   # libretro-fceumm, 2026-10-11
 MUPEN64PLUS_COMMIT=12edd2c74a517ff86dfa8cfc71ad75e4c10486d5   # mupen64plus-libretro-nx
+MGBA_COMMIT=7a12d6d4b9acb14c0ae62c9166b6a2f3d08007f6   # libretro/mgba, 2026-09-16
 MESA_TAG=mesa-26.0.8
 LIBDRM_TAG=libdrm-2.4.125
 export DEBIAN_FRONTEND=noninteractive
@@ -91,10 +93,13 @@ fi
 ln -sf "$(command -v glslangValidator)" "$BUILD_ROOT/host-tools/bin/glslangValidator"
 PS4_BUILD_ROOT="$BUILD_ROOT" scripts/build-mesa.sh setup
 
-step "Snes9x, FCEUmm and Dear ImGui"
+step "Snes9x, FCEUmm, Mupen64Plus-Next, mGBA and Dear ImGui"
 checkout https://github.com/snes9xgit/snes9x.git "$SRC_ROOT/snes9x" "$SNES9X_COMMIT"
 checkout https://github.com/libretro/libretro-fceumm.git "$SRC_ROOT/fceumm" "$FCEUMM_COMMIT"
 checkout https://github.com/libretro/mupen64plus-libretro-nx.git "$SRC_ROOT/mupen64plus-next" "$MUPEN64PLUS_COMMIT"
+# mGBA (Game Boy, Game Boy Color, Game Boy Advance): built with its own CMake by
+# scripts/build-gba-core.sh (CMake, Ninja and clang 21 from above; nothing else).
+checkout https://github.com/libretro/mgba.git "$SRC_ROOT/mgba" "$MGBA_COMMIT"
 checkout https://github.com/ocornut/imgui.git "$SRC_ROOT/imgui" "$IMGUI_COMMIT"
 
 step "Ready: now scripts/build.sh and scripts/package.sh <version>"

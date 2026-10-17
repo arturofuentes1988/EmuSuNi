@@ -51,6 +51,9 @@ DECLARE_CORE(fceumm)
 #ifdef EMUSUNI_N64
 DECLARE_CORE(mupen64plus)
 #endif
+#ifdef EMUSUNI_GBA
+DECLARE_CORE(mgba)
+#endif
 
 namespace Cores
 {
@@ -58,5 +61,8 @@ const CoreApi SNES9X = CORE_TABLE(snes9x, "Snes9x");
 const CoreApi FCEUMM = CORE_TABLE(fceumm, "FCEUmm");
 #ifdef EMUSUNI_N64
 const CoreApi MUPEN64PLUS = CORE_TABLE(mupen64plus, "Mupen64Plus");
+#endif
+#ifdef EMUSUNI_GBA
+const CoreApi MGBA = CORE_TABLE(mgba, "mGBA");
 #endif
 }  // namespace Cores

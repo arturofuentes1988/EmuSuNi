@@ -47,4 +47,7 @@ extern const CoreApi FCEUMM;  // NES
 #ifdef EMUSUNI_N64
 extern const CoreApi MUPEN64PLUS;  // Nintendo 64 (Mupen64Plus-Next; builds with EMUSUNI_N64)
 #endif
+#ifdef EMUSUNI_GBA
+extern const CoreApi MGBA;  // Game Boy, Game Boy Color, Game Boy Advance (builds with EMUSUNI_GBA)
+#endif
 }  // namespace Cores

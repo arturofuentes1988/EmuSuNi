@@ -28,6 +28,16 @@ std::atomic<unsigned> g_display_frames{0};
 // so far.
 extern "C" int ac_ps4_submit_flip(int video, unsigned buffer, unsigned mode, int64_t arg);
 
+// VideoOut's count of vertical blanks since sceVideoOutOpen (libSceVideoOut exports it; OpenOrbis
+// declares it without parameters). The layout is the one shadPS4 and fpPS4 both found (count,
+// process time, TSC, reserved, flags: 40 bytes); the buffer is bigger in case the real one is.
+struct EmusuniVblankStatus
+{
+  uint64_t count, process_time, tsc, reserved;
+  uint8_t flags, pad[63];
+};
+extern "C" int emusuni_get_vblank_status(int handle, EmusuniVblankStatus* status) __asm__("sceVideoOutGetVblankStatus");
+
 namespace
 {
 constexpr uint32_t IMAGES = 3;
@@ -123,6 +133,8 @@ int s_buffer_set = -1;
 // Time spent waiting (for the TV, for the GPU) since TakeWaitMs: the speed line's drawing time
 // minus this is the work.
 double s_wait_ms = 0.0;
+// The TV's refresh rate (ReadRefreshRate).
+double s_refresh_hz = 59.94;
 
 double MsSince(std::chrono::steady_clock::time_point start)
 {
@@ -140,6 +152,27 @@ OrbisKernelEqueue s_flip_queue;
 void Log(const char* text)
 {
   LogF("display: %s", text);
+}
+
+// The TV's refresh rate from VideoOut (sceVideoOutGetResolutionStatus): refreshRate is the PS4
+// SDK's SceVideoOutRefreshRate (shadPS4, fpPS4): 1 = 23.98 Hz, 2 = 50, 3 = 59.94, 6 = 29.97,
+// 13 = 119.88, 35 = 89.91; 59.94 when it doesn't say. Logged at start and when it changes.
+void ReadRefreshRate(const char* why)
+{
+  OrbisVideoOutResolutionStatus mode = {};
+  const int result = sceVideoOutGetResolutionStatus(s_video, &mode);
+  double hz = 59.94;
+  if (result == 0 && mode.refreshRate == 2)
+    hz = 50.0;
+  else if (result == 0 && mode.refreshRate == 13)
+    hz = 119.88;
+  if (why || hz != s_refresh_hz)
+  {
+    LogF("display: VideoOut %ux%u, refresh rate %llu: %.2f Hz (%#x)%s%s", mode.width, mode.height,
+         static_cast<unsigned long long>(mode.refreshRate), hz, static_cast<unsigned>(result), why ? ", " : "",
+         why ? why : "");
+  }
+  s_refresh_hz = hz;
 }
 
 bool Check(VkResult result, const char* what)
@@ -356,6 +389,7 @@ bool CreateFrames()
   }
   sceKernelCreateEqueue(&s_flip_queue, "emusuni flip");
   sceVideoOutAddFlipEvent(s_flip_queue, s_video, nullptr);
+  ReadRefreshRate("at start");
 
   std::array<void*, IMAGES> addresses{};
   uint32_t pitch = Display::WIDTH;
@@ -943,6 +977,34 @@ double Display::TakeWaitMs()
   const double ms = s_wait_ms;
   s_wait_ms = 0.0;
   return ms;
+}
+
+double Display::RefreshHz() const
+{
+  return s_refresh_hz;
+}
+
+Display::FlipState Display::GetFlipState() const
+{
+  FlipState state;
+  if (s_video < 0)
+    return state;
+  OrbisVideoOutFlipStatus flip = {};
+  if (sceVideoOutGetFlipStatus(s_video, &flip) >= 0)
+  {
+    state.shown = flip.flipArg;
+    state.pending = static_cast<int>(std::clamp<int64_t>(static_cast<int64_t>(s_flips) - flip.flipArg, 0,
+                                                         static_cast<int64_t>(IMAGES) - 1));
+  }
+  EmusuniVblankStatus vblank = {};
+  if (emusuni_get_vblank_status(s_video, &vblank) == 0)
+    state.vblanks = static_cast<int64_t>(vblank.count);
+  return state;
+}
+
+int64_t Display::NextFlip() const
+{
+  return static_cast<int64_t>(s_flips) + 1;
 }
 
 void Display::SetVsync(bool on)

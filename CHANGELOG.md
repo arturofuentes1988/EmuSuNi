@@ -2,6 +2,99 @@
 
 All notable changes to EmuSuNi. Versions follow the PS4 package version (`XX.YY`).
 
+## 00.19 (public release, 2026-10-16)
+The first public release since 00.18: the test builds 00.28 to 00.32 below.
+- **Game Boy, Game Boy Color and Game Boy Advance** (mGBA): six consoles in one app, with their
+  tabs, folders (`Roms/gb`, `gbc`, `gba` on the USB drive by default), box art, controls, bezels
+  shaped like the handhelds, AI upscaling, Game Boy Color / Super Game Boy colours, LCD effects,
+  the solar and tilt sensors, rumble and the cartridges' clocks.
+- **Nintendo 64**: much less CPU per frame (a lock-free command ring, faster RSP, the picture made
+  on the graphics thread), even frame pacing, GoldenEye 007 smoother (bit-exact core speed-ups and
+  N64 CPU Timing), and the **controls fixed** (R, L, C Up and C Down didn't reach the core) with a
+  comfortable layout: Z on both triggers.
+- The app uses the PS4's time zone (the menu's clock, the Pokémon clocks); sound above 57 kHz is
+  low-passed before resampling.
+
+## 00.32 (test build)
+- The screenshot tour's settings (`set` in tour.txt) are its own: above every game's, console's and
+  global value, never written to settings.ini.
+
+## 00.31 (test build)
+- **The N64's buttons fixed.** The app sent them in Mupen64Plus-Next's "Independent C-button
+  Controls" layout but left that option off, so the core read them its other way: R (R1) switched
+  its C-button mode (A and B stopped working while it was held), C Up and C Down on Triangle and
+  Circle and the L button did nothing. The option is on now (`alt-map`).
+- **A more comfortable N64 layout by default:** left stick the control stick, right stick the C
+  buttons, Cross A, Square B, **Z on both L2 and R2** (fire in GoldenEye and Perfect Dark, target
+  in Zelda with either trigger), R1 R, L1 L, Triangle / Circle C Up / C Down, Options START, the
+  D-pad the D-pad, and fast forward on the touchpad (held). The N64 layout saved before is dropped
+  once, as it was set around the fault (a game's own layout stays). A control can now press a
+  button together with another one (the two Z rows).
+- A Game Boy game in the Game Boy Color's own folder is listed under GBC, and the other way round
+  (Pokémon Yellow is a .gb file made for both): the folder decides, unless the two consoles share
+  one.
+
+## 00.30 (test build)
+- **GoldenEye 007 smoother.** Its microcode hands the RDP one command at a time (about 2900 per
+  frame) and puts a whole frame's graphics into one VI out of two or three (30-45 ms on the PS4:
+  the stutter and the sound running dry). Four bit-exact core changes (`scripts/build-n64-core.sh`):
+  the RDP command ring's producer copies a command at once; ParaLLEl-RSP jumps between compiled
+  blocks and reads/writes the plain COP0 registers without calls into C; the dynarec's JR lookup
+  has a cache in front. On the PC: about 12% less RSP time and 8% less per VI in GoldenEye, the
+  same pictures, sound and RDRAM (also checked with Perfect Dark and Donkey Kong 64).
+- **N64 CPU Timing** (Settings -> Performance, Auto by default): Light (3 counts per instruction,
+  as the core's own list has for 25 games) makes a game that drew few frames on the console draw
+  about as few; the game keeps its speed. Auto uses it for GoldenEye 007 (about 23 frames a second
+  instead of 33, a third less graphics work for the PS4; its loading takes longer), Normal for the
+  others. The log names the cartridge and the timing.
+
+## 00.29 (test build)
+- **Game Boy, Game Boy Color and Game Boy Advance**, with mGBA (libretro's, MPL-2.0) built into the
+  app (`scripts/build-gba-core.sh`). Each console has its tab, its game folder (`/usb0/Roms/gb`,
+  `gbc`, `gba` until another is chosen in Settings; .zip files work), its covers (libretro's
+  thumbnails) and its controls (B and A on Cross and Circle, turbo B and A on Square and Triangle,
+  the GBA's L and R on L1 and R1).
+- The picture keeps the screen's shape (10:9, the GBA's 3:2) and gets everything the SNES and NES
+  have: Resolution with xBRZ/HQx, the GPU Upscaler (Pixel Art HD, AI with Anime4K, Smooth HD), the
+  Quality levels (Ultra: the AI), Picture Size and Integer Scale. Scanlines draw the grid between
+  the LCD's dots.
+- New settings: **Game Boy Colours** (as a Game Boy Color showed them by default, the first Game
+  Boy's green, Pocket, Light, grey, or the Super Game Boy with its colours and border), **Screen
+  Colours** (as the GBC/GBA screen showed them), **LCD Ghosting** (Smart blending for the games
+  that flicker for see-through effects), **Boot Logo (BIOS)** (optional BIOS files in
+  /data/EmuSuNi/system), **Sunlight** for Boktai, **Tilt Sensor** (the right stick, or the DualShock
+  4's own motion sensors) for WarioWare: Twisted!, Yoshi Topsy-Turvy and Kirby Tilt 'n' Tumble,
+  and **Sound Filter**.
+- Bezels shaped like the handhelds, three each: Game Boy, Pocket, Dot Matrix; Berry, Teal, Atomic
+  Purple; Indigo, Glacier, Black.
+- Battery saves as before, plus the cartridge clock (`<game>.rtc`: Pokémon Gold, Silver,
+  Crystal). The app now uses the PS4's time zone (the menu's clock, and the clock of Pokémon Ruby,
+  Sapphire and Emerald). A save the game never touched isn't written.
+- Sound made above 57 kHz (the Game Boys' 131 kHz) is low-passed before it is resampled to 48 kHz.
+- Rumble cartridges shake the DualShock 4; the motors are only set when they change.
+
+## 00.28 (test build)
+- **N64 speed: the hand-off of graphics commands without locks.** ParaLLEl-RDP's command ring took
+  a lock and woke its thread for every RDP command (about 2400 times per frame in Mortal Kombat 4)
+  and held only 16 KiB, so the emulation also waited on a full ring. Now the emulation thread
+  publishes commands with atomics, the command thread takes everything at once, each wakes the
+  other only when it sleeps, and the ring holds 256 KiB. On the PC with the real core: RSP graphics
+  time about half, the same RDP commands and pictures frame for frame.
+- **N64 speed: ParaLLEl-RSP's vector loads/stores and DMAs** move whole halfwords and lines instead
+  of single bytes (bit-exact on every address): about a quarter less RSP time.
+- **N64 Picture Timing** (Settings -> Performance, One Frame Later by default): ParaLLEl-RDP's
+  command thread makes each picture while the N64 runs on (1-3 ms less per frame at 4x); the
+  picture is shown one frame later. At Once is the old way.
+- **N64 Frame Pacing** (Settings -> Performance, Even by default): with V-Sync, each N64 frame is
+  timed by the TV refresh its picture lands on. A heavy frame no longer makes the next refresh
+  jump two frames and the one after repeat (the stutter), PAL games get an even cadence, and the
+  game no longer runs 4-8% too fast in heavy scenes (that overflowed the sound). By the Clock is
+  the old way. A `pacing:` line in the log every 10 s.
+- Measured on the PC with the user's games, the emulation thread's CPU per frame: Mortal Kombat 4
+  3.37 -> 2.32 ms, Mario Kart 64 2.52 -> 1.78 ms, Super Mario 64 3.86 -> 2.43 ms, and about a fifth
+  less again with One Frame Later.
+- Frame Skip is for SNES and NES only (the N64 core never asks whether to draw).
+
 ## 00.18 (public release, 2026-10-16)
 The first public release since 00.17. It is the test build 00.27 below (with everything from the
 test builds 00.18 to 00.26), plus:

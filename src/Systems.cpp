@@ -22,13 +22,42 @@ const std::vector<System>& Systems()
        "n64/", "/usb0/Roms/n64", {".z64", ".n64", ".v64"}, "Nintendo - Nintendo 64",
        "libretro-thumbnails/Nintendo_-_Nintendo_64", &Cores::MUPEN64PLUS},
 #endif
+#ifdef EMUSUNI_GBA
+      // The three Game Boys share mGBA; each has its tab, folder and covers. A .gb game is the Game
+      // Boy's, a .gbc one the Game Boy Color's (the ones for both included).
+      {SystemId::GB, "gb", "Game Boy", "Game Boy", "GB", "GB", "GB", 0x7E8A2E, 0x7E8A2E, "gb/",
+       "/usb0/Roms/gb", {".gb", ".sgb", ".dmg"}, "Nintendo - Game Boy", "libretro-thumbnails/Nintendo_-_Game_Boy",
+       &Cores::MGBA},
+      {SystemId::GBC, "gbc", "Game Boy Color", "Game Boy Color", "GBC", "GBC", "GBC", 0xC0247A,
+       0xC0247A, "gbc/", "/usb0/Roms/gbc", {".gbc", ".cgb"}, "Nintendo - Game Boy Color",
+       "libretro-thumbnails/Nintendo_-_Game_Boy_Color", &Cores::MGBA},
+      {SystemId::GBA, "gba", "Game Boy Advance", "Game Boy Advance", "GBA", "GBA", "GBA", 0x3D4FC4,
+       0x3D4FC4, "gba/", "/usb0/Roms/gba", {".gba", ".agb"}, "Nintendo - Game Boy Advance",
+       "libretro-thumbnails/Nintendo_-_Game_Boy_Advance", &Cores::MGBA},
+#endif
   };
   return SYSTEMS;
 }
 
 const System& GetSystem(SystemId id)
 {
-  return Systems()[static_cast<size_t>(id)];
+  // By its id: a build without the N64 has no third entry.
+  for (const System& system : Systems())
+  {
+    if (system.id == id)
+      return system;
+  }
+  return Systems().front();
+}
+
+bool HasSystem(SystemId id)
+{
+  for (const System& system : Systems())
+  {
+    if (system.id == id)
+      return true;
+  }
+  return false;
 }
 
 const System* SystemOfFile(const std::string& name)

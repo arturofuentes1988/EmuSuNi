@@ -609,15 +609,22 @@ enum class Category
   SnesGames,  // one console's games: Games + 1 + its SystemId
   NesGames,
   N64Games,   // builds with the Nintendo 64 (EMUSUNI_N64)
+  GbGames,    // builds with the Game Boys (EMUSUNI_GBA)
+  GbcGames,
+  GbaGames,
   Favorites,
   SavedData,
   Themes,
 };
-constexpr int CATEGORY_COUNT = 8;
+constexpr int CATEGORY_COUNT = 11;
 static_assert(static_cast<int>(Category::N64Games) ==
               static_cast<int>(Category::Games) + 1 + static_cast<int>(SystemId::N64));
+static_assert(static_cast<int>(Category::GbaGames) ==
+              static_cast<int>(Category::Games) + 1 + static_cast<int>(SystemId::GBA));
+static_assert(static_cast<int>(Category::Favorites) == static_cast<int>(Category::Games) + 1 + SYSTEM_COUNT);
 constexpr const char* CATEGORY_NAMES[CATEGORY_COUNT] = {
-    "Settings", "All Games", "Super Nintendo", "NES", "Nintendo 64", "Favorites", "Saved Data", "Themes"};
+    "Settings",  "All Games", "Super Nintendo", "NES",        "Nintendo 64", "Game Boy",
+    "Game Boy Color", "Game Boy Advance", "Favorites", "Saved Data", "Themes"};
 constexpr const char* SORT_NAMES[][2] = {
     {"title", "A-Z"}, {"recent", "Recently Played"}, {"region", "Region"}, {"console", "Console"},
     {"nocover", "Without Cover"}};  // a view: only the games without a cover picture, A-Z
@@ -626,7 +633,7 @@ constexpr const char* SORT_NAMES[][2] = {
 int SystemOfList(int category)
 {
   const int system = category - static_cast<int>(Category::Games) - 1;
-  return system >= 0 && system < static_cast<int>(Systems().size()) ? system : -1;
+  return system >= 0 && system < SYSTEM_COUNT && HasSystem(static_cast<SystemId>(system)) ? system : -1;
 }
 
 // The XMB style's columns, left to right: Settings, all the games, a column per console, the
@@ -660,11 +667,11 @@ const std::vector<int>& Tabs()
 
 const char* TabName(int category)
 {
-  const int system = category - static_cast<int>(Category::Games) - 1;
   if (category == static_cast<int>(Category::Games))
     return "All";
-  if (system >= 0 && system < static_cast<int>(Systems().size()))
-    return Systems()[static_cast<size_t>(system)].tab;
+  const int system = SystemOfList(category);
+  if (system >= 0)
+    return GetSystem(static_cast<SystemId>(system)).tab;
   return CATEGORY_NAMES[category];
 }
 
@@ -2111,6 +2118,9 @@ void Menu::Impl::OpenSettingPanel(int setting)
 #ifdef EMUSUNI_N64
                      "(N64 games: " + m_data_dir + "/covers/n64)",
 #endif
+#ifdef EMUSUNI_GBA
+                     "(Game Boys: " + m_data_dir + "/covers/gb, gbc, gba)",
+#endif
                      "",
                      "named like the game's file",
                      "(Super Mario World (U) [!].png)",
@@ -2151,6 +2161,9 @@ void Menu::Impl::OpenSettingPanel(int setting)
 #ifdef EMUSUNI_N64
                      "Nintendo 64: Mupen64Plus-Next, ParaLLEl",
 #endif
+#ifdef EMUSUNI_GBA
+                     "Game Boy, Color and Advance: mGBA",
+#endif
                      "Menus: from Dolphin for PS4",
                      "by ShiroKlein (GPLv2+)",
                      "",
@@ -2158,6 +2171,11 @@ void Menu::Impl::OpenSettingPanel(int setting)
                      "NES games: " + GamesFolder(SystemId::NES),
 #ifdef EMUSUNI_N64
                      "N64 games: " + GamesFolder(SystemId::N64),
+#endif
+#ifdef EMUSUNI_GBA
+                     "GB games: " + GamesFolder(SystemId::GB),
+                     "GBC games: " + GamesFolder(SystemId::GBC),
+                     "GBA games: " + GamesFolder(SystemId::GBA),
 #endif
                      "Saves: " + m_data_dir + "/saves",
                      "Cheats (.cht): " + m_data_dir + "/cheats",
@@ -4385,6 +4403,56 @@ void Menu::Impl::DrawCategoryIcon(ImDrawList* dl, Category category, ImVec2 c, f
     dl->AddCircleFilled(ImVec2(c.x + w * 0.37f, top + h * 0.35f), h * 0.13f, hole, 12);
     break;
   }
+  case Category::GbGames:
+  case Category::GbcGames:
+  {
+    // A Game Boy standing up: the screen, the D-pad, B and A, SELECT and START. The first one's
+    // bottom right corner is the round one; the Color is a little smaller, its corners all alike.
+    const ImU32 hole = IM_COL32(0, 0, 0, 130);
+    const bool first = category == Category::GbGames;
+    const float w = r * (first ? 1.2f : 1.1f), h = r * (first ? 1.9f : 1.75f);
+    const ImVec2 b0(c.x - w * 0.5f, c.y - h * 0.5f), b1(c.x + w * 0.5f, c.y + h * 0.5f);
+    const float corner = first ? w * 0.34f : w * 0.14f, small = w * 0.1f;
+    // Three pieces that don't overlap (the colour is see-through when the icon isn't selected).
+    dl->AddRectFilled(b0, ImVec2(b1.x, b1.y - corner), color, small, ImDrawFlags_RoundCornersTop);
+    dl->AddRectFilled(ImVec2(b0.x, b1.y - corner), ImVec2(b1.x - corner, b1.y), color, first ? small : corner,
+                      ImDrawFlags_RoundCornersBottomLeft);
+    const ImVec2 arc(b1.x - corner, b1.y - corner);
+    dl->PathLineTo(arc);
+    dl->PathArcTo(arc, corner, 0.0f, IM_PI * 0.5f, 12);
+    dl->PathFillConvex(color);
+    dl->AddRectFilled(ImVec2(b0.x + w * 0.13f, b0.y + h * 0.08f), ImVec2(b1.x - w * 0.13f, b0.y + h * 0.47f), hole,
+                      w * 0.05f);
+    const ImVec2 dp(b0.x + w * 0.28f, b0.y + h * 0.66f);
+    const float arm = w * 0.15f, thick = w * 0.05f;
+    dl->AddRectFilled(ImVec2(dp.x - arm, dp.y - thick), ImVec2(dp.x + arm, dp.y + thick), hole);
+    dl->AddRectFilled(ImVec2(dp.x - thick, dp.y - arm), ImVec2(dp.x + thick, dp.y + arm), hole);
+    dl->AddCircleFilled(ImVec2(b1.x - w * 0.2f, b0.y + h * 0.62f), w * 0.085f, hole, 16);
+    dl->AddCircleFilled(ImVec2(b1.x - w * 0.4f, b0.y + h * 0.69f), w * 0.085f, hole, 16);
+    for (int i = 0; i < 2; i++)
+    {
+      const float sx = c.x - w * 0.16f + i * w * 0.2f;
+      dl->AddRectFilled(ImVec2(sx, b0.y + h * 0.82f), ImVec2(sx + w * 0.12f, b0.y + h * 0.85f), hole, h * 0.015f);
+    }
+    break;
+  }
+  case Category::GbaGames:
+  {
+    // A Game Boy Advance: a wide, round body, the screen in the middle, the D-pad and A and B.
+    const ImU32 hole = IM_COL32(0, 0, 0, 130);
+    const float w = r * 1.95f, h = r * 1.05f;
+    dl->AddRectFilled(ImVec2(c.x - w * 0.5f, c.y - h * 0.5f), ImVec2(c.x + w * 0.5f, c.y + h * 0.5f), color,
+                      h * 0.42f);
+    dl->AddRectFilled(ImVec2(c.x - w * 0.24f, c.y - h * 0.34f), ImVec2(c.x + w * 0.24f, c.y + h * 0.26f), hole,
+                      h * 0.06f);
+    const ImVec2 dp(c.x - w * 0.36f, c.y - h * 0.04f);
+    const float arm = h * 0.17f, thick = h * 0.06f;
+    dl->AddRectFilled(ImVec2(dp.x - arm, dp.y - thick), ImVec2(dp.x + arm, dp.y + thick), hole);
+    dl->AddRectFilled(ImVec2(dp.x - thick, dp.y - arm), ImVec2(dp.x + thick, dp.y + arm), hole);
+    dl->AddCircleFilled(ImVec2(c.x + w * 0.4f, c.y - h * 0.12f), h * 0.09f, hole, 16);
+    dl->AddCircleFilled(ImVec2(c.x + w * 0.31f, c.y + h * 0.04f), h * 0.09f, hole, 16);
+    break;
+  }
   case Category::Favorites:
     DrawStar(dl, c, r * 0.95f, color);
     break;
@@ -5258,6 +5326,9 @@ void Menu::Impl::DrawLibrary(ImDrawList* dl, float dt)
   case Category::SnesGames:
   case Category::NesGames:
   case Category::N64Games:
+  case Category::GbGames:
+  case Category::GbcGames:
+  case Category::GbaGames:
   case Category::Favorites:
     DrawLibraryGames(dl, alpha, m_category);
     break;
@@ -5303,7 +5374,7 @@ void Menu::Impl::DrawLibraryGames(ImDrawList* dl, float alpha, int c)
        sub, false);
   if (!any)
   {
-    std::string line1, line2, line3;
+    std::string line1, line2, line3, line4;
     if (m_all_covered[c])
     {
       line1 = m_search.empty() ? "Every game has a cover" : "Every game found has a cover";
@@ -5327,9 +5398,14 @@ void Menu::Impl::DrawLibraryGames(ImDrawList* dl, float alpha, int c)
     else
     {
       line1 = "Copy your games to their console's folder";
-      for (const System& system : Systems())
-        line2 += std::string(line2.empty() ? "" : "      ") + system.tab + ": " + GamesFolder(system.id);
-      line3 = "then press Square to look again (or pick the folders in Settings).";
+      // The folders on two lines when there are more than three consoles.
+      const size_t half = Systems().size() > 3 ? (Systems().size() + 1) / 2 : Systems().size();
+      for (size_t i = 0; i < Systems().size(); i++)
+      {
+        std::string& line = i < half ? line2 : line3;
+        line += std::string(line.empty() ? "" : "      ") + Systems()[i].tab + ": " + GamesFolder(Systems()[i].id);
+      }
+      (line3.empty() ? line3 : line4) = "then press Square to look again (or pick the folders in Settings).";
     }
     const float y = 470.0f - 160.0f * k;
     if (favorites && m_search.empty() && !m_all_covered[c])
@@ -5341,6 +5417,9 @@ void Menu::Impl::DrawLibraryGames(ImDrawList* dl, float alpha, int c)
     if (!line3.empty())
       Text(dl, m_font, 28, ImVec2(W * 0.5f - TextWidth(m_font, 28, line3) * 0.5f, y + 108),
            Rgba(theme.text, alpha * 0.75f), line3);
+    if (!line4.empty())
+      Text(dl, m_font, 28, ImVec2(W * 0.5f - TextWidth(m_font, 28, line4) * 0.5f, y + 156),
+           Rgba(theme.text, alpha * 0.75f), line4);
     return;
   }
   {

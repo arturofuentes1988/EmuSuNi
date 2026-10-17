@@ -13,7 +13,18 @@
 #   assets/xmb/bezels/n64-console.png    charcoal, the four colours, the stick
 #   assets/xmb/bezels/n64-colors.png     the logo's four colours as bands
 #   assets/xmb/bezels/n64-atomic.png     see-through purple, as the Atomic Purple console
+#   assets/xmb/bezels/gb-console.png     the first Game Boy: grey, its screen frame, D-pad, B and A
+#   assets/xmb/bezels/gb-pocket.png      the Game Boy Pocket's silver
+#   assets/xmb/bezels/gb-green.png       the green of the Game Boy's screen, with its dots
+#   assets/xmb/bezels/gbc-console.png    the Game Boy Color in berry
+#   assets/xmb/bezels/gbc-teal.png       the Game Boy Color in teal
+#   assets/xmb/bezels/gbc-atomic.png     the Game Boy Color in see-through purple
+#   assets/xmb/bezels/gba-console.png    the Game Boy Advance in indigo, with L and R
+#   assets/xmb/bezels/gba-glacier.png    the Game Boy Advance in see-through ice blue
+#   assets/xmb/bezels/gba-black.png      a black Game Boy Advance with silver lines
 #   assets/xmb/bezels/tv.png             a wooden tube TV around the picture
+# The handhelds' windows have their screen's shape at a whole multiple: 960x864 (6x 160x144) for
+# the Game Boy and Color, 1200x800 (5x 240x160) for the Advance.
 #
 #   python3 scripts/make-bezels.py [preview.png]   (needs Pillow; with a game picture, also writes
 #                                                   previews to /tmp/bezel-previews)
@@ -348,6 +359,278 @@ def n64_atomic():
     return image
 
 
+# --- The Game Boys --------------------------------------------------------------------------------
+
+GB_WINDOW = (480 * S, 108 * S, 1440 * S, 972 * S)   # 960x864: 6x the Game Boy's 160x144
+GBA_WINDOW = (360 * S, 140 * S, 1560 * S, 940 * S)  # 1200x800: 5x the Advance's 240x160
+GB_INK = (36, 44, 112)  # the first Game Boy's dark blue letters
+COLOR_LETTERS = ((228, 44, 56), (132, 64, 206), (52, 176, 80), (244, 200, 40), (36, 116, 224))
+
+
+def cut(image, window):
+    """The see-through window, square-cornered (the emulator fits the picture in it exactly)."""
+    ImageDraw.Draw(image).rectangle((window[0], window[1], window[2] - 1, window[3] - 1), fill=(0, 0, 0, 0))
+
+
+def lens(image, box, colour, radius, big_corner=0):
+    """The dark frame around a handheld's screen; big_corner rounds its bottom right (the first
+    Game Boy's)."""
+    mask = Image.new("L", image.size, 0)
+    draw = ImageDraw.Draw(mask)
+    draw.rounded_rectangle(box, radius=radius, fill=255)
+    if big_corner:
+        x1, y1 = box[2], box[3]
+        draw.rectangle((x1 - big_corner, y1 - big_corner, x1, y1), fill=0)
+        draw.pieslice((x1 - 2 * big_corner, y1 - 2 * big_corner, x1, y1), 0, 90, fill=255)
+    soft_shadow(image, (box[0], box[1] + 6 * S, box[2], box[3] + 6 * S), radius, 10 * S, 110)
+    image.paste(Image.new("RGBA", image.size, colour + (255,)), (0, 0), mask)
+
+
+def text_at(image, text, centre, size, fill, spacing=0.0):
+    """Text centred on `centre`, its letters spaced out."""
+    vertical_text(image, text, centre, size, fill, angle=0, spacing=spacing)
+
+
+def coloured_word(image, word, colours, left_centre, size):
+    """A word with each letter in its own colour (the Game Boy Color's COLOR), starting at left."""
+    font = ImageFont.truetype(FONT, size)
+    draw = ImageDraw.Draw(image)
+    x, y = left_centre
+    for letter, colour in zip(word, colours):
+        box = font.getbbox(letter)
+        draw.text((x - box[0], y - (box[3] + box[1]) / 2), letter, font=font, fill=colour + (255,))
+        x += box[2] - box[0] + size * 0.08
+
+
+def word_width(word, size, gap=0.08):
+    font = ImageFont.truetype(FONT, size)
+    return sum(font.getbbox(c)[2] - font.getbbox(c)[0] for c in word) + size * gap * (len(word) - 1)
+
+
+def pill(image, centre, size, colour, angle=-25):
+    """A SELECT / START button: a rubber pill, tilted."""
+    w, h = size
+    layer = Image.new("RGBA", (w + 20 * S, w + 20 * S), (0, 0, 0, 0))
+    ImageDraw.Draw(layer).rounded_rectangle(((layer.width - w) // 2, (layer.height - h) // 2, (layer.width + w) // 2,
+                                             (layer.height + h) // 2), radius=h // 2, fill=colour + (255,))
+    layer = layer.rotate(-angle, resample=Image.BICUBIC)
+    shadow = layer.split()[3].point(lambda a: a * 0.5)
+    dark = Image.new("RGBA", layer.size, (0, 0, 0, 255))
+    dark.putalpha(shadow.filter(ImageFilter.GaussianBlur(4 * S)))
+    image.alpha_composite(dark, (int(centre[0] - layer.width / 2), int(centre[1] - layer.height / 2 + 4 * S)))
+    image.alpha_composite(layer, (int(centre[0] - layer.width / 2), int(centre[1] - layer.height / 2)))
+
+
+def led(image, centre, colour, label, ink):
+    cx, cy = centre
+    draw = ImageDraw.Draw(image)
+    draw.ellipse((cx - 9 * S, cy - 9 * S, cx + 9 * S, cy + 9 * S), fill=(20, 20, 24, 255))
+    draw.ellipse((cx - 6 * S, cy - 6 * S, cx + 6 * S, cy + 6 * S), fill=colour + (255,))
+    glow = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    ImageDraw.Draw(glow).ellipse((cx - 16 * S, cy - 16 * S, cx + 16 * S, cy + 16 * S), fill=colour + (90,))
+    image.alpha_composite(glow.filter(ImageFilter.GaussianBlur(6 * S)))
+    centred_text(ImageDraw.Draw(image), label, (cx, cy + 26 * S), 10 * S, ink)
+
+
+def speaker_slots(image, origin, count, colour):
+    """The first Game Boy's slanted speaker slots, bottom right."""
+    draw = ImageDraw.Draw(image)
+    x, y = origin
+    for i in range(count):
+        dx = i * 30 * S
+        draw.line((x + dx, y, x + dx + 56 * S, y - 96 * S), fill=colour + (255,), width=12 * S)
+
+
+def see_through(image, panels, seed, line=(30, 10, 50, 120), dot=(230, 200, 120, 90)):
+    """The insides seen through clear plastic: traces, solder dots and chips, faint."""
+    rnd = random.Random(seed)
+    insides = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(insides)
+    for x0, y0, x1, y1 in panels:
+        for _ in range(14):
+            x = rnd.randrange(x0, x1)
+            y = rnd.randrange(y0, y1)
+            length = rnd.randrange(60, 220) * S
+            if rnd.random() < 0.5:
+                draw.line((x, y, min(x1, x + length // 2), y), fill=line, width=4 * S)
+            else:
+                draw.line((x, y, x, min(y1, y + length)), fill=line, width=4 * S)
+            draw.ellipse((x - 5 * S, y - 5 * S, x + 5 * S, y + 5 * S), fill=dot)
+        for _ in range(2):
+            x = rnd.randrange(x0, max(x0 + 1, x1 - 70 * S))
+            y = rnd.randrange(y0, max(y0 + 1, y1 - 90 * S))
+            draw.rectangle((x, y, x + 60 * S, y + 80 * S), fill=line[:3] + (110,))
+    image.alpha_composite(insides.filter(ImageFilter.GaussianBlur(1.5 * S)))
+
+
+def game_boy(body, ink, lens_colour, buttons, pad_colour, pills, title, subtitle=None, lines=True, big_corner=True):
+    """A Game Boy standing up, its controls beside the screen: the lens with the dot matrix lines
+    and the battery light, GAME BOY at the top left, the D-pad, B and A, SELECT and START."""
+    image = side_panels(*body)
+    gloss(image, 0, W, 40)
+    draw = ImageDraw.Draw(image)
+    # The ridge along the top, and the slanted grille.
+    draw.rectangle((0, 14 * S, W, 18 * S), fill=tuple(int(c * 0.8) for c in body[0]) + (255,))
+    box = (400 * S, 44 * S, 1520 * S, 1036 * S)
+    lens(image, box, lens_colour, 26 * S, 150 * S if big_corner else 0)
+    if lines:
+        draw = ImageDraw.Draw(image)
+        for y, colour in ((70, (128, 32, 72)), (80, GB_INK)):
+            draw.rectangle((440 * S, y * S, 760 * S, (y + 4) * S), fill=colour + (255,))
+            draw.rectangle((1160 * S, y * S, 1480 * S, (y + 4) * S), fill=colour + (255,))
+        centred_text(draw, "DOT MATRIX WITH STEREO SOUND", (960 * S, 77 * S), 15 * S, (214, 214, 226, 255))
+    led(image, (440 * S, 420 * S), (236, 30, 40), "BATTERY", (200, 200, 214, 255))
+    cut(image, GB_WINDOW)
+    text_at(image, title, (200 * S, 150 * S), 40 * S, ink + (255,), spacing=0.06)
+    if subtitle:
+        text_at(image, subtitle, (200 * S, 205 * S), 26 * S, ink + (255,), spacing=0.1)
+    draw = ImageDraw.Draw(image)
+    draw.ellipse((200 * S - 120 * S, 600 * S - 120 * S, 200 * S + 120 * S, 600 * S + 120 * S),
+                 fill=tuple(int(c * 0.86) for c in body[0]) + (255,))
+    dpad(image, (200 * S, 600 * S), 180 * S, pad_colour + (255,), tuple(int(c * 0.7) for c in pad_colour) + (255,))
+    # B and A in their slanted recess.
+    recess = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    ImageDraw.Draw(recess).rounded_rectangle((1600 * S, 560 * S, 1850 * S, 680 * S), radius=60 * S,
+                                             fill=tuple(int(c * 0.86) for c in body[0]) + (255,))
+    image.alpha_composite(recess.rotate(25, center=(1725 * S, 620 * S), resample=Image.BICUBIC))
+    button(image, (1665 * S, 650 * S), 50 * S, buttons + (255,))
+    button(image, (1785 * S, 590 * S), 50 * S, buttons + (255,))
+    centred_text(ImageDraw.Draw(image), "B", (1665 * S, 728 * S), 26 * S, ink + (255,))
+    centred_text(ImageDraw.Draw(image), "A", (1785 * S, 668 * S), 26 * S, ink + (255,))
+    for x, label in ((1640, "SELECT"), (1770, "START")):
+        pill(image, (x * S, 850 * S), (86 * S, 24 * S), pills)
+        centred_text(ImageDraw.Draw(image), label, (x * S, 900 * S), 15 * S, ink + (255,))
+    speaker_slots(image, (1640 * S, 1060 * S), 6, tuple(int(c * 0.62) for c in body[1]))
+    return image
+
+
+def gb_console():
+    return game_boy(((206, 206, 200), (176, 176, 170)), GB_INK, (86, 90, 106), (150, 28, 76), (36, 36, 40),
+                    (120, 120, 132), "GAME BOY")
+
+
+def gb_pocket():
+    image = game_boy(((214, 216, 222), (148, 150, 158)), (40, 40, 48), (52, 54, 62), (44, 44, 50), (32, 32, 36),
+                     (70, 70, 78), "GAME BOY", "pocket", lines=False, big_corner=False)
+    return image
+
+
+def gb_green():
+    """The Game Boy's screen as the frame: its four greens, with the dots of its matrix."""
+    shades = ((15, 56, 15), (48, 98, 48), (139, 172, 15), (155, 188, 15))
+    image = side_panels(shades[1], shades[0])
+    dots = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(dots)
+    step = 24 * S
+    for y in range(0, H, step):
+        for x in range(0, W, step):
+            draw.rectangle((x + 4 * S, y + 4 * S, x + step - 4 * S, y + step - 4 * S), fill=shades[2] + (26,))
+    image.alpha_composite(dots)
+    draw = ImageDraw.Draw(image)
+    x0, y0, x1, y1 = GB_WINDOW
+    for i, colour in enumerate(shades[::-1]):
+        pad = (8 + i * 10) * S
+        draw.rectangle((x0 - pad, y0 - pad, x1 + pad - 1, y1 + pad - 1), outline=colour + (255,), width=6 * S)
+    cut(image, GB_WINDOW)
+    vertical_text(image, "GAME BOY", (240 * S, 540 * S), 64 * S, shades[3] + (255,), spacing=0.3)
+    vertical_text(image, "DOT MATRIX", (1680 * S, 540 * S), 52 * S, shades[3] + (255,), angle=-90, spacing=0.3)
+    return image
+
+
+def game_boy_color(body, panels_dark, see=None):
+    """The Game Boy Color: rounder, its dark lens with GAME BOY COLOR under the screen."""
+    image = side_panels(*body)
+    if see:
+        # Above the controls only, faint.
+        see_through(image, ((30 * S, 60 * S, 370 * S, 400 * S), (1550 * S, 60 * S, W - 30 * S, 400 * S)), see,
+                    line=(30, 10, 50, 80), dot=(230, 200, 120, 70))
+    gloss(image, 0, W, 60)
+    box = (404 * S, 30 * S, 1516 * S, 1050 * S)
+    lens(image, box, (34, 34, 40), 40 * S)
+    led(image, (442 * S, 430 * S), (240, 40, 40), "POWER", (190, 190, 200, 255))
+    total = word_width("GAME BOY ", 28 * S) + word_width("COLOR", 30 * S)
+    left = 960 * S - total / 2
+    coloured_word(image, "GAME BOY ", [(214, 214, 224)] * 9, (left, 1012 * S), 28 * S)
+    coloured_word(image, "COLOR", COLOR_LETTERS, (left + word_width("GAME BOY ", 28 * S) + 6 * S, 1012 * S), 30 * S)
+    cut(image, GB_WINDOW)
+    dpad(image, (200 * S, 560 * S), 180 * S, (34, 34, 38, 255), (24, 24, 28, 255))
+    button(image, (1660 * S, 610 * S), 50 * S, panels_dark + (255,), "B")
+    button(image, (1785 * S, 540 * S), 50 * S, panels_dark + (255,), "A")
+    for x, label in ((150, "SELECT"), (260, "START")):
+        pill(image, (x * S, 860 * S), (80 * S, 22 * S), (40, 40, 46), angle=0)
+        centred_text(ImageDraw.Draw(image), label, (x * S, 905 * S), 15 * S, (240, 240, 246, 230))
+    draw = ImageDraw.Draw(image)
+    for i in range(3):
+        for j in range(3):
+            cx, cy = (1700 + i * 34) * S, (860 + j * 34) * S
+            draw.ellipse((cx - 8 * S, cy - 8 * S, cx + 8 * S, cy + 8 * S), fill=(0, 0, 0, 120))
+    return image
+
+
+def gbc_console():
+    return game_boy_color(((196, 24, 92), (126, 10, 56)), (60, 14, 36))
+
+
+def gbc_teal():
+    return game_boy_color(((0, 160, 170), (0, 92, 106)), (12, 54, 60))
+
+
+def gbc_atomic():
+    return game_boy_color(((120, 72, 176), (48, 20, 82)), (52, 26, 86), see=19)
+
+
+def game_boy_advance(body, edge, buttons, ink, see=None):
+    """The Game Boy Advance: a wide body with round ends on black, L and R on top, the D-pad left,
+    A and B right, START and SELECT under the D-pad."""
+    image = Image.new("RGBA", (W, H), (10, 10, 12, 255))
+    draw = ImageDraw.Draw(image)
+    for x0, x1, label in ((70, 470, "L"), (1450, 1850, "R")):
+        draw.rounded_rectangle((x0 * S, 14 * S, x1 * S, 120 * S), radius=50 * S, fill=(150, 150, 160, 255))
+        centred_text(draw, label, (((x0 + x1) // 2) * S, 44 * S), 26 * S, (70, 70, 80, 255))
+    shape = Image.new("L", (W, H), 0)
+    ImageDraw.Draw(shape).rounded_rectangle((12 * S, 56 * S, W - 12 * S, H - 12 * S), radius=330 * S, fill=255)
+    soft_shadow(image, (12 * S, 62 * S, W - 12 * S, H - 6 * S), 330 * S, 14 * S, 160)
+    image.paste(vertical_gradient((W, H), *body), (0, 0), shape)
+    if see:
+        # Above the controls only, faint.
+        see_through(image, ((70 * S, 170 * S, 290 * S, 400 * S), (1630 * S, 170 * S, W - 70 * S, 380 * S)), see,
+                    line=(40, 70, 100, 80), dot=(240, 220, 150, 70))
+    gloss(image, 0, W, 50)
+    box = (300 * S, 88 * S, 1620 * S, 1012 * S)
+    lens(image, box, (22, 22, 26), 34 * S)
+    draw = ImageDraw.Draw(image)
+    draw.rounded_rectangle(box, radius=34 * S, outline=edge + (255,), width=3 * S)
+    led(image, (330 * S, 300 * S), (60, 226, 96), "POWER", (190, 190, 200, 255))
+    centred_text(ImageDraw.Draw(image), "GAME BOY ADVANCE", (960 * S, 976 * S), 26 * S, (210, 210, 222, 255))
+    cut(image, GBA_WINDOW)
+    dpad(image, (165 * S, 520 * S), 170 * S, (30, 30, 34, 255), (20, 20, 24, 255))
+    button(image, (1790 * S, 470 * S), 48 * S, buttons + (255,), "A")
+    button(image, (1690 * S, 560 * S), 48 * S, buttons + (255,), "B")
+    for y, label in ((770, "START"), (850, "SELECT")):
+        button(image, (120 * S, y * S), 14 * S, (40, 40, 46, 255))
+        draw = ImageDraw.Draw(image)
+        font = ImageFont.truetype(FONT, 14 * S)
+        draw.text((146 * S, y * S - 9 * S), label, font=font, fill=ink + (255,))
+    draw = ImageDraw.Draw(image)
+    for k in range(6):
+        cx, cy = 1740 * S + (k % 3) * 34 * S, 780 * S + (k // 3) * 34 * S + (k % 3) * 10 * S
+        draw.ellipse((cx - 8 * S, cy - 8 * S, cx + 8 * S, cy + 8 * S), fill=(0, 0, 0, 130))
+    return image
+
+
+def gba_console():
+    return game_boy_advance(((92, 80, 186), (48, 40, 116)), (140, 130, 220), (60, 52, 130), (230, 230, 245))
+
+
+def gba_glacier():
+    return game_boy_advance(((168, 214, 238), (84, 140, 190)), (210, 236, 250), (110, 150, 190), (30, 50, 80),
+                            see=33)
+
+
+def gba_black():
+    return game_boy_advance(((48, 48, 54), (16, 16, 18)), (180, 180, 190), (34, 34, 38), (210, 210, 220))
+
+
 # --- The TV ----------------------------------------------------------------------------------------
 
 def tv():
@@ -393,6 +676,9 @@ BEZELS = {
     "snes-console": snes_console, "snes-sfc": snes_sfc, "snes-purple": snes_purple,
     "nes-console": nes_console, "nes-famicom": nes_famicom, "nes-black": nes_black,
     "n64-console": n64_console, "n64-colors": n64_colors, "n64-atomic": n64_atomic,
+    "gb-console": gb_console, "gb-pocket": gb_pocket, "gb-green": gb_green,
+    "gbc-console": gbc_console, "gbc-teal": gbc_teal, "gbc-atomic": gbc_atomic,
+    "gba-console": gba_console, "gba-glacier": gba_glacier, "gba-black": gba_black,
     "tv": tv,
 }
 

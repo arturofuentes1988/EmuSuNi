@@ -52,28 +52,55 @@ const std::vector<Binding> NES_BINDINGS = {
     {"fast_forward", "Fast Forward (hold)", "R2", false},
 };
 // The N64 pad: the left stick is its control stick and the right stick its C buttons (both
-// analog); C Up and C Down also on Triangle and Circle.
+// analog); A and B where they sit on its pad (B up and left of A); Z on both triggers (GoldenEye
+// fires and Zelda targets with either), R and L on R1 and L1; C Up and C Down also on Triangle and
+// Circle. Fast forward on the touchpad: R2 is Z here.
 const std::vector<Binding> N64_BINDINGS = {
     {"n64_a", "A", "Cross", false},          {"n64_b", "B", "Square", false},
-    {"z", "Z", "L2", false},                 {"n64_l", "L", "L1", false},
-    {"n64_r", "R", "R1", false},             {"start", "START", "Options", false},
+    {"z", "Z", "L2", false},                 {"z2", "Z (second trigger)", "R2", false},
+    {"n64_r", "R", "R1", false},             {"n64_l", "L", "L1", false},
+    {"start", "START", "Options", false},
     {"c_up", "C Up", "Triangle", false},     {"c_down", "C Down", "Circle", false},
     {"c_left", "C Left", "None", false},     {"c_right", "C Right", "None", false},
     {"dpad", "D-Pad", "D-Pad", true},
+    {"fast_forward", "Fast Forward (hold)", "Touchpad", false},
+};
+// The Game Boy and Game Boy Color: B left, A right as on the NES pad; mGBA's turbo B and turbo A
+// (on Y and X) where Y and X are.
+const std::vector<Binding> GB_BINDINGS = {
+    {"b", "B", "Cross", false},                 {"a", "A", "Circle", false},
+    {"turbo_b", "Turbo B", "Square", false},    {"turbo_a", "Turbo A", "Triangle", false},
+    {"start", "START", "Options", false},       {"select", "SELECT", "Touchpad", false},
+    {"dpad", "D-Pad", "D-Pad + Left Stick", true},
+    {"fast_forward", "Fast Forward (hold)", "R2", false},
+};
+// The Game Boy Advance: the same, with its shoulder buttons on L1 and R1.
+const std::vector<Binding> GBA_BINDINGS = {
+    {"b", "B", "Cross", false},                 {"a", "A", "Circle", false},
+    {"turbo_b", "Turbo B", "Square", false},    {"turbo_a", "Turbo A", "Triangle", false},
+    {"l", "L", "L1", false},                    {"r", "R", "R1", false},
+    {"start", "START", "Options", false},       {"select", "SELECT", "Touchpad", false},
+    {"dpad", "D-Pad", "D-Pad + Left Stick", true},
     {"fast_forward", "Fast Forward (hold)", "R2", false},
 };
 
 // The libretro joypad id each binding key presses (turbo B and A: Y and X for FCEUmm; the N64's
-// buttons as Mupen64Plus-Next reads the RetroPad: A on B, B on Y, Z on L2, L on SELECT, R on R2,
-// the C buttons on X, A, L and R).
+// buttons as Mupen64Plus-Next reads the RetroPad with its Independent C-button Controls - the
+// alt-map option src/Emulator.cpp sets: A on B, B on Y, Z on L2, L on SELECT, R on R2, the C
+// buttons on X, A, L and R). Two keys on one id (Z) press it with either control.
 const std::pair<const char*, int> KEY_IDS[] = {
     {"b", ID_B},       {"a", ID_A},       {"y", ID_Y},         {"x", ID_X},
     {"l", ID_L},       {"r", ID_R},       {"start", ID_START}, {"select", ID_SELECT},
     {"turbo_b", ID_Y}, {"turbo_a", ID_X},
-    {"n64_a", ID_B},   {"n64_b", ID_Y},   {"z", ID_L2},        {"n64_l", ID_SELECT},
-    {"n64_r", ID_R2},  {"c_up", ID_X},    {"c_down", ID_A},    {"c_left", ID_L},
-    {"c_right", ID_R},
+    {"n64_a", ID_B},   {"n64_b", ID_Y},   {"z", ID_L2},        {"z2", ID_L2},
+    {"n64_l", ID_SELECT}, {"n64_r", ID_R2}, {"c_up", ID_X},    {"c_down", ID_A},
+    {"c_left", ID_L},  {"c_right", ID_R},
 };
+
+// The N64's normal layout until 00.30 is dropped once: the core read the buttons another way then
+// (R pressed its C-button mode, C Up, C Down and L did nothing), so a layout set around that goes.
+constexpr const char* VERSION_SECTION = "controls-version";
+constexpr const char* N64_LAYOUT = "2";
 
 // The section of a console's normal layout ([global] stays the Super Nintendo's).
 std::string GlobalSection(SystemId system)
@@ -117,7 +144,7 @@ void SaveLocked()
 {
   std::ostringstream file;
   file << "# EmuSuNi controls: the DualShock 4 control for each console button.\n"
-          "# [global] is the Super Nintendo's normal layout, [nes] the NES's; a [game] section is\n"
+          "# [global] is the Super Nintendo's normal layout, [nes], [n64], [gb]... each other console's; a [game] section is\n"
           "# that game's own.\n";
   for (const auto& [name, values] : s_sections)
   {
@@ -147,7 +174,20 @@ std::string GetLocked(const Binding& binding, const std::string& game_id, System
 
 const std::vector<Binding>& Bindings(SystemId system)
 {
-  return system == SystemId::N64 ? N64_BINDINGS : system == SystemId::NES ? NES_BINDINGS : SNES_BINDINGS;
+  switch (system)
+  {
+  case SystemId::NES:
+    return NES_BINDINGS;
+  case SystemId::N64:
+    return N64_BINDINGS;
+  case SystemId::GB:
+  case SystemId::GBC:
+    return GB_BINDINGS;
+  case SystemId::GBA:
+    return GBA_BINDINGS;
+  default:
+    return SNES_BINDINGS;
+  }
 }
 
 std::vector<std::string> StickChoices()
@@ -176,6 +216,14 @@ void Load(const std::string& data_dir)
     const size_t eq = line.find('=');
     if (eq != std::string::npos)
       s_sections[section][line.substr(0, eq)] = line.substr(eq + 1);
+  }
+  auto& version = s_sections[VERSION_SECTION];
+  if (version["n64"] != N64_LAYOUT)
+  {
+    if (s_sections.erase("n64"))
+      LogLine("controls: the N64's old normal layout dropped (the new one is used)");
+    version["n64"] = N64_LAYOUT;
+    SaveLocked();
   }
 }
 
@@ -270,7 +318,7 @@ Layout LayoutFor(const std::string& game_id, SystemId system)
     for (const auto& [name, id] : KEY_IDS)
     {
       if (key == name)
-        layout.button_mask[id] = MaskOf(value);
+        layout.button_mask[id] |= MaskOf(value);
     }
   }
   layout.dpad = dpad != "Left Stick";

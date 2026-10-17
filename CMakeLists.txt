@@ -25,6 +25,10 @@ set(EMUSUNI_VERSION "00.10" CACHE STRING "Version shown in Settings -> About (XX
 # scripts/build.sh turns it on (build.sh no-n64 leaves it out).
 option(EMUSUNI_N64 "Include the Nintendo 64 (Mupen64Plus-Next)" OFF)
 set(N64_CORE_OBJECT "" CACHE FILEPATH "Mupen64Plus-Next as one object (scripts/build-n64-core.sh)")
+# The Game Boy, Game Boy Color and Game Boy Advance (mGBA, built by scripts/build-gba-core.sh into
+# one object whose libretro API is mgba_retro_*): always in the app (EMUSUNI_GBA=1); scripts/build.sh
+# builds the object and passes it.
+set(GBA_CORE_OBJECT "" CACHE FILEPATH "mGBA as one object (scripts/build-gba-core.sh)")
 
 # --- The emulator cores -------------------------------------------------------------------------
 # Every core is a libretro core with the same API (retro_init, retro_run...). Several of them in
@@ -153,7 +157,7 @@ add_executable(emusuni
 add_dependencies(emusuni fceumm_core emusuni_shaders)
 target_include_directories(emusuni PRIVATE src ${CMAKE_BINARY_DIR}/shaders ${OPENORBIS}/usr/include
   ${OPENORBIS}/usr/include/libpng16)
-target_compile_definitions(emusuni PRIVATE EMUSUNI_VERSION="${EMUSUNI_VERSION}")
+target_compile_definitions(emusuni PRIVATE EMUSUNI_VERSION="${EMUSUNI_VERSION}" EMUSUNI_GBA=1)
 target_compile_options(emusuni PRIVATE -O2 -Wall -Wno-unused-parameter -Wno-missing-field-initializers)
 if(EMUSUNI_N64)
   if(NOT EXISTS "${N64_CORE_OBJECT}")
@@ -162,6 +166,15 @@ if(EMUSUNI_N64)
   target_sources(emusuni PRIVATE port/ps4_n64.c)
   target_compile_definitions(emusuni PRIVATE EMUSUNI_N64=1)
   target_link_libraries(emusuni PRIVATE ${N64_CORE_OBJECT})
+endif()
+if(GBA_CORE_OBJECT)
+  if(NOT EXISTS "${GBA_CORE_OBJECT}")
+    message(FATAL_ERROR "GBA_CORE_OBJECT ${GBA_CORE_OBJECT} doesn't exist (scripts/build-gba-core.sh)")
+  endif()
+  target_link_libraries(emusuni PRIVATE ${GBA_CORE_OBJECT})
+else()
+  message(WARNING "No GBA_CORE_OBJECT: the link needs mgba_retro_* (scripts/build.sh builds it with "
+                  "scripts/build-gba-core.sh)")
 endif()
 target_link_libraries(emusuni PRIVATE snes9x ${FCEUMM_OBJECT} imgui
   ${OPENORBIS}/usr/lib/libminizip.a ${OPENORBIS}/usr/lib/libpng16.a ${OPENORBIS}/usr/lib/libcurl.a

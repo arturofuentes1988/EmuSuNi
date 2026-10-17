@@ -2,7 +2,8 @@
 
 // The consoles EmuSuNi plays, and what differs between them: the core, the game files, the game
 // folder, the libretro thumbnails' folder, the tab and the badge on the covers. The Nintendo 64
-// is in builds with EMUSUNI_N64 (scripts/build.sh's).
+// is in builds with EMUSUNI_N64, the Game Boy, Game Boy Color and Game Boy Advance (mGBA) in
+// builds with EMUSUNI_GBA (scripts/build.sh's).
 //
 // A game is known by its key: its file name without the extension for the Super Nintendo (as
 // before EmuSuNi played other consoles), "<console>/<file name>" for the others. Its settings,
@@ -22,8 +23,11 @@ enum class SystemId
   SNES = 0,
   NES = 1,
   N64 = 2,
+  GB = 3,
+  GBC = 4,
+  GBA = 5,
 };
-constexpr int SYSTEM_COUNT = 3;  // the most there can be: Systems() has those of this build
+constexpr int SYSTEM_COUNT = 6;  // the most there can be: Systems() has those of this build
 
 struct System
 {
@@ -44,7 +48,15 @@ struct System
 };
 
 const std::vector<System>& Systems();
+// The console (one this build plays; else the Super Nintendo).
 const System& GetSystem(SystemId id);
+// Does this build play it?
+bool HasSystem(SystemId id);
+// The Game Boy, Game Boy Color and Game Boy Advance: one core (mGBA), a screen of their own.
+inline bool IsHandheld(SystemId id)
+{
+  return id == SystemId::GB || id == SystemId::GBC || id == SystemId::GBA;
+}
 // The console whose ROM files have this name's extension (nullptr: none, or a .zip).
 const System* SystemOfFile(const std::string& name);
 // "snes" -> SNES; nullptr for an unknown key.
