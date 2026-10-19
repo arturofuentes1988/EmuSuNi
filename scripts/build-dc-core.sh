@@ -8,8 +8,9 @@
 # the ARM7 (the sound CPU) and the AICA's DSP, the Vulkan renderer (internal resolution, alpha
 # sorting per triangle or per pixel...; its GLSL compiled at run time by glslang), GDI/CHD/CDI/CUE/
 # ELF read by the core itself (stdio, never mapped or cached whole), the BIOS emulated (reios) when
-# <system>/dc has no dc_boot.bin and dc_flash.bin. Its libretro API becomes flycast_retro_* and
-# everything else in it private, as for FCEUmm (CMakeLists.txt). The PS4 changes to its sources
+# <system>/dc has no dc_boot.bin (the flash, dc_nvmem.bin, Flycast makes itself). Its libretro API
+# becomes flycast_retro_* and everything else in it private, as for FCEUmm (CMakeLists.txt). The PS4
+# changes to its sources
 # (applied each time to the files as git has them, checked; all under EMUSUNI_PORT, which the CMake
 # option of that name defines):
 #   - The Dreamcast's memory without the virtual memory: upstream maps the RAM, VRAM and sound RAM

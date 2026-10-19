@@ -3,21 +3,54 @@
 </p>
 
 <p align="center">
-  <b>Super Nintendo, NES, Nintendo 64, Game Boy, Game Boy Color y Game Boy Advance para PS4 con jailbreak.</b><br>
-  Seis consolas en un lanzador al estilo de una consola: carátulas automáticas, imagen HD con IA,
-  niveles de calidad, marcos, favoritos, buscador y ajustes para cada juego.
+  <b>Diez consolas clásicas en una sola app para PS4 con jailbreak.</b><br>
+  Super Nintendo · NES · Nintendo 64 · Game Boy · Game Boy Color · Game Boy Advance ·
+  PlayStation · Nintendo DS · PSP · Dreamcast
+</p>
+
+<p align="center">
+  Un lanzador que se siente como el de una consola: tus juegos con sus carátulas, imagen HD con IA,
+  trucos de internet, estados guardados, marcos y ajustes para cada juego.
 </p>
 
 <p align="center">
   <a href="https://github.com/arturofuentes1988/EmuSuNi/releases/latest"><img alt="Descargar" src="https://img.shields.io/github/v/release/arturofuentes1988/EmuSuNi?label=descargar&style=for-the-badge&color=7b4dff"></a>
   <img alt="PS4 con GoldHEN" src="https://img.shields.io/badge/PS4-GoldHEN-003791?style=for-the-badge&logo=playstation&logoColor=white">
-  <img alt="Snes9x, FCEUmm, Mupen64Plus, mGBA" src="https://img.shields.io/badge/n%C3%BAcleos-Snes9x%20%C2%B7%20FCEUmm%20%C2%B7%20Mupen64Plus%20%C2%B7%20mGBA-e5484d?style=for-the-badge">
+  <img alt="10 consolas" src="https://img.shields.io/badge/consolas-10-e5484d?style=for-the-badge">
   <a href="LICENSE"><img alt="Licencia GPL-2.0+" src="https://img.shields.io/badge/licencia-GPL--2.0%2B-3db46d?style=for-the-badge"></a>
 </p>
 
 <p align="center"><a href="README.md">Read in English</a> · <a href="CHANGELOG.md">Historial de cambios</a> · <a href="https://github.com/arturofuentes1988/EmuSuNi/releases/latest">Descargar</a></p>
 
 ---
+
+## Las diez consolas
+
+| Consola | Emulador | Lo mejor |
+|---|---|---|
+| **Super Nintendo** | Snes9x 1.63 | Todos los chips (SuperFX, SA-1, DSP...), modos de alta resolución, hasta 5 jugadores |
+| **NES** y Famicom Disk System | FCEUmm | Paletas, botones turbo, filtro NTSC |
+| **Nintendo 64** | Mupen64Plus-Next | Dibujada por la GPU de la PS4 hasta 4x (ParaLLEl-RDP), Controller Pak y Rumble Pak |
+| **Game Boy** y **Game Boy Color** | mGBA | Colores de Game Boy Color o Super Game Boy, marcos con la forma de cada portátil |
+| **Game Boy Advance** | mGBA | Sensores de inclinación y de luz solar, vibración, el reloj de los cartuchos |
+| **PlayStation** — *nueva* | SwanStation | 3D en HD hasta 4x, polígonos que no tiemblan (PGXP), color real, los dos sticks analógicos, juegos de varios discos |
+| **Nintendo DS** — *nueva* | melonDS DS 1.4.0 | Tres formas de ver las pantallas (R3 las cambia), el panel táctil es la pantalla táctil, L3 sopla al micrófono |
+| **PSP** — *nueva* | PPSSPP 1.20.4 | Hasta 4x (Full HD) con texturas mejoradas, sin BIOS |
+| **Dreamcast** — *nueva* | Flycast 2.7 | Gatillos analógicos en L2 / R2, una VMU por juego, vibración, juegos de varios discos |
+
+No hace falta ninguna BIOS para empezar: las originales se usan si las añades ([BIOS](#bios)).
+
+## Novedades de la 00.20
+
+- **PlayStation, Nintendo DS, PSP y Dreamcast** se suman a las seis consolas de la 00.19.
+- **Los juegos de varios discos** (PlayStation, Dreamcast) salen como un solo juego; el menú del juego cambia el disco.
+- **Buscar trucos en internet**: la colección de trucos de libretro, buscada para tu juego.
+- **Suavizado de bordes, HD natural e IA natural**: tres filtros nuevos por GPU, uno por nivel de Calidad.
+- **Orden de las consolas**: las consolas en tu orden, o Por empresa, Por potencia, Por año o Por abecedario.
+- Los ajustes y controles de un juego se cambian desde el propio juego (**Triángulo**).
+- Por ahora la Dreamcast juega siempre en calidad Baja, para que todos sus juegos vayan bien.
+
+Todos los detalles: las [notas de la versión](https://github.com/arturofuentes1988/EmuSuNi/releases/latest) y el [historial de cambios](CHANGELOG.md).
 
 ## Capturas
 
@@ -86,32 +119,34 @@
 
 ## Características
 
-**Seis consolas**
-- **Super Nintendo** con **Snes9x 1.63**: SuperFX, SA-1, DSP y demás chips, modos de alta
-  resolución, hasta **5 jugadores** con el Super Multitap.
-- **NES** y Famicom Disk System con **FCEUmm**, con paletas, turbo y filtro NTSC.
-- **Nintendo 64** con **Mupen64Plus-Next**, ParaLLEl-RDP (la GPU de la PS4 dibuja a 1x, 2x o 4x) y
-  ParaLLEl-RSP, recompilador dinámico, Controller Pak y Rumble Pak.
-- **Game Boy, Game Boy Color y Game Boy Advance** con **mGBA**: colores de Game Boy Color o Super
-  Game Boy con sus marcos, corrección de color de la pantalla, estela LCD, sensor solar (Boktai) y de
-  inclinación (con el stick derecho o moviendo el DualShock 4), vibración y el reloj de los cartuchos
-  (Pokémon).
-- Partidas guardadas solas, **8 ranuras de estado** con captura, *continuar donde lo dejaste*,
-  **trucos** `.cht` de RetroArch y Reset.
-
 **Imagen**
-- **Calidad** en un solo ajuste: Baja, Media, Alta o **Ultra** (lo máximo de cada consola).
-- **Escalado por GPU**: Pixel Art HD (xBRZ), **IA (xBRZ + red neuronal Anime4K)**, HD suave (AMD
-  FSR) y Nitidez HD (AMD RCAS), a la resolución de la TV.
+- **Calidad** en un solo ajuste: Baja, Media, Alta o **Ultra** (lo máximo de cada consola). Cada
+  nivel trae su filtro por GPU: Suavizado de bordes, HD natural e IA natural.
+- **Escalado por GPU**: Suavizado de bordes (MMPX y SMAA), HD natural (AMD FSR), IA natural (la red
+  neuronal Anime4K, sin aspecto de cera), Pixel Art HD (xBRZ), IA (xBRZ + Anime4K), HD suave y
+  Nitidez HD, a la resolución de la TV.
+- **3D en HD**: la Nintendo 64 y la PlayStation hasta 4x, la PSP hasta 4x con texturas mejoradas.
 - **Resolución** 2x–6x con xBRZ, HQx o Píxeles nítidos; relación de aspecto, escala entera, zoom,
-  scanlines (en las Game Boy, la rejilla de su pantalla), filtro NTSC, V-Sync.
-- **Marcos**: tres por consola más una TV retro (las Game Boy con la forma de cada portátil), o los
-  tuyos.
+  líneas de escaneo (en las Game Boy, la rejilla de su pantalla), filtro NTSC, V-Sync.
+- **Marcos**: tres por consola más una TV retro (las Game Boy con la forma de cada portátil; la
+  PlayStation, la PSone y Medianoche), o los tuyos.
+
+**Para jugar**
+- Partidas guardadas solas, **8 ranuras de estado** con captura, *continuar donde lo dejaste* y
+  reiniciar.
+- **Trucos**: archivos `.cht` de RetroArch, o **Buscar trucos en internet** (todas las consolas
+  menos la Dreamcast).
+- **Juegos de varios discos** agrupados solos, con **Disco** en el menú del juego.
+- **El menú del juego** (L3 + R3): guardar y cargar estados, cambiar el disco, ajustes, trucos,
+  reiniciar, salir.
+- Hasta 5 mandos DualShock 4, vibración, avance rápido.
 
 **Un lanzador como el de una consola**
-- Dos estilos de menú: **Biblioteca** (carátulas en fila, una pestaña por consola con L1 / R1) y
-  **XMB** (las columnas de la PSP), 12 temas de color o tus fondos, sonidos de 8 bits.
-- **Carátulas automáticas** desde el servidor de libretro (nombres GoodSNES y No-Intro).
+- Dos estilos de menú: **Biblioteca** (carátulas en fila, una pestaña por consola con L1 / R1, que
+  da la vuelta) y **XMB** (las columnas de la PSP), 12 temas de color o tus fondos, sonidos de 8 bits.
+- **Carátulas automáticas** desde el servidor de libretro.
+- **Orden de las consolas**: en el orden que quieras, o Por empresa, Por potencia, Por año o Por
+  abecedario.
 - Favoritos, buscador, orden (A–Z, recientes, región, consola), juego predeterminado, explorador de
   carpetas, *Limpiar juegos* y **13 idiomas**.
 - **Cada ajuste para todos los juegos, para una consola o para un juego**, con una breve
@@ -120,17 +155,24 @@
 ## Requisitos
 
 - Una PS4 con **[GoldHEN](https://github.com/GoldHEN/GoldHEN)** (cualquier modelo).
-- Tus propios juegos (también en `.zip`):
+- Tus propios juegos:
 
   | Consola | Archivos |
   |---|---|
   | Super Nintendo | `.sfc` `.smc` `.swc` `.fig` `.bs` |
-  | NES | `.nes` `.fds` `.unf` |
+  | NES | `.nes` `.fds` `.unf` `.unif` |
   | Nintendo 64 | `.z64` `.n64` `.v64` |
-  | Game Boy | `.gb` `.sgb` |
-  | Game Boy Color | `.gbc` (y los `.gb` que pongas en su carpeta, como Pokémon Amarillo) |
-  | Game Boy Advance | `.gba` |
-- Internet en la PS4 para las carátulas (opcional).
+  | Game Boy | `.gb` `.sgb` `.dmg` |
+  | Game Boy Color | `.gbc` `.cgb` (y los `.gb` que pongas en su carpeta, como Pokémon Amarillo) |
+  | Game Boy Advance | `.gba` `.agb` |
+  | PlayStation | `.cue` (con sus pistas `.bin`) `.chd` `.pbp` `.m3u` `.iso` `.img` `.ecm` `.mds` |
+  | Nintendo DS | `.nds` `.ids` |
+  | PSP | `.iso` `.cso` `.chd` `.pbp` `.elf` |
+  | Dreamcast | `.gdi` (con sus pistas) `.chd` `.cdi` `.cue` `.m3u` |
+
+  Las consolas de cartucho (de Super Nintendo a Game Boy Advance) también aceptan `.zip`; las de
+  disco y la DS leen sus juegos tal cual.
+- Internet en la PS4 para las carátulas y los trucos de internet (opcional).
 
 ## Instalación
 
@@ -155,10 +197,14 @@ Pendrive
     ├── n64
     ├── gb
     ├── gbc
-    └── gba
+    ├── gba
+    ├── ps1     (PlayStation)
+    ├── nds     (Nintendo DS)
+    ├── psp
+    └── dc      (Dreamcast)
 ```
 
-- **N64, GB, GBC y GBA** buscan sus juegos en `Roms/n64`, `Roms/gb`, `Roms/gbc` y `Roms/gba` del
+- **Todas las consolas menos Super Nintendo y NES** buscan sus juegos en su carpeta de `Roms` del
   pendrive sin configurar nada.
 - **Super Nintendo y NES** empiezan en `/data/EmuSuNi/games` y `/data/EmuSuNi/nes` (en la PS4, por
   FTP).
@@ -166,19 +212,44 @@ Pendrive
   pendrive o en la PS4. También se buscan las subcarpetas.
 - Después de copiar juegos, pulsa **Cuadrado** en la biblioteca para buscarlos de nuevo.
 
+**Los juegos de varios discos** (PlayStation, Dreamcast) se juntan en uno solo cuando:
+- sus archivos están juntos con el disco en el nombre: `Juego (Disc 1).chd`, `Juego (Disc 2).chd`
+  (también `(CD2)`, `(Disk 2)`, `[Disc 2]`);
+- cada disco tiene su carpeta: `Juego (Disc 1)/disc.gdi`, o `Juego/Disc 1/disc.gdi`;
+- o un archivo `.m3u` los enumera.
+
+En el juego, **L3 + R3 → Disco** cambia el disco (izquierda / derecha para elegir, Cruz para
+ponerlo). La próxima vez, el juego empieza con el último disco que usaste.
+
+## BIOS
+
+No hace falta ninguna para jugar, salvo `disksys.rom` para el Famicom Disk System. Si tienes las
+originales, cópialas por FTP:
+
+| Consola | Archivos | Carpeta |
+|---|---|---|
+| PlayStation (recomendada: funcionan más juegos) | `scph5501.bin`, `scph5500.bin`, `scph5502.bin` u otra | `/data/EmuSuNi/system` |
+| Nintendo DS (las tres) | `bios7.bin`, `bios9.bin`, `firmware.bin` | `/data/EmuSuNi/system` |
+| Dreamcast | `dc_boot.bin` | `/data/EmuSuNi/system/dc` |
+| Famicom Disk System (obligatoria) | `disksys.rom` | `/data/EmuSuNi/system` |
+| Game Boy, Color, Advance | `gb_bios.bin`, `gbc_bios.bin`, `sgb_bios.bin`, `gba_bios.bin` | `/data/EmuSuNi/system` |
+
+La PSP no usa BIOS.
+
 ## Carátulas
 
 - **Se descargan solas** (la PS4 necesita internet) desde el servidor de libretro; el avance se ve
   bajo *Tus juegos*. *Ajustes → Descargar carátulas* las busca de nuevo.
 - **Las tuyas también sirven**: un PNG con el nombre del archivo del juego o con su título en
-  `/data/EmuSuNi/covers` (Super Nintendo) o en su subcarpeta: `covers/nes`, `covers/n64`,
-  `covers/gb`, `covers/gbc`, `covers/gba`.
+  `/data/EmuSuNi/covers` (Super Nintendo) o en la subcarpeta de su consola: `covers/nes`, `n64`,
+  `gb`, `gbc`, `gba`, `ps1`, `nds`, `psp`, `dc`.
 - Si a un juego le falta, **Triángulo → Buscar carátula** muestra las más parecidas para elegir.
 
 ## Controles
 
 **L3 + R3** (los dos sticks presionados) abre el menú del juego en todas las consolas. Todos los
-botones se pueden cambiar en **Ajustes → Controles** (para una consola o para un juego).
+botones se pueden cambiar desde un juego: **Triángulo → Controles** (para ese juego, su consola o
+todos los juegos).
 
 | DualShock 4 | Super Nintendo | NES | Nintendo 64 | Game Boy / Color | Game Boy Advance |
 |---|---|---|---|---|---|
@@ -186,7 +257,7 @@ botones se pueden cambiar en **Ajustes → Controles** (para una consola o para 
 | Círculo | A | A | C abajo | A | A |
 | Cuadrado | Y | Turbo B | B | Turbo B | Turbo B |
 | Triángulo | X | Turbo A | C arriba | Turbo A | Turbo A |
-| L1 / R1 | L / R | Cara del disco (FDS) | L / R | — | L / R |
+| L1 / R1 | L / R | Cara del disco / insertar (FDS) | L / R | — | L / R |
 | L2 | — | — | Z | — | — |
 | R2 | Avance rápido | Avance rápido | Z | Avance rápido | Avance rápido |
 | Options | Start | Start | Start | Start | Start |
@@ -194,12 +265,27 @@ botones se pueden cambiar en **Ajustes → Controles** (para una consola o para 
 | Stick izquierdo | Cruceta | Cruceta | Stick | Cruceta | Cruceta |
 | Stick derecho | — | — | Botones C | Sensor de inclinación | Sensor de inclinación |
 
+| DualShock 4 | PlayStation | Nintendo DS | PSP | Dreamcast |
+|---|---|---|---|---|
+| Cruz | Cruz | B | Cruz | A |
+| Círculo | Círculo | A | Círculo | B |
+| Cuadrado | Cuadrado | Y | Cuadrado | X |
+| Triángulo | Triángulo | X | Triángulo | Y |
+| L1 / R1 | L1 / R1 | L / R | L / R | — |
+| L2 | L2 | Select | — | Gatillo L (analógico) |
+| R2 | R2 | Avance rápido | Avance rápido | Gatillo R (analógico) |
+| L3 / R3 | L3 / R3 | Micrófono (soplar) / cambiar pantallas | — | — |
+| Options | Start | Start | Start | Start |
+| Panel táctil | Select | Pantalla táctil | Select | — |
+| Stick izquierdo | Stick izquierdo | Cruceta | Stick | Stick |
+| Stick derecho | Stick derecho | — | — | — |
+
 | Menú (estilo Biblioteca) | |
 |---|---|
 | Cruceta izquierda / derecha | Juego anterior / siguiente (arriba / abajo: de 10 en 10) |
 | L1 / R1 | Pestañas: Todos, cada consola, Favoritos, Ajustes |
 | Cruz | Jugar |
-| Triángulo | Opciones del juego: favorito, ajustes, trucos, controles, buscar carátula, renombrar, información, juego predeterminado, borrar |
+| Triángulo | Opciones del juego: favorito, ajustes del juego, trucos, controles, cambiar nombre, buscar carátula, información, juego predeterminado, borrar |
 | L2 / R2 | Favorito / buscar |
 | Cuadrado | Buscar los juegos de nuevo |
 | Options | Ordenar |
@@ -209,17 +295,24 @@ Mantén **L1** al abrir EmuSuNi para ir al menú en vez del juego predeterminado
 
 ## Ajustes
 
-Cada ajuste puede aplicarse a **todos los juegos**, a **una consola** o a **un juego** (*Aplicar a*,
-arriba en los ajustes de un juego). Debajo de cada lista, un texto breve explica el ajuste y su
-opción actual.
+**Ajustes**, en el menú, tiene las opciones de la app: Carpetas de juegos, Orden de las consolas,
+Limpiar juegos, Descargar carátulas, Temas, Idioma, Estilo del menú, Efectos de sonido, Reloj,
+Restablecer todos los ajustes...
+
+Los ajustes de un juego se cambian desde el juego: **Triángulo → Ajustes del juego** en el menú, o
+**Ajustes** en el menú del juego. Cada uno puede aplicarse a **todos los juegos**, a **una
+consola** o a **un juego** (*Aplicar a*, arriba), y un texto breve bajo la lista explica el ajuste y
+su opción actual.
 
 | Categoría | Ajustes |
 |---|---|
-| **Video** | **Calidad** (Baja, Media, Alta, Ultra) · Resolución · Resolución N64 · Relación de aspecto · Tamaño de imagen · Zoom · **Marco** de cada consola · Recortar overscan · Límite de fotogramas · V-Sync · Contador de FPS |
-| **Gráficos** | Filtro de escalado · **Escalado por GPU** (IA, Pixel Art HD, HD suave, Nitidez HD) · Filtrado · Scanlines · Filtro NTSC · Antialiasing, tramado, 2D, texturas y efectos de la N64 · **Colores de Game Boy** · Colores de pantalla · Estela LCD · Mezcla de alta resolución · Parpadeo de sprites · Transparencias |
-| **Rendimiento** | Reloj de la CPU · Reloj del SuperFX · Sincronía, núcleos, momento de imagen, ritmo de fotogramas y ritmo de CPU de la N64 · Velocidad · Avance rápido · Salto de fotogramas · Gráficos de rendimiento |
-| **Emulación** | Región · CPU, RSP y Controller Pak de la N64 · Paleta de NES · Botones turbo · Logo de inicio (BIOS) · Luz solar · Sensor de inclinación · Direcciones opuestas · Memoria aleatoria y más |
-| **Sistema** | Idioma · Volumen · Interpolación de audio · Filtro de sonido · Búfer de audio · Multitap · Continuar donde lo dejaste |
+| **Vídeo** | **Calidad** (Baja, Media, Alta, Ultra) · Resolución · Resolución de N64, de PS1 y de PSP · Relación de aspecto · Pantallas de DS · Pantalla panorámica PS1 · Tamaño de imagen · Zoom panorámico · **Marco** de cada consola · Recortar overscan · Límite de fotogramas · V-Sync · Contador de FPS |
+| **Gráficos** | Filtro de escalado · **Escalado por GPU** · Filtrado de texturas · suavizado de bordes, tramado, 2D, texturas lejanas y efectos de pantalla de la N64 · geometría (PGXP), filtrado de texturas, colores y antialiasing de la PlayStation · nitidez, escalado y antialiasing de texturas de la PSP · Filtro NTSC · Líneas de escaneo · Mezcla de alta resolución · Reducir parpadeo de sprites · Efectos de transparencia · **Colores de Game Boy** · Colores de pantalla · Estela LCD |
+| **Rendimiento** | Cuadros por segundo de la PSP (God of War) · Reloj de CPU emulado · Reloj del SuperFX · sincronía de gráficos, núcleos de CPU, momento de la imagen, ritmo de CPU y ritmo de fotogramas de la N64 · Velocidad del disco PS1 · Velocidad de emulación · Avance rápido · Salto de fotogramas · Gráficas de rendimiento |
+| **Emulación** | Región · Paleta de NES · Botones turbo · CPU, RSP y Controller Pak de la N64 · Logo de inicio (BIOS) · Luz solar (Boktai) · Sensor de inclinación · Mando de PS1 · Logo de inicio PS1 · Permitir direcciones opuestas · Memoria aleatoria y más |
+| **Sistema** | Idioma · Volumen del juego · Interpolación de audio · Filtro de sonido · Búfer de audio · Multitap (3-5 jugadores) · Continuar donde lo dejaste |
+
+Los juegos de Dreamcast muestran solo los ajustes que les sirven (siempre juegan en calidad Baja).
 
 ## Archivos en la PS4
 
@@ -228,10 +321,12 @@ Todo está en `/data/EmuSuNi` (accesible por FTP con GoldHEN):
 | Ruta | Contenido |
 |---|---|
 | `games/`, `nes/` | Las carpetas de juegos predeterminadas de Super Nintendo y NES |
-| `covers/` | Carátulas (subcarpetas `nes`, `n64`, `gb`, `gbc`, `gba`) |
-| `saves/`, `states/` | Partidas de batería (y el reloj de los cartuchos, `.rtc`) y estados guardados |
-| `cheats/` | Trucos: `<nombre del archivo>.cht` (formato RetroArch) |
-| `system/` | BIOS opcionales: `disksys.rom` (Famicom Disk System), `gb_bios.bin`, `gbc_bios.bin`, `sgb_bios.bin`, `gba_bios.bin` |
+| `covers/` | Carátulas (una subcarpeta por consola: `nes`, `n64`, `gb`, `gbc`, `gba`, `ps1`, `nds`, `psp`, `dc`) |
+| `saves/` | Partidas de batería y el reloj de los cartuchos (`.rtc`), las tarjetas de memoria de PlayStation, la Memory Stick de la PSP (`saves/psp`), las VMU de la Dreamcast (`saves/dc`) |
+| `states/` | Estados guardados |
+| `cheats/` | Trucos: `<nombre del archivo>.cht` (formato RetroArch), en la subcarpeta de su consola |
+| `system/` | Archivos de BIOS (ver [BIOS](#bios)) |
+| `cache/` | La colección de trucos de internet (se guarda un mes) y las listas de los juegos de varios discos |
 | `bezels/` | Tus marcos: PNG de 1920×1080 transparente donde va el juego, en `bezels/<consola>/` |
 | `themes/` | Fondos (PNG, 1920×1080) y sonidos que reemplazan a los incluidos |
 | `settings.ini`, `controls.ini`, `xmb.ini`, `favorites.ini` | Tus ajustes |
@@ -243,29 +338,38 @@ Se compila en **Ubuntu 24.04** (WSL2 sirve) con clang 21, el OpenOrbis de PacBre
 PS4 de DolphinPS4 (libc++ 21 y el controlador Vulkan RADV de Mesa).
 
 ```sh
-# una vez: paquetes, toolchain, libc++, Mesa, los núcleos y Dear ImGui (como root, ~45 minutos)
+# una vez: paquetes, toolchain, libc++, Mesa, los núcleos de las diez consolas y Dear ImGui (como root)
 sudo -i bash /ruta/a/EmuSuNi/scripts/setup.sh
 
 # luego
-EMUSUNI_VERSION=00.19 bash scripts/build.sh   # compila ~/emusuni-build/emusuni_eboot/eboot.bin
-bash scripts/package.sh 00.19                 # crea el .pkg en ~/emusuni-build/out
+EMUSUNI_VERSION=00.20 bash scripts/build.sh   # compila ~/emusuni-build/emusuni_eboot/eboot.bin
+bash scripts/package.sh 00.20                 # crea el .pkg en ~/emusuni-build/out
 ```
+
+`scripts/build.sh` compila primero cada núcleo (`scripts/build-*-core.sh`, de nuevo solo lo que
+cambió); `no-n64`, `no-ps1`, `no-nds`, `no-psp` o `no-dc` dejan fuera una consola.
 
 ## Créditos
 
-- **[Snes9x](https://github.com/snes9xgit/snes9x)** (Super Nintendo),
+- Los emuladores: **[Snes9x](https://github.com/snes9xgit/snes9x)** (Super Nintendo),
   **[FCEUmm](https://github.com/libretro/libretro-fceumm)** (NES),
   **[Mupen64Plus-Next](https://github.com/libretro/mupen64plus-libretro-nx)** con ParaLLEl-RDP y
-  ParaLLEl-RSP (Nintendo 64) y **[mGBA](https://mgba.io)** (Game Boy, Color y Advance) — los
-  emuladores.
-- **[Anime4K](https://github.com/bloc97/Anime4K)** y **AMD FidelityFX Super Resolution** — la imagen
-  HD con IA y el escalado suave.
+  ParaLLEl-RSP (Nintendo 64), **[mGBA](https://mgba.io)** (Game Boy, Color y Advance),
+  **[SwanStation](https://github.com/libretro/swanstation)**, basado en
+  [DuckStation](https://github.com/stenzek/duckstation) (PlayStation),
+  **[melonDS DS](https://github.com/JesseTG/melonds-ds)**, basado en
+  [melonDS](https://melonds.kuribo64.net) (Nintendo DS), **[PPSSPP](https://www.ppsspp.org)** (PSP)
+  y **[Flycast](https://github.com/flyinghead/flycast)** (Dreamcast).
+- **[Anime4K](https://github.com/bloc97/Anime4K)**, **AMD FidelityFX Super Resolution**,
+  **[SMAA](https://github.com/iryoku/smaa)** y **MMPX** — la imagen HD con IA, el escalado suave y
+  los bordes limpios.
 - **[DolphinPS4](https://github.com/iHaiDeeZ/DolphinPS4)** — el diseño del lanzador, el runtime de
   PS4, el port de Mesa y la configuración de compilación de los que nació EmuSuNi.
 - **[Dear ImGui](https://github.com/ocornut/imgui)**, **[Mesa](https://mesa3d.org)**,
   **[OpenOrbis](https://github.com/OpenOrbis) / [PacBrew](https://github.com/PacBrew)**,
-  **[libretro-thumbnails](https://github.com/libretro-thumbnails)**, xBRZ, HQx, el filtro NTSC de
-  blargg y los autores de las fuentes. Ver [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+  **[libretro-thumbnails](https://github.com/libretro-thumbnails)**, la colección de trucos de
+  libretro, xBRZ, HQx, el filtro NTSC de blargg y los autores de las fuentes. Ver
+  [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 EmuSuNi por [@arturofuentes1988](https://github.com/arturofuentes1988).
 
@@ -273,10 +377,11 @@ EmuSuNi por [@arturofuentes1988](https://github.com/arturofuentes1988).
 
 El código propio de EmuSuNi tiene licencia **GNU GPL v2 o posterior** ([LICENSE](LICENSE)). Snes9x
 tiene su propia licencia, que solo permite el uso gratuito y **no comercial**; los paquetes de
-EmuSuNi son gratuitos. Los demás componentes mantienen sus licencias
+EmuSuNi son gratuitos. Los demás emuladores y componentes mantienen sus licencias
 ([THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)).
 
-**No incluye juegos.** Usa juegos que te pertenezcan. EmuSuNi no está afiliado ni respaldado por
-Nintendo ni por Sony. *Super Nintendo*, *Super Famicom*, *SNES*, *NES*, *Nintendo 64*, *Game Boy*,
-*Game Boy Color* y *Game Boy Advance* son marcas de Nintendo; *PlayStation* y *PS4* son marcas de
-Sony Interactive Entertainment.
+**No incluye juegos ni BIOS.** Usa juegos que te pertenezcan. EmuSuNi no está afiliado ni respaldado
+por Nintendo, Sony ni Sega. *Super Nintendo*, *Super Famicom*, *SNES*, *NES*, *Nintendo 64*,
+*Game Boy*, *Game Boy Color*, *Game Boy Advance* y *Nintendo DS* son marcas de Nintendo;
+*PlayStation*, *PSP* y *PS4* son marcas de Sony Interactive Entertainment; *Dreamcast* es una marca
+de Sega.
