@@ -16,7 +16,9 @@ The first public release since 00.19: the test builds 00.33 to 00.54 below.
   next time.
 - **Find Cheats Online**: libretro's cheat collection, searched for the game (every console but the
   Dreamcast).
-- **Smooth Edges, Natural HD and Natural AI**: three new GPU filters, one per Quality level.
+- **Smooth Edges, Natural HD and Natural AI**: three new GPU filters, for Medium, High and Ultra (Low
+  has none). A level chosen in 00.19 shows as Custom, with its old GPU Upscaler, until it is chosen
+  again.
 - **Console Order** (Settings): the tabs in the order you choose, or By Company, By Power, By Year or
   Alphabetical; the tab bar goes round.
 - The emulation settings and Controls are set from a game (Triangle); Settings lists the app's own.

@@ -34,21 +34,23 @@
 | **Game Boy** and **Game Boy Color** | mGBA | Game Boy Color or Super Game Boy colours, bezels shaped like each handheld |
 | **Game Boy Advance** | mGBA | Tilt and sunlight sensors, rumble, the cartridges' clock |
 | **PlayStation** — *new* | SwanStation | HD 3D up to 4x, steady polygons (PGXP), True Colour, both analog sticks, games on several discs |
-| **Nintendo DS** — *new* | melonDS DS 1.4.0 | Three screen layouts (R3 swaps them), the touchpad is the touch screen, L3 blows into the mic |
+| **Nintendo DS** — *new* | melonDS DS 1.4.0 | Three screen layouts in DS Screens (R3 swaps between yours and Side by Side, or Big Top Screen), the touchpad is the touch screen, L3 blows into the mic |
 | **PSP** — *new* | PPSSPP 1.20.4 | Up to 4x (Full HD) with texture upscaling, no BIOS needed |
 | **Dreamcast** — *new* | Flycast 2.7 | Analog triggers on L2 / R2, a VMU for each game, rumble, games on several discs |
 
-No BIOS files are needed to start: the real ones are used when you add them ([BIOS](#bios-files)).
+No BIOS files are needed to start, except `disksys.rom` for Famicom Disk System games; the real ones
+are used when you add them ([BIOS](#bios-files)).
 
 ## What's new in 00.20
 
 - **PlayStation, Nintendo DS, PSP and Dreamcast** join the six consoles of 00.19.
 - **Games on several discs** (PlayStation, Dreamcast) show up as one game; the in-game menu changes the disc.
 - **Find Cheats Online**: libretro's cheat collection, searched for your game.
-- **Smooth Edges, Natural HD and Natural AI**: three new GPU filters, one for each Quality level.
+- **Smooth Edges, Natural HD and Natural AI**: three new GPU filters, for the Medium, High and Ultra
+  Quality levels (coming from 00.19, choose your level again in **Triangle → Game Settings → Quality**).
 - **Console Order**: the consoles in your order, or By Company, By Power, By Year or Alphabetical.
 - A game's settings and controls are set from the game itself (**Triangle**).
-- For now the Dreamcast always plays at Low quality, so that every game runs well.
+- For now the Dreamcast always plays at Low quality: the higher levels are too heavy for the PS4.
 
 All the details: the [release notes](https://github.com/arturofuentes1988/EmuSuNi/releases/latest) and the [changelog](CHANGELOG.md).
 
@@ -120,16 +122,17 @@ All the details: the [release notes](https://github.com/arturofuentes1988/EmuSuN
 ## Features
 
 **Picture**
-- **Quality** in one setting: Low, Medium, High or **Ultra** (the most each console can do). Each
-  level has its GPU filter: Smooth Edges, Natural HD and Natural AI.
+- **Quality** in one setting: Low, Medium, High or **Ultra** (the most each console can do).
+  Medium, High and Ultra each have their GPU filter: Smooth Edges, Natural HD and Natural AI (Low
+  has none).
 - **GPU Upscaler**: Smooth Edges (MMPX and SMAA), Natural HD (AMD FSR), Natural AI (the Anime4K
   neural network, without the waxy look), Pixel Art HD (xBRZ), AI (xBRZ + Anime4K), Smooth HD and
   HD Sharpen, at the TV's resolution.
 - **HD 3D**: the Nintendo 64 and the PlayStation up to 4x, the PSP up to 4x with texture upscaling.
 - **Resolution** 2x–6x with xBRZ, HQx or Sharp Pixels; aspect ratio, integer scaling, zoom,
   scanlines (on the Game Boys, the grid of their screen), NTSC filter, V-Sync.
-- **Bezels**: three per console plus a retro TV (the Game Boys shaped like each handheld; the
-  PlayStation, the PSone and Midnight), or your own.
+- **Bezels** (every console but the DS, the PSP and the Dreamcast): three per console plus a retro
+  TV (the Game Boys shaped like each handheld; the PlayStation, the PSone and Midnight), or your own.
 
 **Playing**
 - Battery saves written automatically, **8 save-state slots** with screenshots, *resume where you
@@ -147,7 +150,8 @@ All the details: the [release notes](https://github.com/arturofuentes1988/EmuSuN
 - **Console Order**: the consoles in the order you like, or By Company, By Power, By Year or
   Alphabetical.
 - Favorites, search, sorting (A–Z, recently played, region, console), a default game, a folder
-  browser, *Clean Up Games* and **13 languages**.
+  browser, *Clean Up Games* and **13 languages** (complete in English and Spanish, partial in the
+  other 11).
 - **Every setting for all games, for a console or for one game**, with a short explanation of each
   option, and **button remapping**.
 
@@ -247,7 +251,8 @@ The PSP needs no BIOS.
 ## Controls
 
 **L3 + R3** (both sticks pressed) opens the in-game menu on every console. Every button can be
-changed from a game: **Triangle → Controls** (for that game, its console or all games).
+changed from a game: **Triangle → Controls** (*Apply To*: This Game, or All Games, which is every
+game of that console).
 
 | DualShock 4 | Super Nintendo | NES | Nintendo 64 | Game Boy / Color | Game Boy Advance |
 |---|---|---|---|---|---|
@@ -255,7 +260,7 @@ changed from a game: **Triangle → Controls** (for that game, its console or al
 | Circle | A | A | C Down | A | A |
 | Square | Y | Turbo B | B | Turbo B | Turbo B |
 | Triangle | X | Turbo A | C Up | Turbo A | Turbo A |
-| L1 / R1 | L / R | Disk side / insert (FDS) | L / R | — | L / R |
+| L1 / R1 | L / R | Disk side / insert or eject (FDS) | L / R | — | L / R |
 | L2 | — | — | Z | — | — |
 | R2 | Fast forward | Fast forward | Z | Fast forward | Fast forward |
 | Options | Start | Start | Start | Start | Start |
@@ -302,11 +307,11 @@ in the in-game menu. Each one can apply to **all games**, to **a console** or to
 
 | Category | Settings |
 |---|---|
-| **Video** | **Quality** (Low, Medium, High, Ultra) · Resolution · N64, PS1 and PSP Resolution · Aspect Ratio · DS Screens · PS1 Widescreen · Picture Size · Letterbox Zoom · each console's **Bezel** · Crop Overscan · Frame Rate Limit · V-Sync · FPS Counter |
+| **Video** | **Quality** (Low, Medium, High, Ultra) · Resolution · N64, PS1 and PSP Resolution · Aspect Ratio · DS Screens · PS1 Widescreen · Picture Size · Letterbox Zoom · **Bezel** (not for the DS, PSP and Dreamcast) · Crop Overscan · Frame Rate Limit · V-Sync · FPS Counter |
 | **Graphics** | Upscaling Filter · **GPU Upscaler** · Texture Filtering · the N64's anti-aliasing, dither filter, 2D, distant textures and screen effects · the PlayStation's geometry (PGXP), texture filtering, colours and anti-aliasing · the PSP's texture sharpness, texture upscaling and anti-aliasing · NTSC Filter · Scanlines · Hi-Res Blending · Reduce Sprite Flicker · Transparency Effects · **Game Boy Colours** · Screen Colours · LCD Ghosting |
 | **Performance** | PSP Frame Rate (God of War) · Emulated CPU Clock · SuperFX Clock · the N64's graphics sync, CPU cores, picture timing, CPU timing and frame pacing · PS1 Disc Speed · Emulation Speed · Fast Forward · Frame Skip · Performance Graphs |
 | **Emulation** | Region · NES Palette · Turbo Buttons · the N64's CPU, RSP and Controller Pak · Boot Logo (BIOS) · Sunlight (Boktai) · Tilt Sensor · PS1 Controller · PS1 Boot Logo · Allow Opposing Directions · Randomize Memory and more |
-| **System** | Language · Game Volume · Audio Interpolation · Sound Filter · Audio Buffer · Multitap (3-5 Players) · Resume Where You Left Off |
+| **System** | Game Volume · Audio Interpolation · Sound Filter · Audio Buffer · Multitap (3-5 Players) · Resume Where You Left Off |
 
 The Dreamcast's games show only the settings that apply to them (they always play at Low quality).
 
@@ -320,7 +325,7 @@ Everything lives in `/data/EmuSuNi` (reachable by FTP with GoldHEN):
 | `covers/` | Box art (a subfolder per console: `nes`, `n64`, `gb`, `gbc`, `gba`, `ps1`, `nds`, `psp`, `dc`) |
 | `saves/` | Battery saves and the cartridges' clocks (`.rtc`), the PlayStation's memory cards, the PSP's memory stick (`saves/psp`), the Dreamcast's VMUs (`saves/dc`) |
 | `states/` | Save states |
-| `cheats/` | Cheats: `<game file name>.cht` (RetroArch format), in its console's subfolder |
+| `cheats/` | Cheats: `<game file name>.cht` (RetroArch format), in its console's subfolder (`cheats/nes`, `cheats/ps1`...; the Super Nintendo's right in `cheats/`). If a game has no cheats yet, **Triangle → Cheats** shows the exact folder and name |
 | `system/` | BIOS files (see [BIOS](#bios-files)) |
 | `cache/` | The online cheat collection (kept a month) and the lists of games on several discs |
 | `bezels/` | Your bezels: a 1920×1080 PNG, see-through where the game goes, in `bezels/<console>/` |
@@ -337,7 +342,9 @@ DolphinPS4's PS4 runtime (libc++ 21 and Mesa's RADV Vulkan driver).
 # once: packages, toolchain, libc++, Mesa, the ten consoles' cores and Dear ImGui (as root)
 sudo -i bash /path/to/EmuSuNi/scripts/setup.sh
 
-# then
+# then, as root too (setup.sh puts the sources and the PS4 runtime in root's home)
+sudo -i
+cd /path/to/EmuSuNi
 EMUSUNI_VERSION=00.20 bash scripts/build.sh   # builds ~/emusuni-build/emusuni_eboot/eboot.bin
 bash scripts/package.sh 00.20                 # makes the .pkg in ~/emusuni-build/out
 ```
@@ -345,7 +352,7 @@ bash scripts/package.sh 00.20                 # makes the .pkg in ~/emusuni-buil
 `scripts/build.sh` builds each core first (`scripts/build-*-core.sh`, again only what changed);
 `no-n64`, `no-ps1`, `no-nds`, `no-psp` or `no-dc` leave a console out. `scripts/make-assets.py`
 regenerates the icon, the start-up pictures, the logo and the 8-bit sounds (Python + Pillow);
-`scripts/make-bezels.py` the bezels; `scripts/make-lang.py` the language files.
+`scripts/make-bezels.py` the bezels.
 
 <details>
 <summary>Under the hood</summary>
