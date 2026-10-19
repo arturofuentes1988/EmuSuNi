@@ -19,18 +19,6 @@
 
 namespace
 {
-enum MainItem
-{
-  MAIN_RESUME,
-  MAIN_SAVE,
-  MAIN_LOAD,
-  MAIN_SETTINGS,
-  MAIN_CHEATS,
-  MAIN_RESET,
-  MAIN_QUIT,
-  MAIN_COUNT,
-};
-
 std::string DateText(int64_t when)
 {
   if (when <= 0)
@@ -52,12 +40,14 @@ void IngameMenu::Init(Display* display, ImFont* regular, ImFont* bold)
 }
 
 void IngameMenu::SetGame(const std::string& data_dir, const std::string& game_id,
-                         const std::string& title, SystemId system)
+                         const std::string& title, SystemId system, const std::string& game_path)
 {
   m_data_dir = data_dir;
   m_game_id = game_id;
   m_title = title;
   m_system = system;
+  m_game_path = game_path;
+  m_finder.Stop();
   m_open = false;
   m_appear = 0.0f;
   m_hint_time = 0.0f;
@@ -75,11 +65,18 @@ void IngameMenu::ForgetPictures()
   m_picture_slot = -1;
 }
 
+void IngameMenu::SetDiscs(int count, int inserted)
+{
+  m_disc_count = count;
+  m_disc_in = std::clamp(inserted, 0, std::max(0, count - 1));
+}
+
 void IngameMenu::Open()
 {
   m_open = true;
   m_page = Page::Main;
   m_main_selected = 0;
+  m_disc = m_disc_in;
   BuildRows();
   LogLine("menu: opened");
 }
@@ -122,18 +119,28 @@ void IngameMenu::BuildRows()
   std::vector<Row> rows;
   if (m_page == Page::Main)
   {
-    rows.push_back({"Resume Game"});
-    rows.push_back({"Save State", SlotLabel(m_slot)});
-    rows.push_back({"Load State", SlotLabel(m_slot)});
-    rows.push_back({"Settings"});
-    rows.push_back({"Cheats", std::to_string(m_cheats.Entries().size())});
-    rows.push_back({"Reset Game"});
-    rows.push_back({"Quit Game"});
+    rows.push_back({"Resume Game", "", false, false, 0, "resume"});
+    rows.push_back({"Save State", SlotLabel(m_slot), false, false, 0, "save"});
+    rows.push_back({"Load State", SlotLabel(m_slot), false, false, 0, "load"});
+    if (m_disc_count > 1)
+    {
+      rows.push_back({"Disc", "Disc " + std::to_string(m_disc + 1) + " of " + std::to_string(m_disc_count), false,
+                      false, 0, "disc"});
+    }
+    rows.push_back({"Settings", "", false, false, 0, "settings"});
+    rows.push_back({"Cheats", std::to_string(m_cheats.Entries().size()), false, false, 0, "cheats"});
+    rows.push_back({"Reset Game", "", false, false, 0, "reset"});
+    rows.push_back({"Quit Game", "", false, false, 0, "quit"});
     m_selected = m_main_selected;
+  }
+  else if (m_page == Page::Cheats && m_system == SystemId::DC)
+  {
+    rows.push_back({"The Dreamcast's emulator takes no cheat codes", "", true});
   }
   else if (m_page == Page::Cheats)
   {
     const auto& entries = m_cheats.Entries();
+    rows.push_back({"Find Cheats Online", "", false, false, 0, "cheatfind"});
     if (!entries.empty())
     {
       rows.push_back({"Enable All", "", false, false, 0, "cheatall:on"});
@@ -149,6 +156,44 @@ void IngameMenu::BuildRows()
       rows.push_back({"Put codes in " + m_cheats.Path(), "", true});
     }
   }
+  else if (m_page == Page::CheatSearch)
+  {
+    using State = CheatDownload::Finder::State;
+    const State state = m_finder.GetState();
+    if (state == State::Downloading)
+      rows.push_back({"Downloading the cheat collection: " + std::to_string(m_finder.DownloadedMb()) + " MB", "", true});
+    else if (state == State::Searching || state == State::Idle)
+      rows.push_back({"Looking for this game's cheats...", "", true});
+    else if (state == State::Failed)
+    {
+      rows.push_back({m_finder.Error(), "", true});
+      rows.push_back({"Check the PS4's internet connection", "", true});
+    }
+    else if (m_finder.Results().empty())
+      rows.push_back({"No cheats found for this game", "", true});
+    else
+    {
+      rows.push_back({"Cheat lists (libretro)", "", true});
+      const auto& results = m_finder.Results();
+      for (size_t i = 0; i < results.size(); i++)
+        rows.push_back({results[i], "", false, false, 0, "cheatfile:" + std::to_string(i)});
+    }
+  }
+  else if (m_page == Page::CheatPick)
+  {
+    rows.push_back({"Add the Chosen Cheats", std::to_string(m_finder.PickedCount()), false, false, 0, "pickadd"});
+    rows.push_back({"Choose All", "", false, false, 0, "pickall:on"});
+    rows.push_back({"Choose None", "", false, false, 0, "pickall:off"});
+    rows.push_back({m_finder.OpenName(), "", true});
+    const auto& codes = m_finder.Codes();
+    for (size_t i = 0; i < codes.size(); i++)
+    {
+      if (m_finder.IsTitle(i))
+        rows.push_back({codes[i].name, "", true});
+      else
+        rows.push_back({codes[i].name, "", false, false, m_finder.Picked(i) ? 1 : -1, "pick:" + std::to_string(i)});
+    }
+  }
   else
   {
     const Settings::Scope scope = Settings::ScopeOf(m_game_id);
@@ -159,6 +204,8 @@ void IngameMenu::BuildRows()
                     false, false, 0, "__scope__"});
     if (scope == Settings::Scope::Game)
       rows.push_back({"Use for All Games", "", false, false, 0, "__toall__"});
+    if (m_system == SystemId::DC)
+      rows.push_back({"Dreamcast: Low quality only", "", true});  // (Emulator.cpp BuildDcVariables)
     // The settings of this game's console.
     for (const char* category : Settings::Categories())
     {
@@ -188,6 +235,13 @@ void IngameMenu::BuildRows()
     Move(1);
 }
 
+std::string IngameMenu::MainKey() const
+{
+  if (m_page != Page::Main || m_main_selected < 0 || m_main_selected >= static_cast<int>(m_rows.size()))
+    return {};
+  return m_rows[m_main_selected].key;
+}
+
 void IngameMenu::Move(int direction)
 {
   const int count = static_cast<int>(m_rows.size());
@@ -205,6 +259,63 @@ void IngameMenu::Change(int direction)
   if (m_selected < 0 || m_selected >= static_cast<int>(m_rows.size()))
     return;
   const std::string key = m_rows[m_selected].key;
+  if (m_page == Page::Cheats && key == "cheatfind")
+  {
+    if (direction <= 0)
+      return;
+    // libretro's lists for this game (the collection downloaded first when it isn't here).
+    m_page = Page::CheatSearch;
+    m_selected = 0;
+    m_search_selected = 0;
+    m_finder.Start(m_data_dir, m_system, m_game_path, m_title);
+    return;
+  }
+  if (m_page == Page::CheatSearch)
+  {
+    if (direction <= 0 || key.rfind("cheatfile:", 0) != 0)
+      return;
+    const size_t index = static_cast<size_t>(std::atoi(key.c_str() + 10));
+    std::string error;
+    if (m_finder.Open(index, &error))
+    {
+      m_search_selected = m_selected;
+      m_page = Page::CheatPick;
+      m_selected = 0;
+    }
+    else
+    {
+      Toast(error);
+    }
+    return;
+  }
+  if (m_page == Page::CheatPick)
+  {
+    if (key == "pickadd")
+    {
+      if (direction <= 0)
+        return;
+      if (m_finder.PickedCount() == 0)
+      {
+        Toast("Choose the cheats to add first");
+        return;
+      }
+      const int added = m_cheats.Add(m_finder.PickedCodes());
+      Toast(added == 1 ? std::string("1 cheat added") : std::to_string(added) + " cheats added");
+      m_cheats_changed = true;
+      m_page = Page::Cheats;
+      m_selected = 0;
+    }
+    else if (key.rfind("pickall:", 0) == 0)
+    {
+      m_finder.PickAll(key == "pickall:on");
+    }
+    else if (key.rfind("pick:", 0) == 0)
+    {
+      const size_t index = static_cast<size_t>(std::atoi(key.c_str() + 5));
+      m_finder.Pick(index, !m_finder.Picked(index));
+    }
+    return;
+  }
   if (m_page == Page::Cheats)
   {
     if (key.rfind("cheatall:", 0) == 0)
@@ -288,6 +399,12 @@ std::string IngameMenu::RowHelp(const Row& row) const
   auto T = [](const char* text) { return std::string(PS4Lang::T(text)); };
   if (m_page == Page::Main)
   {
+    if (row.key == "disc")
+    {
+      return PS4Lang::T("Disc " + std::to_string(m_disc_in + 1) + " is in the console.") + " " +
+             T("Left / Right choose another disc, Cross puts it in (as if the console's lid were opened and "
+               "closed).");
+    }
     static const std::pair<const char*, const char*> MAIN[] = {
         {"Resume Game", "Back to the game."},
         {"Save State", "Saves this very moment of the game in the slot (Left / Right choose the slot)."},
@@ -312,7 +429,20 @@ std::string IngameMenu::RowHelp(const Row& row) const
       return T("Turns every cheat off.");
     if (row.key.rfind("cheat:", 0) == 0)
       return T("Cross turns this cheat on or off.");
+    if (row.key == "cheatfind")
+      return T("Looks for this game's cheats in libretro's collection (RetroArch's): you choose the "
+               "ones to add. The collection (about 35 MB) is downloaded the first time.");
     return {};
+  }
+  if (m_page == Page::CheatSearch)
+    return row.key.empty() ? std::string() : T("Cross: see this list's cheats and choose the ones to add.");
+  if (m_page == Page::CheatPick)
+  {
+    if (row.key == "pickadd")
+      return T("Adds the chosen cheats to this game's list, off: turn on the ones you want there.");
+    if (row.key.rfind("pickall:", 0) == 0)
+      return {};
+    return T("Cross chooses this cheat to add, or leaves it out.");
   }
   if (row.key == "__scope__")
     return T("All Games: what you change here applies to every game. This Console: to every game of "
@@ -340,33 +470,42 @@ IngameMenu::Action IngameMenu::Activate()
     Change(1);
     return Action::None;
   }
-  switch (m_main_selected)
+  const std::string key = MainKey();
+  if (key == "resume")
   {
-  case MAIN_RESUME:
     Close();
     return Action::Closed;
-  case MAIN_SAVE:
+  }
+  if (key == "save")
     return Action::Save;
-  case MAIN_LOAD:
+  if (key == "load")
+  {
     if (!Saves::Modified(Saves::StatePath(m_game_id, m_slot)))
     {
       Toast("Slot " + std::to_string(m_slot) + " is empty");
       return Action::None;
     }
     return Action::Load;
-  case MAIN_SETTINGS:
-    m_page = Page::Settings;
-    m_selected = 0;
-    return Action::None;
-  case MAIN_CHEATS:
-    m_page = Page::Cheats;
-    m_selected = 0;
-    return Action::None;
-  case MAIN_RESET:
-    return Action::Reset;
-  case MAIN_QUIT:
-    return Action::Quit;
   }
+  if (key == "disc")
+  {
+    if (m_disc == m_disc_in)
+    {
+      Toast("Disc " + std::to_string(m_disc + 1) + " is in already");
+      return Action::None;
+    }
+    return Action::ChangeDisc;
+  }
+  if (key == "settings" || key == "cheats")
+  {
+    m_page = key == "settings" ? Page::Settings : Page::Cheats;
+    m_selected = 0;
+    return Action::None;
+  }
+  if (key == "reset")
+    return Action::Reset;
+  if (key == "quit")
+    return Action::Quit;
   return Action::None;
 }
 
@@ -411,8 +550,11 @@ IngameMenu::Action IngameMenu::Poll(uint32_t pressed, uint32_t held, float dt)
     const int direction = (nav & ORBIS_PAD_BUTTON_LEFT) ? -1 : 1;
     if (m_page == Page::Main)
     {
-      if (m_main_selected == MAIN_SAVE || m_main_selected == MAIN_LOAD)
+      const std::string key = MainKey();
+      if (key == "save" || key == "load")
         m_slot = (m_slot - 1 + direction + Saves::SLOTS) % Saves::SLOTS + 1;
+      else if (key == "disc" && m_disc_count > 1)
+        m_disc = (m_disc + direction + m_disc_count) % m_disc_count;
     }
     else
     {
@@ -433,7 +575,20 @@ IngameMenu::Action IngameMenu::Poll(uint32_t pressed, uint32_t held, float dt)
   }
   else if (pressed & ORBIS_PAD_BUTTON_CIRCLE)
   {
-    if (m_page != Page::Main)
+    if (m_page == Page::CheatPick)
+    {
+      m_page = Page::CheatSearch;  // back to the lists, on the one chosen
+      m_selected = m_search_selected;
+      rebuild = true;
+    }
+    else if (m_page == Page::CheatSearch)
+    {
+      m_finder.Stop();
+      m_page = Page::Cheats;
+      m_selected = 0;
+      rebuild = true;
+    }
+    else if (m_page != Page::Main)
     {
       m_page = Page::Main;
       rebuild = true;
@@ -444,6 +599,17 @@ IngameMenu::Action IngameMenu::Poll(uint32_t pressed, uint32_t held, float dt)
       return Action::Closed;
     }
   }
+  if (m_page == Page::CheatSearch)
+  {
+    const auto state = m_finder.GetState();
+    const int mb = m_finder.DownloadedMb();
+    if (state != m_finder_state || mb != m_finder_mb)
+    {
+      m_finder_state = state;
+      m_finder_mb = mb;
+      rebuild = true;
+    }
+  }
   if (rebuild && m_open)
     BuildRows();
   return action;
@@ -451,8 +617,8 @@ IngameMenu::Action IngameMenu::Poll(uint32_t pressed, uint32_t held, float dt)
 
 void IngameMenu::UpdatePicture()
 {
-  const bool want = m_open && m_page == Page::Main &&
-                    (m_main_selected == MAIN_SAVE || m_main_selected == MAIN_LOAD);
+  const std::string key = m_open ? MainKey() : std::string();
+  const bool want = key == "save" || key == "load";
   const int slot = want ? m_slot : -1;
   if (slot == m_picture_slot)
     return;
@@ -498,6 +664,8 @@ void IngameMenu::Draw(ImDrawList* dl, float dt)
     const ImU32 accent = IM_COL32(196, 170, 255, static_cast<int>(255 * a));
     const char* subtitle = m_page == Page::Main     ? "PAUSED" :
                            m_page == Page::Cheats   ? "CHEATS" :
+                           m_page == Page::CheatSearch ? "FIND CHEATS ONLINE" :
+                           m_page == Page::CheatPick   ? "CHOOSE CHEATS" :
                            Settings::ScopeOf(m_game_id) == Settings::Scope::Game    ? "SETTINGS - THIS GAME" :
                            Settings::ScopeOf(m_game_id) == Settings::Scope::Console ? "SETTINGS - THIS CONSOLE" :
                                                                                        "SETTINGS - ALL GAMES";
@@ -598,14 +766,20 @@ void IngameMenu::Draw(ImDrawList* dl, float dt)
     };
     if (m_page == Page::Main)
     {
-      hint("Cross", "Select");
-      if (m_main_selected == MAIN_SAVE || m_main_selected == MAIN_LOAD)
+      const std::string key = MainKey();
+      hint("Cross", key == "disc" ? "Put In" : "Select");
+      if (key == "save" || key == "load")
         hint("D-Pad", "Slot");
+      else if (key == "disc")
+        hint("D-Pad", "Disc");
       hint("Circle", "Resume");
     }
     else
     {
-      hint("Cross", m_page == Page::Cheats ? "On/Off" : "Change");
+      hint("Cross", m_page == Page::Cheats      ? "On/Off" :
+                    m_page == Page::CheatSearch ? "Select" :
+                    m_page == Page::CheatPick   ? "Choose" :
+                                                  "Change");
       hint("D-Pad", "Move");
       hint("Circle", "Back");
     }

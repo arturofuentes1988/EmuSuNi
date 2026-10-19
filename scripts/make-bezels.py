@@ -22,6 +22,9 @@
 #   assets/xmb/bezels/gba-console.png    the Game Boy Advance in indigo, with L and R
 #   assets/xmb/bezels/gba-glacier.png    the Game Boy Advance in see-through ice blue
 #   assets/xmb/bezels/gba-black.png      a black Game Boy Advance with silver lines
+#   assets/xmb/bezels/ps1-console.png    the PlayStation's grey, its disc lid, the four symbols
+#   assets/xmb/bezels/ps1-psone.png      the PSone's white and silver
+#   assets/xmb/bezels/ps1-dark.png       Midnight: black and deep blue, the symbols glowing
 #   assets/xmb/bezels/tv.png             a wooden tube TV around the picture
 # The handhelds' windows have their screen's shape at a whole multiple: 960x864 (6x 160x144) for
 # the Game Boy and Color, 1200x800 (5x 240x160) for the Advance.
@@ -631,6 +634,88 @@ def gba_black():
     return game_boy_advance(((48, 48, 54), (16, 16, 18)), (180, 180, 190), (34, 34, 38), (210, 210, 220))
 
 
+# --- The PlayStation ------------------------------------------------------------------------------
+
+PS_GREEN, PS_RED, PS_BLUE, PS_PINK = (64, 200, 150), (236, 80, 80), (96, 140, 230), (226, 130, 190)
+
+
+def ps_symbols(image, centre, distance, size, width, colours=(PS_GREEN, PS_RED, PS_BLUE, PS_PINK), alpha=255):
+    """The pad's four symbols, as outlines: triangle up, circle right, cross down, square left."""
+    cx, cy = centre
+    draw = ImageDraw.Draw(image)
+    tri, circ, cross, sq = (c + (alpha,) for c in colours)
+    x, y = cx, cy - distance
+    draw.polygon([(x, y - size), (x + size * 0.95, y + size * 0.6), (x - size * 0.95, y + size * 0.6)], outline=tri,
+                 width=width)
+    x, y = cx + distance, cy
+    draw.ellipse((x - size * 0.85, y - size * 0.85, x + size * 0.85, y + size * 0.85), outline=circ, width=width)
+    x, y = cx, cy + distance
+    s = size * 0.75
+    draw.line((x - s, y - s, x + s, y + s), fill=cross, width=width)
+    draw.line((x - s, y + s, x + s, y - s), fill=cross, width=width)
+    x, y = cx - distance, cy
+    draw.rectangle((x - s, y - s, x + s, y + s), outline=sq, width=width)
+
+
+def ps1_console():
+    """The first PlayStation's light grey: its disc lid's ring, the four symbols, the buttons."""
+    image = side_panels((206, 206, 210), (168, 168, 174))
+    gloss(image, 0, X0, 45)
+    gloss(image, X1, W, 45)
+    draw = ImageDraw.Draw(image)
+    for cx in (LEFT, RIGHT):
+        draw.ellipse((cx - 96 * S, 470 * S, cx + 96 * S, 662 * S), outline=(150, 150, 158, 255), width=5 * S)
+        draw.ellipse((cx - 18 * S, 548 * S, cx + 18 * S, 584 * S), fill=(150, 150, 158, 255))
+    for i, label in enumerate(("POWER", "RESET", "OPEN")):
+        y = (800 + i * 64) * S
+        draw.ellipse((LEFT - 22 * S, y - 22 * S, LEFT + 22 * S, y + 22 * S), fill=(140, 140, 150, 255))
+        centred_text(draw, label, (LEFT, y + 38 * S), 13 * S, (90, 90, 100, 255))
+    cut_window(image)
+    window_edges(image, (120, 120, 130, 255), (60, 60, 70, 255))
+    ps_symbols(image, (RIGHT, 860 * S), 52 * S, 22 * S, 5 * S)
+    vertical_text(image, "PLAYSTATION", (LEFT, 250 * S), 30 * S, (80, 80, 92, 255))
+    vertical_text(image, "PLAYSTATION", (RIGHT, 250 * S), 30 * S, (80, 80, 92, 255), angle=-90)
+    return image
+
+
+def ps1_psone():
+    """The PSone: white and silver, round and slim, the four symbols in colour."""
+    image = side_panels((248, 248, 250), (214, 216, 222))
+    gloss(image, 0, X0, 60)
+    gloss(image, X1, W, 60)
+    draw = ImageDraw.Draw(image)
+    for cx in (LEFT, RIGHT):
+        draw.ellipse((cx - 104 * S, 440 * S, cx + 104 * S, 648 * S), fill=(232, 233, 238, 255),
+                     outline=(196, 198, 206, 255), width=4 * S)
+        draw.ellipse((cx - 28 * S, 516 * S, cx + 28 * S, 572 * S), fill=(200, 202, 210, 255))
+    cut_window(image)
+    window_edges(image, (196, 198, 206, 255), (120, 160, 230, 255), width=8, accent_width=3)
+    ps_symbols(image, (LEFT, 840 * S), 52 * S, 22 * S, 6 * S)
+    ps_symbols(image, (RIGHT, 840 * S), 52 * S, 22 * S, 6 * S)
+    vertical_text(image, "PS one", (LEFT, 250 * S), 40 * S, (150, 156, 170, 255), spacing=0.3)
+    vertical_text(image, "PS one", (RIGHT, 250 * S), 40 * S, (150, 156, 170, 255), angle=-90, spacing=0.3)
+    return image
+
+
+def ps1_dark():
+    """Midnight: black and deep blue, the four symbols glowing."""
+    image = side_panels((24, 30, 60), (6, 6, 14))
+    rnd = random.Random(1994)
+    glow = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    for _ in range(26):
+        x = rnd.choice((rnd.randrange(30 * S, X0 - 60 * S), rnd.randrange(X1 + 60 * S, W - 30 * S)))
+        y = rnd.randrange(80 * S, H - 80 * S)
+        size = rnd.randrange(14, 30) * S
+        colours = (rnd.choice((PS_GREEN, PS_RED, PS_BLUE, PS_PINK)),) * 4
+        ps_symbols(glow, (x, y), 0, size, 3 * S, colours, alpha=70)
+    image.alpha_composite(glow.filter(ImageFilter.GaussianBlur(1.5 * S)))
+    cut_window(image)
+    window_edges(image, (10, 12, 24, 255), (70, 110, 220, 255))
+    ps_symbols(image, (RIGHT, 560 * S), 56 * S, 24 * S, 6 * S)
+    vertical_text(image, "PLAYSTATION", (LEFT, 540 * S), 40 * S, (210, 220, 255, 240), shadow=True)
+    return image
+
+
 # --- The TV ----------------------------------------------------------------------------------------
 
 def tv():
@@ -679,6 +764,7 @@ BEZELS = {
     "gb-console": gb_console, "gb-pocket": gb_pocket, "gb-green": gb_green,
     "gbc-console": gbc_console, "gbc-teal": gbc_teal, "gbc-atomic": gbc_atomic,
     "gba-console": gba_console, "gba-glacier": gba_glacier, "gba-black": gba_black,
+    "ps1-console": ps1_console, "ps1-psone": ps1_psone, "ps1-dark": ps1_dark,
     "tv": tv,
 }
 

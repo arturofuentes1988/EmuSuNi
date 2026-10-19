@@ -2,8 +2,10 @@
 
 #include "Cheats.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <fstream>
+#include <iterator>
 #include <map>
 #include <sstream>
 
@@ -29,25 +31,25 @@ std::string Unquote(std::string value)
 }
 }  // namespace
 
-void List::Load(const std::string& data_dir, const std::string& game_id)
+std::vector<Entry> Parse(const std::string& text)
 {
-  m_entries.clear();
-  m_path = data_dir + "/cheats/" + game_id + ".cht";
-  std::ifstream file(m_path);
+  std::istringstream file(text);
   std::map<std::string, std::string> values;
   std::string line;
   while (std::getline(file, line))
   {
     const size_t eq = line.find('=');
-    if (eq == std::string::npos || line[0] == '#')
+    if (eq == std::string::npos || line.empty() || line[0] == '#')
       continue;
     std::string key = line.substr(0, eq);
     while (!key.empty() && key.back() == ' ')
       key.pop_back();
     values[key] = Unquote(line.substr(eq + 1));
   }
+  std::vector<Entry> entries;
+  // (GoldenEye 007's list in libretro's collection has 7232 codes.)
   const int count = std::atoi(values["cheats"].c_str());
-  for (int i = 0; i < count && i < 1000; i++)
+  for (int i = 0; i < count && i < 20000; i++)
   {
     const std::string prefix = "cheat" + std::to_string(i) + "_";
     Entry entry;
@@ -58,8 +60,36 @@ void List::Load(const std::string& data_dir, const std::string& game_id)
       continue;
     if (entry.name.empty())
       entry.name = entry.code;
-    m_entries.push_back(std::move(entry));
+    entries.push_back(std::move(entry));
   }
+  return entries;
+}
+
+void List::Load(const std::string& data_dir, const std::string& game_id)
+{
+  m_path = data_dir + "/cheats/" + game_id + ".cht";
+  std::ifstream file(m_path, std::ios::binary);
+  m_entries = Parse(std::string(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()));
+}
+
+int List::Add(const std::vector<Entry>& entries)
+{
+  int added = 0;
+  for (const Entry& entry : entries)
+  {
+    const bool have = std::any_of(m_entries.begin(), m_entries.end(), [&entry](const Entry& e) {
+      return e.code == entry.code && e.name == entry.name;
+    });
+    if (have)
+      continue;
+    Entry copy = entry;
+    copy.enabled = false;
+    m_entries.push_back(std::move(copy));
+    added++;
+  }
+  if (added > 0)
+    Save();
+  return added;
 }
 
 void List::Toggle(size_t index)
@@ -94,15 +124,19 @@ void List::Save() const
   }
 }
 
-void List::ApplyToCore(const CoreApi& core) const
+void List::ApplyToCore(const CoreApi& core, SystemId system) const
 {
+  // Snes9x copies the code into a 256-byte buffer, FCEUmm into 1024 bytes, Mupen64Plus-Next splits
+  // it into at most 256 parts; the other cores take any length (a PSP cheat can be long).
+  const size_t longest = system == SystemId::SNES ? 250 : system == SystemId::NES ? 1000 :
+                         system == SystemId::N64  ? 1200 :
+                                                    16000;
   core.cheat_reset();
   unsigned index = 0;
   for (const Entry& entry : m_entries)
   {
-    // The core copies the code into a 256-byte buffer.
     if (entry.enabled)
-      core.cheat_set(index++, true, entry.code.substr(0, 250).c_str());
+      core.cheat_set(index++, true, entry.code.substr(0, longest).c_str());
   }
 }
 }  // namespace Cheats

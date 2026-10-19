@@ -8,7 +8,6 @@
 
 #define ONLY_MSPACES 1
 #define MSPACES 1
-#define USE_LOCKS 1
 #define HAVE_MMAP 0
 #define HAVE_MREMAP 0
 #define HAVE_MORECORE 0
@@ -21,6 +20,22 @@
 /* The PS4 page size; sysconf numbering differs between headers, so don't ask. */
 #define malloc_getpagesize ((size_t)16384U)
 #define DEFAULT_GRANULARITY ((size_t)64U * (size_t)1024U)
+
+/* The heap's lock: a blocking mutex, not dlmalloc's spin lock. The PS4 runs the app's threads by
+ * fixed priorities, and sched_yield() only lets threads of the same or a higher priority run: a
+ * thread spinning on the spin lock kept a preempted lower-priority holder from ever running again,
+ * and every thread that allocated then spun too - the whole app froze (PPSSPP compiling a large
+ * pipeline cache at a game's start: its pool threads at 600 spinning, a shader compile thread at
+ * 700 holding the lock). A waiter that sleeps lets the holder finish. */
+#include <pthread.h>
+#define USE_LOCKS 2
+#define MLOCK_T pthread_mutex_t
+#define INITIAL_LOCK(lk) pthread_mutex_init((lk), NULL)
+#define DESTROY_LOCK(lk) pthread_mutex_destroy(lk)
+#define ACQUIRE_LOCK(lk) pthread_mutex_lock(lk)
+#define RELEASE_LOCK(lk) pthread_mutex_unlock(lk)
+#define TRY_LOCK(lk) (pthread_mutex_trylock(lk) == 0)
+static MLOCK_T malloc_global_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 void ps4_heap_error(void* mspace, void* chunk, int corruption);
 #define CORRUPTION_ERROR_ACTION(m) ps4_heap_error((m), 0, 1)

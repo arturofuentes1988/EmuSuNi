@@ -54,6 +54,18 @@ DECLARE_CORE(mupen64plus)
 #ifdef EMUSUNI_GBA
 DECLARE_CORE(mgba)
 #endif
+#ifdef EMUSUNI_PS1
+DECLARE_CORE(swanstation)
+#endif
+#ifdef EMUSUNI_NDS
+DECLARE_CORE(melondsds)
+#endif
+#ifdef EMUSUNI_PSP
+DECLARE_CORE(ppsspp)
+#endif
+#ifdef EMUSUNI_DC
+DECLARE_CORE(flycast)
+#endif
 
 namespace Cores
 {
@@ -64,5 +76,17 @@ const CoreApi MUPEN64PLUS = CORE_TABLE(mupen64plus, "Mupen64Plus");
 #endif
 #ifdef EMUSUNI_GBA
 const CoreApi MGBA = CORE_TABLE(mgba, "mGBA");
+#endif
+#ifdef EMUSUNI_PS1
+const CoreApi SWANSTATION = CORE_TABLE(swanstation, "SwanStation");
+#endif
+#ifdef EMUSUNI_NDS
+const CoreApi MELONDSDS = CORE_TABLE(melondsds, "melonDS DS");
+#endif
+#ifdef EMUSUNI_PSP
+const CoreApi PPSSPP = CORE_TABLE(ppsspp, "PPSSPP");
+#endif
+#ifdef EMUSUNI_DC
+const CoreApi FLYCAST = CORE_TABLE(flycast, "Flycast");
 #endif
 }  // namespace Cores

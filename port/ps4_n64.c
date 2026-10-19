@@ -210,6 +210,99 @@ void emusuni_core_thread(int role)
   emusuni_log_line(line);
 }
 
+/* melonDS DS's renderer threads (scripts/build-nds-core.sh) call this first: "nds 3d" and "nds 3d 2"
+ * (the 3D rasterizer: even and odd lines), "nds 2d" (the sub screen's 2D, a line at a time while the
+ * emulation thread on core 2 goes on). Each on a core of its own, none on core 2 (they and it wait for
+ * each other awake), at its priority: the 2D helper beside it on core 3 (same CPU module: handed ~192
+ * lines a frame), the 3D threads together on cores 4 and 5. */
+void emusuni_nds_thread(const char* name)
+{
+  int core = 4;
+  if (strcmp(name, "nds 3d 2") == 0)
+    core = 5;
+  else if (strcmp(name, "nds 2d") == 0)
+    core = 3;
+  void* self = emusuni_pthread_self();
+  const int affinity = emusuni_set_affinity(self, 1ull << core);
+  const int prio = emusuni_set_priority(self, 480);
+  emusuni_rename_thread(self, name);
+  char line[160];
+  snprintf(line, sizeof(line), "nds: thread \"%s\": core %d (%#x), priority 480 (%#x), running on CPU %d", name, core,
+           (unsigned)affinity, (unsigned)prio, sceKernelGetCurrentCpu());
+  emusuni_log_line(line);
+}
+
+/* PPSSPP's threads (scripts/build-psp-core.sh) call this first with the name PPSSPP gives them
+ * ("SAS", "PoolW 0".."PoolW 3", "PoolW IO 4".."PoolW IO 7", "ShaderCompile", "IO", "ExecLoader",
+ * "FlushMemInfo"...); retro_init calls it with "Main" on the emulation thread, left on core 2
+ * (src/Emulator.cpp pins it while a PSP game runs). None of the others on core 2: the sound mixing
+ * (waited for every frame) on core 3 at the emulation thread's priority; the shader compiles, the
+ * pipeline batching and the pool's workers at one priority on cores 1, 3, 4, 5 (the PS4 runs threads
+ * by fixed priorities: God of War's 86 cached pipelines compiled at its start by threads of three
+ * priorities froze the app on the heap's old spin lock, port/ps4_dlmalloc.c). */
+void emusuni_psp_thread(const char* name)
+{
+  uint64_t mask = (1ull << 1) | (1ull << 3) | (1ull << 4) | (1ull << 5);
+  int priority = 700;
+  if (strcmp(name, "Main") == 0)
+    return;
+  if (strcmp(name, "SAS") == 0)
+  {
+    mask = 1ull << 3;
+    priority = 480;
+  }
+  else if (strcmp(name, "VulkanRenderMan") == 0)
+  {
+    mask = 1ull << 4;
+    priority = 480;
+  }
+  else if (strcmp(name, "ShaderCompile") == 0)
+    priority = 700; /* pipeline batching: with the compile workers (cores 1,3,4,5), not alone on core 5 */
+  else if (strncmp(name, "PoolW IO", 8) == 0)
+    priority = 760; /* blocking file reads */
+  else if (strncmp(name, "PoolW", 5) == 0)
+    priority = 700; /* decoding, texture work, pipeline compiles: as the shader compiles */
+  else if (strcmp(name, "IO") == 0)
+    priority = 500; /* the PSP's own asynchronous reads */
+  void* self = emusuni_pthread_self();
+  const int affinity = emusuni_set_affinity(self, mask);
+  const int prio = emusuni_set_priority(self, priority);
+  char thread_name[32];
+  snprintf(thread_name, sizeof(thread_name), "psp %s", name);
+  emusuni_rename_thread(self, thread_name);
+  char line[160];
+  snprintf(line, sizeof(line), "psp: thread \"%s\": cores %#llx (%#x), priority %d (%#x), running on CPU %d", name,
+           (unsigned long long)mask, (unsigned)affinity, priority, (unsigned)prio, sceKernelGetCurrentCpu());
+  emusuni_log_line(line);
+}
+
+/* Flycast's threads (scripts/build-dc-core.sh) call this first with Flycast's name for them:
+ * "Flycast-emu" (SH4, ARM7, AICA with threaded rendering; a new one at every start: game start,
+ * reset, state loaded), "PicoTCP" (modem networking, only if a game dials), "CustomTexLoader" (off)...
+ * retro_run's thread is the renderer (core 2, 480) and waits for Flycast-emu every frame on condition
+ * variables (no spinning): Flycast-emu beside it on core 3 (same module, shared L2) at the same
+ * priority; the rest below them on cores 1, 4, 5. */
+void emusuni_dc_thread(const char* name)
+{
+  uint64_t mask = (1ull << 1) | (1ull << 4) | (1ull << 5);
+  int priority = 700;
+  if (strcmp(name, "Flycast-emu") == 0)
+  {
+    mask = 1ull << 3;
+    priority = 480;
+  }
+  void* self = emusuni_pthread_self();
+  const int affinity = emusuni_set_affinity(self, mask);
+  const int prio = emusuni_set_priority(self, priority);
+  char thread_name[32];
+  snprintf(thread_name, sizeof(thread_name), "dc %s", name);
+  emusuni_rename_thread(self, thread_name);
+  char line[160];
+  snprintf(line, sizeof(line), "dc: thread \"%s\": cores %#llx (%#x), priority %d (%#x), running on CPU %d", name,
+           (unsigned long long)mask, (unsigned)affinity, priority, (unsigned)prio, sceKernelGetCurrentCpu());
+  emusuni_log_line(line);
+}
+
 /* ---- The core's timing (mupen64plus-core's main/profile.h; scripts/build-n64-core.sh builds the
  * core with -DPROFILE, whose profile.c the libretro build leaves out): the time in its graphics
  * and sound tasks per emulated frame, on stderr (the log) every 10 s. new_vi() calls

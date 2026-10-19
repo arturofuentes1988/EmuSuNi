@@ -50,4 +50,16 @@ extern const CoreApi MUPEN64PLUS;  // Nintendo 64 (Mupen64Plus-Next; builds with
 #ifdef EMUSUNI_GBA
 extern const CoreApi MGBA;  // Game Boy, Game Boy Color, Game Boy Advance (builds with EMUSUNI_GBA)
 #endif
+#ifdef EMUSUNI_PS1
+extern const CoreApi SWANSTATION;  // PlayStation (builds with EMUSUNI_PS1)
+#endif
+#ifdef EMUSUNI_NDS
+extern const CoreApi MELONDSDS;  // Nintendo DS (melonDS DS; builds with EMUSUNI_NDS)
+#endif
+#ifdef EMUSUNI_PSP
+extern const CoreApi PPSSPP;  // PSP (builds with EMUSUNI_PSP)
+#endif
+#ifdef EMUSUNI_DC
+extern const CoreApi FLYCAST;  // Dreamcast (builds with EMUSUNI_DC)
+#endif
 }  // namespace Cores

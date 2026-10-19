@@ -17,6 +17,16 @@ cp "$SRC/sce_sys/icon0.png" "$STAGE/sce_sys/icon0.png"
 [ -f "$SRC/sce_sys/pic0.png" ] && cp "$SRC/sce_sys/pic0.png" "$STAGE/sce_sys/pic0.png"
 cp -r "$SRC/assets/xmb/." "$STAGE/xmb/"
 rm -rf "$STAGE/xmb/lang/src" "$STAGE/xmb/lang/keys.txt"
+# The PSP core's own files (PPSSPP's: the PSP's fonts, its system dialogs, compat.ini...), which it
+# reads from /app0/ppsspp/PPSSPP (src/Emulator.cpp: its system folder) and never writes.
+PPSSPP_ASSETS="${PPSSPP_DIR:-$HOME/src/ppsspp}/assets"
+if [ -d "$PPSSPP_ASSETS" ]; then
+    mkdir -p "$STAGE/ppsspp/PPSSPP"
+    for f in compat.ini compatvr.ini knownfuncs.ini langregion.ini ppge_atlas.zim ppge_atlas.meta \
+             flash0 vfpu lang shaders; do
+        cp -r "$PPSSPP_ASSETS/$f" "$STAGE/ppsspp/PPSSPP/"
+    done
+fi
 echo "$VERSION" > "$STAGE/xmb/version.txt"
 # The Sony Piglet modules aren't used (the display is Mesa's RADV): an empty module folder.
 mkdir -p "$BUILD/no-modules"

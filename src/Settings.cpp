@@ -3,6 +3,7 @@
 
 #include "Settings.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <fstream>
 #include <map>
@@ -22,20 +23,34 @@ const std::vector<Setting> SETTINGS = {
     {"quality", "Quality", "Video",
      {{"custom", "Custom Quality", "Your own choices (they match none of the three levels)."},
       {"low", "Low (fastest)", "The fastest: the consoles' own pictures, fit to the screen; the N64 at its own size."},
-      {"medium", "Medium (balanced)", "Sharper: SNES and NES redrawn at 3x (xBRZ); the N64 at 2x."},
+      {"medium", "Medium (balanced)",
+       "Smooth Edges: the GPU smooths the jagged edges and leaves the pixels and textures as they are; "
+       "the N64, the PlayStation and the PSP at 2x."},
       {"high", "High (sharpest)",
-       "The sharpest: SNES and NES at 6x (xBRZ), the N64 at 4x; heavy N64 games can slow down."},
+       "Natural HD: smooth edges, then a sharp HD picture at the TV's resolution (AMD FSR) that still "
+       "looks natural; the N64 and the PlayStation at 4x, the PSP at 3x. Heavy N64 games "
+       "can slow down."},
       {"ultra", "Ultra (maximum)",
-       "The best each console can do: SNES, NES and the Game Boys redrawn by the GPU with xBRZ and an "
-       "AI network (Anime4K); the N64 at 4x with HD 2D, sharpened. Heavy N64 games can slow down."}},
+       "The best each console can do: Natural AI, an AI network (Anime4K) that cleans every edge and keeps "
+       "the textures (no waxy look); the N64 at 4x with HD 2D; the PlayStation at 4x with smooth textures, "
+       "steady 3D and anti-aliasing; the PSP at 4x. Heavy "
+       "N64 games can slow down."}},
      "custom", true,
      "Sets the picture for a level at once: resolution, upscaling (CPU and GPU), picture size, and the "
-     "N64's size, sync and 2D. Changing one of them makes it Custom."},
+     "N64's size, sync and 2D. Changing one of them makes it Custom. The Dreamcast always plays at Low "
+     "(the PS4 can't do more yet).",
+     FOR_ALL & ~FOR_DC},
     {"n64_resolution", "N64 Resolution", "Video",
      {{"1", "Native (240p)", "The N64's own picture: the smoothest."},
       {"2", "2x (480p)", "Twice the size: sharper 3D; heavy scenes can slow down."},
       {"4", "4x (960p)", "Four times (about Full HD): the sharpest; heavy games can slow down."}},
      "1", false, "The size the GPU draws N64 games at (ParaLLEl-RDP). Native is the smoothest.", FOR_N64},
+    {"ps1_resolution", "PS1 Resolution", "Video",
+     {{"1", "Native (240p)", "The PlayStation's own picture."},
+      {"2", "2x (480p)", "Twice the size: sharper 3D."},
+      {"3", "3x (720p)", "Three times: for 720p TVs."},
+      {"4", "4x (960p)", "Four times (about Full HD): the sharpest 3D."}},
+     "1", true, "The size the GPU draws PlayStation games at: real HD 3D, not an enlarged picture.", FOR_PS1},
     {"aspect", "Aspect Ratio", "Video",
      {{"auto", "Auto (4:3)", "As on a TV of the time: a little wider than the console's own pixels."},
       {"pixel", "Pixel Perfect (8:7)", "Square pixels, exactly as the console draws them (a little narrower)."},
@@ -44,6 +59,30 @@ const std::vector<Setting> SETTINGS = {
      "auto", true,
      "The picture's shape on the TV. 4:3 is how the consoles looked on a TV; the Game Boys keep their "
      "screen's own shape."},
+    {"nds_layout", "DS Screens", "Video",
+     {{"side", "Side by Side", "Both screens the same size, next to each other: the touch screen on the right."},
+      {"big", "Big Top Screen", "The top screen fills the TV (16:9), the touch screen small beside it."},
+      {"stack", "One Above the Other", "As on the DS: the top screen over the touch screen."}},
+     "side", true,
+     "How the two screens are shown. R3 swaps between this and Side by Side (or Big Top Screen). The "
+     "DualShock 4's touchpad is the touch screen.", FOR_NDS},
+    {"ps1_widescreen", "PS1 Widescreen", "Video",
+     {{"off", "Off (4:3)", "As the PlayStation drew it."},
+      {"on", "On (16:9)", "The 3D drawn wider to fill a widescreen TV (the 2D and some games stay 4:3)."}},
+     "off", true, "Shows more of the 3D world on a 16:9 TV (a widescreen hack: some games glitch).", FOR_PS1},
+    {"psp_resolution", "PSP Resolution", "Video",
+     {{"1", "Native (272p)", "The PSP's own 480x272 picture."},
+      {"2", "2x (544p)", "Twice the size: sharper 3D."},
+      {"3", "3x (816p)", "Three times: for 720p TVs and up."},
+      {"4", "4x (1088p)", "Four times: Full HD, the sharpest 3D."}},
+     "2", false, "The size the GPU draws PSP games at: real HD 3D, not an enlarged picture.", FOR_PSP},
+    {"dc_resolution", "Dreamcast Resolution", "Video",
+     {{"1", "Native (480p)", "The Dreamcast's own 640x480 picture."},
+      {"2", "2x (960p)", "Twice the size: sharper 3D."},
+      {"3", "3x (1440p)", "Three times: the sharpest on a 1080p TV (made smaller for it)."},
+      {"4", "4x (1920p)", "Four times: for 4K TVs (the most GPU time)."}},
+     "2", true, "The size the GPU draws Dreamcast games at: real HD 3D, not an enlarged picture.",
+     0 /* hidden: the Dreamcast plays at Low (Emulator.cpp BuildDcVariables) */},
     {"resolution", "Resolution", "Video",
      {{"1", "Native (224p)", "The console's own 256x224 picture, enlarged by the TV (the fastest)."},
       {"2", "2x (448p)", "Redrawn at 512x448 before it is fitted to the TV."},
@@ -131,6 +170,16 @@ const std::vector<Setting> SETTINGS = {
        "Your own 1920x1080 PNG, see-through where the game goes: /data/EmuSuNi/bezels/gba/ with the "
        "ROM's name (The Bezel Project's names), or bezels/gba.png for every game."}},
      "off", true, "The handheld around the picture, see-through where the game goes.", FOR_GBA},
+    {"ps1_bezel", "Bezel", "Video",
+     {{"off", "Off", "The picture alone, on black."},
+      {"console", "PlayStation", "The PlayStation's grey, with the four symbols and its disc lid."},
+      {"psone", "PSone", "The PSone's white and silver, round and slim."},
+      {"dark", "Midnight", "Black and deep blue, with the four symbols."},
+      {"tv", "Retro TV", "An old wooden tube TV around the picture."},
+      {"custom", "Your Own",
+       "Your own 1920x1080 PNG, see-through where the game goes: /data/EmuSuNi/bezels/ps1/ with the "
+       "ROM's name (The Bezel Project's names), or bezels/ps1.png for every game."}},
+     "off", true, "A frame over the sides of the TV, see-through where the game goes.", FOR_PS1},
     {"overscan", "Crop Overscan", "Video",
      {{"enabled", "On", "224 lines: the empty lines at the top and bottom are hidden."},
       {"disabled", "Off", "Every line (some games show a black stripe or glitches at the edges)."},
@@ -159,12 +208,21 @@ const std::vector<Setting> SETTINGS = {
      "Pixels keeps them square. HQx goes up to 4x.", FOR_PIXELS},
     {"gpu_filter", "GPU Upscaler", "Graphics",
      {{"off", "Off", "The picture as Resolution and the Upscaling Filter make it."},
+      {"edges", "Smooth Edges",
+       "Only the jagged edges are smoothed (anti-aliasing: MMPX and SMAA); colours, textures and the "
+       "pixels' shapes stay as they are. Light on the GPU. Quality Medium uses it."},
+      {"natural", "Natural HD",
+       "Smooth Edges, then drawn in HD at the TV's resolution and sharpened (AMD FSR): clearly sharper, "
+       "still natural, never painted. Quality High uses it."},
+      {"natural_ai", "Natural AI",
+       "Natural HD's clean edges with an AI network (Anime4K) mixed into the picture, so textures and "
+       "dithering stay: the smoothest look without the waxy one. Quality Ultra uses it."},
       {"pixel", "Pixel Art HD (xBRZ)",
        "SNES and NES redrawn by the GPU at the TV's full resolution: rounded, clean edges without blur; "
        "frees the CPU. The N64 gets Smooth HD."},
-      {"ai", "AI (xBRZ + Anime4K)",
-       "xBRZ, then a neural network (Anime4K) cleans every edge and curve: the smoothest HD look for "
-       "SNES, NES and the Game Boys. The N64 gets Smooth HD."},
+      {"ai", "AI (Anime4K)",
+       "xBRZ, then a neural network (Anime4K) at full strength cleans every edge and curve: the "
+       "smoothest, most painted HD look for SNES, NES and the Game Boys. The N64 gets Smooth HD."},
       {"fsr", "Smooth HD (AMD FSR)",
        "AMD FidelityFX Super Resolution: smooth upscaling with sharp edges, made for 3D (the N64 at "
        "Native and 2x; at 4x it sharpens)."},
@@ -172,8 +230,9 @@ const std::vector<Setting> SETTINGS = {
        "The picture as it is, made crisper by AMD's sharpening (RCAS): for the N64 at 4x and pictures "
        "already made bigger."}},
      "off", true,
-     "Draws the picture with the GPU's filters at the TV's resolution. Pixel Art HD, AI and Smooth HD "
-     "start from the console's own picture: Resolution and the Upscaling Filter are left out."},
+     "Draws the picture with the GPU's filters at the TV's resolution. Every filter but HD Sharpen "
+     "starts from the console's own picture: Resolution and the Upscaling Filter are left out.",
+     FOR_ALL & ~FOR_DC},
     {"filter", "Texture Filtering", "Graphics",
      {{"sharp", "Sharp (nearest)", "Every pixel crisp (at Native some pixels can look wider than others)."},
       {"smooth", "Smooth (linear)", "Soft, blended pixels."}},
@@ -206,6 +265,65 @@ const std::vector<Setting> SETTINGS = {
      "exact", false,
      "Effects some games make from their own picture (pause backgrounds, motion blur), above Native "
      "resolution.", FOR_N64},
+    {"ps1_pgxp", "PS1 Geometry (PGXP)", "Graphics",
+     {{"off", "As the PlayStation", "Polygons that shake and textures that bend, as on the console."},
+      {"on", "Steady (PGXP)", "Steady polygons and straight textures; costs CPU time (heavy games can slow down)."}},
+     "off", true, "Fixes the PlayStation's shaking 3D and warped textures.", FOR_PS1},
+    {"ps1_texture_filter", "PS1 Texture Filtering", "Graphics",
+     {{"Nearest", "Sharp (as the PlayStation)", "Every texture pixel crisp."},
+      {"Bilinear", "Smooth (Bilinear)", "Soft, blended textures."},
+      {"JINC2", "JINC2", "Smooth textures that keep sharp edges."},
+      {"xBR", "xBR", "Textures redrawn with rounded edges, like xBRZ."}},
+     "Nearest", true, "How the 3D's textures are drawn.", FOR_PS1},
+    {"ps1_colors", "PS1 Colours", "Graphics",
+     {{"dither", "As the PlayStation (dithered)", "Its 16-bit colours with their dot pattern."},
+      {"true", "True Colour (smooth)", "Smooth 24-bit colours, without the dots: cleaner skies and shadows."}},
+     "dither", true, "The PlayStation drew its colours with a pattern of dots; True Colour drops it.", FOR_PS1},
+    {"ps1_antialiasing", "PS1 Anti-Aliasing", "Graphics",
+     {{"1", "Off", "The 3D's edges as they are drawn."},
+      {"2", "2x MSAA", "Smoother 3D edges."},
+      {"4", "4x MSAA", "Much smoother 3D edges (more GPU time)."},
+      {"8", "8x MSAA", "The smoothest edges (the most GPU time)."}},
+     "1", true, "Smooths the jagged edges of the 3D (multisampling, on the GPU).", FOR_PS1},
+    {"psp_anisotropy", "PSP Texture Sharpness", "Graphics",
+     {{"0", "Off", "Floors and walls blur into the distance, as on the PSP."},
+      {"4", "4x", "Sharper textures far away."},
+      {"8", "8x", "Sharper still."},
+      {"16", "16x", "The sharpest textures far away."}},
+     "16", true, "How sharp the textures of far, slanted surfaces stay (anisotropic filtering, on the GPU).",
+     FOR_PSP},
+    {"psp_texture_shader", "PSP Texture Upscaling", "Graphics",
+     {{"off", "Off", "The games' own textures."},
+      {"2xBRZ", "2xBRZ", "Textures redrawn twice as big with rounded edges."},
+      {"4xBRZ", "4xBRZ", "Textures redrawn four times as big: smoother, for 2D art."},
+      {"MMPX", "MMPX", "Textures redrawn keeping the pixel art's style."}},
+     "off", true, "Redraws the games' textures bigger on the GPU (it changes how the art looks).", FOR_PSP},
+    {"psp_antialiasing", "PSP Anti-Aliasing", "Graphics",
+     {{"1", "Off", "The 3D's edges as they are drawn."},
+      {"2", "2x MSAA", "Smoother 3D edges."},
+      {"4", "4x MSAA", "Much smoother 3D edges (more GPU time)."},
+      {"8", "8x MSAA", "The smoothest edges (the most GPU time)."}},
+     "1", false, "Smooths the jagged edges of the 3D (multisampling, on the GPU).", FOR_PSP},
+    {"dc_anisotropy", "Dreamcast Texture Sharpness", "Graphics",
+     {{"off", "Off", "Far textures blur, as on the Dreamcast."},
+      {"4", "4x", "Sharper textures far away."},
+      {"8", "8x", "Sharper still."},
+      {"16", "16x", "The sharpest textures far away."}},
+     "8", true, "How sharp the textures of far, slanted surfaces stay (anisotropic filtering, on the GPU).",
+     0 /* hidden: the Dreamcast plays at Low */},
+    {"dc_sorting", "Dreamcast Transparency", "Graphics",
+     {{"triangle", "Normal (per triangle)",
+       "Transparent surfaces sorted per triangle: fast; a few games show some in the wrong order."},
+      {"pixel", "Accurate (per pixel)",
+       "Sorted per pixel, as the Dreamcast did: heavier and about 0.5 GB of GPU memory. Experimental: on "
+       "the PS4 the picture can come out in wrong colours (Crazy Taxi did)."}},
+     "triangle", false, "How overlapping transparent surfaces (smoke, glass, water) are drawn.",
+     0 /* hidden: the Dreamcast plays at Low */},
+    {"psp_frame_rate", "PSP Frame Rate (God of War)", "Performance",
+     {{"auto", "Auto", "60 FPS while the PS4 keeps up; 30 for the rest of the game once it can't (no slowdown)."},
+      {"60", "60 FPS", "The smoothest; heavy fights slow the game down."},
+      {"30", "30 FPS", "Half the work (PPSSPP's hack for weak hardware): a steady full speed."}},
+     "auto", true, "God of War's frame rate on the PS4 (the God of War games only; others keep theirs).", FOR_PSP},
     {"ntsc_filter", "NTSC Filter", "Graphics",
      {{"disabled", "Off", "A clean picture."},
       {"composite", "Composite", "The yellow video cable: colours bleed, soft details."},
@@ -304,6 +422,12 @@ const std::vector<Setting> SETTINGS = {
      "auto", false,
      "How much the N64's processor does between two pictures. Light keeps heavy games (GoldenEye 007) "
      "smooth on the PS4.", FOR_N64},
+    {"ps1_cd_speed", "PS1 Disc Speed", "Performance",
+     {{"1", "As the PlayStation", "The console's own loading times."},
+      {"2", "2x", "Loads about twice as fast."},
+      {"4", "4x", "Loads much faster (a few games mind it)."},
+      {"8", "8x", "The fastest (more games may mind it)."}},
+     "1", false, "How fast the disc is read: shorter loading.", FOR_PS1},
     {"speed", "Emulation Speed", "Performance",
      {{"100", "100%"}, {"50", "50%"}, {"75", "75%"}, {"150", "150%"}, {"200", "200%"},
       {"300", "300%"}},
@@ -316,7 +440,8 @@ const std::vector<Setting> SETTINGS = {
       {"auto", "Auto", "Skips drawing a frame only when the PS4 falls behind."},
       {"1", "1", "Draws every other frame."},
       {"2", "2", "Draws one frame in three."}},
-     "off", true, "Skips drawing some frames when the PS4 can't keep up (the game keeps its speed).", FOR_RETRO},
+     "off", true, "Skips drawing some frames when the PS4 can't keep up (the game keeps its speed).",
+     FOR_RETRO | FOR_PSP | FOR_NDS | FOR_DC},
     {"frame_pacing", "N64 Frame Pacing", "Performance",
      {{"even", "Even (V-Sync)",
        "Each refresh shows the frame the game should be at when the TV shows it: PAL's 50 frames come out "
@@ -331,7 +456,7 @@ const std::vector<Setting> SETTINGS = {
      {{"auto", "Auto", "As the game's own cartridge."},
       {"ntsc", "NTSC (60 Hz)", "As an American or Japanese console."},
       {"pal", "PAL (50 Hz)", "As a European console: the game and its music run slower."}},
-     "auto", false, "Auto uses the game's own region.", FOR_RETRO},
+     "auto", false, "Auto uses the game's own region.", FOR_RETRO | FOR_PS1},
     {"block_vram", "Block Invalid VRAM Access", "Emulation",
      {{"enabled", "On", "As the console."}, {"disabled", "Off", "For hacks and translations that need it."}},
      "enabled", true, "As the console does. A few hacks and translations need Off.", FOR_SNES},
@@ -390,6 +515,16 @@ const std::vector<Setting> SETTINGS = {
       {"motion", "DualShock 4 Motion", "Tilt and turn the DualShock 4 itself, starting from how you hold it "
        "when the game starts (the right stick too)."}},
      "stick", true, "For the games with a tilt or turn sensor in the cartridge.", FOR_GBC | FOR_GBA},
+    {"ps1_controller", "PS1 Controller", "Emulation",
+     {{"auto", "Auto", "The DualShock, as the game asks for it (its left stick moves the D-pad in older games)."},
+      {"analog", "DualShock (analog)", "The DualShock with its sticks on from the start."}},
+     "auto", false, "The PlayStation pad the game sees.", FOR_PS1},
+    {"ps1_boot", "PS1 Boot Logo", "Emulation",
+     {{"on", "On", "The PlayStation's start-up logo and sound (with its BIOS)."},
+      {"skip", "Skip It", "The game starts at once."}},
+     "on", false,
+     "Copy the PlayStation BIOS (for example scph5501.bin) to /data/EmuSuNi/system: without it a "
+     "built-in BIOS starts the games, which works with fewer of them.", FOR_PS1},
     // System
     {"language", "Language", "System",
      {{"en", "English"},
@@ -447,21 +582,38 @@ struct Preset
   const char* name;
   std::vector<std::pair<const char*, const char*>> values;
 };
-// Ultra: the AI for SNES and NES (Resolution 6x stays the CPU's picture while the GPU's filters
-// compile); for the N64 it means Smooth HD, which at 4x is HD Sharpen (Emulator.cpp's GpuMode).
+// The GPU Upscaler goes one step per level: Medium Smooth Edges, High Natural HD, Ultra Natural AI
+// (each the one before plus more, GpuFilter.h), for every console (Resolution 3x/6x stays the CPU's
+// picture while the GPU's filters compile).
 const std::vector<Preset> PRESETS = {
     {"low", {{"resolution", "1"}, {"upscaler", "xbrz"}, {"ntsc_filter", "disabled"}, {"scaling", "fit"},
              {"zoom", "off"}, {"n64_resolution", "1"}, {"n64_sync", "fast"}, {"n64_2d", "native"},
-             {"gpu_filter", "off"}}},
+             {"gpu_filter", "off"}, {"ps1_resolution", "1"}, {"ps1_texture_filter", "Nearest"},
+             {"ps1_colors", "dither"}, {"ps1_pgxp", "off"}, {"ps1_antialiasing", "1"}, {"psp_resolution", "1"},
+             {"psp_anisotropy", "4"}, {"psp_antialiasing", "1"}, {"dc_resolution", "1"}, {"dc_anisotropy", "4"},
+             {"dc_sorting", "triangle"}}},
     {"medium", {{"resolution", "3"}, {"upscaler", "xbrz"}, {"ntsc_filter", "disabled"}, {"scaling", "fit"},
                 {"zoom", "off"}, {"n64_resolution", "2"}, {"n64_sync", "fast"}, {"n64_2d", "native"},
-                {"gpu_filter", "off"}}},
+                {"gpu_filter", "edges"}, {"ps1_resolution", "2"}, {"ps1_texture_filter", "xBR"},
+                {"ps1_colors", "true"}, {"ps1_pgxp", "off"}, {"ps1_antialiasing", "1"}, {"psp_resolution", "2"},
+                {"psp_anisotropy", "8"}, {"psp_antialiasing", "1"}, {"dc_resolution", "2"},
+                {"dc_anisotropy", "8"}, {"dc_sorting", "triangle"}}},
     {"high", {{"resolution", "6"}, {"upscaler", "xbrz"}, {"ntsc_filter", "disabled"}, {"scaling", "fit"},
               {"zoom", "off"}, {"n64_resolution", "4"}, {"n64_sync", "fast"}, {"n64_2d", "native"},
-              {"gpu_filter", "off"}}},
+              {"gpu_filter", "natural"}, {"ps1_resolution", "4"}, {"ps1_texture_filter", "xBR"},
+              {"ps1_colors", "true"}, {"ps1_pgxp", "on"}, {"ps1_antialiasing", "1"}, {"psp_resolution", "3"},
+              {"psp_anisotropy", "16"}, {"psp_antialiasing", "1"}, {"dc_resolution", "3"},
+              {"dc_anisotropy", "16"}, {"dc_sorting", "triangle"}}},
+    // Ultra for the PlayStation: 4x, xBR textures, True Colour, PGXP, 4x MSAA, then Natural AI (the AI
+    // chosen on real Tekken 3 and Gran Turismo 2 frames, mixed with its input: no waxy look). The PSP
+    // at 4x without MSAA: with it every new pipeline took ~86 ms to compile on the PS4 (5-19 ms
+    // without) and God of War stuttered; a 4x picture gets Natural HD's sharpening, not the AI.
     {"ultra", {{"resolution", "6"}, {"upscaler", "xbrz"}, {"ntsc_filter", "disabled"}, {"scaling", "fit"},
                {"zoom", "off"}, {"n64_resolution", "4"}, {"n64_sync", "fast"}, {"n64_2d", "hd"},
-               {"gpu_filter", "ai"}}},
+               {"gpu_filter", "natural_ai"}, {"ps1_resolution", "4"}, {"ps1_texture_filter", "xBR"},
+               {"ps1_colors", "true"}, {"ps1_pgxp", "on"}, {"ps1_antialiasing", "4"}, {"psp_resolution", "4"},
+               {"psp_anisotropy", "16"}, {"psp_antialiasing", "1"}, {"dc_resolution", "3"},
+               {"dc_anisotropy", "16"}, {"dc_sorting", "triangle"}}},
 };
 
 std::mutex s_mutex;
@@ -540,7 +692,13 @@ std::string QualityLocked(const std::string& game_id)
   {
     bool same = true;
     for (const auto& [key, value] : preset.values)
+    {
+      // (Not the settings no console shows: the Dreamcast's, which it doesn't follow - it plays at Low.)
+      const Setting* setting = Find(key);
+      if (setting && setting->systems == 0)
+        continue;
       same = same && GetLocked(key, game_id) == value;
+    }
     if (same)
       return preset.name;
   }
@@ -610,6 +768,97 @@ void Load(const std::string& data_dir)
     const size_t eq = line.find('=');
     if (eq != std::string::npos)
       s_sections[section][line.substr(0, eq)] = line.substr(eq + 1);
+  }
+  // The consoles that came after the Quality levels (their values left out where a level chosen
+  // before them is recognised).
+  static const char* const NEWER[] = {"psp_", "dc_"};
+  // 00.40: the levels' GPU Upscaler went from Off, Off, AI (Medium, High, Ultra) to Smooth Edges,
+  // Natural HD, Natural AI. A level chosen before stays that level, once ([global] presets=2). First,
+  // so the consoles' values below find the level again.
+  if (s_sections["global"]["presets"] != "2")
+  {
+    static const std::pair<const char*, const char*> OLD[] = {{"medium", "off"}, {"high", "off"}, {"ultra", "ai"}};
+    for (auto& [name, values] : s_sections)
+    {
+      for (const auto& [level, old] : OLD)
+      {
+        const auto preset = std::find_if(PRESETS.begin(), PRESETS.end(),
+                                         [level = level](const Preset& p) { return std::string(p.name) == level; });
+        if (preset == PRESETS.end() || values.count("gpu_filter") == 0 || values["gpu_filter"] != old)
+          continue;
+        bool same = true;
+        const char* now = nullptr;
+        for (const auto& [key, value] : preset->values)
+        {
+          const std::string k = key;
+          const bool newer = std::any_of(std::begin(NEWER), std::end(NEWER),
+                                         [&k](const char* prefix) { return k.rfind(prefix, 0) == 0; });
+          if (k == "gpu_filter")
+            now = value;
+          else if (!newer)
+            same = same && values.count(key) && values[key] == value;
+        }
+        if (same && now)
+        {
+          values["gpu_filter"] = now;
+          break;
+        }
+      }
+    }
+    s_sections["global"]["presets"] = "2";
+    SaveLocked();
+  }
+  // 00.50: the Dreamcast's per-pixel transparency (Ultra's in 00.48 and 00.49) drew the picture in
+  // wrong colours on the PS4's GPU (Crazy Taxi, after Ultra was chosen in the game): per triangle again
+  // wherever it was set, once ([global] dc_pixel=reset). Ultra is per triangle now.
+  if (s_sections["global"]["dc_pixel"] != "reset")
+  {
+    for (auto& [name, values] : s_sections)
+    {
+      const auto it = values.find("dc_sorting");
+      if (it != values.end() && it->second == "pixel")
+        it->second = "triangle";
+    }
+    s_sections["global"]["dc_pixel"] = "reset";
+    SaveLocked();
+  }
+  // A Quality level chosen before a console came (the PSP: 00.35 and older; the Dreamcast: 00.47 and
+  // older) stays that level: the level's values for that console are added to the section that has
+  // all its other values (the later consoles' left out of the comparison). Only the missing ones: a
+  // value of that console already set (one setting changed by hand) stays.
+  for (size_t n = 0; n < std::size(NEWER); n++)
+  {
+    const std::string prefix = NEWER[n];
+    auto newer = [n](const std::string& key) {
+      for (size_t m = n; m < std::size(NEWER); m++)
+      {
+        if (key.rfind(NEWER[m], 0) == 0)
+          return true;
+      }
+      return false;
+    };
+    for (auto& [name, values] : s_sections)
+    {
+      if (values.count(prefix + "resolution"))
+        continue;
+      for (const Preset& preset : PRESETS)
+      {
+        bool same = true;
+        for (const auto& [key, value] : preset.values)
+        {
+          if (!newer(key))
+            same = same && values.count(key) && values[key] == value;
+        }
+        if (!same)
+          continue;
+        for (const auto& [key, value] : preset.values)
+        {
+          if (std::string(key).rfind(prefix, 0) == 0)
+            values.emplace(key, value);
+        }
+        break;
+      }
+    }
   }
 }
 
@@ -802,6 +1051,10 @@ void ResetAll()
   s_sections.clear();
   if (!language.empty())
     s_sections["global"]["language"] = language;
+  // The one-time migrations (Load) have nothing left to change: done, so a choice made after the reset
+  // isn't undone at the next start.
+  s_sections["global"]["presets"] = "2";
+  s_sections["global"]["dc_pixel"] = "reset";
   SaveLocked();
 }
 
@@ -817,7 +1070,10 @@ bool AppliesToAny(const Setting& setting)
 
 std::string SystemTag(const Setting& setting)
 {
-  // No tag for a setting of every console this build plays.
+  // No tag for a setting of every console this build plays - nor of every one but the Dreamcast (the
+  // picture's: it plays at Low, which Quality's help says).
+  if ((setting.systems | FOR_DC) == FOR_ALL)
+    return {};
   std::string tags;
   bool every = true;
   for (const System& system : Systems())

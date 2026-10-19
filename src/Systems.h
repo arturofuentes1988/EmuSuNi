@@ -3,7 +3,9 @@
 // The consoles EmuSuNi plays, and what differs between them: the core, the game files, the game
 // folder, the libretro thumbnails' folder, the tab and the badge on the covers. The Nintendo 64
 // is in builds with EMUSUNI_N64, the Game Boy, Game Boy Color and Game Boy Advance (mGBA) in
-// builds with EMUSUNI_GBA (scripts/build.sh's).
+// builds with EMUSUNI_GBA, the PlayStation (SwanStation) in builds with EMUSUNI_PS1, the Nintendo
+// DS (melonDS DS) in builds with EMUSUNI_NDS, the PSP (PPSSPP) in builds with EMUSUNI_PSP, the
+// Dreamcast (Flycast) in builds with EMUSUNI_DC (scripts/build.sh's).
 //
 // A game is known by its key: its file name without the extension for the Super Nintendo (as
 // before EmuSuNi played other consoles), "<console>/<file name>" for the others. Its settings,
@@ -26,8 +28,12 @@ enum class SystemId
   GB = 3,
   GBC = 4,
   GBA = 5,
+  PS1 = 6,
+  NDS = 7,
+  PSP = 8,
+  DC = 9,
 };
-constexpr int SYSTEM_COUNT = 6;  // the most there can be: Systems() has those of this build
+constexpr int SYSTEM_COUNT = 10;  // the most there can be: Systems() has those of this build
 
 struct System
 {
@@ -45,6 +51,7 @@ struct System
   const char* thumbnails;      // libretro's thumbnail folder
   const char* thumbnails_repo; // its GitHub project (libretro-thumbnails/...)
   const CoreApi* core;
+  bool by_path = false;        // the core reads the game itself from its path (CD images): no .zip
 };
 
 const std::vector<System>& Systems();

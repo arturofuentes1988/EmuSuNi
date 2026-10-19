@@ -35,6 +35,38 @@ const std::vector<System>& Systems()
        0x3D4FC4, "gba/", "/usb0/Roms/gba", {".gba", ".agb"}, "Nintendo - Game Boy Advance",
        "libretro-thumbnails/Nintendo_-_Game_Boy_Advance", &Cores::MGBA},
 #endif
+#ifdef EMUSUNI_PS1
+      // PlayStation games are CD images (a .cue with its .bin tracks, .chd, .pbp, an .m3u for the
+      // discs of one game): the core reads them itself from their path, from the USB drive.
+      {SystemId::PS1, "ps1", "PlayStation", "PlayStation", "PS1", "PS1", "PS1", 0x2D5DB8, 0x2D5DB8, "ps1/",
+       "/usb0/Roms/ps1", {".cue", ".chd", ".pbp", ".m3u", ".iso", ".img", ".ecm", ".mds"}, "Sony - PlayStation",
+       "libretro-thumbnails/Sony_-_PlayStation", &Cores::SWANSTATION, true},
+#endif
+#ifdef EMUSUNI_NDS
+      // DS games are read by the core itself from their path (one copy in memory: they are up to
+      // 512 MiB), so no .zip either.
+      {SystemId::NDS, "nds", "Nintendo DS", "Nintendo DS", "DS", "DS", "DS", 0x8A1C2B, 0x8A1C2B, "nds/",
+       "/usb0/Roms/nds", {".nds", ".ids"}, "Nintendo - Nintendo DS", "libretro-thumbnails/Nintendo_-_Nintendo_DS",
+       &Cores::MELONDSDS, true},
+#endif
+#ifdef EMUSUNI_PSP
+      // PSP games are UMD images (.iso, .cso, .chd) or PSN downloads (.pbp), up to 1.8 GB: the core
+      // reads them itself from their path. A .iso, .chd or .pbp is the PlayStation's or the PSP's
+      // by its folder, or by what is inside it (src/Library.cpp).
+      {SystemId::PSP, "psp", "PSP", "PSP", "PSP", "PSP", "PSP", 0x5B2D8C, 0x5B2D8C, "psp/", "/usb0/Roms/psp",
+       {".iso", ".cso", ".chd", ".pbp", ".elf"}, "Sony - PlayStation Portable",
+       "libretro-thumbnails/Sony_-_PlayStation_Portable", &Cores::PPSSPP, true},
+#endif
+#ifdef EMUSUNI_DC
+      // Dreamcast games are GD-ROM/CD images (.gdi with its tracks, .chd, .cdi, .cue, an .m3u for the
+      // discs of one game), up to ~1.2 GB: the core reads them from their path (stdio, never whole in
+      // memory). A .chd, .cue or .m3u is the PlayStation's, the PSP's or the Dreamcast's by its folder or
+      // by what is inside it (Library.cpp).
+      // (Never .bin: Flycast takes .bin, .lst, .dat and .zip for NAOMI arcade games.)
+      {SystemId::DC, "dc", "Dreamcast", "Dreamcast", "DC", "DC", "DREAMCAST", 0xF26722, 0xF26722, "dc/",
+       "/usb0/Roms/dc", {".gdi", ".cdi", ".chd", ".cue", ".m3u"}, "Sega - Dreamcast",
+       "libretro-thumbnails/Sega_-_Dreamcast", &Cores::FLYCAST, true},
+#endif
   };
   return SYSTEMS;
 }

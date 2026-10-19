@@ -7,9 +7,11 @@
 #include <array>
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <mutex>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <orbis/VideoOut.h>
@@ -67,6 +69,8 @@ struct Frame
   // A core's image as this frame draws it (sharp, smooth): one descriptor set each, rewritten
   // when this frame is recorded again.
   VkDescriptorSet external[2] = {VK_NULL_HANDLE, VK_NULL_HANDLE};
+  // The core's image read with alpha 1 (OpaqueView), made for this frame.
+  VkImageView opaque = VK_NULL_HANDLE;
 };
 
 struct Texture
@@ -289,16 +293,90 @@ bool CreateDevice()
   {
     Log("creating the Vulkan device through ParaLLEl-RDP");
     retro_vulkan_context context = {};
-    const VkPhysicalDeviceFeatures none = {};  // Granite reads it (a null pointer would crash)
+    // Granite reads the features (a null pointer would crash). Besides its own: what the PlayStation
+    // core (SwanStation: blending in one pass, sample shading) and the PSP core (PPSSPP: also logic
+    // ops, depth clamp, clip and cull distances) use, when the GPU has them. The cores are told
+    // every feature the device has (EMUSUNI_VK_DEVICE_FEATURES, scripts/build-ps1-core.sh and
+    // build-psp-core.sh): ours and those of Granite's own list it enabled.
+    VkPhysicalDeviceFeatures supported = {}, wanted = {};
+    vkGetPhysicalDeviceFeatures(s_gpu, &supported);
+    wanted.dualSrcBlend = supported.dualSrcBlend;
+    wanted.sampleRateShading = supported.sampleRateShading;
+    wanted.logicOp = supported.logicOp;
+    wanted.depthClamp = supported.depthClamp;
+    wanted.shaderClipDistance = supported.shaderClipDistance;
+    wanted.shaderCullDistance = supported.shaderCullDistance;
+    // PPSSPP's multisampling (render passes 2 and their depth resolve) and stencil from shaders,
+    // when the GPU has them (Granite fails on a missing one). Granite doesn't enable them itself.
+    std::vector<const char*> extensions;
+    {
+      uint32_t count = 0;
+      vkEnumerateDeviceExtensionProperties(s_gpu, nullptr, &count, nullptr);
+      std::vector<VkExtensionProperties> all(count);
+      vkEnumerateDeviceExtensionProperties(s_gpu, nullptr, &count, all.data());
+      auto has = [&all](const char* name) {
+        return std::any_of(all.begin(), all.end(),
+                           [name](const VkExtensionProperties& e) { return std::strcmp(e.extensionName, name) == 0; });
+      };
+      if (has(VK_KHR_CREATE_RENDERPASS_2_EXTENSION_NAME))
+      {
+        extensions.push_back(VK_KHR_CREATE_RENDERPASS_2_EXTENSION_NAME);
+        if (has(VK_KHR_DEPTH_STENCIL_RESOLVE_EXTENSION_NAME))
+          extensions.push_back(VK_KHR_DEPTH_STENCIL_RESOLVE_EXTENSION_NAME);
+      }
+      if (has(VK_EXT_SHADER_STENCIL_EXPORT_EXTENSION_NAME))
+        extensions.push_back(VK_EXT_SHADER_STENCIL_EXPORT_EXTENSION_NAME);
+    }
     if (parallel_create_device(&context, s_instance, s_gpu, VK_NULL_HANDLE, VulkanFunctions::GetInstanceProcAddr,
-                               nullptr, 0, nullptr, 0, &none) &&
+                               extensions.data(), static_cast<unsigned>(extensions.size()), nullptr, 0, &wanted) &&
         context.device != VK_NULL_HANDLE)
     {
       s_device = context.device;
       s_queue = context.queue;
       s_queue_family = context.queue_family_index;
       s_shared = true;
-      LogF("display: device made by ParaLLEl-RDP (queue family %u)", s_queue_family);
+      // The features by name: ours, then Granite's (parallel-rdp/vulkan/context.cpp) the GPU has.
+#define EMUSUNI_FEATURE(name) {#name, &VkPhysicalDeviceFeatures::name}
+      static const std::pair<const char*, VkBool32 VkPhysicalDeviceFeatures::*> OURS[] = {
+          EMUSUNI_FEATURE(sampleRateShading), EMUSUNI_FEATURE(dualSrcBlend), EMUSUNI_FEATURE(logicOp),
+          EMUSUNI_FEATURE(depthClamp), EMUSUNI_FEATURE(shaderClipDistance), EMUSUNI_FEATURE(shaderCullDistance)};
+      static const std::pair<const char*, VkBool32 VkPhysicalDeviceFeatures::*> GRANITE[] = {
+          EMUSUNI_FEATURE(textureCompressionETC2), EMUSUNI_FEATURE(textureCompressionBC),
+          EMUSUNI_FEATURE(textureCompressionASTC_LDR), EMUSUNI_FEATURE(fullDrawIndexUint32),
+          EMUSUNI_FEATURE(imageCubeArray), EMUSUNI_FEATURE(fillModeNonSolid), EMUSUNI_FEATURE(independentBlend),
+          EMUSUNI_FEATURE(fragmentStoresAndAtomics), EMUSUNI_FEATURE(shaderStorageImageExtendedFormats),
+          EMUSUNI_FEATURE(shaderStorageImageMultisample), EMUSUNI_FEATURE(largePoints),
+          EMUSUNI_FEATURE(shaderInt16), EMUSUNI_FEATURE(shaderInt64),
+          EMUSUNI_FEATURE(shaderStorageImageWriteWithoutFormat),
+          EMUSUNI_FEATURE(shaderStorageImageReadWithoutFormat),
+          EMUSUNI_FEATURE(shaderSampledImageArrayDynamicIndexing),
+          EMUSUNI_FEATURE(shaderUniformBufferArrayDynamicIndexing),
+          EMUSUNI_FEATURE(shaderStorageBufferArrayDynamicIndexing),
+          EMUSUNI_FEATURE(shaderStorageImageArrayDynamicIndexing), EMUSUNI_FEATURE(shaderImageGatherExtended),
+          EMUSUNI_FEATURE(samplerAnisotropy)};
+#undef EMUSUNI_FEATURE
+      std::string features, ours;
+      auto add = [](std::string* list, const char* name) { *list += std::string(list->empty() ? "" : ",") + name; };
+      for (const auto& [name, member] : OURS)
+      {
+        if (wanted.*member)
+        {
+          add(&features, name);
+          add(&ours, name);
+        }
+      }
+      for (const auto& [name, member] : GRANITE)
+      {
+        if (supported.*member)
+          add(&features, name);
+      }
+      std::string extension_list;
+      for (const char* name : extensions)
+        add(&extension_list, name);
+      setenv("EMUSUNI_VK_DEVICE_FEATURES", features.c_str(), 1);
+      setenv("EMUSUNI_VK_DEVICE_EXTENSIONS", extension_list.c_str(), 1);
+      LogF("display: device made by ParaLLEl-RDP (queue family %u), with %s; extensions %s", s_queue_family,
+           ours.empty() ? "no extra features" : ours.c_str(), extension_list.empty() ? "none" : extension_list.c_str());
     }
     else
     {
@@ -821,6 +899,37 @@ ImTextureID Display::ExternalTexture(VkImageView view, VkImageLayout layout, boo
     vkUpdateDescriptorSets(s_device, 1, &write, 0, nullptr);
   }
   return reinterpret_cast<ImTextureID>(set);
+}
+
+VkImageView Display::OpaqueView(const VkImageViewCreateInfo& info)
+{
+  if (info.image == VK_NULL_HANDLE)
+    return VK_NULL_HANDLE;
+  // The frame EndFrame records next: the GPU is done with the view it had.
+  Frame& frame = s_frames[(s_current + 1) % IMAGES];
+  const auto wait = std::chrono::steady_clock::now();
+  vkWaitForFences(s_device, 1, &frame.fence, VK_TRUE, UINT64_MAX);
+  s_wait_ms += MsSince(wait);
+  if (frame.opaque != VK_NULL_HANDLE)
+    vkDestroyImageView(s_device, frame.opaque, nullptr);
+  frame.opaque = VK_NULL_HANDLE;
+  VkImageViewCreateInfo opaque = info;
+  opaque.pNext = nullptr;
+  opaque.components.a = VK_COMPONENT_SWIZZLE_ONE;
+  if (vkCreateImageView(s_device, &opaque, nullptr, &frame.opaque) != VK_SUCCESS)
+    frame.opaque = VK_NULL_HANDLE;
+  return frame.opaque;
+}
+
+void Display::ForgetOpaqueViews()
+{
+  WaitAllFrames();
+  for (Frame& frame : s_frames)
+  {
+    if (frame.opaque != VK_NULL_HANDLE)
+      vkDestroyImageView(s_device, frame.opaque, nullptr);
+    frame.opaque = VK_NULL_HANDLE;
+  }
 }
 
 void Display::WaitIdle()

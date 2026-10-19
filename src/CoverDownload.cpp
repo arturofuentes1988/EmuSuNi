@@ -544,6 +544,8 @@ const std::string* Pick(const std::vector<const std::string*>& candidates, const
       else if (tosec != TOSEC_REGIONS.end() && name->find(tosec->second) != std::string::npos)
         score += 9;
     }
+    if (game.discs.size() > 1 && name->find("(Disc 1)") != std::string::npos)
+      score += 3;  // a game on several discs: the first one's box
     if (name->find("(USA") != std::string::npos)
       score += 2;  // a fallback when the region doesn't match
     else if (name->find("(US)") != std::string::npos)

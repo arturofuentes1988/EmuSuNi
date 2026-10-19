@@ -58,11 +58,16 @@ std::string ReadTextFile(const std::string& path)
 
 bool WriteTextFile(const std::string& path, const std::string& text)
 {
+  return WriteDataFile(path, text.data(), text.size());
+}
+
+bool WriteDataFile(const std::string& path, const void* data, size_t size)
+{
   const std::string temp = path + ".new";
   FILE* file = fopen(temp.c_str(), "wb");
   if (!file)
     return false;
-  const bool written = fwrite(text.data(), 1, text.size(), file) == text.size();
+  const bool written = fwrite(data, 1, size, file) == size;
   fflush(file);
   fsync(fileno(file));
   fclose(file);

@@ -1,10 +1,11 @@
 // EmuSuNi - Super Nintendo for PS4. GPL-2.0-or-later (see LICENSE).
 
 // The game picture drawn through the GPU's filters (shaders) instead of ImGui's plain textured
-// quad: xBRZ at the TV's resolution for pixel art, AMD's FSR 1 and RCAS, and Anime4K's neural
-// network. The passes before the last draw into images of their own (Display::EndFrame records
-// them before the screen's render pass); the last one draws straight into the screen, inside
-// ImGui's render pass, through a draw-list callback where the picture goes.
+// quad: xBRZ at the TV's resolution for pixel art, AMD's FSR 1 and RCAS, Anime4K's neural
+// network, and the three steps of the Quality levels (MMPX and SMAA anti-aliasing, then FSR, then
+// the network mixed with its input). The passes before the last draw into images of their own
+// (Display::EndFrame records them before the screen's render pass); the last one draws straight
+// into the screen, inside ImGui's render pass, through a draw-list callback where the picture goes.
 
 #pragma once
 
@@ -27,8 +28,16 @@ enum class Mode
   PixelArt,  // Pixel Art HD: xBRZ (freescale), drawn at the size the picture has on the screen
   Smooth,    // Smooth HD: AMD FidelityFX Super Resolution 1 (EASU, then RCAS)
   AI,        // AI: xBRZ at 768 pixels wide, Anime4K's Restore network, Catmull-Rom to the screen
+  // The Quality levels' steps, each one the one before plus more (after the four above: their
+  // numbers stay):
+  Edges,      // Smooth Edges: jagged edges anti-aliased, nothing else changed. Pixel art: MMPX at 2x
+              // (4x for the Game Boys), SMAA, crisp pixels to the screen. Drawn (3D) pictures: SMAA,
+              // Catmull-Rom.
+  NaturalHD,  // Natural HD: Smooth Edges' picture through FSR 1 (EASU, RCAS) to the screen
+  NaturalAI,  // Natural AI: Smooth Edges' picture at about 768 wide through Anime4K's Restore network
+              // mixed 70/30 with its input (textures and dithering kept: no waxy look), Catmull-Rom
 };
-constexpr int MODE_COUNT = 5;
+constexpr int MODE_COUNT = 8;
 
 const char* Name(Mode mode);
 
@@ -61,6 +70,17 @@ struct Source
   VkImageLayout layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
   uint32_t width = 0, height = 0;  // the picture, in the image's top-left corner
   bool exact = true;               // the image is the picture's size (else it is copied out first)
+  // What the picture is, for Smooth Edges, Natural HD and Natural AI: pixel art is redrawn at 2x
+  // (MMPX) before the anti-aliasing; a drawn (3D) picture is only anti-aliased, and not even that
+  // when it is as big as the screen's picture already (supersampled). Auto: the cores' own images
+  // (exact) are drawn pictures, those copied out of the game texture are pixel art.
+  enum class Kind
+  {
+    Auto,
+    PixelArt,
+    Drawn,
+  };
+  Kind kind = Kind::Auto;
 };
 
 // DrawPicture: this frame's picture through the mode's passes, the last one into the screen at

@@ -19,6 +19,8 @@ void Init(const std::string& data_dir);
 std::string SramPath(const std::string& game_id);
 // The cartridge's clock (Game Boy games with one: Pokémon Gold, Silver, Crystal), beside the save.
 std::string RtcPath(const std::string& game_id);
+// The disc a game on several discs was played with last (its number from 0, as text), beside the save.
+std::string DiscPath(const std::string& game_id);
 std::string StatePath(const std::string& game_id, int slot);
 std::string StatePicturePath(const std::string& game_id, int slot);
 // Unix time of a file's last change, 0 when it doesn't exist.

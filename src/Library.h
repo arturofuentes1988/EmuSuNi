@@ -26,6 +26,9 @@ struct Game
   SystemId system = SystemId::SNES;
   std::string key;     // id for the Super Nintendo, "<console>/<id>" for the others (Systems.h)
   bool custom_title = false;  // the title is a name of the user's own (Rename)
+  // A PlayStation or Dreamcast game on several discs ("(Disc 1)", "(Disc 2)"... side by side): each
+  // disc's file in order (path is the first one's); id and key are the name without the disc's number.
+  std::vector<std::string> discs;
 };
 
 bool IsRomName(const std::string& name);
@@ -39,4 +42,14 @@ int CountGames(const std::string& folder, SystemId system);
 bool ReadRom(const std::string& path, std::vector<uint8_t>* data, std::string* error);
 // The title, region and tags from a file name without its extension.
 void ParseName(const std::string& stem, std::string* title, std::string* region, std::string* tags);
+// A disc's number in a name - "(Disc 2)", "(Disc 2 of 3)", "(Disk 2)", "(CD2)", "[Disc 2]" - and the
+// name without it (base). 0: none.
+int DiscNumber(const std::string& name, std::string* base);
+// The discs the core can change between: a game on several discs' (Game::discs) or those an .m3u
+// lists; none for a game on one disc.
+std::vector<std::string> Discs(const Game& game);
+// Every file of the game on the drive: its file (each disc's), the tracks its .cue or .gdi names and
+// the discs its .m3u lists - those in its own folder (or below), and not named by another game there.
+// Delete Game deletes them; Information adds up their size.
+std::vector<std::string> GameFiles(const Game& game);
 }  // namespace Library

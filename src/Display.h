@@ -95,6 +95,12 @@ public:
   void SignalSemaphore(VkSemaphore semaphore);
   // The core's image (a view in that layout), for ImDrawList::AddImage in the next frame.
   ImTextureID ExternalTexture(VkImageView view, VkImageLayout layout, bool smooth);
+  // A view of the core's image that reads its alpha as 1, for the next frame (PPSSPP's picture
+  // keeps the PSP's alpha, often 0: drawn blended it was invisible). It lives as long as that
+  // frame; VK_NULL_HANDLE when it can't be made.
+  VkImageView OpaqueView(const VkImageViewCreateInfo& info);
+  // The opaque views go (before the core frees its images; the GPU is idle).
+  void ForgetOpaqueViews();
   // Until the GPU has drawn every frame (before a core frees images they show).
   void WaitIdle();
 };

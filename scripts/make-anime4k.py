@@ -2,9 +2,11 @@
 # EmuSuNi - GPL-2.0-or-later (see LICENSE).
 # Turns an Anime4K shader for mpv (bloc97's //!HOOK passes, MIT) into one Vulkan fragment shader
 # per pass for GpuFilter.cpp: the pass's textures at bindings 0.., the position from quad.vert.
-#   make-anime4k.py <Anime4K_X.glsl> <out_dir> <name>
+#   make-anime4k.py <Anime4K_X.glsl> <out_dir> <name> [--partial]
 # Writes <out_dir>/<name>_<n>.frag and prints, per pass, what it reads and saves (GpuFilter.cpp's
-# table must match).
+# table must match). --partial also writes <name>_<n>_partial.frag for the last pass (the one that
+# adds the network's correction to its input) with the correction scaled by pc.Origin.z (Natural
+# AI's strength, set by GpuFilter.cpp): the network's picture mixed with its input, for free.
 #
 # Each pass is then rewritten into an equivalent form that is cheaper on the PS4's GPU (GCN GFX7,
 # RADV/ACO), same network and weights, same result up to float rounding (rewrite() below):
@@ -100,6 +102,7 @@ def rewrite(text):
 
 def main():
     source, out_dir, name = sys.argv[1], sys.argv[2], sys.argv[3]
+    partial = '--partial' in sys.argv[4:]
     with open(source, encoding='utf-8') as f:
         text = f.read()
     license_end = text.index('//!DESC')
@@ -133,8 +136,17 @@ def main():
                 out.append('#define HOOKED_%s MAIN_%s' % (suffix, suffix))
         out += [code, 'void main()', '{', '  FragColor = hook();', '}', '']
         path = os.path.join(out_dir, '%s_%d.frag' % (name, n))
+        shader = rewrite('\n'.join(out))
         with open(path, 'w', encoding='utf-8', newline='\n') as f:
-            f.write(rewrite('\n'.join(out)))
+            f.write(shader)
+        last = '    return result + MAIN_tex(MAIN_pos);\n'
+        if partial and last in shader:
+            variant = shader.replace(last, '    return result * pc.Origin.z + MAIN_tex(MAIN_pos);\n').replace(
+                'made by scripts/make-anime4k.py)', 'made by scripts/make-anime4k.py --partial)', 1)
+            with open(os.path.join(out_dir, '%s_%d_partial.frag' % (name, n)), 'w', encoding='utf-8',
+                      newline='\n') as f:
+                f.write(variant)
+            print('%s_%d_partial: the same, the correction scaled by pc.Origin.z' % (name, n))
         print('%s_%d: reads %s, saves %s, width %s' % (name, n, ','.join(binds), save, width or 'same'))
         n += 1
 

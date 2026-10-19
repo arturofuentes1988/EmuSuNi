@@ -29,6 +29,22 @@ set(N64_CORE_OBJECT "" CACHE FILEPATH "Mupen64Plus-Next as one object (scripts/b
 # one object whose libretro API is mgba_retro_*): always in the app (EMUSUNI_GBA=1); scripts/build.sh
 # builds the object and passes it.
 set(GBA_CORE_OBJECT "" CACHE FILEPATH "mGBA as one object (scripts/build-gba-core.sh)")
+# The PlayStation (SwanStation, built by scripts/build-ps1-core.sh into one object whose libretro API
+# is swanstation_retro_*): in the app (EMUSUNI_PS1=1) when scripts/build.sh passes the object
+# (build.sh no-ps1 leaves it out).
+set(PS1_CORE_OBJECT "" CACHE FILEPATH "SwanStation as one object (scripts/build-ps1-core.sh)")
+# The Nintendo DS (melonDS DS, built by scripts/build-nds-core.sh into one object whose libretro API
+# is melondsds_retro_*): in the app (EMUSUNI_NDS=1) when scripts/build.sh passes the object
+# (build.sh no-nds leaves it out).
+set(NDS_CORE_OBJECT "" CACHE FILEPATH "melonDS DS as one object (scripts/build-nds-core.sh)")
+# The PSP (PPSSPP, built by scripts/build-psp-core.sh into one object whose libretro API is
+# ppsspp_retro_*): in the app (EMUSUNI_PSP=1) when scripts/build.sh passes the object
+# (build.sh no-psp leaves it out).
+set(PSP_CORE_OBJECT "" CACHE FILEPATH "PPSSPP as one object (scripts/build-psp-core.sh)")
+# The Dreamcast (Flycast, built by scripts/build-dc-core.sh into one object whose libretro API is
+# flycast_retro_*): in the app (EMUSUNI_DC=1) when scripts/build.sh passes the object
+# (build.sh no-dc leaves it out).
+set(DC_CORE_OBJECT "" CACHE FILEPATH "Flycast as one object (scripts/build-dc-core.sh)")
 
 # --- The emulator cores -------------------------------------------------------------------------
 # Every core is a libretro core with the same API (retro_init, retro_run...). Several of them in
@@ -150,7 +166,7 @@ add_custom_target(emusuni_shaders DEPENDS ${EMUSUNI_SHADER_HEADERS})
 add_executable(emusuni
   src/main.cpp src/Display.cpp src/VulkanFunctions.cpp src/Menu.cpp src/Settings.cpp
   src/Controls.cpp src/Emulator.cpp src/IngameMenu.cpp src/GameAudio.cpp src/Library.cpp
-  src/Cheats.cpp src/Saves.cpp src/Image.cpp src/Log.cpp src/PS4Lang.cpp src/PS4Glyphs.cpp
+  src/Cheats.cpp src/CheatDownload.cpp src/Saves.cpp src/Image.cpp src/Log.cpp src/PS4Lang.cpp src/PS4Glyphs.cpp
   src/Net.cpp src/CoverDownload.cpp src/Upscaler.cpp src/Tour.cpp src/Cores.cpp src/Systems.cpp
   src/SystemKeyboard.cpp src/GpuFilter.cpp
   port/ps4_jit_stubs.c ${PS4_RUNTIME_SOURCES})
@@ -175,6 +191,54 @@ if(GBA_CORE_OBJECT)
 else()
   message(WARNING "No GBA_CORE_OBJECT: the link needs mgba_retro_* (scripts/build.sh builds it with "
                   "scripts/build-gba-core.sh)")
+endif()
+if(PS1_CORE_OBJECT)
+  if(NOT EXISTS "${PS1_CORE_OBJECT}")
+    message(FATAL_ERROR "PS1_CORE_OBJECT ${PS1_CORE_OBJECT} doesn't exist (scripts/build-ps1-core.sh)")
+  endif()
+  # Its recompiler makes its code buffer executable with port/ps4_n64.c's emusuni_make_executable.
+  if(NOT EMUSUNI_N64)
+    target_sources(emusuni PRIVATE port/ps4_n64.c)
+  endif()
+  target_compile_definitions(emusuni PRIVATE EMUSUNI_PS1=1)
+  target_link_libraries(emusuni PRIVATE ${PS1_CORE_OBJECT})
+endif()
+if(NDS_CORE_OBJECT)
+  if(NOT EXISTS "${NDS_CORE_OBJECT}")
+    message(FATAL_ERROR "NDS_CORE_OBJECT ${NDS_CORE_OBJECT} doesn't exist (scripts/build-nds-core.sh)")
+  endif()
+  # Its JIT makes its code buffer executable with port/ps4_n64.c's emusuni_make_executable; its 3D
+  # thread first calls emusuni_nds_render_thread, which the app defines (port/).
+  if(NOT EMUSUNI_N64 AND NOT PS1_CORE_OBJECT)
+    target_sources(emusuni PRIVATE port/ps4_n64.c)
+  endif()
+  target_compile_definitions(emusuni PRIVATE EMUSUNI_NDS=1)
+  target_link_libraries(emusuni PRIVATE ${NDS_CORE_OBJECT})
+endif()
+if(PSP_CORE_OBJECT)
+  if(NOT EXISTS "${PSP_CORE_OBJECT}")
+    message(FATAL_ERROR "PSP_CORE_OBJECT ${PSP_CORE_OBJECT} doesn't exist (scripts/build-psp-core.sh)")
+  endif()
+  # Its JIT makes its code memory executable with port/ps4_n64.c's emusuni_make_executable; each of
+  # its threads first calls emusuni_psp_thread, which the app defines (port/).
+  if(NOT EMUSUNI_N64 AND NOT PS1_CORE_OBJECT AND NOT NDS_CORE_OBJECT)
+    target_sources(emusuni PRIVATE port/ps4_n64.c)
+  endif()
+  target_compile_definitions(emusuni PRIVATE EMUSUNI_PSP=1)
+  target_link_libraries(emusuni PRIVATE ${PSP_CORE_OBJECT})
+endif()
+if(DC_CORE_OBJECT)
+  if(NOT EXISTS "${DC_CORE_OBJECT}")
+    message(FATAL_ERROR "DC_CORE_OBJECT ${DC_CORE_OBJECT} doesn't exist (scripts/build-dc-core.sh)")
+  endif()
+  # Its recompilers (SH4, ARM7, AICA DSP) make their code memory executable with port/ps4_n64.c's
+  # emusuni_make_executable; each of its threads first calls emusuni_dc_thread, which the app
+  # defines (port/).
+  if(NOT EMUSUNI_N64 AND NOT PS1_CORE_OBJECT AND NOT NDS_CORE_OBJECT AND NOT PSP_CORE_OBJECT)
+    target_sources(emusuni PRIVATE port/ps4_n64.c)
+  endif()
+  target_compile_definitions(emusuni PRIVATE EMUSUNI_DC=1)
+  target_link_libraries(emusuni PRIVATE ${DC_CORE_OBJECT})
 endif()
 target_link_libraries(emusuni PRIVATE snes9x ${FCEUMM_OBJECT} imgui
   ${OPENORBIS}/usr/lib/libminizip.a ${OPENORBIS}/usr/lib/libpng16.a ${OPENORBIS}/usr/lib/libcurl.a

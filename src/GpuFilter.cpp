@@ -27,6 +27,7 @@ extern "C" int emusuni_filter_affinity(OrbisPthread thread, uint64_t mask) __asm
 #include "catmull.frag.h"
 #include "copy.frag.h"
 #include "easu.frag.h"
+#include "mmpx.frag.h"
 #include "quad.vert.h"
 #include "rcas.frag.h"
 #include "restore_m_0.frag.h"
@@ -37,9 +38,18 @@ extern "C" int emusuni_filter_affinity(OrbisPthread thread, uint64_t mask) __asm
 #include "restore_m_5.frag.h"
 #include "restore_m_6.frag.h"
 #include "restore_m_7.frag.h"
+#include "restore_m_7_partial.frag.h"
+#include "sharp_bilinear.frag.h"
 #include "sharpen.frag.h"
+#include "smaa_blend.frag.h"
+#include "smaa_edges.frag.h"
+#include "smaa_weights.frag.h"
 #include "xbrz0.frag.h"
 #include "xbrz1.frag.h"
+// SMAA's two lookup textures (MIT, see THIRD_PARTY_NOTICES.md), uploaded the first time a mode
+// needs them.
+#include "third_party/smaa/AreaTex.h"
+#include "third_party/smaa/SearchTex.h"
 
 namespace GpuFilter
 {
@@ -51,17 +61,36 @@ constexpr uint32_t FRAMES = 3;      // Display's frames in flight
 constexpr uint32_t MAX_INPUTS = 8;  // the textures one pass reads (Anime4K's last pass: 8)
 constexpr uint32_t MAX_PASSES = 16;
 // The passes' images, in one block of GPU memory kept for the app's life (each allocation maps
-// memory on the PS4, see Display.cpp). The AI's network takes the most: 7 RGBA16F images of
-// 768x720 and a few RGBA8 ones, about 36 MiB.
-constexpr VkDeviceSize BLOCK_SIZE = 48ull << 20;
+// memory on the PS4, see Display.cpp). The AI's network takes the most: 7 RGBA16F images of at most
+// 960x720 pixels and a few RGBA8 ones, about 46 MiB (the rest: the driver's padding; Natural AI's
+// biggest chain, the DS's screens one above the other, about 51 MiB).
+constexpr VkDeviceSize BLOCK_SIZE = 64ull << 20;
 // The AI redraws the picture this wide with xBRZ (3x for the SNES and the NES) before the network
 // cleans it up: wider costs much more GPU memory and time for little.
 constexpr uint32_t AI_WIDTH = 768;
+// A picture already drawn wider than that (the PlayStation's 3D at 2x-4x) is made smaller with
+// Catmull-Rom instead, to at most this many pixels (its edges come out supersampled), and the
+// network cleans that up: about the AI's usual size, so the same GPU memory and time.
+constexpr double AI_DRAWN_PIXELS = 960.0 * 720.0;
 // Smooth HD's image is as big as the picture on the screen (Letterbox Zoom makes it bigger).
 constexpr uint32_t MAX_OUTPUT_W = 2560, MAX_OUTPUT_H = 1600;
 // RCAS's sharpening, in stops (0 = the most): Smooth HD after EASU, HD Sharpen.
 constexpr float FSR_SHARPNESS_STOPS = 0.25f;
 constexpr float SHARPEN_STOPS = 0.25f;
+// Natural AI: how much of the network's correction is kept, the rest being its input (Smooth
+// Edges' picture). 1 is the AI's full look, which flattens textures and dithering into a waxy,
+// painted picture; 0.7 keeps them and still cleans the edges (real SNES, NES and PlayStation
+// frames).
+constexpr float NATURAL_AI_STRENGTH = 0.7f;
+// Natural AI's network size: about 768x576 (the AI's), more for a picture whose 2x redraw is wider
+// (the DS's two screens side by side) up to this; a drawn picture bigger than the screen's (no SMAA
+// images then) up to AI_DRAWN_PIXELS. The GPU memory block holds the biggest chains (PSP at 3x).
+constexpr double SMALL_AI_PIXELS = 768.0 * 576.0;
+// A drawn (3D) picture is anti-aliased (SMAA) at its own size only when the screen shows it bigger
+// than it is (else it is supersampled already) and it has at most this many pixels: the N64, the
+// PlayStation and the PSP up to 2x. The PSP at 3x (1440x810) is nearly the screen's size already,
+// and SMAA there would take Natural HD past 2 ms of the PS4's GPU.
+constexpr double SMAA_MAX_PIXELS = 1.0e6;
 
 enum class Target
 {
@@ -81,7 +110,13 @@ enum Shader
   RCAS,
   CATMULL,
   RESTORE0,  // Anime4K Restore CNN (M): 7 layers, then the last pass (RESTORE0 + 7)
-  SHADER_COUNT = RESTORE0 + 8,
+  MMPX = RESTORE0 + 8,
+  SMAA_EDGES,
+  SMAA_WEIGHTS,
+  SMAA_BLEND,
+  SHARP_BILINEAR,
+  RESTORE_PARTIAL,  // RESTORE0 + 7 with the network's correction scaled (Natural AI)
+  SHADER_COUNT,
 };
 
 struct ShaderCode
@@ -107,6 +142,12 @@ const ShaderCode SHADERS[SHADER_COUNT] = {
     EMUSUNI_SPV("restore5", emusuni_spv_restore_m_5_frag),
     EMUSUNI_SPV("restore6", emusuni_spv_restore_m_6_frag),
     EMUSUNI_SPV("restore7", emusuni_spv_restore_m_7_frag),
+    EMUSUNI_SPV("mmpx", emusuni_spv_mmpx_frag),
+    EMUSUNI_SPV("smaa-edges", emusuni_spv_smaa_edges_frag),
+    EMUSUNI_SPV("smaa-weights", emusuni_spv_smaa_weights_frag),
+    EMUSUNI_SPV("smaa-blend", emusuni_spv_smaa_blend_frag),
+    EMUSUNI_SPV("sharp-bilinear", emusuni_spv_sharp_bilinear_frag),
+    EMUSUNI_SPV("restore7-partial", emusuni_spv_restore_m_7_partial_frag),
 };
 #undef EMUSUNI_SPV
 
@@ -139,8 +180,13 @@ struct Image
   VkFramebuffer framebuffer = VK_NULL_HANDLE;
 };
 
-// One pass: reads its inputs (-1: the picture, else an image) and draws an image, or the screen
-// (output -1, the last pass).
+// The inputs that aren't the chain's images: the picture, SMAA's lookup textures.
+constexpr int INPUT_PICTURE = -1;
+constexpr int INPUT_SMAA_AREA = -2;
+constexpr int INPUT_SMAA_SEARCH = -3;
+
+// One pass: reads its inputs (-1: the picture, -2/-3: SMAA's textures, else an image) and draws an
+// image, or the screen (output -1, the last pass).
 struct Pass
 {
   Shader shader = COPY;
@@ -149,6 +195,7 @@ struct Pass
   int inputs[MAX_INPUTS] = {};
   uint32_t input_count = 0;
   bool linear = false;
+  uint32_t nearest_inputs = 0;  // inputs (bits) read with the nearest sampler although linear is set
   Push push = {};
 };
 
@@ -191,6 +238,22 @@ bool s_have_failed = false;
 std::vector<Pass> s_chain;
 Job s_job;
 std::string s_logged;  // the last chain logged
+
+// SMAA's lookup textures (area: 160x560 RG8, search: 64x16 R8), made the first time a chain needs
+// them, uploaded by the next Record (a buffer of the bytes is kept until Shutdown: 180 KiB).
+struct Lut
+{
+  VkImage image = VK_NULL_HANDLE;
+  VkImageView view = VK_NULL_HANDLE;
+};
+Lut s_area, s_search;
+VkDeviceMemory s_lut_memory = VK_NULL_HANDLE;
+VkBuffer s_lut_buffer = VK_NULL_HANDLE;
+VkDeviceMemory s_lut_buffer_memory = VK_NULL_HANDLE;
+constexpr VkDeviceSize LUT_SEARCH_OFFSET = (AREATEX_SIZE + 255) / 256 * 256;  // in the buffer
+bool s_luts_made = false;
+bool s_luts_failed = false;
+bool s_luts_uploaded = false;
 
 // ---- GPU time: Vulkan timestamps (bottom of pipe) per frame slot ----
 // [0] before the first pass, [1 + p] after pass p into its image, [MAX_PASSES + 1] and
@@ -336,10 +399,40 @@ std::vector<Need> Needs(Mode mode)
   case Mode::AI:
     needs.push_back({XBRZ0, Target::Rgba8});
     needs.push_back({XBRZ1, Target::Rgba8});
+    needs.push_back({CATMULL, Target::Rgba8});  // a picture drawn bigger (AI_DRAWN_PIXELS)
     for (int layer = 0; layer < 7; layer++)
       needs.push_back({static_cast<Shader>(RESTORE0 + layer), Target::Rgba16f});
     needs.push_back({static_cast<Shader>(RESTORE0 + 7), Target::Rgba8});
     needs.push_back({CATMULL, Target::Screen});
+    break;
+  case Mode::Edges:
+  case Mode::NaturalHD:
+  case Mode::NaturalAI:
+    // Pixel art redrawn at 2x or 4x, then SMAA (drawn pictures only SMAA); what follows depends on
+    // the picture: every pipeline the mode can use.
+    needs.push_back({MMPX, Target::Rgba8});
+    needs.push_back({SMAA_EDGES, Target::Rgba8});
+    needs.push_back({SMAA_WEIGHTS, Target::Rgba8});
+    needs.push_back({SMAA_BLEND, Target::Rgba8});
+    if (mode == Mode::Edges)
+    {
+      needs.push_back({SHARP_BILINEAR, Target::Screen});
+      needs.push_back({CATMULL, Target::Screen});
+    }
+    else if (mode == Mode::NaturalHD)
+    {
+      needs.push_back({EASU, Target::Rgba8});
+      needs.push_back({RCAS, Target::Screen});
+      needs.push_back({SHARPEN, Target::Screen});
+    }
+    else
+    {
+      needs.push_back({CATMULL, Target::Rgba8});
+      for (int layer = 0; layer < 7; layer++)
+        needs.push_back({static_cast<Shader>(RESTORE0 + layer), Target::Rgba16f});
+      needs.push_back({RESTORE_PARTIAL, Target::Rgba8});
+      needs.push_back({CATMULL, Target::Screen});
+    }
     break;
   case Mode::Off:
     needs.clear();
@@ -572,6 +665,179 @@ bool MakeImages(const std::vector<ImageSpec>& specs)
   return true;
 }
 
+// ---- SMAA's lookup textures ----
+bool FindMemoryType(uint32_t type_bits, VkMemoryPropertyFlags flags, uint32_t* type)
+{
+  VkPhysicalDeviceMemoryProperties props;
+  vkGetPhysicalDeviceMemoryProperties(s_context.gpu, &props);
+  for (uint32_t i = 0; i < props.memoryTypeCount; i++)
+  {
+    if ((type_bits & (1u << i)) && (props.memoryTypes[i].propertyFlags & flags) == flags)
+    {
+      *type = i;
+      return true;
+    }
+  }
+  return false;
+}
+
+void DestroyLuts()
+{
+  for (Lut* lut : {&s_area, &s_search})
+  {
+    if (lut->view != VK_NULL_HANDLE)
+      vkDestroyImageView(s_context.device, lut->view, nullptr);
+    if (lut->image != VK_NULL_HANDLE)
+      vkDestroyImage(s_context.device, lut->image, nullptr);
+    *lut = {};
+  }
+  if (s_lut_buffer != VK_NULL_HANDLE)
+    vkDestroyBuffer(s_context.device, s_lut_buffer, nullptr);
+  if (s_lut_buffer_memory != VK_NULL_HANDLE)
+    vkFreeMemory(s_context.device, s_lut_buffer_memory, nullptr);
+  if (s_lut_memory != VK_NULL_HANDLE)
+    vkFreeMemory(s_context.device, s_lut_memory, nullptr);
+  s_lut_buffer = VK_NULL_HANDLE;
+  s_lut_buffer_memory = VK_NULL_HANDLE;
+  s_lut_memory = VK_NULL_HANDLE;
+  s_luts_made = s_luts_uploaded = false;
+}
+
+// The two images, their memory and a buffer with their bytes (once; false after a failure).
+bool MakeLuts()
+{
+  if (s_luts_made || s_luts_failed)
+    return s_luts_made;
+  VkDevice device = s_context.device;
+  bool ok = true;
+  struct Spec
+  {
+    Lut* lut;
+    VkFormat format;
+    uint32_t width, height;
+  };
+  const Spec specs[2] = {{&s_area, VK_FORMAT_R8G8_UNORM, AREATEX_WIDTH, AREATEX_HEIGHT},
+                         {&s_search, VK_FORMAT_R8_UNORM, SEARCHTEX_WIDTH, SEARCHTEX_HEIGHT}};
+  VkMemoryRequirements reqs[2] = {};
+  for (int i = 0; i < 2 && ok; i++)
+  {
+    VkImageCreateInfo info = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+    info.imageType = VK_IMAGE_TYPE_2D;
+    info.format = specs[i].format;
+    info.extent = {specs[i].width, specs[i].height, 1};
+    info.mipLevels = 1;
+    info.arrayLayers = 1;
+    info.samples = VK_SAMPLE_COUNT_1_BIT;
+    info.tiling = VK_IMAGE_TILING_OPTIMAL;
+    info.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    ok = Check(vkCreateImage(device, &info, nullptr, &specs[i].lut->image), "vkCreateImage (SMAA)");
+    if (ok)
+      vkGetImageMemoryRequirements(device, specs[i].lut->image, &reqs[i]);
+  }
+  // Both images in one allocation (each allocation maps memory on the PS4).
+  const VkDeviceSize search_at = ok ? (reqs[0].size + reqs[1].alignment - 1) / reqs[1].alignment * reqs[1].alignment : 0;
+  uint32_t type = 0;
+  if (ok)
+    ok = FindMemoryType(reqs[0].memoryTypeBits & reqs[1].memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &type);
+  if (ok)
+  {
+    VkMemoryAllocateInfo alloc = {VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+    alloc.allocationSize = search_at + reqs[1].size;
+    alloc.memoryTypeIndex = type;
+    ok = Check(vkAllocateMemory(device, &alloc, nullptr, &s_lut_memory), "vkAllocateMemory (SMAA)") &&
+         Check(vkBindImageMemory(device, s_area.image, s_lut_memory, 0), "vkBindImageMemory (SMAA)") &&
+         Check(vkBindImageMemory(device, s_search.image, s_lut_memory, search_at), "vkBindImageMemory (SMAA)");
+  }
+  for (int i = 0; i < 2 && ok; i++)
+  {
+    VkImageViewCreateInfo view = {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+    view.image = specs[i].lut->image;
+    view.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    view.format = specs[i].format;
+    view.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    ok = Check(vkCreateImageView(device, &view, nullptr, &specs[i].lut->view), "vkCreateImageView (SMAA)");
+  }
+  // The bytes, for the copy in Record.
+  if (ok)
+  {
+    VkBufferCreateInfo info = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    info.size = LUT_SEARCH_OFFSET + SEARCHTEX_SIZE;
+    info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    ok = Check(vkCreateBuffer(device, &info, nullptr, &s_lut_buffer), "vkCreateBuffer (SMAA)");
+  }
+  if (ok)
+  {
+    VkMemoryRequirements req;
+    vkGetBufferMemoryRequirements(device, s_lut_buffer, &req);
+    ok = FindMemoryType(req.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                        &type);
+    VkMemoryAllocateInfo alloc = {VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+    alloc.allocationSize = req.size;
+    alloc.memoryTypeIndex = type;
+    void* data = nullptr;
+    ok = ok && Check(vkAllocateMemory(device, &alloc, nullptr, &s_lut_buffer_memory), "vkAllocateMemory (SMAA)") &&
+         Check(vkBindBufferMemory(device, s_lut_buffer, s_lut_buffer_memory, 0), "vkBindBufferMemory (SMAA)") &&
+         Check(vkMapMemory(device, s_lut_buffer_memory, 0, VK_WHOLE_SIZE, 0, &data), "vkMapMemory (SMAA)");
+    if (ok)
+    {
+      std::memcpy(data, areaTexBytes, AREATEX_SIZE);
+      std::memcpy(static_cast<uint8_t*>(data) + LUT_SEARCH_OFFSET, searchTexBytes, SEARCHTEX_SIZE);
+      vkUnmapMemory(device, s_lut_buffer_memory);
+    }
+  }
+  if (!ok)
+  {
+    LogLine("gpu filter: no SMAA textures, so no Smooth Edges, Natural HD or Natural AI");
+    DestroyLuts();
+    s_luts_failed = true;
+    return false;
+  }
+  s_luts_made = true;
+  return true;
+}
+
+void UploadLuts(VkCommandBuffer commands)
+{
+  if (!s_luts_made || s_luts_uploaded)
+    return;
+  VkImageMemoryBarrier barriers[2] = {};
+  const Lut* luts[2] = {&s_area, &s_search};
+  for (int i = 0; i < 2; i++)
+  {
+    barriers[i].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barriers[i].srcAccessMask = 0;
+    barriers[i].dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    barriers[i].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    barriers[i].newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    barriers[i].srcQueueFamilyIndex = barriers[i].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barriers[i].image = luts[i]->image;
+    barriers[i].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+  }
+  vkCmdPipelineBarrier(commands, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0,
+                       nullptr, 2, barriers);
+  VkBufferImageCopy area = {};
+  area.bufferOffset = 0;
+  area.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+  area.imageExtent = {AREATEX_WIDTH, AREATEX_HEIGHT, 1};
+  vkCmdCopyBufferToImage(commands, s_lut_buffer, s_area.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &area);
+  VkBufferImageCopy search = {};
+  search.bufferOffset = LUT_SEARCH_OFFSET;
+  search.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+  search.imageExtent = {SEARCHTEX_WIDTH, SEARCHTEX_HEIGHT, 1};
+  vkCmdCopyBufferToImage(commands, s_lut_buffer, s_search.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &search);
+  for (VkImageMemoryBarrier& barrier : barriers)
+  {
+    barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+  }
+  vkCmdPipelineBarrier(commands, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0,
+                       nullptr, 2, barriers);
+  s_luts_uploaded = true;
+}
+
 // ---- The chain of passes ----
 void SetSize(float* v, double width, double height)
 {
@@ -652,12 +918,33 @@ bool BuildChain(Mode mode, const Source& source, uint32_t picture_w, uint32_t pi
   }
   case Mode::AI:
   {
-    const uint32_t aw = AI_WIDTH;
-    const uint32_t ah = std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(double(sh) * aw / sw)), 16, 1024);
-    const int info = image(sw, sh, Target::Rgba8);
-    const int redrawn = image(aw, ah, Target::Rgba8);
-    pass(XBRZ0, Target::Rgba8, info, {picture}, false);
-    pass(XBRZ1, Target::Rgba8, redrawn, {info, picture}, false);
+    uint32_t aw = AI_WIDTH;
+    uint32_t ah = std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(double(sh) * aw / sw)), 16, 1024);
+    if (double(aw) * ah > AI_DRAWN_PIXELS)
+    {
+      // A tall picture (the PlayStation's 480 lines): narrower, so the network's images still fit.
+      const double scale = std::sqrt(AI_DRAWN_PIXELS / (double(aw) * ah));
+      aw = static_cast<uint32_t>(std::lround(aw * scale));
+      ah = static_cast<uint32_t>(std::lround(ah * scale));
+    }
+    int redrawn = -1;
+    if (sw > AI_WIDTH)
+    {
+      // Drawn bigger already (the PlayStation's HD 3D): smaller, its shape kept, with Catmull-Rom.
+      const double scale = std::min(1.0, std::sqrt(AI_DRAWN_PIXELS / (double(sw) * sh)));
+      aw = std::max<uint32_t>(16, static_cast<uint32_t>(std::lround(sw * scale)));
+      ah = std::max<uint32_t>(16, static_cast<uint32_t>(std::lround(sh * scale)));
+      redrawn = image(aw, ah, Target::Rgba8);
+      pass(CATMULL, Target::Rgba8, redrawn, {picture}, true);
+    }
+    else
+    {
+      // Pixel art (the SNES, the NES, the Game Boys, the PlayStation at 1x): redrawn with xBRZ.
+      const int info = image(sw, sh, Target::Rgba8);
+      redrawn = image(aw, ah, Target::Rgba8);
+      pass(XBRZ0, Target::Rgba8, info, {picture}, false);
+      pass(XBRZ1, Target::Rgba8, redrawn, {info, picture}, false);
+    }
     int layers[7];
     for (int k = 0; k < 7; k++)
     {
@@ -668,6 +955,103 @@ bool BuildChain(Mode mode, const Source& source, uint32_t picture_w, uint32_t pi
     pass(static_cast<Shader>(RESTORE0 + 7), Target::Rgba8, restored,
          {redrawn, layers[0], layers[1], layers[2], layers[3], layers[4], layers[5], layers[6]}, false);
     pass(CATMULL, Target::Screen, -1, {restored}, true);
+    break;
+  }
+  case Mode::Edges:
+  case Mode::NaturalHD:
+  case Mode::NaturalAI:
+  {
+    const bool drawn = source.kind == Source::Kind::Drawn || (source.kind == Source::Kind::Auto && source.exact);
+    const double source_pixels = double(sw) * sh, picture_pixels = double(picture_w) * picture_h;
+    // SMAA (3 passes) on an image of the given size: the anti-aliased image (its lookup textures
+    // made the first time).
+    bool luts = true;
+    auto smaa = [&](int color, uint32_t w, uint32_t h) {
+      luts = MakeLuts();
+      const int edges = image(w, h, Target::Rgba8);
+      pass(SMAA_EDGES, Target::Rgba8, edges, {color}, false);
+      const int weights = image(w, h, Target::Rgba8);
+      pass(SMAA_WEIGHTS, Target::Rgba8, weights, {edges, INPUT_SMAA_AREA, INPUT_SMAA_SEARCH}, true);
+      passes.back().nearest_inputs = 1u << 2;  // the search texture
+      const int blended = image(w, h, Target::Rgba8);
+      pass(SMAA_BLEND, Target::Rgba8, blended, {color, weights}, true);
+      return blended;
+    };
+    // Smooth Edges' picture: pixel art redrawn at 2x by MMPX (its own colours, slopes and curves
+    // filled in), then SMAA; a drawn picture anti-aliased at its own size (when the screen shows it
+    // bigger; one as big as the screen's picture is supersampled already).
+    int smooth = picture;
+    uint32_t smooth_w = sw, smooth_h = sh;
+    const bool supersampled = drawn && source_pixels >= picture_pixels;
+    if (!drawn)
+    {
+      // MMPX again (4x) when the screen still shows its 2x picture 3 times bigger or more (the Game
+      // Boys): SMAA's soft steps then stay one or two screen pixels wide instead of a blur.
+      int doubled = picture;
+      for (int k = 0; k < 2; k++)
+      {
+        if (k == 1 && (double(picture_w) < 3.0 * smooth_w || double(picture_h) < 3.0 * smooth_h))
+          break;
+        const int next = image(smooth_w * 2, smooth_h * 2, Target::Rgba8);
+        pass(MMPX, Target::Rgba8, next, {doubled}, false);
+        doubled = next;
+        smooth_w *= 2;
+        smooth_h *= 2;
+      }
+      smooth = smaa(doubled, smooth_w, smooth_h);
+    }
+    else if (!supersampled && source_pixels <= SMAA_MAX_PIXELS)
+    {
+      smooth = smaa(picture, sw, sh);
+    }
+    if (!luts)
+      return false;
+    if (mode == Mode::Edges)
+    {
+      // Pixel art as crisp pixels (every one as wide as the next); a drawn picture with Catmull-Rom.
+      pass(drawn ? CATMULL : SHARP_BILINEAR, Target::Screen, -1, {smooth}, true);
+    }
+    else if (mode == Mode::NaturalHD)
+    {
+      if (supersampled)
+      {
+        // As big as the screen's picture already: only sharpened on the way (HD Sharpen's pass).
+        pass(SHARPEN, Target::Screen, -1, {smooth}, true);
+      }
+      else
+      {
+        if (picture_w > MAX_OUTPUT_W || picture_h > MAX_OUTPUT_H)
+          return false;
+        const int easu = image(picture_w, picture_h, Target::Rgba8);
+        pass(EASU, Target::Rgba8, easu, {smooth}, true);
+        pass(RCAS, Target::Screen, -1, {easu}, false);
+      }
+    }
+    else
+    {
+      // Natural AI: Smooth Edges' picture resampled to the network's size, at the shape it has on
+      // the screen: about 768x576, more of a supersampled picture's pixels, at most AI_DRAWN_PIXELS.
+      const double aspect = double(picture_w) / double(picture_h);
+      double pixels = double(AI_WIDTH) * (double(AI_WIDTH) / aspect);
+      const double cap = supersampled ? AI_DRAWN_PIXELS : SMALL_AI_PIXELS;
+      pixels = std::max(pixels, std::min(double(smooth_w) * smooth_h, cap));
+      pixels = std::min(pixels, AI_DRAWN_PIXELS);
+      const uint32_t aw = std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(std::sqrt(pixels * aspect))), 16, 2048);
+      const uint32_t ah = std::clamp<uint32_t>(static_cast<uint32_t>(std::lround(std::sqrt(pixels / aspect))), 16, 2048);
+      const int redrawn = image(aw, ah, Target::Rgba8);
+      pass(CATMULL, Target::Rgba8, redrawn, {smooth}, true);
+      int layers[7];
+      for (int k = 0; k < 7; k++)
+      {
+        layers[k] = image(aw, ah, Target::Rgba16f);
+        pass(static_cast<Shader>(RESTORE0 + k), Target::Rgba16f, layers[k], {k == 0 ? redrawn : layers[k - 1]}, false);
+      }
+      // The network's correction at NATURAL_AI_STRENGTH: its picture mixed with its input.
+      const int restored = image(aw, ah, Target::Rgba8);
+      pass(RESTORE_PARTIAL, Target::Rgba8, restored,
+           {redrawn, layers[0], layers[1], layers[2], layers[3], layers[4], layers[5], layers[6]}, false);
+      pass(CATMULL, Target::Screen, -1, {restored}, true);
+    }
     break;
   }
   case Mode::Off:
@@ -734,6 +1118,9 @@ void SetConstants()
     case RCAS:
       push.con[0] = FloatBits(std::exp2(-FSR_SHARPNESS_STOPS));
       break;
+    case RESTORE_PARTIAL:
+      push.origin[2] = NATURAL_AI_STRENGTH;
+      break;
     default:
       break;
     }
@@ -747,9 +1134,12 @@ void WriteSet(VkDescriptorSet set, const Pass& pass)
   for (uint32_t i = 0; i < pass.input_count; i++)
   {
     const int input = pass.inputs[i];
-    images[i].sampler = pass.linear ? s_linear : s_nearest;
-    images[i].imageView = input < 0 ? s_job.source.view : s_images[input].view;
-    images[i].imageLayout = input < 0 ? s_job.source.layout : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    images[i].sampler = pass.linear && !(pass.nearest_inputs & (1u << i)) ? s_linear : s_nearest;
+    images[i].imageView = input == INPUT_SMAA_AREA   ? s_area.view :
+                          input == INPUT_SMAA_SEARCH ? s_search.view :
+                          input < 0                  ? s_job.source.view :
+                                                       s_images[input].view;
+    images[i].imageLayout = input == INPUT_PICTURE ? s_job.source.layout : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     writes[i].dstSet = set;
     writes[i].dstBinding = i;
@@ -866,6 +1256,12 @@ const char* Name(Mode mode)
     return "Smooth HD (FSR)";
   case Mode::AI:
     return "AI (xBRZ + Anime4K)";
+  case Mode::Edges:
+    return "Smooth Edges";
+  case Mode::NaturalHD:
+    return "Natural HD";
+  case Mode::NaturalAI:
+    return "Natural AI";
   case Mode::Off:
     break;
   }
@@ -1003,6 +1399,8 @@ void Shutdown()
   if (s_block != VK_NULL_HANDLE)
     vkFreeMemory(device, s_block, nullptr);
   s_block = VK_NULL_HANDLE;
+  DestroyLuts();
+  s_luts_failed = false;
   for (auto& row : s_pipelines)
   {
     for (VkPipeline& pipeline : row)
@@ -1064,7 +1462,7 @@ bool Ready(Mode mode)
     return true;
   if (s_failed[m].load(std::memory_order_acquire))
     return false;
-  if (mode == Mode::AI && !s_rgba16f)
+  if ((mode == Mode::AI || mode == Mode::NaturalAI) && !s_rgba16f)
   {
     s_failed[m] = true;
     return false;
@@ -1102,8 +1500,10 @@ bool Draw(ImDrawList* dl, Mode mode, const Source& source, ImVec2 min, ImVec2 ma
   s_job.x1 = x1;
   s_job.y1 = y1;
   char what[160];
-  std::snprintf(what, sizeof(what), "%s, %ux%u to %dx%d, %zu passes", Name(mode), source.width, source.height,
-                x1 - x0, y1 - y0, s_chain.size());
+  const bool steps = mode == Mode::Edges || mode == Mode::NaturalHD || mode == Mode::NaturalAI;
+  const bool drawn = source.kind == Source::Kind::Drawn || (source.kind == Source::Kind::Auto && source.exact);
+  std::snprintf(what, sizeof(what), "%s, %ux%u%s to %dx%d, %zu passes", Name(mode), source.width, source.height,
+                !steps ? "" : drawn ? " (drawn)" : " (pixel art)", x1 - x0, y1 - y0, s_chain.size());
   if (s_logged != what)
   {
     s_logged = what;
@@ -1121,6 +1521,8 @@ void Record(VkCommandBuffer commands, uint32_t frame)
     return;
   const auto cpu_start = Clock::now();
   s_job.frame = frame % FRAMES;
+  // SMAA's textures, the first time a chain needs them (not timed).
+  UploadLuts(commands);
   // The slot's timestamps from its last use (its fence was waited for), then this frame's.
   ReadTimes(s_job.frame);
   const uint32_t queries = s_job.frame * QUERIES_PER_FRAME;

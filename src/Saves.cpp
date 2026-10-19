@@ -40,6 +40,11 @@ std::string RtcPath(const std::string& game_id)
   return s_data_dir + "/saves/" + game_id + ".rtc";
 }
 
+std::string DiscPath(const std::string& game_id)
+{
+  return s_data_dir + "/saves/" + game_id + ".disc";
+}
+
 std::string StatePath(const std::string& game_id, int slot)
 {
   return s_data_dir + "/states/" + game_id + ".state" + std::to_string(slot);
@@ -119,6 +124,7 @@ bool DeleteSram(const std::string& game_id)
 bool DeleteState(const std::string& game_id, int slot)
 {
   std::remove(StatePicturePath(game_id, slot).c_str());
+  std::remove((StatePath(game_id, slot) + ".disc").c_str());  // (a Dreamcast state's disc)
   return std::remove(StatePath(game_id, slot).c_str()) == 0;
 }
 }  // namespace Saves

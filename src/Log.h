@@ -24,5 +24,6 @@ void LogF(const char* format, ...) __attribute__((format(printf, 1, 2)));
 // Small file helpers shared by the menus.
 std::string ReadTextFile(const std::string& path);
 bool WriteTextFile(const std::string& path, const std::string& text);  // through a temporary file
+bool WriteDataFile(const std::string& path, const void* data, size_t size);  // the same, from memory
 bool FileExists(const std::string& path);
 void MakeDirs(const std::string& path);

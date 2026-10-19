@@ -25,19 +25,23 @@ struct Choice
 };
 
 // The consoles a setting is for: bits of SystemId.
-constexpr uint32_t FOR_ALL = 0xFF;
+constexpr uint32_t FOR_ALL = (1u << SYSTEM_COUNT) - 1;
 constexpr uint32_t FOR_SNES = 1u << static_cast<int>(SystemId::SNES);
 constexpr uint32_t FOR_NES = 1u << static_cast<int>(SystemId::NES);
 constexpr uint32_t FOR_N64 = 1u << static_cast<int>(SystemId::N64);
 constexpr uint32_t FOR_GB = 1u << static_cast<int>(SystemId::GB);
 constexpr uint32_t FOR_GBC = 1u << static_cast<int>(SystemId::GBC);
 constexpr uint32_t FOR_GBA = 1u << static_cast<int>(SystemId::GBA);
+constexpr uint32_t FOR_PS1 = 1u << static_cast<int>(SystemId::PS1);
+constexpr uint32_t FOR_NDS = 1u << static_cast<int>(SystemId::NDS);
+constexpr uint32_t FOR_PSP = 1u << static_cast<int>(SystemId::PSP);
+constexpr uint32_t FOR_DC = 1u << static_cast<int>(SystemId::DC);
 // The three Game Boys (mGBA).
 constexpr uint32_t FOR_HANDHELD = FOR_GB | FOR_GBC | FOR_GBA;
 // The Super Nintendo's and the NES's (the N64 draws on the GPU, its own way).
 constexpr uint32_t FOR_RETRO = FOR_SNES | FOR_NES;
 // The consoles whose picture the CPU hands over as pixels (Resolution, Upscaling Filter).
-constexpr uint32_t FOR_PIXELS = FOR_RETRO | FOR_HANDHELD;
+constexpr uint32_t FOR_PIXELS = FOR_RETRO | FOR_HANDHELD | FOR_NDS;
 
 struct Setting
 {

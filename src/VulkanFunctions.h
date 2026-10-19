@@ -20,6 +20,8 @@
   X(vkGetPhysicalDeviceMemoryProperties)                                                          \
   X(vkGetPhysicalDeviceProperties)                                                                \
   X(vkGetPhysicalDeviceFormatProperties)                                                          \
+  X(vkGetPhysicalDeviceFeatures)                                                                  \
+  X(vkEnumerateDeviceExtensionProperties)                                                         \
   X(vkCreateDevice)
 
 #define EMUSUNI_VK_DEVICE_FUNCTIONS(X)                                                            \
