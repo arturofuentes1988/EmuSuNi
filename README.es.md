@@ -30,15 +30,15 @@
 | Consola | Emulador | Formatos | BIOS |
 |---|---|---|---|
 | **Super Nintendo** | Snes9x 1.63 | `.sfc` `.smc` `.swc` `.fig` `.bs` | No hace falta |
-| **NES** y Famicom Disk System | FCEUmm | `.nes` `.fds` `.unf` `.unif` | No hace falta (Disk System: `disksys.rom`) |
+| **NES** y Famicom Disk System | FCEUmm | `.nes` `.fds` `.unf` `.unif` | No hace falta |
 | **Nintendo 64** | Mupen64Plus-Next | `.z64` `.n64` `.v64` | No hace falta |
 | **Game Boy** y **Game Boy Color** | mGBA | `.gb` `.sgb` `.dmg` `.gbc` `.cgb` | No hace falta |
 | **Game Boy Advance** | mGBA | `.gba` `.agb` | No hace falta |
-| **PlayStation** | SwanStation | `.cue` `.chd` `.pbp` `.m3u` `.iso` `.img` `.ecm` `.mds` | Incluida (una real hace andar más juegos) |
-| **Nintendo DS** | melonDS DS 1.4.0 | `.nds` `.ids` | Incluida |
+| **PlayStation** | SwanStation | `.cue` `.chd` `.pbp` `.m3u` `.iso` `.img` `.ecm` `.mds` | No hace falta |
+| **Nintendo DS** | melonDS DS 1.4.0 | `.nds` `.ids` | No hace falta |
 | **Nintendo 3DS** — *experimental* | Azahar 2126.2 | `.3ds` `.cci` `.cxi` `.3dsx` descifrados | No hace falta |
 | **PSP** | PPSSPP 1.20.4 | `.iso` `.cso` `.chd` `.pbp` `.elf` | No hace falta |
-| **Dreamcast** | Flycast 2.7 | `.gdi` `.cdi` `.chd` `.cue` `.m3u` | Incluida |
+| **Dreamcast** | Flycast 2.7 | `.gdi` `.cdi` `.chd` `.cue` `.m3u` | No hace falta |
 | **NAOMI** y NAOMI 2 — *nueva* | Flycast 2.7 | Sets de MAME `.zip` `.7z`, imágenes `.dat` `.bin` | **La tuya**: `naomi.zip`, `naomi2.zip` |
 | **Atomiswave** — *nueva* | Flycast 2.7 | Sets de MAME `.zip` `.7z` | **La tuya**: `awbios.zip` |
 | **SG-1000** y SC-3000 | Genesis Plus GX | `.sg` `.sc` | No hace falta |
