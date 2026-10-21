@@ -75,6 +75,10 @@ PFN_vkVoidFunction Lookup(VkInstance instance, VkDevice device, const char* name
   return function;
 }
 
+#ifdef EMUSUNI_3DS
+static PFN_vkCreateDevice s_create_device_hook = nullptr;  // SetCreateDeviceHook
+#endif
+
 namespace
 {
 // A loader's vkEnumerateInstanceVersion, should RADV's ICD entry point not offer it.
@@ -89,6 +93,10 @@ VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL GetInstanceProcAddr(VkInstance instance
 {
   if (std::strcmp(name, "vkGetInstanceProcAddr") == 0)
     return reinterpret_cast<PFN_vkVoidFunction>(GetInstanceProcAddr);
+#ifdef EMUSUNI_3DS
+  if (s_create_device_hook && std::strcmp(name, "vkCreateDevice") == 0)
+    return reinterpret_cast<PFN_vkVoidFunction>(s_create_device_hook);
+#endif
   if (std::strcmp(name, "vkGetDeviceProcAddr") == 0)
     return reinterpret_cast<PFN_vkVoidFunction>(GetDeviceProcAddr);
   PFN_vkVoidFunction function = vk_icdGetInstanceProcAddr(instance, name);
@@ -103,4 +111,11 @@ VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL GetDeviceProcAddr(VkDevice device, cons
     return reinterpret_cast<PFN_vkVoidFunction>(GetDeviceProcAddr);
   return vk_common_GetDeviceProcAddr(device, name);
 }
+
+#ifdef EMUSUNI_3DS
+void SetCreateDeviceHook(PFN_vkCreateDevice hook)
+{
+  s_create_device_hook = hook;
+}
+#endif
 }  // namespace VulkanFunctions

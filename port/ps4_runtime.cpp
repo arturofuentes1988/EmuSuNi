@@ -44,6 +44,9 @@ int32_t sceKernelAllocateDirectMemory(off_t start, off_t end, size_t len, size_t
 int32_t sceKernelMapDirectMemory(void** addr, size_t len, int32_t prot, int32_t flags, off_t phys,
                                  size_t align);
 int32_t sceKernelMprotect(const void* addr, size_t len, int32_t prot);
+int32_t sceKernelReleaseDirectMemory(off_t start, size_t len);
+int32_t sceKernelEnableDmemAliasing(void);
+int32_t sceKernelEnableDmemAliasing2(void);
 int32_t sceKernelJitCreateSharedMemory(const char* name, size_t len, int32_t max_prot, int32_t* fd);
 int32_t sceKernelJitCreateAliasOfSharedMemory(int32_t fd, int32_t max_prot, int32_t* alias_fd);
 int32_t sceKernelClose(int32_t fd);
@@ -81,6 +84,27 @@ mspace g_heap = nullptr;
 const char* g_heapPool = "none";
 uintptr_t g_heapBase = 0;
 size_t g_heapSize = 0;
+
+// What the program holds of the heaps now (the usable size of every block it was given and hasn't freed) and the
+// most it held, for the log's memory lines (ps4rt_heap_usage). Counted by the wrappers below: dlmalloc can only
+// tell by walking every chunk, under its lock.
+std::atomic<long long> g_heapHeld{0};
+std::atomic<long long> g_heapHeldMost{0};
+
+void heldChange(long long bytes) {
+    const long long now = g_heapHeld.fetch_add(bytes, std::memory_order_relaxed) + bytes;
+    long long most = g_heapHeldMost.load(std::memory_order_relaxed);
+    while (now > most && !g_heapHeldMost.compare_exchange_weak(most, now, std::memory_order_relaxed)) {
+    }
+}
+void heldMore(const void* p) {
+    if (p)
+        heldChange(static_cast<long long>(mspace_usable_size(p)));
+}
+void heldLess(const void* p) {
+    if (p)
+        g_heapHeld.fetch_sub(static_cast<long long>(mspace_usable_size(p)), std::memory_order_relaxed);
+}
 
 // sceKernelDebugOutText doesn't format its arguments; vsnprintf doesn't allocate.
 __attribute__((format(printf, 1, 2))) void heapLog(const char* fmt, ...) {
@@ -397,6 +421,7 @@ void* __wrap_malloc(size_t size) {
             p = mspace_malloc(overflow, size);
     if (!p)
         reportFailure("malloc", size);
+    heldMore(p);
     return p;
 }
 
@@ -414,6 +439,7 @@ void __wrap_free(void* ptr) {
         }
         return;
     }
+    heldLess(ptr);
     mspace_free(getHeap(), ptr);
 }
 
@@ -429,6 +455,7 @@ void* __wrap_calloc(size_t nelem, size_t size) {
             p = mspace_calloc(overflow, nelem, size);
     if (!p)
         reportFailure("calloc", nelem * size);
+    heldMore(p);
     return p;
 }
 
@@ -443,12 +470,16 @@ void* __wrap_realloc(void* ptr, size_t size) {
         return nullptr;
     }
     if (ptr && size == 0) {
+        heldLess(ptr);
         mspace_free(getHeap(), ptr);
         return nullptr;
     }
     // With FOOTERS this grows the chunk inside the arena it came from (the mspace argument is
     // only used for new allocations); when that arena is full, move it to this thread's.
+    const size_t held_before = ptr ? mspace_usable_size(ptr) : 0;
     void* p = ptr ? mspace_realloc(getHeap(), ptr, size) : nullptr;
+    if (p)
+        heldChange(static_cast<long long>(mspace_usable_size(p)) - static_cast<long long>(held_before));
     if (!p) {
         p = t_arena ? mspace_malloc(t_arena, size) : nullptr;
         if (!p)
@@ -456,9 +487,11 @@ void* __wrap_realloc(void* ptr, size_t size) {
         if (!p && size <= kOverflowMax)
             if (mspace overflow = overflowHeap())
                 p = mspace_malloc(overflow, size);
+        heldMore(p);
         if (p && ptr) {
             const size_t old_size = mspace_usable_size(ptr);
             memcpy(p, ptr, old_size < size ? old_size : size);
+            heldLess(ptr);
             mspace_free(getHeap(), ptr);
         }
     }
@@ -479,6 +512,7 @@ void* __wrap_memalign(size_t alignment, size_t size) {
             p = mspace_memalign(overflow, alignment, size);
     if (!p)
         reportFailure("memalign", size);
+    heldMore(p);
     return p;
 }
 
@@ -863,6 +897,257 @@ const char* ps4rt_heap_source(void) {
 size_t ps4rt_heap_size(void) {
     getHeap();
     return g_heapSize;
+}
+// What the program holds of the heaps now and at most so far, and their size (the main heap and the overflow
+// heap, if it was made), in bytes: src/Log.cpp's memory lines.
+void ps4rt_heap_usage(size_t* in_use, size_t* most, size_t* size) {
+    const long long held = g_heapHeld.load(std::memory_order_relaxed);
+    const long long held_most = g_heapHeldMost.load(std::memory_order_relaxed);
+    *in_use = held > 0 ? static_cast<size_t>(held) : 0;
+    *most = held_most > 0 ? static_cast<size_t>(held_most) : 0;
+    *size = g_heapSize + g_overflowSize;
+}
+
+// Threads (--wrap=pthread_create, toolchain/ps4-love-style.cmake). After the app's start, thread stacks are the
+// only thing that takes regular flexible memory: libthr (libkernel) maps a stack for every thread alive at once
+// (2 MiB and a 16 KiB guard when its creator doesn't say) and never gives one back, but keeps it for the next
+// thread of exactly the same size and guard. So what they take is, for each size, the most threads of that size
+// alive at once. Every thread started with pthread_create (std::thread's too; not the threads Sony's modules start
+// themselves) is counted here by its stack (src/Log.cpp's memory lines print the counts), keeps its stack's bounds
+// for the crash handler, and gets a stack for signals from the heap: a thread whose own stack overflows then still
+// reaches the crash handler (SA_ONSTACK, port/ps4_crashlog.cpp) and crash.log, where the app used to end without
+// a word. Its attributes, its start routine's argument and its return value pass through unchanged.
+int __real_pthread_create(pthread_t* thread, const pthread_attr_t* attr, void* (*routine)(void*), void* arg);
+// Declared here: the headers declare them only with _GNU_SOURCE (pthread_attr_get_np), and with musl's (Linux)
+// stack_t, whose fields are in another order than the kernel's (FreeBSD's).
+int ps4_pthread_attr_get_np(pthread_t thread, pthread_attr_t* attr) __asm__("pthread_attr_get_np");
+int ps4_sigaltstack(const void* stack, void* old) __asm__("sigaltstack");
+
+namespace {
+struct BsdStack {  // FreeBSD's stack_t
+    void* sp;
+    size_t size;
+    int flags;
+};
+constexpr int kSsDisable = 0x0004;  // FreeBSD's SS_DISABLE (the headers' is Linux's 2)
+constexpr size_t kSignalStack = 64 * 1024;
+
+// The threads alive by stack size (the stack and its guard, in bytes) and the most at once of each.
+struct StackSize {
+    std::atomic<size_t> bytes{0};  // 0: not used yet
+    std::atomic<int> alive{0};
+    std::atomic<int> most{0};
+};
+constexpr int kStackSizes = 8;
+StackSize g_stackSizes[kStackSizes];
+std::atomic<unsigned> g_threadsMade{0};
+size_t g_defaultStack = 0, g_defaultGuard = 0;
+pthread_once_t g_threadsOnce = PTHREAD_ONCE_INIT;
+pthread_key_t g_threadKey;
+// The thread's own stack (the crash handler tells an overflow by it), 0 when not known.
+__attribute__((tls_model("initial-exec"))) thread_local uintptr_t t_stackLow = 0;
+__attribute__((tls_model("initial-exec"))) thread_local uintptr_t t_stackHigh = 0;
+
+struct ThreadRecord {
+    void* (*routine)(void*);
+    void* arg;
+    int size;           // its g_stackSizes entry
+    void* signalStack;  // from the heap, nullptr: none
+};
+
+int stackSizeEntry(size_t bytes) {
+    for (int i = 0; i < kStackSizes; i++) {
+        size_t seen = g_stackSizes[i].bytes.load();
+        if (seen == 0 && g_stackSizes[i].bytes.compare_exchange_strong(seen, bytes))
+            return i;
+        if (seen == bytes)  // (also when another thread took the entry for this size meanwhile)
+            return i;
+    }
+    return kStackSizes - 1;  // (more sizes than that: counted with the last)
+}
+
+// A thread's end (its key's destructor, also after pthread_exit): one fewer alive, its signal stack back.
+void threadEnded(void* p) {
+    auto* record = static_cast<ThreadRecord*>(p);
+    g_stackSizes[record->size].alive.fetch_sub(1, std::memory_order_relaxed);
+    if (record->signalStack) {
+        const BsdStack off = {nullptr, 0, kSsDisable};
+        if (ps4_sigaltstack(&off, nullptr) == 0)
+            free(record->signalStack);
+        // (else the thread ends inside a signal handler, on that stack: left as it is)
+    }
+    free(record);
+}
+
+void threadsInit() {
+    pthread_attr_t attr;
+    if (pthread_attr_init(&attr) == 0) {
+        pthread_attr_getstacksize(&attr, &g_defaultStack);
+        pthread_attr_getguardsize(&attr, &g_defaultGuard);
+        pthread_attr_destroy(&attr);
+    }
+    pthread_key_create(&g_threadKey, threadEnded);
+}
+
+// The calling thread's stack bounds, from libthr (FreeBSD's pthread_attr_get_np).
+void noteOwnStack() {
+    pthread_attr_t attr;
+    if (pthread_attr_init(&attr) != 0)
+        return;
+    void* low = nullptr;
+    size_t size = 0;
+    if (ps4_pthread_attr_get_np(pthread_self(), &attr) == 0 && pthread_attr_getstack(&attr, &low, &size) == 0 &&
+        low && size) {
+        t_stackLow = reinterpret_cast<uintptr_t>(low);
+        t_stackHigh = t_stackLow + size;
+    }
+    pthread_attr_destroy(&attr);
+}
+
+void* threadMain(void* p) {
+    auto* record = static_cast<ThreadRecord*>(p);
+    void* (*routine)(void*) = record->routine;
+    void* arg = record->arg;
+    StackSize& size = g_stackSizes[record->size];
+    const int alive = size.alive.fetch_add(1, std::memory_order_relaxed) + 1;
+    int most = size.most.load(std::memory_order_relaxed);
+    while (alive > most && !size.most.compare_exchange_weak(most, alive, std::memory_order_relaxed)) {
+    }
+    noteOwnStack();
+    record->signalStack = malloc(kSignalStack);
+    if (record->signalStack) {
+        const BsdStack on = {record->signalStack, kSignalStack, 0};
+        if (ps4_sigaltstack(&on, nullptr) != 0) {
+            free(record->signalStack);
+            record->signalStack = nullptr;
+        }
+    }
+    pthread_setspecific(g_threadKey, record);  // threadEnded at the thread's end
+    return routine(arg);
+}
+}  // namespace
+
+int __wrap_pthread_create(pthread_t* thread, const pthread_attr_t* attr, void* (*routine)(void*), void* arg) {
+    pthread_once(&g_threadsOnce, threadsInit);
+    size_t stack = g_defaultStack, guard = g_defaultGuard;
+    if (attr) {
+        pthread_attr_getstacksize(attr, &stack);
+        pthread_attr_getguardsize(attr, &guard);
+    }
+    auto* record = static_cast<ThreadRecord*>(malloc(sizeof(ThreadRecord)));
+    if (!record)
+        return __real_pthread_create(thread, attr, routine, arg);
+    record->routine = routine;
+    record->arg = arg;
+    record->size = stackSizeEntry(stack + guard);
+    record->signalStack = nullptr;
+    const int ret = __real_pthread_create(thread, attr, threadMain, record);
+    if (ret != 0)
+        free(record);
+    else
+        g_threadsMade.fetch_add(1, std::memory_order_relaxed);
+    return ret;
+}
+
+// libthr's default stack and guard (a thread whose creator doesn't say), in bytes: 0 when known. Also keeps the
+// calling thread's stack bounds for the crash handler (the main thread calls it at the start, src/main.cpp).
+int ps4rt_thread_defaults(size_t* stack, size_t* guard) {
+    pthread_once(&g_threadsOnce, threadsInit);
+    noteOwnStack();
+    *stack = g_defaultStack;
+    *guard = g_defaultGuard;
+    return g_defaultStack != 0 ? 0 : -1;
+}
+
+// "threads by stack (alive/most): 2064 KiB 14/30, 1040 KiB 1/3 = 63.5 MiB of stacks at most, 245 made" (the
+// stack sizes with their guard): the length written, 0 before the first thread.
+int ps4rt_thread_counts(char* text, size_t size) {
+    if (!text || size == 0)
+        return 0;
+    text[0] = '\0';
+    size_t length = 0;
+    double most_bytes = 0.0;
+    for (const StackSize& entry : g_stackSizes) {
+        const size_t bytes = entry.bytes.load();
+        if (bytes == 0)
+            continue;
+        const int alive = entry.alive.load(), most = entry.most.load();
+        most_bytes += static_cast<double>(bytes) * most;
+        const int n = snprintf(text + length, size - length, "%s%zu KiB %d/%d",
+                               length ? ", " : "threads by stack (alive/most): ", bytes / 1024, alive, most);
+        if (n < 0 || static_cast<size_t>(n) >= size - length)
+            return static_cast<int>(strlen(text));
+        length += static_cast<size_t>(n);
+    }
+    if (length == 0)
+        return 0;
+    snprintf(text + length, size - length, " = %.1f MiB of stacks at most, %u made", most_bytes / MB,
+             g_threadsMade.load());
+    return static_cast<int>(strlen(text));
+}
+
+// The threads started through pthread_create so far (a game's: the difference over its session, src/Log.cpp).
+unsigned ps4rt_threads_made(void) {
+    return g_threadsMade.load(std::memory_order_relaxed);
+}
+
+// The calling thread's stack (for the crash handler: a thread-local read, safe in a signal handler): 1 when
+// known.
+int ps4rt_thread_stack(uintptr_t* low, uintptr_t* high) {
+    *low = t_stackLow;
+    *high = t_stackHigh;
+    return t_stackLow != 0;
+}
+
+// Direct memory aliasing for the whole process, asked for once at the app's start (src/main.cpp), before
+// the first mapping of direct memory (the GPU's, made with the display), as DolphinPS4's MemArenaPS4 and
+// Resonance's ps4_vmem.cpp do before theirs: until then the kernel refuses to map the same direct memory a
+// second time (EBUSY), which the PSP's VRAM mirrors (scripts/build-psp-core.sh) and the Dreamcast's fast
+// memory (scripts/build-dc-core.sh) need. Then a self-test: one page of direct memory mapped at two
+// addresses, a word written through each read back through the other, everything given back. 1: the same
+// memory can be mapped twice; 0: not (the cores then fall back on memory of their own). text: the log line.
+int emusuni_enable_dmem_aliasing(char* text, size_t size) {
+    const int32_t first = sceKernelEnableDmemAliasing();
+    const int32_t second = first == 0 ? 0 : sceKernelEnableDmemAliasing2();
+    off_t phys = 0;
+    int32_t ret = sceKernelAllocateDirectMemory(0, sceKernelGetDirectMemorySize(), PAGE, PAGE, 0, &phys);
+    if (ret != 0) {
+        snprintf(text, size, "aliasing asked for (%#x, %#x); no page of direct memory for the self-test (%#x)",
+                 static_cast<unsigned>(first), static_cast<unsigned>(second), static_cast<unsigned>(ret));
+        return first == 0 || second == 0;
+    }
+    // Hints well above the heap and the cores' ranges (not fixed: the kernel may choose other addresses).
+    void* a = reinterpret_cast<void*>(0x1f00000000ull);
+    void* b = reinterpret_cast<void*>(0x1f00100000ull);
+    const int32_t ret_a = sceKernelMapDirectMemory(&a, PAGE, PROT_CPU_RW, 0, phys, PAGE);
+    const int32_t ret_b = ret_a == 0 ? sceKernelMapDirectMemory(&b, PAGE, PROT_CPU_RW, 0, phys, PAGE) : -1;
+    bool same = false;
+    if (ret_a == 0 && ret_b == 0 && a != b) {
+        volatile uint32_t* x = static_cast<volatile uint32_t*>(a);
+        volatile uint32_t* y = static_cast<volatile uint32_t*>(b);
+        *x = 0x45535550u;
+        const bool seen_b = *y == 0x45535550u;
+        *y = 0x50555345u;
+        same = seen_b && *x == 0x50555345u;
+    }
+    if (ret_a == 0)
+        sceKernelMunmap(a, PAGE);
+    if (ret_b == 0)
+        sceKernelMunmap(b, PAGE);
+    sceKernelReleaseDirectMemory(phys, PAGE);
+    if (same)
+        snprintf(text, size, "aliasing on (%#x, %#x); self-test ok: one page mapped twice, the same memory",
+                 static_cast<unsigned>(first), static_cast<unsigned>(second));
+    else if (ret_a == 0 && ret_b != 0)
+        snprintf(text, size, "aliasing NOT available (%#x, %#x): the kernel won't map a page twice (%#x)",
+                 static_cast<unsigned>(first), static_cast<unsigned>(second), static_cast<unsigned>(ret_b));
+    else if (ret_a != 0)
+        snprintf(text, size, "aliasing asked for (%#x, %#x); the self-test's page can't be mapped (%#x)",
+                 static_cast<unsigned>(first), static_cast<unsigned>(second), static_cast<unsigned>(ret_a));
+    else
+        snprintf(text, size, "aliasing NOT available (%#x, %#x): a page mapped twice isn't the same memory",
+                 static_cast<unsigned>(first), static_cast<unsigned>(second));
+    return same ? 1 : 0;
 }
 
 }  // extern "C"

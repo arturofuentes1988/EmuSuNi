@@ -13,25 +13,58 @@
 # changes to its sources
 # (applied each time to the files as git has them, checked; all under EMUSUNI_PORT, which the CMake
 # option of that name defines):
-#   - The Dreamcast's memory without the virtual memory: upstream maps the RAM, VRAM and sound RAM
-#     several times (their mirrors) in a 512 MiB range, which the PS4 doesn't allow (PPSSPP's mirrors
-#     came out "not aliased"), so Flycast's own fallback (nvmem disabled): the recompiled code goes
-#     through the memory handlers (no fast memory; ~3% slower on this PC's RAM-heavy test). RAM
-#     (16 MiB), VRAM (8 MiB), sound RAM (2 MiB) and the SH4 context with its 128 MiB table of
-#     compiled blocks each in a block of their own, 16 KiB aligned, off the app's heap: direct memory
-#     on the PS4 (sceKernelAllocateDirectMemory, sceKernelMapDirectMemory), an mmap elsewhere
-#     (oslib/emusuni_mem.cpp). Freed by retro_deinit, allocated again by every game's start; the SH4
+#   - Fast memory, by default (core/linux/emusuni_vmem.cpp, adapted from Resonance's shell/ps4/
+#     ps4_vmem.cpp: https://github.com/iHaiDeeZ/Resonance, GPL-2.0, a Flycast-based Dreamcast emulator
+#     for the PS4 by the author of DolphinPS4; the method and most of the code are Resonance's): the
+#     recompiled SH4 code reads and writes the Dreamcast's RAM, VRAM and sound RAM directly instead of
+#     calling the memory handlers. The console mirrors its memory (the RAM four times, the VRAM and
+#     sound RAM too) in a 512 MiB range, which the PS4 doesn't map the usual way: one block of direct
+#     memory (the SH4 context with its 128 MiB table of compiled blocks, then the RAM, VRAM and sound
+#     RAM: 218 MiB) is mapped into one sceKernelReserveVirtualRange reservation (652 MiB at 0x2800000000
+#     or the next of a few hints, well above the app's heap) as often as the console mirrors it, which
+#     needs sceKernelEnableDmemAliasing (PPSSPP's mirrors came out "not aliased": its port never calls
+#     it; the first Dreamcast game of a session turns it on for the whole process); the table
+#     in 2 MiB pieces on the first access, 2 MiB pages where the addresses allow, else 16 KiB ones. An
+#     access to the hardware's addresses (not mapped) faults once and is rewritten as a call of the
+#     memory handlers (the fault handler below). Tried when the core starts (retro_init): the kernel
+#     maps the same memory twice and the two are the same; a read of unmapped memory faults and the
+#     handler sees its address, pc, stack, r9 and rdi; a write to a locked page faults and unlocking
+#     lets it through. If any of that, the 218 MiB, the address space or a mapping (also later, at the
+#     game's start) is refused, or the switch below says so, the log has one line, "EmuSuNi: vmem: fast
+#     memory off: <why>", and the same process goes on with Flycast's own fallback, the next point. A
+#     start that dies inside those kernel calls (a crash, or a hang the player ends) leaves
+#     /data/EmuSuNi/dc-fastmem-trying (until the first game's memory is mapped): the next start makes
+#     dc-fastmem-crashed of it and doesn't try the fast memory again until that file is deleted.
+#   - Without it, Flycast's own fallback (nvmem disabled): the recompiled code goes through the memory
+#     handlers (~3% slower on this PC's RAM-heavy test, much more on the PS4's Jaguar). RAM (16 MiB),
+#     VRAM (8 MiB), sound RAM (2 MiB) and the SH4 context with its 128 MiB table of compiled blocks
+#     each in a block of their own, 16 KiB aligned, off the app's heap: direct memory on the PS4
+#     (sceKernelAllocateDirectMemory, sceKernelMapDirectMemory), an mmap elsewhere (oslib/
+#     emusuni_mem.cpp). Freed by retro_deinit, allocated again by every game's start; the SH4
 #     executors follow the context wherever it lands (upstream's kept its first address: a crash
 #     when it moved). The table is reset only where blocks were (upstream wrote all 128 MiB at every
 #     flush of the code cache).
+#   - Switches for the speed changes (this one, the dispatch and the hot pages below): on, unless
+#     EMUSUNI_DC_FASTMEM=0, EMUSUNI_DC_DISPATCH=0 or EMUSUNI_DC_HOTPAGES=0 is in the environment or, on
+#     the PS4 (nothing sets environment variables there), the file /data/EmuSuNi/dc-fastmem-off,
+#     dc-dispatch-off or dc-hotpages-off exists: to compare, or to get a game going if one breaks it,
+#     without building the app again (core/emusuni_options.h; the log says which are off and why).
 #   - Pages are still write-protected (mprotect) as Flycast wants: the textures' VRAM (a write drops
 #     the texture) and the RAM of compiled code (a write drops its blocks). The core's fault handler
-#     (linux/common.cpp) takes only those faults: on the PS4 with the FreeBSD kernel's values written
-#     out (SIGSEGV 11, SIGBUS 10, SA_SIGINFO 0x40, si_addr 24 bytes in; struct sigaction checked at
-#     compile time), no alternate stack, every other fault passed on to the handler before (the app's
-#     crash log) as the kernel would. When it's installed a page is protected and written once: if
-#     that doesn't fault and come back, nothing is protected (no texture invalidation; the
-#     recompiler then checks the code of each block when it runs).
+#     (linux/common.cpp) takes only those faults and the fast memory's (the table's pieces not mapped
+#     yet, the rewrites): on the PS4 with the FreeBSD kernel's values written out (SIGSEGV 11, SIGBUS
+#     10, SA_SIGINFO 0x40, si_addr 24 bytes in, the registers 0x40 bytes into the context; struct
+#     sigaction checked at compile time), no alternate stack (the app gives its threads none), every
+#     other fault passed on to the handler before (the app's crash log) as the kernel would. Without
+#     the fast memory, when it's installed a page is protected and written once: if that doesn't fault
+#     and come back, nothing is protected (no texture invalidation; the recompiler then checks the code
+#     of each block when it runs). Each kind of fault is counted (the log line below).
+#   - The recompiler's dispatch (Resonance's changes, plain x86-64): a block that ends with time left in
+#     the slice and the MMU off jumps straight to the next block through the jump table, and the main
+#     loop reads the table inline instead of calling bm_GetCodeByVAddr (core/rec-x64/rec_x64.cpp).
+#   - Hot VRAM pages (Resonance's too): a page that faults more than 6 times in a second stops being
+#     protected for 10 s, the textures on it are checked by hash when used (a PS4 fault costs about a
+#     millisecond; core/rend/TexCache.cpp).
 #   - The recompilers' code memory (SH4 11 MiB, ARM7 4 MiB, DSP 32 KiB: arrays in the core's data, 16
 #     KiB aligned, within 2 GiB of its code) is made executable once through EmuSuNi (port/ps4_n64.c:
 #     emusuni_make_executable, the ways the PS4 allows) instead of mmap/mprotect. If that fails, the
@@ -67,14 +100,19 @@
 #     header).
 #   - A line in the log every 10 s (retro_run), per frame: retro_run's time, the renderer's and its
 #     waits for the emulation, the emulation thread's CPU time and its waits for the renderer, the
-#     pipelines and shaders made and their time, the GPU waits and full GPU syncs.
+#     pipelines and shaders made and their time, the GPU waits and full GPU syncs; and in that
+#     window the faults by kind (writes to pages of compiled code, to textures' VRAM, the table's
+#     pieces mapped, the hardware accesses rewritten, others passed on) and the mprotect calls.
 #   - Built as a static library, without LTO, with its own zlib, zstd (without its tracing hooks),
 #     libchdr, libzip, glslang... (nothing of the system's), without UPnP, Lua, breakpad, Discord,
 #     OpenMP or the GDB server, for 16 KiB pages. The PS4's CMake system is "Generic": asio without
 #     kqueue, libzip without the Annex K functions the PS4's libc has but doesn't declare. As one
 #     object: libchdr's LZMA SDK (24.05) only for what the rest doesn't have (the core's own 7-Zip
 #     copy has the same functions, which upstream's link takes).
-# The object is checked at the end: only flycast_retro_* defined globally, no weak references left,
+#   - The arcade boards (00.63, the app's NAOMI and Atomiswave tabs): flycast_emusuni_arcade_list gives the
+#     app every game Flycast's list has (set, parent, full name, BIOS zip, board, GD-ROM image, flags); the
+#     NAOMI printer's fonts are in the program again (a few NAOMI games print).
+# The object is checked at the end: only flycast_retro_* (and flycast_emusuni_arcade_list) defined globally, no weak references left,
 # the C++ operator new/delete it uses all EmuSuNi's own (port/ps4_new.cpp, on the app's heap) and
 # none defined in it, and every other symbol it needs found in what the app links (OpenOrbis' libc,
 # libkernel, libSceLibcInternal, clang's builtins, libc++/libc++abi/libunwind, port/ps4_n64.c;
@@ -84,6 +122,12 @@
 #   DC_CORE_HOST=1 build-dc-core.sh <out dir>   the same object for this PC (Linux, clang 21), for the
 #                                               PC tests: no PS4 checks; the test frontend provides
 #                                               emusuni_make_executable and emusuni_dc_thread.
+#                                               The fast memory runs on stand-ins for the PS4's calls
+#                                               (EMUSUNI_DC_HOST: a memfd and mmap; direct memory
+#                                               comes filled with 0xA5; EMUSUNI_DC_SHIM_FAIL=alias,
+#                                               alloc, reserve, map=<n>, mapfrom=<n>, maprange=<a>-<b>,
+#                                               nofault, noprotect or large makes one thing fail, to
+#                                               test the fallback).
 #                                               Run with EMUSUNI_DC_VMEM=1: upstream's virtual memory
 #                                               (to compare); EMUSUNI_DC_FRESH_ADDRESSES=1: freed
 #                                               memory never given again, any use of it a fault
@@ -157,6 +201,209 @@ patch('CMakeLists.txt',
 patch('core/oslib/CMakeLists.txt',
       'target_sources(${PROJECT_NAME} PRIVATE\n        directory.cpp\n',
       'target_sources(${PROJECT_NAME} PRIVATE\n        emusuni_mem.cpp\n        emusuni_timing.cpp\n        directory.cpp\n')
+patch('CMakeLists.txt',
+      '\t\t\tcore/linux/posix_vmem.cpp\n',
+      '\t\t\tcore/linux/posix_vmem.cpp\n\t\t\tcore/linux/emusuni_vmem.cpp\n')
+# --- Embedded resources the libretro core doesn't need, 1.5 MB of the program image (resource::load answers
+# "not found" for a file that isn't there): the F355 Challenge's printer template (only the picture its
+# print-outs are printed on: without it they come out plain, hw/naomi/printer.cpp) and the GUI's translations
+# (the app has its own menus; one file of them stays, see below). The NAOMI printer's fonts (444 KB) stay since
+# 00.63, for the NAOMI games that print (a cabinet's printer: Touch de Uno! 1 and 2, Mirai Yosou Studio; F355
+# Challenge's needs linked boards, which this build hasn't), and a missing font is read as a null pointer - the
+# emulation would crash at the first print.
+patch('resources/resources.cmake',
+      '        resources/flash/smarinef.nvmem.zip\t# standard cabinet\n        resources/picture/f355_print_template.png)\n',
+      '        resources/flash/smarinef.nvmem.zip\t# standard cabinet\n        )\n')
+patch('resources/resources.cmake',
+      'cmrc_add_resources(flycast-resources\n\tWHENCE resources\n\tresources/i18n/fr.po\n\tresources/i18n/hu.po\n'
+      '\tresources/i18n/ja.po\n\tresources/i18n/pt_BR.po\n\tresources/i18n/sv.po\n\tresources/i18n/zh_CN.po\n'
+      '\tresources/i18n/zh_HK.po\n\tresources/i18n/zh_TW.po)\n',
+      '# EmuSuNi: the GUI\'s translations are left out but for one (64 KB): with none the i18n directory is not in\n'
+      '# the embedded filesystem and the first translation looked up makes listDirectory throw (and catch) a C++\n'
+      '# exception.\n'
+      'cmrc_add_resources(flycast-resources\n\tWHENCE resources\n\tresources/i18n/zh_CN.po)\n')
+
+# --- The arcade boards' games for the app (00.63: its NAOMI and Atomiswave lists, src/Naomi.cpp):
+# flycast_emusuni_arcade_list calls `add` once for each game of Games[] (hw/naomi/naomi_roms.cpp, MAME's sets): its
+# set's name (the zip's), its parent's, its full name, the zip of the BIOS it boots (BIOS[]'s file: naomi-jp-d boots
+# from naomi.zip), the GD-ROM image a GD-ROM game reads (<set>/<name>.chd), its board (DC_PLATFORM_*, as
+# naomi_cart_GetPlatform says), its cartridge's memory (bytes) and flags: 1 vertical (ROT270), 2 analog controls (a
+# wheel, a stick, pedals), 4 a light gun (its reload or trigger key), 8 several boards linked. Returns the count.
+patch('core/hw/naomi/naomi_roms.cpp',
+      '\t\t"mda-c0056a",\n    },\n\t{\n\t\tnullptr\n\t}\n};\n',
+      '\t\t"mda-c0056a",\n    },\n\t{\n\t\tnullptr\n\t}\n};\n'
+      '\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '#include <cstring>\n'
+      '\n'
+      '// EmuSuNi (scripts/build-dc-core.sh): the games above for the app\'s lists.\n'
+      'extern "C" unsigned flycast_emusuni_arcade_list(void (*add)(void *user, const char *name, const char *parent,\n'
+      '\t\tconst char *title, const char *bios_zip, const char *gdrom, int platform, unsigned size, unsigned flags), void *user)\n'
+      '{\n'
+      '\tunsigned count = 0;\n'
+      '\tfor (const Game *game = Games; game->name != nullptr; game++, count++)\n'
+      '\t{\n'
+      '\t\tconst char *biosName = game->bios != nullptr ? game->bios : "naomi";\n'
+      '\t\tconst char *biosZip = biosName;\n'
+      '\t\tfor (const BIOS_t *bios = BIOS; bios->name != nullptr; bios++)\n'
+      '\t\t\tif (!strcmp(bios->name, biosName))\n'
+      '\t\t\t{\n'
+      '\t\t\t\tbiosZip = bios->filename != nullptr ? bios->filename : bios->name;\n'
+      '\t\t\t\tbreak;\n'
+      '\t\t\t}\n'
+      '\t\tconst int platform = game->cart_type == AW ? DC_PLATFORM_ATOMISWAVE\n'
+      '\t\t\t\t: !strcmp(biosName, "naomi2") ? DC_PLATFORM_NAOMI2\n'
+      '\t\t\t\t: !strcmp(biosName, "segasp") ? DC_PLATFORM_SYSTEMSP\n'
+      '\t\t\t\t: DC_PLATFORM_NAOMI;\n'
+      '\t\tunsigned flags = game->rotation_flag == ROT270 ? 1 : 0;\n'
+      '\t\tif (game->inputs != nullptr)\n'
+      '\t\t{\n'
+      '\t\t\tif (game->inputs->axes[0].name != nullptr)\n'
+      '\t\t\t\tflags |= 2;\n'
+      '\t\t\tfor (const ButtonDescriptor& button : game->inputs->buttons)\n'
+      '\t\t\t\tif (button.source == NAOMI_RELOAD_KEY || button.source == AWAVE_TRIGGER_KEY)\n'
+      '\t\t\t\t\tflags |= 4;\n'
+      '\t\t}\n'
+      '\t\tif (game->multiboard > 0)\n'
+      '\t\t\tflags |= 8;\n'
+      '\t\tadd(user, game->name, game->parent_name, game->description, biosZip, game->gdrom_name, platform, game->size, flags);\n'
+      '\t}\n'
+      '\treturn count;\n'
+      '}\n'
+      '#endif\n')
+
+# --- The arcade boards' start without C++ exceptions (00.64). On the PS4 an exception the core throws doesn't come
+# back to its catch: the app ends at once, without a crash report - every Atomiswave game in 00.63, right after the
+# board's memory was set up. A NAOMI's or an Atomiswave's normal start threw three (the PC test's [throw] lines,
+# scratchpad wsl/naomi/front/throws.sh; a Dreamcast disc's throws none): naomi_cart_LoadBios asks OpenArchive for the
+# game's zip by its bare name, which isn't a file (getFileInfo throws for a missing one), and resource::load opens the
+# game's flash defaults, which aren't there (CMakeRC throws). Both ask first now. (A start that fails - no BIOS, a
+# file not in the set - still throws: src/Emulator.cpp looks for what it can before.)
+patch('core/archive/archive.cpp',
+      '\ttry {\n\t\tfileInfo = hostfs::storage().getFileInfo(path);\n\t\tif (!fileInfo.isDirectory)\n'
+      '\t\t\tfile = hostfs::storage().openFile(path, "rb");\n\t} catch (const hostfs::StorageException& e) {\n\t}\n',
+      '\ttry {\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\tif (hostfs::storage().exists(path))  // EmuSuNi: no exception for a file that isn\'t there\n'
+      '#endif\n'
+      '\t\t{\n'
+      '\t\tfileInfo = hostfs::storage().getFileInfo(path);\n\t\tif (!fileInfo.isDirectory)\n'
+      '\t\t\tfile = hostfs::storage().openFile(path, "rb");\n'
+      '\t\t}\n'
+      '\t} catch (const hostfs::StorageException& e) {\n\t}\n')
+patch('core/oslib/resources.cpp',
+      '\t\telse\n\t\t{\n\t\t\tcmrc::file file = fs.open(path);\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\telse if (fs.exists(path))  // EmuSuNi: no exception for a resource that isn\'t there\n'
+      '#else\n'
+      '\t\telse\n'
+      '#endif\n'
+      '\t\t{\n\t\t\tcmrc::file file = fs.open(path);\n')
+# The cartridge's memory (a NAOMI's or Atomiswave's ROM, 16 to 384 MiB; a cartridge image's; a GD-ROM game's DIMM
+# memory) off the app's heap, as the Dreamcast's RAM (oslib/emusuni_mem.cpp): direct memory on the PS4, the
+# 4.5 GiB pool, rather than the system flexible memory the heap shares with Sony's modules.
+patch('core/hw/naomi/naomi_cart.cpp',
+      '#include "oslib/i18n.h"\n',
+      '#include "oslib/i18n.h"\n'
+      '#ifdef EMUSUNI_PORT\n'
+      'void *emusuni_pages_alloc(size_t size);  // oslib/emusuni_mem.cpp: off the heap\n'
+      'void emusuni_pages_free(void *p);\n'
+      '#endif\n')
+patch('core/hw/naomi/naomi_cart.cpp',
+      'Cartridge::Cartridge(u32 size)\n{\n\tRomPtr = (u8 *)malloc(size);\n',
+      'Cartridge::Cartridge(u32 size)\n{\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\tRomPtr = (u8 *)emusuni_pages_alloc(size);\n'
+      '#else\n'
+      '\tRomPtr = (u8 *)malloc(size);\n'
+      '#endif\n')
+patch('core/hw/naomi/naomi_cart.cpp',
+      'Cartridge::~Cartridge()\n{\n\tif (RomPtr != NULL)\n\t\tfree(RomPtr);\n}\n',
+      'Cartridge::~Cartridge()\n{\n\tif (RomPtr != NULL)\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\temusuni_pages_free(RomPtr);\n'
+      '#else\n'
+      '\t\tfree(RomPtr);\n'
+      '#endif\n'
+      '}\n')
+patch('core/hw/naomi/naomi_cart.cpp',
+      '\tu8 *romBase = (u8 *)malloc(romSize);\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '\tu8 *romBase = (u8 *)emusuni_pages_alloc(romSize);\n'
+      '#else\n'
+      '\tu8 *romBase = (u8 *)malloc(romSize);\n'
+      '#endif\n')
+patch('core/hw/naomi/naomi_cart.cpp',
+      '\tif (load_error)\n\t{\n\t\tfree(romBase);\n',
+      '\tif (load_error)\n\t{\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\temusuni_pages_free(romBase);\n'
+      '#else\n'
+      '\t\tfree(romBase);\n'
+      '#endif\n')
+patch('core/hw/naomi/naomi_cart.h',
+      '\tDecryptedCartridge(u8 *rom_ptr, u32 size) : NaomiCartridge(size) { free(RomPtr); RomPtr = rom_ptr; }\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '\t// EmuSuNi: the image\'s memory is emusuni_pages_alloc\'s (naomi_cart.cpp): a page of its own given back.\n'
+      '\tDecryptedCartridge(u8 *rom_ptr, u32 size) : NaomiCartridge(0) { emusuniFree(RomPtr); RomPtr = rom_ptr; RomSize = size; }\n'
+      '\tstatic void emusuniFree(u8 *p);\n'
+      '#else\n'
+      '\tDecryptedCartridge(u8 *rom_ptr, u32 size) : NaomiCartridge(size) { free(RomPtr); RomPtr = rom_ptr; }\n'
+      '#endif\n')
+patch('core/hw/naomi/naomi_cart.cpp',
+      'Cartridge::~Cartridge()\n',
+      '#ifdef EMUSUNI_PORT\n'
+      'void DecryptedCartridge::emusuniFree(u8 *p)\n{\n\temusuni_pages_free(p);\n}\n\n'
+      '#endif\n'
+      'Cartridge::~Cartridge()\n')
+patch('core/hw/naomi/gdcartridge.cpp',
+      '\tif (dimm_data != NULL)\n\t{\n\t\tfree(dimm_data);\n\t\tdimm_data = NULL;\n\t}\n',
+      '\tif (dimm_data != NULL)\n\t{\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\temusuni_pages_free(dimm_data);\n'
+      '#else\n'
+      '\t\tfree(dimm_data);\n'
+      '#endif\n'
+      '\t\tdimm_data = NULL;\n\t}\n')
+patch('core/hw/naomi/gdcartridge.cpp',
+      '\t\t\tdimm_data = (u8 *)malloc(dimm_data_size);\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\t\tdimm_data = (u8 *)emusuni_pages_alloc(dimm_data_size);\n'
+      '#else\n'
+      '\t\t\tdimm_data = (u8 *)malloc(dimm_data_size);\n'
+      '#endif\n')
+patch('core/hw/naomi/gdcartridge.cpp',
+      'GDCartridge::~GDCartridge()\n{\n\tfree(dimm_data);\n',
+      'GDCartridge::~GDCartridge()\n{\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\temusuni_pages_free(dimm_data);\n'
+      '#else\n'
+      '\tfree(dimm_data);\n'
+      '#endif\n')
+patch('core/hw/naomi/gdcartridge.cpp',
+      '#include "hw/sh4/sh4_sched.h"\n',
+      '#include "hw/sh4/sh4_sched.h"\n'
+      '#ifdef EMUSUNI_PORT\n'
+      'void *emusuni_pages_alloc(size_t size);  // oslib/emusuni_mem.cpp: off the heap\n'
+      'void emusuni_pages_free(void *p);\n'
+      '#endif\n')
+# Where a board's start is (the log: a start that ends the app says how far it got): its zip open, its BIOS, its
+# cartridge's memory, its files read.
+patch('core/hw/naomi/naomi_cart.cpp',
+      '\t// Load the BIOS\n\tnaomi_cart_LoadBios(fileName.c_str());\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '\tNOTICE_LOG(NAOMI, "EmuSuNi: start: %s opened, the BIOS next", fileName.c_str());\n'
+      '#endif\n'
+      '\t// Load the BIOS\n\tnaomi_cart_LoadBios(fileName.c_str());\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\tNOTICE_LOG(NAOMI, "EmuSuNi: start: BIOS loaded, the cartridge next (%u MiB)", game->size >> 20);\n'
+      '#endif\n')
+patch('core/hw/naomi/naomi_cart.cpp',
+      '\t\tstd::vector<u8> gdromDigest;\n\t\tCurrentCartridge->Init(progress, config::GGPOEnable ? &gdromDigest : nullptr);\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\tNOTICE_LOG(NAOMI, "EmuSuNi: start: the cartridge\'s %d files read", romCount);\n'
+      '#endif\n'
+      '\t\tstd::vector<u8> gdromDigest;\n\t\tCurrentCartridge->Init(progress, config::GGPOEnable ? &gdromDigest : nullptr);\n')
 
 # --- The Dreamcast's memory without the virtual memory: the PS4 can't map memory twice (PPSSPP's VRAM
 # mirrors came out "NOT aliased"), so Flycast's own fallback (nvmem disabled): RAM, VRAM, ARAM and the
@@ -307,17 +554,1151 @@ void emusuni_pages_free(void *p)
 
 #endif  // EMUSUNI_PORT
 ''')
+addfile('core/emusuni_options.h', r'''// EmuSuNi (scripts/build-dc-core.sh): the switches of the speed changes (fast memory, the recompiler's
+// dispatch, hot pages). A change is on unless EMUSUNI_DC_<NAME>=0 is in the environment; on the PS4,
+// where nothing sets environment variables, also off while the file /data/EmuSuNi/dc-<name>-off exists
+// (name in lower case): the way to compare, or to get a game running if a change breaks it, without
+// building the app again. EMUSUNI_DC_<NAME>=1 switches it on whatever the file says.
+#pragma once
+
+#ifdef EMUSUNI_PORT
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+
+namespace emusuni
+{
+// Whether the change is on. `how` (if given) says what switched it off (or on): "EMUSUNI_DC_FASTMEM=0",
+// "the file /data/EmuSuNi/dc-fastmem-off", ""
+inline bool dcOption(const char *name, char *how = nullptr, size_t howSize = 0)
+{
+	char key[48];
+	snprintf(key, sizeof(key), "EMUSUNI_DC_%s", name);
+	if (how != nullptr && howSize > 0)
+		how[0] = '\0';
+	if (const char *value = getenv(key))
+	{
+		const bool on = strcmp(value, "0") != 0;
+		if (how != nullptr && howSize > 0)
+			snprintf(how, howSize, "%s=%s", key, value);
+		return on;
+	}
+#ifdef __ORBIS__
+	char path[96];
+	int length = snprintf(path, sizeof(path), "/data/EmuSuNi/dc-%s-off", name);
+	for (char *c = path + 17; length > 17 && *c != '\0'; c++)
+		if (*c >= 'A' && *c <= 'Z')
+			*c = (char)(*c - 'A' + 'a');
+	if (FILE *file = fopen(path, "rb"))
+	{
+		fclose(file);
+		if (how != nullptr && howSize > 0)
+			snprintf(how, howSize, "the file %s", path);
+		return false;
+	}
+#endif
+	return true;
+}
+}  // namespace emusuni
+#endif
+''')
+addfile('core/emusuni_vmem.h', r'''// EmuSuNi (scripts/build-dc-core.sh): fast memory for Flycast on the PS4 (core/linux/emusuni_vmem.cpp).
+#pragma once
+
+#ifdef EMUSUNI_PORT
+#include "types.h"
+#include "oslib/virtmem.h"
+#include <csignal>
+#include <cstddef>
+
+namespace emusuni
+{
+// What the kernel's signals look like. On the PS4 the FreeBSD kernel's values are written out (as
+// port/ps4_crashlog.cpp has them: SIGSEGV 11, SIGBUS 10, SA_SIGINFO 0x40, si_addr 24 bytes into the
+// siginfo), whatever a header says; the struct sigaction handed to the kernel is checked to be
+// FreeBSD's when this compiles (the PSChrome libc overlay's headers come before OpenOrbis' musl ones).
+#if defined(__ORBIS__)
+constexpr int kSigBus = 10, kSigSegv = 11, kSaSiginfo = 0x40;
+constexpr size_t kSiAddr = 24;
+static_assert(offsetof(struct sigaction, sa_flags) == 8 && sizeof(sigset_t) == 16,
+	"struct sigaction isn't FreeBSD's: the PSChrome libc overlay's headers must come first");
+#else
+constexpr int kSigBus = SIGBUS, kSigSegv = SIGSEGV, kSaSiginfo = SA_SIGINFO;
+constexpr size_t kSiAddr = offsetof(siginfo_t, si_addr);
+#endif
+
+inline void *faultAddress(const siginfo_t *si)
+{
+	return *(void **)((const char *)si + kSiAddr);
+}
+
+// Fast memory: Flycast's virtmem API (oslib/virtmem.h) on the PS4's kernel calls (on the PC tests, on
+// stand-ins for them). linux/posix_vmem.cpp calls these while `active`.
+namespace vmem
+{
+extern bool active;        // in use: init() succeeded, destroy() not called since
+extern bool protectionOk;  // locking pages was tested at start (a write to a locked page faults, unlocking lets it through)
+
+// false: not available, nothing changed (Flycast's fallback, the memory handlers, takes over); why is logged.
+bool init(void **vmem_base_addr, void **sh4rcb_addr, size_t ramSize);
+void destroy();
+void resetMem(void *ptr, unsigned size_bytes);
+void ondemandPage(void *address, unsigned size_bytes);
+// false: a mapping failed (logged): addrspace::initMappings then falls back.
+bool createMappings(const virtmem::Mapping *maps, unsigned count);
+bool regionLock(void *start, size_t len);
+bool regionUnlock(void *start, size_t len);
+}  // namespace vmem
+}  // namespace emusuni
+#endif
+''')
+addfile('core/linux/emusuni_vmem.cpp', r'''/*
+	EmuSuNi (scripts/build-dc-core.sh): fast memory (Flycast's virtual memory) on the PS4.
+
+	Adapted from Resonance's shell/ps4/ps4_vmem.cpp (https://github.com/iHaiDeeZ/Resonance, GPL-2.0, a
+	Flycast-based Dreamcast emulator for the PS4 by the author of DolphinPS4), which implements Flycast's
+	virtmem API on the PS4's kernel calls. Here, for the Flycast EmuSuNi pins and the app's runtime: a switch
+	(emusuni_options.h), a fallback to Flycast's memory handlers whenever anything is refused (checked by a
+	self-test at start: aliasing, a fault with its registers, a locked page), counters, the log, and stand-ins
+	for the PS4's calls so the PC tests run this very code (EMUSUNI_DC_HOST).
+
+	The PS4 kernel can't reserve hundreds of MiB with mmap(PROT_NONE) and has no anonymous shared memory to
+	map at fixed addresses, so, like DolphinPS4's MemArenaPS4:
+	- the address space is a sceKernelReserveVirtualRange reservation,
+	- the emulated memory is one block of direct (physical) memory, mapped into the reservation as often as
+	  the Dreamcast mirrors it (direct memory aliasing, enabled for the process),
+	- the dynarec's block table (fpcb) is mapped on demand, in 2 MiB pieces, as on Linux page by page.
+	Everything maps in 16 KiB pages (2 MiB ones where addresses and sizes allow). The JIT's code memory is not
+	here: it stays in the core's data (linux/posix_vmem.cpp, port/ps4_n64.c).
+
+	This file is part of Flycast.
+
+	Flycast is free software: you can redistribute it and/or modify
+	it under the terms of the GNU General Public License as published by
+	the Free Software Foundation, either version 2 of the License, or
+	(at your option) any later version.
+
+	Flycast is distributed in the hope that it will be useful,
+	but WITHOUT ANY WARRANTY; without even the implied warranty of
+	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+	GNU General Public License for more details.
+
+	You should have received a copy of the GNU General Public License
+	along with Flycast.  If not, see <https://www.gnu.org/licenses/>.
+ */
+#include "types.h"
+
+#ifdef EMUSUNI_PORT
+
+#include "emusuni_options.h"
+#include "emusuni_timing.h"
+#include "emusuni_vmem.h"
+#include "hw/mem/addrspace.h"
+#include "hw/sh4/dyna/blockmanager.h"
+#include "hw/sh4/sh4_if.h"
+#include "oslib/host_context.h"
+#include "oslib/virtmem.h"
+
+#include <algorithm>
+#include <cerrno>
+#include <csetjmp>
+#include <cstdarg>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <sys/mman.h>
+#include <sys/types.h>
+#include <vector>
+
+void context_from_segfault(host_context_t *hctx, void *segfault_ctx);  // linux/context.cpp
+
+#if defined(__ORBIS__)
+
+extern "C" {
+// Declared by hand: several OpenOrbis prototypes are wrong.
+size_t sceKernelGetDirectMemorySize();
+int32_t sceKernelAllocateDirectMemory(off_t searchStart, off_t searchEnd, size_t length, size_t alignment,
+		int32_t memoryType, off_t *physicalOut);
+int32_t sceKernelReleaseDirectMemory(off_t start, size_t length);
+int32_t sceKernelMapDirectMemory(void **address, size_t length, int32_t protection, int32_t flags,
+		off_t directMemoryStart, size_t alignment);
+int32_t sceKernelReserveVirtualRange(void **address, size_t length, int32_t flags, size_t alignment);
+int32_t sceKernelMunmap(void *address, size_t length);
+int32_t sceKernelMprotect(const void *address, size_t length, int32_t protection);
+int32_t sceKernelEnableDmemAliasing();
+int32_t sceKernelEnableDmemAliasing2();
+int sceKernelInternalMemoryGetAvailableSize(size_t *size);  // (as src/Log.cpp's LogMemory)
+}
+
+#elif defined(EMUSUNI_DC_HOST)
+
+// The PC tests' stand-ins for the PS4's calls (EMUSUNI_DC_HOST: scripts/build-dc-core.sh with
+// DC_CORE_HOST=1), so that this file's real code runs under the real SIGSEGV path. The "direct memory" is
+// a sparse memfd, mapping it is mmap(MAP_SHARED | MAP_FIXED) over a PROT_NONE reservation. What the PS4
+// does that the stand-ins copy, to catch mistakes the PC would let through: 16 KiB granularity; direct
+// memory that comes as it was left (filled with 0xA5 when allocated: nothing may rely on zeros); a second
+// mapping of the same direct memory refused (EBUSY) until aliasing is enabled; a reservation hint that
+// isn't free failing instead of moving; a 2 MiB alignment asked for that the address, the direct memory
+// offset and the length don't have refused; a Munmap that drops reservations too.
+// EMUSUNI_DC_SHIM_FAIL=<list> (comma-separated) makes one thing fail, to test the fallback: alias (aliasing
+// refused), alloc, reserve, map=<n> (the n-th mapping), mapfrom=<n> (every mapping from the n-th on), maprange=<a>-<b>
+// (the a-th to the b-th), nofault (unmapped memory doesn't fault), noprotect (locking a page does nothing), large (2 MiB
+// alignment refused), crash (the process is killed in the reservation: the marker files below).
+#include <fcntl.h>
+#include <mutex>
+#include <unistd.h>
+
+namespace
+{
+namespace shim
+{
+constexpr int32_t kBusy = (int32_t)0x80020010, kInval = (int32_t)0x80020016, kNoMem = (int32_t)0x8002000c;
+constexpr size_t kPageSize = 0x4000;
+constexpr size_t kPool = 1024u * 1024u * 1024u;
+
+struct Mapped
+{
+	uintptr_t address;
+	size_t length;
+	off_t phys;
+};
+struct Block
+{
+	off_t start;
+	size_t length;
+};
+std::mutex lock;
+int fd = -1;
+bool aliasing = false;
+std::vector<Mapped> mapped;
+std::vector<Block> blocks;
+unsigned mapCalls = 0;
+
+bool injected(const char *what, long *value = nullptr)
+{
+	const char *list = getenv("EMUSUNI_DC_SHIM_FAIL");
+	if (list == nullptr)
+		return false;
+	const size_t length = strlen(what);
+	for (const char *p = strstr(list, what); p != nullptr; p = strstr(p + 1, what))
+	{
+		if ((p == list || p[-1] == ',') && (p[length] == '\0' || p[length] == ',' || p[length] == '='))
+		{
+			if (value != nullptr)
+				*value = p[length] == '=' ? atol(p + length + 1) : 0;
+			return true;
+		}
+	}
+	return false;
+}
+
+// Drops [address, address + length) from the records of what is mapped.
+void forget(uintptr_t address, size_t length)
+{
+	std::vector<Mapped> kept;
+	for (const Mapped &m : mapped)
+	{
+		if (m.address + m.length <= address || m.address >= address + length)
+		{
+			kept.push_back(m);
+			continue;
+		}
+		if (m.address < address)
+			kept.push_back({ m.address, address - m.address, m.phys });
+		if (m.address + m.length > address + length)
+		{
+			const size_t cut = address + length - m.address;
+			kept.push_back({ address + length, m.address + m.length - (address + length), m.phys + (off_t)cut });
+		}
+	}
+	mapped.swap(kept);
+}
+
+int32_t enableAliasing()
+{
+	if (injected("alias"))
+		return kInval;
+	aliasing = true;
+	return 0;
+}
+
+size_t directMemorySize()
+{
+	return kPool;
+}
+
+int32_t allocateDirectMemory(off_t searchStart, off_t searchEnd, size_t length, size_t alignment, int32_t, off_t *physical)
+{
+	std::lock_guard<std::mutex> guard(lock);
+	if (injected("alloc"))
+		return kNoMem;
+	if (alignment < kPageSize)
+		alignment = kPageSize;
+	if (fd < 0)
+	{
+		fd = memfd_create("dc-direct-memory", 0);
+		if (fd < 0 || ftruncate(fd, (off_t)kPool) != 0)
+			return kNoMem;
+	}
+	std::sort(blocks.begin(), blocks.end(), [](const Block &a, const Block &b) { return a.start < b.start; });
+	off_t candidate = (searchStart + (off_t)alignment - 1) & ~((off_t)alignment - 1);
+	for (const Block &b : blocks)
+	{
+		if (candidate + (off_t)length <= b.start)
+			break;
+		if (b.start + (off_t)b.length > candidate)
+			candidate = (b.start + (off_t)b.length + (off_t)alignment - 1) & ~((off_t)alignment - 1);
+	}
+	if (candidate + (off_t)length > std::min<off_t>(searchEnd, (off_t)kPool))
+		return kNoMem;
+	blocks.push_back({ candidate, length });
+	// as it was left
+	void *p = mmap(nullptr, length, PROT_READ | PROT_WRITE, MAP_SHARED, fd, candidate);
+	if (p != MAP_FAILED)
+	{
+		memset(p, 0xA5, length);
+		munmap(p, length);
+	}
+	*physical = candidate;
+	return 0;
+}
+
+int32_t releaseDirectMemory(off_t start, size_t length)
+{
+	std::lock_guard<std::mutex> guard(lock);
+	for (size_t i = 0; i < blocks.size(); i++)
+	{
+		if (blocks[i].start == start && blocks[i].length == length)
+		{
+			for (const Mapped &m : mapped)
+				if (m.phys < start + (off_t)length && m.phys + (off_t)m.length > start)
+					fprintf(stderr, "[shim] direct memory %llx released while still mapped at %p\n", (unsigned long long)start,
+							(void *)m.address);
+			blocks.erase(blocks.begin() + i);
+			fallocate(fd, 0x03 /* FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE */, start, (off_t)length);
+			return 0;
+		}
+	}
+	return kInval;
+}
+
+int32_t reserveVirtualRange(void **address, size_t length, int32_t flags, size_t alignment)
+{
+	std::lock_guard<std::mutex> guard(lock);
+	if (injected("reserve"))
+		return kNoMem;
+	if (injected("crash"))
+		raise(SIGKILL);  // (the process dies inside the kernel calls)
+	if (alignment < kPageSize)
+		alignment = kPageSize;
+	if (((uintptr_t)*address | length) & (kPageSize - 1))
+		return kInval;
+	const int prot = injected("nofault") ? (PROT_READ | PROT_WRITE) : PROT_NONE;
+	const int base = MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE;
+	void *p;
+	if (flags & 0x10)  // SCE_KERNEL_MAP_FIXED
+	{
+		p = mmap(*address, length, prot, base | MAP_FIXED, -1, 0);
+		if (p == MAP_FAILED)
+			return kNoMem;
+		forget((uintptr_t)p, length);
+	}
+	else if (*address != nullptr)
+	{
+		// (a hint that isn't free fails)
+		p = mmap(*address, length, prot, base | MAP_FIXED_NOREPLACE, -1, 0);
+		if (p == MAP_FAILED)
+			return kNoMem;
+		if (p != *address)
+		{
+			munmap(p, length);
+			return kNoMem;
+		}
+	}
+	else
+	{
+		p = mmap(nullptr, length + alignment, prot, base, -1, 0);
+		if (p == MAP_FAILED)
+			return kNoMem;
+		const uintptr_t start = (uintptr_t)p, aligned = (start + alignment - 1) & ~(uintptr_t)(alignment - 1);
+		if (aligned > start)
+			munmap(p, aligned - start);
+		if (aligned + length < start + length + alignment)
+			munmap((void *)(aligned + length), start + length + alignment - (aligned + length));
+		p = (void *)aligned;
+	}
+	if ((uintptr_t)p & (alignment - 1))
+	{
+		munmap(p, length);
+		return kInval;
+	}
+	*address = p;
+	return 0;
+}
+
+int32_t munmapRange(void *address, size_t length)
+{
+	std::lock_guard<std::mutex> guard(lock);
+	if (((uintptr_t)address | length) & (kPageSize - 1))
+		return kInval;
+	if (munmap(address, length) != 0)
+		return kInval;
+	forget((uintptr_t)address, length);
+	return 0;
+}
+
+int32_t mapDirectMemory(void **address, size_t length, int32_t protection, int32_t flags, off_t phys, size_t alignment)
+{
+	std::lock_guard<std::mutex> guard(lock);
+	long failAt = 0;
+	mapCalls++;
+	if (injected("map", &failAt) && (failAt == 0 || mapCalls == (unsigned)failAt))
+		return kInval;
+	if (injected("mapfrom", &failAt) && mapCalls >= (unsigned)failAt)
+		return kInval;
+	if (injected("maprange", &failAt))
+	{
+		const char *dash = strchr(strstr(getenv("EMUSUNI_DC_SHIM_FAIL"), "maprange="), '-');
+		if (mapCalls >= (unsigned)failAt && mapCalls <= (unsigned)(dash != nullptr ? atol(dash + 1) : failAt))
+			return kInval;
+	}
+	if (!(flags & 0x10) || length == 0 || (((uintptr_t)*address | length | (size_t)phys) & (kPageSize - 1)))
+		return kInval;
+	if (alignment > kPageSize && (injected("large") || (((uintptr_t)*address | length | (size_t)phys) & (alignment - 1))))
+		return kInval;
+	bool inBlock = false;
+	for (const Block &b : blocks)
+		inBlock = inBlock || (phys >= b.start && phys + (off_t)length <= b.start + (off_t)b.length);
+	if (!inBlock)
+		return kInval;
+	if (!aliasing || injected("alias"))
+	{
+		for (const Mapped &m : mapped)
+			if (m.phys < phys + (off_t)length && m.phys + (off_t)m.length > phys)
+				return kBusy;
+	}
+	int prot = 0;
+	if (protection & 1)
+		prot |= PROT_READ;
+	if (protection & 2)
+		prot |= PROT_WRITE;
+	if (protection & 4)
+		prot |= PROT_EXEC;
+	void *p = mmap(*address, length, prot, MAP_SHARED | MAP_FIXED, fd, phys);
+	if (p == MAP_FAILED)
+		return kNoMem;
+	forget((uintptr_t)p, length);
+	mapped.push_back({ (uintptr_t)p, length, phys });
+	*address = p;
+	return 0;
+}
+
+int internalMemory(size_t *size)
+{
+	*size = 0;
+	return 0;
+}
+
+int32_t protectRange(const void *address, size_t length, int32_t protection)
+{
+	if (((uintptr_t)address | length) & (kPageSize - 1))
+		return kInval;
+	if (injected("noprotect") && !(protection & 2))
+		return 0;  // (lies: nothing is locked)
+	int prot = 0;
+	if (protection & 1)
+		prot |= PROT_READ;
+	if (protection & 2)
+		prot |= PROT_WRITE;
+	if (protection & 4)
+		prot |= PROT_EXEC;
+	return mprotect(const_cast<void *>(address), length, prot) == 0 ? 0 : kInval;
+}
+}  // namespace shim
+}  // namespace
+
+#define sceKernelEnableDmemAliasing shim::enableAliasing
+#define sceKernelEnableDmemAliasing2 shim::enableAliasing
+#define sceKernelGetDirectMemorySize shim::directMemorySize
+#define sceKernelAllocateDirectMemory shim::allocateDirectMemory
+#define sceKernelReleaseDirectMemory shim::releaseDirectMemory
+#define sceKernelReserveVirtualRange shim::reserveVirtualRange
+#define sceKernelMunmap shim::munmapRange
+#define sceKernelMapDirectMemory shim::mapDirectMemory
+#define sceKernelMprotect shim::protectRange
+#define sceKernelInternalMemoryGetAvailableSize shim::internalMemory
+
+#else
+#error "emusuni_vmem.cpp: neither the PS4 (__ORBIS__) nor the PC tests (EMUSUNI_DC_HOST)"
+#endif
+
+namespace emusuni::vmem
+{
+bool active = false;
+bool protectionOk = false;
+
+namespace
+{
+constexpr size_t kPage = 0x4000;
+constexpr size_t kLarge = 2_MB;  // large pages: the virtual and the direct memory address and the size 2 MiB aligned
+constexpr int32_t kWbOnion = 0;       // SCE_KERNEL_WB_ONION: CPU write-back memory
+constexpr int32_t kMapFixed = 0x10;   // SCE_KERNEL_MAP_FIXED
+constexpr int32_t kProtRead = 0x1;    // SCE_KERNEL_PROT_CPU_READ
+constexpr int32_t kProtRW = 0x3;      // SCE_KERNEL_PROT_CPU_RW
+constexpr size_t kFpcbSize = sizeof(Sh4RCB::fpcb);
+// The kernel library puts its own objects at 0x200000000 (the app's heap, port/ps4_runtime.cpp, keeps away from
+// there the same way), so nothing of ours below 0x400000000.
+constexpr uintptr_t kNotBelow = 0x400000000ull;
+
+// The direct memory block (2 MiB aligned): the Sh4RCB (fpcb + SH4 context) at physSh4rcb, the emulated memory
+// right after it. The Sh4RCB's virtual and direct memory addresses are equal modulo 2 MiB, which puts the
+// emulated memory (sizeof(Sh4RCB) after it) on 2 MiB boundaries in both, and lets the fpcb be mapped in 2 MiB
+// pieces that are aligned in both: the PS4 can then use large pages, and the JIT's block lookups and memory
+// accesses miss the TLB far less.
+off_t dmem = -1;
+size_t dmemSize = 0;
+off_t physSh4rcb = 0;
+u8 *reservedBase = nullptr;
+size_t reservedSize = 0;
+u8 *sh4rcbBase = nullptr;  // inside the reservation, `lead` bytes below a 2 MiB boundary
+u8 *ramBase = nullptr;     // sh4rcbBase + sizeof(Sh4RCB): the emulated 512 MiB (+ the sound RAM's 8 MiB at 0x20000000)
+std::vector<bool> fpcbChunkMapped;  // per 2 MiB piece of the fpcb
+bool largeOk = true;                // 2 MiB pages taken (else 16 KiB ones)
+int32_t lastMapError = 0;           // (what the last failed mapping said: the caller's one line has it)
+int snapshot[8];                    // the fault counters when this began
+
+size_t alignUp(size_t v, size_t a)
+{
+	return (v + a - 1) & ~(a - 1);
+}
+
+// The kernel library's own memory left (page tables and map entries come out of it: a diagnostic, in the log).
+size_t internalFree()
+{
+	size_t size = 0;
+	sceKernelInternalMemoryGetAvailableSize(&size);
+	return size;
+}
+size_t internalAtStart = 0;
+
+// A start that dies inside the kernel calls (a crash, or a hang the player ends) leaves a file behind, and the fast memory is not
+// tried again by itself: the log says which file to delete. "trying" exists from the start of init() until the first game's mappings
+// are made (or init or they failed, or the memory is given back); "crashed" is what the next start makes of a "trying" it finds.
+// The PS4's folder of the app; on the PC tests the folder EMUSUNI_DC_MARKER_DIR says (none: no files).
+bool markerPath(const char *name, char *path, size_t size)
+{
+#if defined(__ORBIS__)
+	snprintf(path, size, "/data/EmuSuNi/%s", name);
+	return true;
+#else
+	const char *dir = getenv("EMUSUNI_DC_MARKER_DIR");
+	if (dir == nullptr)
+		return false;
+	snprintf(path, size, "%s/%s", dir, name);
+	return true;
+#endif
+}
+bool markerExists(const char *name)
+{
+	char path[160];
+	FILE *file = markerPath(name, path, sizeof(path)) ? fopen(path, "rb") : nullptr;
+	if (file != nullptr)
+		fclose(file);
+	return file != nullptr;
+}
+void markerMake(const char *name)
+{
+	char path[160];
+	if (FILE *file = markerPath(name, path, sizeof(path)) ? fopen(path, "wb") : nullptr)
+		fclose(file);
+}
+void markerRemove(const char *name)
+{
+	char path[160];
+	if (markerPath(name, path, sizeof(path)))
+		remove(path);
+}
+bool trying = false;
+void tryingDone()
+{
+	if (trying)
+	{
+		markerRemove("dc-fastmem-trying");
+		trying = false;
+	}
+}
+
+void say(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+void say(const char *fmt, ...)
+{
+	char line[400];
+	va_list args;
+	va_start(args, fmt);
+	vsnprintf(line, sizeof(line), fmt, args);
+	va_end(args);
+	NOTICE_LOG(VMEM, "EmuSuNi: vmem: %s", line);
+}
+
+// Fast memory is not to be had: the one line that says why, Flycast's fallback takes over.
+bool fastMemoryOff(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+bool fastMemoryOff(const char *fmt, ...)
+{
+	char line[400];
+	va_list args;
+	va_start(args, fmt);
+	vsnprintf(line, sizeof(line), fmt, args);
+	va_end(args);
+	WARN_LOG(VMEM, "EmuSuNi: vmem: fast memory off: %s (Flycast's memory handlers instead)", line);
+	tryingDone();
+	return false;
+}
+
+// Maps direct memory [offset, offset + size) at a fixed address inside the reservation. 2 MiB pages where the
+// addresses and the size allow, else (or if the kernel doesn't take them) 16 KiB ones.
+bool mapFixed(void *address, size_t size, off_t offset, bool writable)
+{
+	const int32_t protection = writable ? kProtRW : kProtRead;
+	const size_t length = alignUp(size, kPage);
+	int32_t largeError = 0;
+	if (largeOk && (((uintptr_t)address | (uintptr_t)(dmem + offset) | length) & (kLarge - 1)) == 0)
+	{
+		void *addr = address;
+		const int32_t r = sceKernelMapDirectMemory(&addr, length, protection, kMapFixed, dmem + offset, kLarge);
+		if (r == 0 && addr == address)
+			return true;
+		if (r == 0)
+			sceKernelMunmap(addr, length);
+		largeError = r != 0 ? r : -1;
+	}
+	void *addr = address;
+	const int32_t r = sceKernelMapDirectMemory(&addr, length, protection, kMapFixed, dmem + offset, kPage);
+	if (r != 0 || addr != address)
+	{
+		lastMapError = r != 0 ? r : -1;
+		if (r == 0)
+			sceKernelMunmap(addr, length);
+		return false;
+	}
+	if (largeError != 0)
+	{
+		// 16 KiB pages work, 2 MiB ones don't.
+		largeOk = false;
+		say("2 MiB pages refused (%08x): 16 KiB ones", (unsigned)largeError);
+	}
+	return true;
+}
+
+// Unmaps a range of the reservation and reserves it again, so nothing else lands there.
+void unmapToReserved(void *address, size_t size)
+{
+	size = alignUp(size, kPage);
+	sceKernelMunmap(address, size);
+	void *addr = address;
+	const int32_t r = sceKernelReserveVirtualRange(&addr, size, kMapFixed, kPage);
+	if (r != 0 || addr != address)
+		ERROR_LOG(VMEM, "EmuSuNi: vmem: re-reserving %p failed: %x", address, (unsigned)r);
+}
+
+// Locks and unlocks pages: the kernel's own call, else the libc's.
+bool protect(void *address, size_t length, int32_t protection)
+{
+	if (sceKernelMprotect(address, length, protection) == 0)
+		return true;
+	return mprotect(address, length, protection == kProtRead ? PROT_READ : (PROT_READ | PROT_WRITE)) == 0;
+}
+
+// ---- The self-test: what the fast memory needs of the system, tried once it is mapped, before it is used.
+// A handler of its own is in place meanwhile (neither the app's crash log's nor Flycast's is for this).
+struct sigaction savedSegv, savedBus;
+sigjmp_buf testJump;
+volatile int testMode = 0;  // 1: an access to unmapped memory, 2: a write to a locked page
+volatile int testSignal = 0;
+volatile uintptr_t testAddress = 0, testPc = 0, testRsp = 0, testR9 = 0, testRdi = 0, testFrame = 0;
+u8 *volatile testPage = nullptr;
+volatile int testFaults = 0;
+constexpr uint64_t kTestR9 = 0x1357924680ace135ull, kTestRdi = 0x2468ace013579bdfull;
+
+void testHandler(int sig, siginfo_t *si, void *context)
+{
+	testSignal = sig;
+	void *address = faultAddress(si);
+	if (testMode == 2)
+	{
+		if ((u8 *)address >= testPage && (u8 *)address < testPage + kPage && ++testFaults == 1 && protect(testPage, kPage, kProtRW))
+			return;  // the write goes through
+		siglongjmp(testJump, 2);
+	}
+	if (testMode == 1)
+	{
+		host_context_t hc;
+		context_from_segfault(&hc, context);
+		testAddress = (uintptr_t)address;
+		testPc = hc.pc;
+#if HOST_CPU == CPU_X64
+		testRsp = hc.rsp;
+		testR9 = hc.r9;
+		testRdi = hc.rdi;
+#endif
+		siglongjmp(testJump, 1);
+	}
+	// not a test's: the default action
+	struct sigaction dfl {};
+	sigaction(sig, &dfl, nullptr);
+}
+
+const char *signalName(int sig)
+{
+	return sig == kSigSegv ? "SIGSEGV" : sig == kSigBus ? "SIGBUS" : "?";
+}
+
+// A read of unmapped memory must fault, and the handler must see the address, the code's address, the stack
+// and the two registers the recompiler's rewrite of a memory access uses (r9, rdi) as they were.
+__attribute__((noinline)) bool testUnmappedRead(u8 *unmapped)
+{
+	testMode = 1;
+	testFrame = (uintptr_t)__builtin_frame_address(0);
+	if (sigsetjmp(testJump, 1) == 0)
+	{
+#if HOST_CPU == CPU_X64
+		asm volatile(
+			"movq %[r9v], %%r9\n\t"
+			"movq %[rdiv], %%rdi\n\t"
+			"movb (%[addr]), %%al\n\t"
+			:
+			: [r9v] "r"(kTestR9), [rdiv] "r"(kTestRdi), [addr] "r"(unmapped)
+			: "rax", "r9", "rdi", "memory");
+#else
+		(void)*(volatile u8 *)unmapped;
+#endif
+		testMode = 0;
+		return false;  // no fault
+	}
+	testMode = 0;
+	return true;
+}
+
+// A write to a page locked with the protection call must fault, and unlocking it in the handler let it through.
+__attribute__((noinline)) int testLockedWrite(u8 *page)
+{
+	testPage = page;
+	testFaults = 0;
+	if (!protect(page, kPage, kProtRead))
+		return -1;  // the lock is refused
+	testMode = 2;
+	if (sigsetjmp(testJump, 1) == 0)
+	{
+		((volatile u8 *)page)[100] = 0x5a;
+		testMode = 0;
+		if (testFaults == 0)
+			return 0;  // the write didn't fault
+		return ((volatile u8 *)page)[100] == 0x5a && testFaults == 1 ? 1 : -2;
+	}
+	testMode = 0;
+	protect(page, kPage, kProtRW);
+	return -3;  // the handler couldn't let it through
+}
+
+// "": all well; else what is wrong.
+const char *selfTest(char *detail, size_t detailSize)
+{
+	static char why[240];
+	// Aliasing: the RAM's first two mirrors are the same memory.
+	u8 *a = ramBase + 0x0C000000, *b = ramBase + 0x0D000000;
+	const off_t ram = (off_t)(physSh4rcb + sizeof(Sh4RCB));
+	if (!mapFixed(a, kLarge, ram, true))
+	{
+		snprintf(why, sizeof(why), "the kernel won't map the memory block (%x)", (unsigned)lastMapError);
+		return why;
+	}
+	if (!mapFixed(b, kLarge, ram, true))
+	{
+		snprintf(why, sizeof(why), "the kernel won't map the same direct memory twice (%x): no aliasing", (unsigned)lastMapError);
+		unmapToReserved(a, kLarge);
+		return why;
+	}
+	a[0x123] = 0x3c;
+	b[0x456] = 0xc3;
+	const bool aliased = b[0x123] == 0x3c && a[0x456] == 0xc3;
+	unmapToReserved(a, kLarge);
+	unmapToReserved(b, kLarge);
+	if (!aliased)
+		return "two mappings of the same direct memory are not the same memory";
+
+	struct sigaction act {};  // (an empty mask)
+	act.sa_sigaction = testHandler;
+	act.sa_flags = kSaSiginfo;
+	sigaction(kSigSegv, &act, &savedSegv);
+	sigaction(kSigBus, &act, &savedBus);
+	const char *result = "";
+	// Unmapped memory (the reservation's area 0): the fault, as the recompiler's rewrite needs it.
+	u8 *unmapped = ramBase + 0x00001000;
+	const bool faulted = testUnmappedRead(unmapped);
+	const int unmappedSignal = testSignal;
+	if (!faulted)
+		result = "a read of unmapped memory didn't fault";
+	else if ((u8 *)testAddress != unmapped)
+	{
+		snprintf(why, sizeof(why), "fault address %p, expected %p", (void *)testAddress, (void *)unmapped);
+		result = why;
+	}
+	else if (testPc < (uintptr_t)&testUnmappedRead || testPc >= (uintptr_t)&testUnmappedRead + 1024)
+	{
+		snprintf(why, sizeof(why), "fault pc %p, not in the test's code at %p", (void *)testPc, (void *)&testUnmappedRead);
+		result = why;
+	}
+#if HOST_CPU == CPU_X64
+	else if (testRsp + 4096 < testFrame || testRsp > testFrame + 4096)
+	{
+		snprintf(why, sizeof(why), "fault rsp %p, the stack is at %p", (void *)testRsp, (void *)testFrame);
+		result = why;
+	}
+	else if (testR9 != kTestR9 || testRdi != kTestRdi)
+	{
+		snprintf(why, sizeof(why), "fault registers r9 %llx rdi %llx, expected %llx %llx", (unsigned long long)testR9,
+				(unsigned long long)testRdi, (unsigned long long)kTestR9, (unsigned long long)kTestRdi);
+		result = why;
+	}
+#endif
+	// A locked page (the SH4 context's padding, mapped for good): the fault, and unlocking it lets the write through.
+	int lockedSignal = 0;
+	if (result[0] == '\0')
+	{
+		const int locked = testLockedWrite(sh4rcbBase + kFpcbSize + kPage);
+		lockedSignal = testSignal;
+		if (locked != 1)
+		{
+			snprintf(why, sizeof(why), "%s", locked == -1 ? "locking a page is refused"
+					: locked == 0 ? "a write to a locked page didn't fault"
+					: locked == -2 ? "a write to a locked page didn't come through after unlocking"
+					: "the handler couldn't unlock a page");
+			result = why;
+		}
+	}
+	sigaction(kSigSegv, &savedSegv, nullptr);
+	sigaction(kSigBus, &savedBus, nullptr);
+	if (result[0] == '\0')
+		snprintf(detail, detailSize, "self-test ok: aliasing; unmapped access %s with address, pc, stack, r9, rdi; locked page %s",
+				signalName(unmappedSignal), signalName(lockedSignal));
+	return result;
+}
+
+// Frees everything (what init and destroy share).
+void release()
+{
+	if (reservedBase != nullptr)
+	{
+		sceKernelMunmap(reservedBase, reservedSize);
+		reservedBase = nullptr;
+	}
+	sh4rcbBase = nullptr;
+	ramBase = nullptr;
+	if (dmem >= 0)
+	{
+		sceKernelReleaseDirectMemory(dmem, dmemSize);
+		dmem = -1;
+	}
+}
+
+void countersNow(int *out)
+{
+	const Timing &t = timing;
+	out[0] = t.faultsCode;
+	out[1] = t.faultsVram;
+	out[2] = t.faultsTable;
+	out[3] = t.faultsRewrite;
+	out[4] = t.faultsOther;
+	out[5] = t.protects;
+	out[6] = t.unprotects;
+}
+}  // namespace
+
+bool init(void **vmem_base_addr, void **sh4rcb_addr, size_t ramSize)
+{
+	if (active)
+		return true;
+	char how[96];
+	if (!dcOption("FASTMEM", how, sizeof(how)))
+		return fastMemoryOff("switched off by %s", how);
+	const bool forced = how[0] != '\0';  // EMUSUNI_DC_FASTMEM=1: whatever the files say
+	if (!forced && markerExists("dc-fastmem-crashed"))
+	{
+		char path[160];
+		markerPath("dc-fastmem-crashed", path, sizeof(path));
+		return fastMemoryOff("an earlier start died while trying it: delete the file %s to try again", path);
+	}
+	if (!forced && markerExists("dc-fastmem-trying"))
+	{
+		char path[160];
+		markerMake("dc-fastmem-crashed");
+		markerRemove("dc-fastmem-trying");
+		markerPath("dc-fastmem-crashed", path, sizeof(path));
+		return fastMemoryOff("the start before died while trying it (noted in the file %s: delete it to try again)", path);
+	}
+	markerMake("dc-fastmem-trying");
+	trying = true;
+	internalAtStart = internalFree();
+	say("trying fast memory");
+
+	static bool aliasingTried = false;
+	static int32_t aliasing1 = 0, aliasing2 = 0;
+	if (!aliasingTried)
+	{
+		// Mapping the same direct memory twice (the Dreamcast's mirrors) fails with EBUSY until aliasing is
+		// enabled for the process (the test below finds out whether it took).
+		aliasingTried = true;
+		aliasing1 = sceKernelEnableDmemAliasing();
+		aliasing2 = aliasing1 == 0 ? 0 : sceKernelEnableDmemAliasing2();
+	}
+
+	// The Sh4RCB starts this far below a 2 MiB boundary, in both address spaces.
+	const size_t lead = (kLarge - sizeof(Sh4RCB) % kLarge) % kLarge;
+	physSh4rcb = (off_t)lead;
+	dmemSize = alignUp(lead + sizeof(Sh4RCB) + ramSize, kLarge);
+	off_t physical = 0;
+	int32_t r = sceKernelAllocateDirectMemory(0, (off_t)sceKernelGetDirectMemorySize(), dmemSize, kLarge, kWbOnion, &physical);
+	if (r != 0)
+		return fastMemoryOff("no %zu MiB of direct memory (%x)", dmemSize >> 20, (unsigned)r);
+	dmem = physical;
+
+	reservedSize = 512_MB + sizeof(Sh4RCB) + ARAM_SIZE_MAX + 2 * kLarge;
+	// A hint whose range isn't free fails (ENOMEM) instead of the kernel looking on: a few are tried. Well above
+	// the app's heap (port/ps4_runtime.cpp: 0x600000000 to 0x1800000000) and the other cores' blocks.
+	void *base = nullptr;
+	r = -1;
+	for (uintptr_t hint : { 0x2800000000ull, 0x3000000000ull, 0x2000000000ull, 0x3800000000ull, 0x0ull })
+	{
+		base = (void *)hint;
+		r = sceKernelReserveVirtualRange(&base, reservedSize, 0, kLarge);
+		if (r == 0 && (uintptr_t)base >= kNotBelow)
+			break;
+		if (r == 0)
+		{
+			sceKernelMunmap(base, reservedSize);
+			r = -2;
+		}
+	}
+	if (r != 0)
+	{
+		release();
+		return fastMemoryOff("no %zu MiB of address space (%x)", reservedSize >> 20, (unsigned)r);
+	}
+	reservedBase = (u8 *)base;
+	// The same offset from a 2 MiB boundary as physSh4rcb: the emulated memory after it is aligned.
+	sh4rcbBase = (u8 *)alignUp((uintptr_t)reservedBase, kLarge) + lead;
+	ramBase = sh4rcbBase + sizeof(Sh4RCB);
+	if (((uintptr_t)ramBase & (kLarge - 1)) != 0 || ((physSh4rcb + sizeof(Sh4RCB)) & (kLarge - 1)) != 0
+			|| ramBase + 512_MB + ARAM_SIZE_MAX > reservedBase + reservedSize)
+	{
+		release();
+		return fastMemoryOff("the layout doesn't fit the reservation at %p", base);
+	}
+	fpcbChunkMapped.assign(kFpcbSize / kLarge + 2, false);
+	largeOk = true;
+
+	// The SH4 context after the fpcb (the fpcb itself is mapped on demand: ondemandPage). Direct memory comes as
+	// it was left.
+	if (!mapFixed(sh4rcbBase + kFpcbSize, sizeof(Sh4RCB) - kFpcbSize, physSh4rcb + (off_t)kFpcbSize, true))
+	{
+		release();
+		return fastMemoryOff("the SH4 context can't be mapped (%x)", (unsigned)lastMapError);
+	}
+	memset(sh4rcbBase + kFpcbSize, 0, sizeof(Sh4RCB) - kFpcbSize);
+
+	say("%zu MiB of direct memory at %llx, %zu MiB of address space at %p (sh4rcb %p, ram base %p), aliasing calls %x/%x: testing it",
+			dmemSize >> 20, (unsigned long long)dmem, reservedSize >> 20, reservedBase, sh4rcbBase, ramBase, (unsigned)aliasing1,
+			(unsigned)aliasing2);
+	char detail[200] = "";
+	if (const char *why = selfTest(detail, sizeof(detail)); why[0] != '\0')
+	{
+		release();
+		return fastMemoryOff("%s (aliasing calls %x/%x)", why, (unsigned)aliasing1, (unsigned)aliasing2);
+	}
+
+	active = true;
+	protectionOk = true;
+	countersNow(snapshot);
+	*sh4rcb_addr = sh4rcbBase;
+	*vmem_base_addr = ramBase;
+	say("fast memory on, %s pages; %s; kernel library memory %zu KiB free (was %zu)", largeOk ? "2 MiB" : "16 KiB", detail,
+			internalFree() / 1024, internalAtStart / 1024);
+	return true;
+}
+
+void destroy()
+{
+	tryingDone();
+	if (!active)
+		return;
+	int now[8];
+	countersNow(now);
+	active = false;
+	protectionOk = false;
+	release();
+	say("closed; faults while it was in use: code pages %d, VRAM %d, jump table %d, access rewrites %d, not ours %d; protection calls %d/%d; "
+			"kernel library memory %zu KiB free (was %zu)",
+			now[0] - snapshot[0], now[1] - snapshot[1], now[2] - snapshot[2], now[3] - snapshot[3], now[4] - snapshot[4],
+			now[5] - snapshot[5], now[6] - snapshot[6], internalFree() / 1024, internalAtStart / 1024);
+}
+
+// The fpcb goes back to faulting on first access.
+void resetMem(void *ptr, unsigned size_bytes)
+{
+	unmapToReserved(ptr, size_bytes);
+	std::fill(fpcbChunkMapped.begin(), fpcbChunkMapped.end(), false);
+}
+
+// The fpcb page holding `address`: maps the whole 2 MiB piece around it (clipped to the fpcb) and fills it with
+// "no block yet" (the caller, bm_lockedWrite, fills its own page again).
+void ondemandPage(void *address, unsigned size_bytes)
+{
+	u8 *fpcbStart = sh4rcbBase;
+	u8 *fpcbEnd = sh4rcbBase + kFpcbSize;
+	const uintptr_t piece = (uintptr_t)address & ~(uintptr_t)(kLarge - 1);
+	u8 *start = std::max(fpcbStart, (u8 *)piece);
+	u8 *end = std::min(fpcbEnd, (u8 *)(piece + kLarge));
+	// Pieces are numbered from the 2 MiB boundary at or below the fpcb's start.
+	const size_t chunk = (piece - ((uintptr_t)fpcbStart & ~(uintptr_t)(kLarge - 1))) / kLarge;
+	if (chunk < fpcbChunkMapped.size() && fpcbChunkMapped[chunk])
+		return;  // already mapped (a fault on a page mapped meanwhile): nothing to do
+	if (!mapFixed(start, end - start, physSh4rcb + (off_t)(start - sh4rcbBase), true))
+	{
+		ERROR_LOG(VMEM, "EmuSuNi: vmem: the jump table's piece at %p can't be mapped (%x)", start, (unsigned)lastMapError);
+		die("EmuSuNi: vmem: the jump table can't be mapped");
+	}
+	bm_vmem_pagefill((void **)start, (u32)(end - start));
+	if (chunk < fpcbChunkMapped.size())
+		fpcbChunkMapped[chunk] = true;
+}
+
+bool createMappings(const virtmem::Mapping *maps, unsigned count)
+{
+	for (unsigned i = 0; i < count; i++)
+	{
+		// Unmapped areas stay reserved (they fault).
+		if (maps[i].memsize == 0)
+			continue;
+		const u64 rangeSize = maps[i].end_address - maps[i].start_address;
+		const unsigned mirrors = (unsigned)(rangeSize / maps[i].memsize);
+		if (rangeSize % maps[i].memsize != 0 || mirrors < 1)
+			return fastMemoryOff("a memory map that doesn't divide into mirrors");
+		for (unsigned j = 0; j < mirrors; j++)
+		{
+			const u64 offset = maps[i].start_address + j * maps[i].memsize;
+			u8 *address = &ramBase[offset];
+			// A mapping from an earlier game (another memory size) may be in the way.
+			unmapToReserved(address, maps[i].memsize);
+			if (!mapFixed(address, maps[i].memsize, (off_t)(physSh4rcb + sizeof(Sh4RCB) + maps[i].memoffset), maps[i].allow_writes))
+				return fastMemoryOff("a mirror of the memory (%zx bytes at %p) can't be mapped (%x)", (size_t)maps[i].memsize, (void *)address,
+						(unsigned)lastMapError);
+		}
+	}
+	tryingDone();  // the first game's memory is mapped: past the kernel calls that could take the start down
+	return true;
+}
+
+bool regionLock(void *start, size_t len)
+{
+	const size_t inpage = (uintptr_t)start & (kPage - 1);
+	if (!protect((u8 *)start - inpage, alignUp(len + inpage, kPage), kProtRead))
+	{
+		ERROR_LOG(VMEM, "EmuSuNi: vmem: locking %p (%zu KiB) failed", start, len / 1024);
+		return false;  // (nothing protected there: the page stays writable)
+	}
+	return true;
+}
+
+bool regionUnlock(void *start, size_t len)
+{
+	const size_t inpage = (uintptr_t)start & (kPage - 1);
+	if (!protect((u8 *)start - inpage, alignUp(len + inpage, kPage), kProtRW))
+		die("EmuSuNi: vmem: unlocking a page failed");
+	return true;
+}
+}  // namespace emusuni::vmem
+
+#endif  // EMUSUNI_PORT
+''')
+patch('core/linux/posix_vmem.cpp',
+      '#include "oslib/virtmem.h"\n\n#ifndef MAP_NOSYNC\n',
+      '#include "oslib/virtmem.h"\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '#include "emusuni_timing.h"\n'
+      '#include "emusuni_vmem.h"\n'
+      '#endif\n\n#ifndef MAP_NOSYNC\n')
+# The virtmem API on the PS4's kernel (linux/emusuni_vmem.cpp: fast memory, the PC tests on stand-ins for its
+# calls) while that is in use (emusuni::vmem::active); else Flycast's fallback (init returns false: no virtual
+# memory, the memory blocks of emusuni_mem.cpp, the memory handlers) or, on the PC tests, upstream's own.
 patch('core/linux/posix_vmem.cpp',
       'bool init(void **vmem_base_addr, void **sh4rcb_addr, size_t ramSize)\n{\n',
       'bool init(void **vmem_base_addr, void **sh4rcb_addr, size_t ramSize)\n{\n'
       '#ifdef EMUSUNI_PORT\n'
-      '\t// EmuSuNi: no virtual memory (its mirrors are the same memory mapped several times, which the\n'
-      '\t// PS4 doesn\'t allow): Flycast\'s fallback, the memory blocks of emusuni_mem.cpp. (The PC tests\n'
-      '\t// may compare with upstream\'s: EMUSUNI_DC_VMEM=1.)\n'
+      '\t// EmuSuNi: fast memory (linux/emusuni_vmem.cpp) unless it is switched off or the system refuses it (the\n'
+      '\t// log says why): then Flycast\'s fallback, no virtual memory. (The PC tests may compare with upstream\'s own\n'
+      '\t// virtual memory: EMUSUNI_DC_VMEM=1.)\n'
       '#if !defined(__ORBIS__)\n'
       '\tif (getenv("EMUSUNI_DC_VMEM") == nullptr)\n'
       '#endif\n'
-      '\t\treturn false;\n'
+      '\t\treturn emusuni::vmem::init(vmem_base_addr, sh4rcb_addr, ramSize);\n'
+      '#endif\n')
+patch('core/linux/posix_vmem.cpp',
+      'void destroy()\n{\n',
+      'void destroy()\n{\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\tif (emusuni::vmem::active)\n'
+      '\t{\n'
+      '\t\temusuni::vmem::destroy();\n'
+      '\t\treturn;\n'
+      '\t}\n'
+      '#endif\n')
+patch('core/linux/posix_vmem.cpp',
+      'void reset_mem(void *ptr, unsigned size_bytes) {\n',
+      'void reset_mem(void *ptr, unsigned size_bytes) {\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\tif (emusuni::vmem::active)\n'
+      '\t{\n'
+      '\t\temusuni::vmem::resetMem(ptr, size_bytes);\n'
+      '\t\treturn;\n'
+      '\t}\n'
+      '#endif\n')
+patch('core/linux/posix_vmem.cpp',
+      'void ondemand_page(void *address, unsigned size_bytes) {\n',
+      'void ondemand_page(void *address, unsigned size_bytes) {\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\tif (emusuni::vmem::active)\n'
+      '\t{\n'
+      '\t\temusuni::vmem::ondemandPage(address, size_bytes);\n'
+      '\t\treturn;\n'
+      '\t}\n'
+      '#endif\n')
+patch('core/linux/posix_vmem.cpp',
+      'void create_mappings(const Mapping *vmem_maps, unsigned nummaps) {\n',
+      'void create_mappings(const Mapping *vmem_maps, unsigned nummaps) {\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\tif (emusuni::vmem::active)\n'
+      '\t{\n'
+      '\t\temusuni::vmem::createMappings(vmem_maps, nummaps);\n'
+      '\t\treturn;\n'
+      '\t}\n'
+      '#endif\n')
+patch('core/linux/posix_vmem.cpp',
+      '// Prepares the code region for JIT operations, thus marking it as RWX\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '// EmuSuNi: create_mappings that says whether it worked (addrspace.cpp falls back when it didn\'t).\n'
+      'bool create_mappings_checked(const Mapping *vmem_maps, unsigned nummaps)\n'
+      '{\n'
+      '\tif (emusuni::vmem::active)\n'
+      '\t\treturn emusuni::vmem::createMappings(vmem_maps, nummaps);\n'
+      '\tcreate_mappings(vmem_maps, nummaps);\n'
+      '\treturn true;\n'
+      '}\n'
+      '#endif\n\n'
+      '// Prepares the code region for JIT operations, thus marking it as RWX\n')
+patch('core/oslib/virtmem.h',
+      '// To create the mappings in the address space.\nvoid create_mappings(const Mapping *vmem_maps, unsigned nummaps);\n',
+      '// To create the mappings in the address space.\nvoid create_mappings(const Mapping *vmem_maps, unsigned nummaps);\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '// EmuSuNi: the same, false if a mapping failed (addrspace::initMappings then falls back).\n'
+      'bool create_mappings_checked(const Mapping *vmem_maps, unsigned nummaps);\n'
       '#endif\n')
 patch('core/linux/posix_vmem.cpp',
       'namespace virtmem\n{\n\nbool region_lock(void *start, size_t len)\n{\n',
@@ -329,6 +1710,9 @@ patch('core/linux/posix_vmem.cpp',
       '#ifdef EMUSUNI_PORT\n'
       '\tif (!emusuniWriteProtectOk)\n'
       '\t\treturn false;  // EmuSuNi: no page protection here (linux/common.cpp\'s test)\n'
+      '\temusuni::timing.protects++;\n'
+      '\tif (emusuni::vmem::active)\n'
+      '\t\treturn emusuni::vmem::regionLock(start, len);\n'
       '#endif\n')
 patch('core/linux/posix_vmem.cpp',
       '\tif (mprotect((u8*)start - inpage, len + inpage, PROT_READ))\n\t\tdie("mprotect failed...");\n',
@@ -357,6 +1741,9 @@ patch('core/linux/posix_vmem.cpp',
       '#ifdef EMUSUNI_PORT\n'
       '\tif (emusuniWriteProtectTested && !emusuniWriteProtectOk)\n'
       '\t\treturn false;  // EmuSuNi: nothing was write-protected (and mprotect may be refused)\n'
+      '\temusuni::timing.unprotects++;\n'
+      '\tif (emusuni::vmem::active)\n'
+      '\t\treturn emusuni::vmem::regionUnlock(start, len);\n'
       '#endif\n')
 patch('core/linux/posix_vmem.cpp',
       'bool prepare_jit_block(void *code_area, size_t size, void **code_area_rwx)\n{\n',
@@ -417,11 +1804,44 @@ patch('core/hw/mem/addrspace.cpp',
       '\t\tsettings.platform.vram_size = 0;\n'
       '#endif\n'
       '\t}\n')
+# The same with the fast memory: it is unmapped and reserved again by the next game's retro_init, so nothing may
+# touch it between games (maple_ReconnectDevices, setPlatform's unprotectVram of the game before...).
+patch('core/hw/mem/addrspace.cpp',
+      '\t\tvirtmem::destroy();\n\t\tram_base = nullptr;\n',
+      '\t\tvirtmem::destroy();\n\t\tram_base = nullptr;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\t// EmuSuNi: no memory between games, as the fallback leaves it (termMappings).\n'
+      '\t\tp_sh4rcb = nullptr;\n'
+      '\t\tmem_b.free();\n'
+      '\t\tvram.free();\n'
+      '\t\taica::aica_ram.free();\n'
+      '\t\telan::RAM = nullptr;\n'
+      '\t\tsettings.platform.vram_size = 0;\n'
+      '#endif\n')
+# Fast memory whose mirrors can't be mapped (reserve() got the address space and the memory block at start): the
+# fallback, as if it hadn't been had.
+patch('core/hw/mem/addrspace.cpp',
+      '\t\tvirtmem::create_mappings(&mem_mappings[0], std::size(mem_mappings));\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\tif (!virtmem::create_mappings_checked(&mem_mappings[0], std::size(mem_mappings)))\n'
+      '\t\t{\n'
+      '\t\t\t// EmuSuNi: the log says why; Flycast\'s fallback, the memory handlers, from this game on.\n'
+      '\t\t\tvirtmem::destroy();\n'
+      '\t\t\tram_base = nullptr;\n'
+      '\t\t\tp_sh4rcb = nullptr;\n'
+      '\t\t\temusuniProbeAfterFallback();\n'
+      '\t\t\tinitMappings();\n'
+      '\t\t\treturn;\n'
+      '\t\t}\n'
+      '#else\n'
+      '\t\tvirtmem::create_mappings(&mem_mappings[0], std::size(mem_mappings));\n'
+      '#endif\n')
 patch('core/hw/mem/addrspace.cpp',
       '\nnamespace addrspace\n{\n\n#define HANDLER_MAX 0x1F\n',
       '\n#ifdef EMUSUNI_PORT\n'
       'void *emusuni_pages_alloc(size_t size);  // oslib/emusuni_mem.cpp\n'
       'void emusuni_pages_free(void *p);\n'
+      'void emusuniProbeAfterFallback();  // linux/common.cpp\n'
       '#endif\n\n'
       'namespace addrspace\n{\n\n#define HANDLER_MAX 0x1F\n')
 patch('core/stdclass.cpp',
@@ -680,13 +2100,17 @@ patch('core/hw/aica/dsp_x64.cpp',
       '\t}\n'
       '#endif\n')
 
-# --- The fault handler: write-protected pages only (no virtual memory: nothing else is the core's).
-# On the PS4 with the FreeBSD kernel's values written out (as port/ps4_crashlog.cpp has them: SIGSEGV
-# 11, SIGBUS 10, SA_SIGINFO 0x40, si_addr 24 bytes into the siginfo), whatever a header says; the
-# struct sigaction handed to the kernel checked to be FreeBSD's when this compiles. A fault that isn't
-# a write to a protected page of the core's goes on to the handler before (the app's crash log), as
-# the kernel would. Checked once when it's installed: a page protected and written to must fault and
-# come back written (else nothing is write-protected: the blocks check their code instead).
+# --- The fault handler: the core's own faults only, everything else goes on to the handler before (the
+# app's crash log), as the kernel would call it. The core's: a write to a page the core write-protected
+# (the textures' VRAM, the RAM of compiled code) and, with the fast memory (linux/emusuni_vmem.cpp), the SH4
+# jump table's pieces not mapped yet and the recompiled accesses to the hardware's addresses (not mapped),
+# rewritten as calls of the memory handlers. On the PS4 with the FreeBSD kernel's values written out
+# (emusuni_vmem.h, as port/ps4_crashlog.cpp has them: SIGSEGV 11, SIGBUS 10, SA_SIGINFO 0x40, si_addr 24
+# bytes into the siginfo, the registers 0x40 bytes into the context: linux/context.cpp), whatever a header
+# says; the struct sigaction handed to the kernel checked to be FreeBSD's when this compiles. Without the
+# fast memory, checked once when it's installed: a page protected and written to must fault and come back
+# written (else nothing is write-protected: the blocks check their code instead). Every kind of fault is
+# counted (emusuni_timing.h; the log line every 10 s).
 patch('core/linux/common.cpp',
       'void fault_handler(int sn, siginfo_t * si, void *segfault_ctx)\n{\n',
       r'''#ifdef EMUSUNI_PORT
@@ -695,16 +2119,8 @@ patch('core/linux/common.cpp',
 #include <csetjmp>
 #include <cstddef>
 #include <sys/mman.h>
-
-#if defined(__ORBIS__)
-static constexpr int kEmuSigBus = 10, kEmuSigSegv = 11, kEmuSaSiginfo = 0x40;
-static constexpr size_t kEmuSiAddr = 24;
-static_assert(offsetof(struct sigaction, sa_flags) == 8 && sizeof(sigset_t) == 16,
-	"struct sigaction isn't FreeBSD's: the PSChrome libc overlay's headers must come first");
-#else
-static constexpr int kEmuSigBus = SIGBUS, kEmuSigSegv = SIGSEGV, kEmuSaSiginfo = SA_SIGINFO;
-static constexpr size_t kEmuSiAddr = offsetof(siginfo_t, si_addr);
-#endif
+#include "emusuni_timing.h"
+#include "emusuni_vmem.h"
 
 extern bool emusuniWriteProtectOk, emusuniWriteProtectTested;  // oslib/emusuni_mem.cpp
 void *emusuni_pages_alloc(size_t size);
@@ -729,35 +2145,50 @@ static bool emusuniProbeFault(void *address)
 
 static void fault_handler(int sn, siginfo_t *si, void *segfault_ctx)
 {
-	void *address = *(void **)((char *)si + kEmuSiAddr);
+	void *address = emusuni::faultAddress(si);
 	if (emusuniProbeFault(address))
 		return;
+	emusuni::Timing& count = emusuni::timing;
 	// Ram watcher for net rollback
 	if (memwatch::writeAccess(address))
 		return;
 	// code protection in RAM
 	if (bm_RamWriteAccess(address))
-		return;
-	// texture protection in VRAM
-	if (VramLockedWrite((u8 *)address))
-		return;
-#if !defined(__ORBIS__)
-	// (The PC tests' comparison with upstream's virtual memory, EMUSUNI_DC_VMEM=1: its jump table's
-	// pages made on demand, its fast memory accesses rewritten. Nothing of it without that memory.)
-	if (addrspace::bm_lockedWrite((u8 *)address))
-		return;
-	host_context_t ctx;
-	context_from_segfault(&ctx, segfault_ctx);
-	if (sh4Dynarec->rewrite(ctx, address))
 	{
-		context_to_segfault(&ctx, segfault_ctx);
+		count.faultsCode++;
 		return;
 	}
-	ERROR_LOG(COMMON, "SIGSEGV @ %p invalid access to %p", (void *)ctx.pc, address);
-#endif
+	// texture protection in VRAM
+	if (VramLockedWrite((u8 *)address))
+	{
+		count.faultsVram++;
+		return;
+	}
+	if (addrspace::virtmemEnabled())
+	{
+		// The fast memory's (linux/emusuni_vmem.cpp; on the PC tests also upstream's own virtual memory,
+		// EMUSUNI_DC_VMEM=1): the jump table's pieces not mapped yet, and the recompiled accesses to the
+		// hardware's addresses (not mapped), rewritten as calls of the memory handlers. Without that memory
+		// nothing but the two above is the core's: the context is not even read.
+		if (addrspace::bm_lockedWrite((u8 *)address))
+		{
+			count.faultsTable++;
+			return;
+		}
+		host_context_t ctx;
+		context_from_segfault(&ctx, segfault_ctx);
+		if (sh4Dynarec->rewrite(ctx, address))
+		{
+			context_to_segfault(&ctx, segfault_ctx);
+			count.faultsRewrite++;
+			return;
+		}
+		ERROR_LOG(COMMON, "SIGSEGV @ %p invalid access to %p", (void *)ctx.pc, address);
+	}
+	count.faultsOther++;
 	// Not the core's: the handler before (the app's crash log), as the kernel would have called it.
-	struct sigaction *old = sn == kEmuSigSegv ? &emusuniOldSegv : &emusuniOldBus;
-	if (old->sa_flags & kEmuSaSiginfo)
+	struct sigaction *old = sn == emusuni::kSigSegv ? &emusuniOldSegv : &emusuniOldBus;
+	if (old->sa_flags & emusuni::kSaSiginfo)
 	{
 		old->sa_sigaction(sn, si, segfault_ctx);
 		return;
@@ -774,56 +2205,74 @@ static void fault_handler(int sn, siginfo_t *si, void *segfault_ctx)
 	old->sa_handler(sn);
 }
 
-// Does a write to a write-protected page fault, reach the handler and come back written?
+// Does a write to a write-protected page fault, reach the handler and come back written? (Without the fast
+// memory, which tests its own page locking: linux/emusuni_vmem.cpp.) Tried once.
 static void emusuniProbeWriteProtection()
 {
-	static bool done = false;
-	if (done)
-		return;
-	done = true;
-	u8 *page = (u8 *)emusuni_pages_alloc(PAGE_SIZE);
-	bool ok = false;
-	const char *why = "no memory";
-	if (page != nullptr)
+	static int result = -1;  // -1: not tried yet
+	if (result < 0)
 	{
-		if (mprotect(page, PAGE_SIZE, PROT_READ) != 0)
-			why = "mprotect refused";
-		else
+		u8 *page = (u8 *)emusuni_pages_alloc(PAGE_SIZE);
+		bool ok = false;
+		const char *why = "no memory";
+		if (page != nullptr)
 		{
-			emusuniProbeFaults = 0;
-			emusuniProbePage = page;
-			if (sigsetjmp(emusuniProbeJump, 1) == 0)
-			{
-				((volatile u8 *)page)[100] = 0x5a;
-				ok = ((volatile u8 *)page)[100] == 0x5a && emusuniProbeFaults == 1;
-				why = emusuniProbeFaults == 0 ? "the write didn't fault" : "?";
-			}
+			if (mprotect(page, PAGE_SIZE, PROT_READ) != 0)
+				why = "mprotect refused";
 			else
-				why = "the page couldn't be made writable again in the handler";
-			emusuniProbePage = nullptr;
-			mprotect(page, PAGE_SIZE, PROT_READ | PROT_WRITE);
+			{
+				emusuniProbeFaults = 0;
+				emusuniProbePage = page;
+				if (sigsetjmp(emusuniProbeJump, 1) == 0)
+				{
+					((volatile u8 *)page)[100] = 0x5a;
+					ok = ((volatile u8 *)page)[100] == 0x5a && emusuniProbeFaults == 1;
+					why = emusuniProbeFaults == 0 ? "the write didn't fault" : "?";
+				}
+				else
+					why = "the page couldn't be made writable again in the handler";
+				emusuniProbePage = nullptr;
+				mprotect(page, PAGE_SIZE, PROT_READ | PROT_WRITE);
+			}
+			emusuni_pages_free(page);
 		}
-		emusuni_pages_free(page);
+		result = ok ? 1 : 0;
+		if (ok)
+			NOTICE_LOG(VMEM, "EmuSuNi: write-protected pages fault and come back: texture and code protection on");
+		else
+			ERROR_LOG(VMEM, "EmuSuNi: write-protected pages don't work (%s): no texture invalidation, the recompiler checks its blocks", why);
 	}
-	emusuniWriteProtectOk = ok;
+	emusuniWriteProtectOk = result > 0;
 	emusuniWriteProtectTested = true;
-	if (ok)
-		NOTICE_LOG(VMEM, "EmuSuNi: write-protected pages fault and come back: texture and code protection on");
-	else
-		ERROR_LOG(VMEM, "EmuSuNi: write-protected pages don't work (%s): no texture invalidation, the recompiler checks its blocks", why);
 }
 
+// The fast memory given up at a game's start (addrspace.cpp): the memory blocks' pages are locked with the libc's
+// mprotect from here on, which the test above may not have tried yet in this process.
+void emusuniProbeAfterFallback()
+{
+	emusuniProbeWriteProtection();
+}
+
+// No alternate signal stack: the app gives its threads none (SA_ONSTACK would do nothing). SIGBUS as well as
+// SIGSEGV: on the PS4 a write to a read-only direct memory page may raise either.
 void os_InstallFaultHandler()
 {
 	if (emusuniInstalled)
 		return;
 	struct sigaction act {};  // (an empty mask)
 	act.sa_sigaction = fault_handler;
-	act.sa_flags = kEmuSaSiginfo;
-	sigaction(kEmuSigSegv, &act, &emusuniOldSegv);
-	sigaction(kEmuSigBus, &act, &emusuniOldBus);
+	act.sa_flags = emusuni::kSaSiginfo;
+	sigaction(emusuni::kSigSegv, &act, &emusuniOldSegv);
+	sigaction(emusuni::kSigBus, &act, &emusuniOldBus);
 	emusuniInstalled = true;
-	emusuniProbeWriteProtection();
+	if (emusuni::vmem::active)
+	{
+		// The fast memory tested locking its own pages when it started.
+		emusuniWriteProtectOk = emusuni::vmem::protectionOk;
+		emusuniWriteProtectTested = true;
+	}
+	else
+		emusuniProbeWriteProtection();
 }
 
 void os_UninstallFaultHandler()
@@ -831,8 +2280,8 @@ void os_UninstallFaultHandler()
 	if (!emusuniInstalled)
 		return;
 	// The handlers before (the app's crash log) back.
-	sigaction(kEmuSigSegv, &emusuniOldSegv, nullptr);
-	sigaction(kEmuSigBus, &emusuniOldBus, nullptr);
+	sigaction(emusuni::kSigSegv, &emusuniOldSegv, nullptr);
+	sigaction(emusuni::kSigBus, &emusuniOldBus, nullptr);
 	emusuniInstalled = false;
 }
 #else  // !EMUSUNI_PORT
@@ -846,6 +2295,225 @@ patch('core/linux/common.cpp',
       'void os_UninstallFaultHandler()\n{\n#ifndef __SWITCH__\n\tsigaction(SIGSEGV, &next_segv_handler, nullptr);\n'
       '#endif\n#if defined(__APPLE__)\n\tsigaction(SIGBUS, &next_bus_handler, nullptr);\n#endif\n}\n'
       '#endif  // !EMUSUNI_PORT\n')
+
+# The registers the recompiler's rewrite of a memory access reads and writes (the fault's pc, rsp, r9 and rdi)
+# in the signal context, on the PS4: the kernel's (FreeBSD's) register block starts 0x40 bytes into it
+# (measured on hardware, as port/ps4_crashlog.cpp has it), in mcontext order: rdi the 2nd 8-byte slot, r9 the
+# 7th, rip the 21st, rsp the 24th. The libc overlay's ucontext_t places them elsewhere.
+patch('core/linux/context.cpp',
+      '\t#if defined(__FreeBSD__) || defined(__DragonFly__)\n\t\tbicopy<ToSegfault>(hostctx->pc, MCTX(.mc_rip));\n',
+      '\t#if defined(EMUSUNI_PORT) && defined(__ORBIS__)\n'
+      '\t\tu64 *mc = (u64 *)((u8 *)segfault_ctx + 0x40);\n'
+      '\t\tbicopy<ToSegfault>(hostctx->pc, mc[20]);\n'
+      '\t\tbicopy<ToSegfault>(hostctx->rsp, mc[23]);\n'
+      '\t\tbicopy<ToSegfault>(hostctx->r9, mc[6]);\n'
+      '\t\tbicopy<ToSegfault>(hostctx->rdi, mc[1]);\n'
+      '\t#elif defined(__FreeBSD__) || defined(__DragonFly__)\n\t\tbicopy<ToSegfault>(hostctx->pc, MCTX(.mc_rip));\n')
+
+# --- The recompiler's dispatch, for the PS4's Jaguar cores: two changes of Resonance's (https://github.com/iHaiDeeZ/
+# Resonance, GPL-2.0, a Flycast-based Dreamcast emulator for the PS4 by the author of DolphinPS4), plain x86-64, so
+# the PC tests run them. (1) A block that ends with time left in the slice and the MMU off jumps straight to the
+# next block through the jump table, instead of returning to the main loop to look it up and call it: the stack is
+# as the main loop's call left it, so the next block (or ngen_FailedToFindBlock) runs exactly as if called from
+# there, and its ret goes back to the main loop; an indirect jump at every block's end predicts far better on the
+# Jaguar than the main loop's one shared call. (2) The main loop reads the jump table inline instead of calling
+# bm_GetCodeByVAddr (without the MMU that is all it does), which saved and restored six registers around one load:
+# ~30% of the emulation thread on the Jaguar by Resonance's profile. EMUSUNI_DC_DISPATCH=0 (or the file
+# /data/EmuSuNi/dc-dispatch-off on the PS4) switches both off.
+patch('core/rec-x64/rec_x64.cpp',
+      '#include "cfg/option.h"\n',
+      '#include "cfg/option.h"\n#ifdef EMUSUNI_PORT\n#include "emusuni_options.h"\n#endif\n')
+patch('core/rec-x64/rec_x64.cpp',
+      'static u64 jmp_rsp;\n',
+      'static u64 jmp_rsp;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '// EmuSuNi: the two dispatch changes below, unless switched off (emusuni_options.h).\n'
+      'static bool emusuniDispatch()\n'
+      '{\n'
+      '\tstatic const bool enabled = []() {\n'
+      '\t\tchar how[96];\n'
+      '\t\tconst bool on = emusuni::dcOption("DISPATCH", how, sizeof(how));\n'
+      '\t\tNOTICE_LOG(DYNAREC, "EmuSuNi: SH4 recompiler: tail dispatch and inline block lookup %s%s%s", on ? "on" : "off",\n'
+      '\t\t\thow[0] != \'\\0\' ? ": " : "", how);\n'
+      '\t\treturn on;\n'
+      '\t}();\n'
+      '\treturn enabled;\n'
+      '}\n'
+      '#endif\n')
+patch('core/rec-x64/rec_x64.cpp',
+      '\t\tL(exit_block);\n\t\tadd(rsp, STACK_ALIGN);\n\t\tret();\n',
+      '\t\tL(exit_block);\n\t\tadd(rsp, STACK_ALIGN);\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\tif (emusuniDispatch())\n'
+      '\t\t{\n'
+      '\t\t\tXbyak::Label toMainloop;\n'
+      '\t\t\tmov(rax, (uintptr_t)&sh4ctx.cycle_counter);\n'
+      '\t\t\tcmp(dword[rax], 0);\n'
+      '\t\t\tjle(toMainloop, T_NEAR);\n'
+      '\t\t\tmov(rax, (size_t)&mmuOn);\n'
+      '\t\t\tcmp(byte[rax], 0);\n'
+      '\t\t\tjne(toMainloop, T_NEAR);\n'
+      '\t\t\tmov(rax, (size_t)&sh4ctx.pc);\n'
+      '\t\t\tmov(edx, dword[rax]);\n'
+      '\t\t\tand_(edx, FPCB_MASK << 1);\n'
+      '\t\t\tmov(rax, (size_t)&p_sh4rcb);\n'
+      '\t\t\tmov(rax, qword[rax]);\n'
+      '\t\t\tjmp(qword[rax + rdx * 4]);\n'
+      '\t\t\tL(toMainloop);\n'
+      '\t\t}\n'
+      '#endif\n'
+      '\t\tret();\n')
+patch('core/rec-x64/rec_x64.cpp',
+      '\t\tcall(bm_GetCodeByVAddr);\n\t\tcall(rax);\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\tif (emusuniDispatch())\n'
+      '\t\t{\n'
+      '\t\t\tXbyak::Label slowLookup, haveCode;\n'
+      '\t\t\tmov(rax, (size_t)&mmuOn);\n'
+      '\t\t\tcmp(byte[rax], 0);\n'
+      '\t\t\tjne(slowLookup, T_NEAR);\n'
+      '\t\t\tmov(rax, (size_t)&p_sh4rcb);\n'
+      '\t\t\tmov(rax, qword[rax]);  // the jump table is the first member of the Sh4RCB\n'
+      '\t\t\tmov(edx, call_regs[0]);\n'
+      '\t\t\tand_(edx, FPCB_MASK << 1);\n'
+      '\t\t\tmov(rax, qword[rax + rdx * 4]);  // fpcb[(pc >> 1) & FPCB_MASK]\n'
+      '\t\t\tjmp(haveCode, T_NEAR);\n'
+      '\t\t\tL(slowLookup);\n'
+      '\t\t\tcall(bm_GetCodeByVAddr);\n'
+      '\t\t\tL(haveCode);\n'
+      '\t\t}\n'
+      '\t\telse\n'
+      '#endif\n'
+      '\t\t\tcall(bm_GetCodeByVAddr);\n'
+      '\t\tcall(rax);\n')
+
+# --- Hot pages, for the PS4's page faults (Resonance's too): a fault costs the PS4 a signal, about a millisecond
+# with the protection changes, and its pages are 16 KiB: a page a game keeps writing (a texture it animates,
+# data next to textures) can fault hundreds of times a second. A VRAM page that faults more than 6 times in a
+# second stops being protected for 10 s; the textures on it are checked by hash when used instead (once a frame),
+# and protected again when it has cooled down. EMUSUNI_DC_HOTPAGES=0 (or the file /data/EmuSuNi/dc-hotpages-off)
+# switches it off.
+patch('core/rend/TexCache.cpp',
+      'static std::mutex vramlist_lock;\n',
+      'static std::mutex vramlist_lock;\n'
+      '\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '#include "emusuni_options.h"\n'
+      '#include <atomic>\n'
+      'namespace\n'
+      '{\n'
+      'constexpr u32 kHotFaults = 6;\n'
+      'constexpr u64 kHotMs = 10000;\n'
+      'constexpr size_t kMaxPages = VRAM_SIZE_MAX / PAGE_SIZE;\n'
+      'std::atomic<u32> pageFaults[kMaxPages];\n'
+      'std::atomic<u64> pageWindow[kMaxPages];\n'
+      'std::atomic<u64> pageHotUntil[kMaxPages];\n'
+      '\n'
+      'bool hotPagesOn()\n'
+      '{\n'
+      '\tstatic const bool enabled = []() {\n'
+      '\t\tchar how[96];\n'
+      '\t\tconst bool on = emusuni::dcOption("HOTPAGES", how, sizeof(how));\n'
+      '\t\tNOTICE_LOG(RENDERER, "EmuSuNi: hot VRAM pages %s%s%s", on ? "on" : "off", how[0] != \'\\0\' ? ": " : "", how);\n'
+      '\t\treturn on;\n'
+      '\t}();\n'
+      '\treturn enabled;\n'
+      '}\n'
+      '\n'
+      'void notePageFault(size_t page)\n'
+      '{\n'
+      '\tif (page >= kMaxPages || !hotPagesOn())\n'
+      '\t\treturn;\n'
+      '\tconst u64 now = getTimeMs();\n'
+      '\tif (now - pageWindow[page] > 1000)\n'
+      '\t{\n'
+      '\t\tpageWindow[page] = now;\n'
+      '\t\tpageFaults[page] = 0;\n'
+      '\t}\n'
+      '\tif (++pageFaults[page] >= kHotFaults && pageHotUntil[page] < now)\n'
+      '\t{\n'
+      '\t\tpageHotUntil[page] = now + kHotMs;\n'
+      '\t\tstatic int said = 0;\n'
+      '\t\tif (said++ < 8)\n'
+      '\t\t\tNOTICE_LOG(RENDERER, "EmuSuNi: VRAM page %x is hot: its textures are hash-checked for %d s", (u32)(page * PAGE_SIZE), (int)(kHotMs / 1000));\n'
+      '\t}\n'
+      '}\n'
+      '\n'
+      'bool rangeHot(u32 start, u32 end)\n'
+      '{\n'
+      '\tif (!hotPagesOn())\n'
+      '\t\treturn false;\n'
+      '\tconst u64 now = getTimeMs();\n'
+      '\tfor (size_t page = start / PAGE_SIZE; page <= end / PAGE_SIZE && page < kMaxPages; page++)\n'
+      '\t\tif (pageHotUntil[page] > now)\n'
+      '\t\t\treturn true;\n'
+      '\treturn false;\n'
+      '}\n'
+      '}  // namespace\n'
+      '#endif\n')
+patch('core/rend/TexCache.cpp',
+      '\tsize_t addr_hash = offset / PAGE_SIZE;\n',
+      '\tsize_t addr_hash = offset / PAGE_SIZE;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\tnotePageFault(addr_hash);\n'
+      '#endif\n')
+patch('core/rend/TexCache.cpp',
+      '//true if : dirty or paletted texture and hashes don\'t match\nbool BaseTextureCacheData::NeedsUpdate() {\n\tbool rc = dirty != 0;\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '// The hash of the texture\'s data in VRAM now (hot pages), inside the VRAM whatever the texture says.\n'
+      'u32 BaseTextureCacheData::currentDataHash() const\n'
+      '{\n'
+      '\tconst u32 start = std::min<u32>(mmStartAddress, VRAM_SIZE);\n'
+      '\tu32 h = XXH32(&vram[start], std::min<u32>(size, VRAM_SIZE - start), 11);\n'
+      '\tif (tcw.VQ_Comp)\n'
+      '\t\th ^= XXH32(&vram[std::min<u32>(startAddress, VRAM_SIZE - VQ_CODEBOOK_SIZE)], VQ_CODEBOOK_SIZE, 13);\n'
+      '\treturn h;\n'
+      '}\n\n'
+      '#endif\n'
+      '//true if : dirty or paletted texture and hashes don\'t match\nbool BaseTextureCacheData::NeedsUpdate() {\n\tbool rc = dirty != 0;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\tif (hashWatched && !rc && lock_block == nullptr && watchFrame != FrameCount)\n'
+      '\t{\n'
+      '\t\t// On a hot page: the data checked once a frame instead of a write protection.\n'
+      '\t\twatchFrame = FrameCount;\n'
+      '\t\tif (currentDataHash() != watchHash)\n'
+      '\t\t\trc = true;\n'
+      '\t\telse if (!rangeHot(startAddress, std::min<u32>(mmStartAddress + size - 1, VRAM_SIZE - 1)))\n'
+      '\t\t\tprotectVRam();  // the page has cooled down: protected again\n'
+      '\t}\n'
+      '#endif\n')
+patch('core/rend/TexCache.cpp',
+      '\tif (startAddress > end)\n\t{\n\t\tWARN_LOG(PVR, "vramlock_Lock: startAddress > end. Tried to lock negative block");\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '\tif (rangeHot(startAddress, end))\n'
+      '\t{\n'
+      '\t\t// A hot page: not protected, checked by its hash when used (NeedsUpdate).\n'
+      '\t\thashWatched = true;\n'
+      '\t\twatchHash = currentDataHash();\n'
+      '\t\twatchFrame = FrameCount;\n'
+      '\t\treturn;\n'
+      '\t}\n'
+      '\thashWatched = false;\n'
+      '#endif\n'
+      '\tif (startAddress > end)\n\t{\n\t\tWARN_LOG(PVR, "vramlock_Lock: startAddress > end. Tried to lock negative block");\n')
+patch('core/rend/TexCache.h',
+      '\t\tgpuPalette = other.gpuPalette;\n\t\tarea = other.area;\n',
+      '\t\tgpuPalette = other.gpuPalette;\n\t\tarea = other.area;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\thashWatched = other.hashWatched;\n'
+      '\t\twatchHash = other.watchHash;\n'
+      '\t\twatchFrame = other.watchFrame;\n'
+      '#endif\n')
+patch('core/rend/TexCache.h',
+      '\tu32 dirty;\t\t\t// frame number at which texture was overwritten\n\tvram_block* lock_block;\n',
+      '\tu32 dirty;\t\t\t// frame number at which texture was overwritten\n\tvram_block* lock_block;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t// EmuSuNi: on a hot VRAM page the texture isn\'t write-protected but checked by its hash when used (TexCache.cpp)\n'
+      '\tbool hashWatched = false;\n'
+      '\tu32 watchHash = 0;\n'
+      '\tu32 watchFrame = 0;\n'
+      '\tu32 currentDataHash() const;\n'
+      '#endif\n')
 
 # --- Threads: the app names and places them.
 patch('core/linux/common.cpp',
@@ -1364,6 +3032,14 @@ struct Timing
 	std::atomic<int> shadersCompiled { 0 };   // of them not in the SPIR-V cache
 	std::atomic<int64_t> gpuWaitNs { 0 };     // fences and idle waits: the GPU behind
 	std::atomic<int> idleWaits { 0 };         // vkQueueWaitIdle / vkDeviceWaitIdle: full GPU syncs
+	// The fault handler's (linux/common.cpp), by kind, and the page locks (linux/posix_vmem.cpp):
+	std::atomic<int> faultsCode { 0 };        // a write to a page of compiled code (the blocks of it dropped)
+	std::atomic<int> faultsVram { 0 };        // a write to a texture's VRAM (the texture dropped)
+	std::atomic<int> faultsTable { 0 };       // the SH4 jump table's piece not mapped yet (fast memory)
+	std::atomic<int> faultsRewrite { 0 };     // a recompiled access to the hardware's addresses, rewritten (fast memory)
+	std::atomic<int> faultsOther { 0 };       // not the core's: passed on (the crash log)
+	std::atomic<int> protects { 0 };          // pages locked (mprotect calls)...
+	std::atomic<int> unprotects { 0 };        // ...and unlocked
 };
 extern Timing timing;
 
@@ -1694,11 +3370,14 @@ patch('shell/libretro/libretro.cpp',
       '// A line every 10 s: per retro_run, where the time went (emusuni_timing.h).\n'
       'static void emusuniLogTiming(int64_t runStart, bool picture)\n'
       '{\n'
-      '\tstruct Counters { int64_t emuRun, emuWait, render, renderWait, pipeline, shader, gpuWait; int pipelines, shaders, compiled, idleWaits; };\n'
+      '\tstruct Counters { int64_t emuRun, emuWait, render, renderWait, pipeline, shader, gpuWait; int pipelines, shaders, compiled, idleWaits;\n'
+      '\t\tint faultsCode, faultsVram, faultsTable, faultsRewrite, faultsOther, protects, unprotects; };\n'
       '\tauto read = []() {\n'
       '\t\tconst emusuni::Timing& t = emusuni::timing;\n'
       '\t\treturn Counters { t.emuRunNs.load(), t.emuWaitNs.load(), t.renderNs.load(), t.renderWaitNs.load(), t.pipelineNs.load(),\n'
-      '\t\t\tt.shaderNs.load(), t.gpuWaitNs.load(), t.pipelines.load(), t.shaders.load(), t.shadersCompiled.load(), t.idleWaits.load() };\n'
+      '\t\t\tt.shaderNs.load(), t.gpuWaitNs.load(), t.pipelines.load(), t.shaders.load(), t.shadersCompiled.load(), t.idleWaits.load(),\n'
+      '\t\t\tt.faultsCode.load(), t.faultsVram.load(), t.faultsTable.load(), t.faultsRewrite.load(), t.faultsOther.load(),\n'
+      '\t\t\tt.protects.load(), t.unprotects.load() };\n'
       '\t};\n'
       '\tstatic int64_t windowStart = 0, runNs = 0;\n'
       '\tstatic int runs = 0, pictures = 0;\n'
@@ -1723,14 +3402,19 @@ patch('shell/libretro/libretro.cpp',
       '\t// The emulation thread\'s CPU time (its waits not in it); without threaded rendering the renderer\n'
       '\t// runs inside the emulation (runInternal): its time taken out.\n'
       '\tconst double emulation = (c.emuRun - before.emuRun - (threaded ? 0 : c.render - before.render)) / ms;\n'
-      '\tNOTICE_LOG(COMMON, "EmuSuNi: dc per frame (%d runs, %.1f pictures/s, %s, SH4 %s): retro_run %.2f ms, of it rendering %.2f "\n'
+      '\tNOTICE_LOG(COMMON, "EmuSuNi: dc per frame (%d runs, %.1f pictures/s, %s, SH4 %s, %s): retro_run %.2f ms, of it rendering %.2f "\n'
       '\t\t"and waiting for the emulation %.2f; emulation thread busy %.2f ms (waiting for the renderer %.2f); in the rendering: new pipelines %d "\n'
-      '\t\t"(%.1f ms), shaders %d of them compiled %d (%.1f ms), GPU waits %.2f ms (%d full syncs)",\n'
+      '\t\t"(%.1f ms), shaders %d of them compiled %d (%.1f ms), GPU waits %.2f ms (%d full syncs); faults: code %d, VRAM %d, table %d, "\n'
+      '\t\t"hardware %d, other %d; mprotect %d+%d",\n'
       '\t\truns, pictures / ((now - windowStart) / 1e9), threaded ? "threaded" : "one thread", emusuniSh4JitOk ? "recompiler" : "interpreter",\n'
+      '\t\taddrspace::virtmemEnabled() ? "fast memory" : "memory handlers",\n'
       '\t\trunNs / ms, (c.render - before.render) / ms, (c.renderWait - before.renderWait) / ms, emulation,\n'
       '\t\t(c.emuWait - before.emuWait) / ms, c.pipelines - before.pipelines, (c.pipeline - before.pipeline) / 1e6,\n'
       '\t\tc.shaders - before.shaders, c.compiled - before.compiled, (c.shader - before.shader) / 1e6,\n'
-      '\t\t(c.gpuWait - before.gpuWait) / ms, c.idleWaits - before.idleWaits);\n'
+      '\t\t(c.gpuWait - before.gpuWait) / ms, c.idleWaits - before.idleWaits,\n'
+      '\t\tc.faultsCode - before.faultsCode, c.faultsVram - before.faultsVram, c.faultsTable - before.faultsTable,\n'
+      '\t\tc.faultsRewrite - before.faultsRewrite, c.faultsOther - before.faultsOther,\n'
+      '\t\tc.protects - before.protects, c.unprotects - before.unprotects);\n'
       '\twindowStart = now;\n'
       '\trunNs = runs = pictures = 0;\n'
       '\tbefore = c;\n'
@@ -1777,10 +3461,15 @@ fi
 : > "$LOG"
 
 # The Release flags (CMAKE_C_FLAGS would replace the toolchain's target flags): CMake's -O3, the
-# PS4's CPU and the renamed API.
-FLAGS_CORE="-O3 -DNDEBUG -march=btver2 -include $OUT/prefix_flycast.h"
-# (On the PC: Jaguar's instructions but AMD's SSE4A, which Intel CPUs don't have.)
-[ "$HOST" = 1 ] && FLAGS_CORE+=" -mno-sse4a"
+# PS4's CPU, the core options' translations left out (HAVE_NO_LANGEXTRA: 88 tables of the options in
+# other languages, 9.4 MB of the program image; the app doesn't ask for a language and sets the
+# options itself), a section for each function and variable (the app's link, --gc-sections, drops the
+# ones nothing uses), unwind tables only for the functions that can throw (not the toolchain's
+# -funwind-tables, a frame for every function) and the renamed API.
+FLAGS_CORE="-O3 -DNDEBUG -march=btver2 -DHAVE_NO_LANGEXTRA -ffunction-sections -fdata-sections -fno-unwind-tables -fno-asynchronous-unwind-tables -include $OUT/prefix_flycast.h"
+# (On the PC: Jaguar's instructions but AMD's SSE4A, which Intel CPUs don't have, and the PS4 calls of
+# linux/emusuni_vmem.cpp done by stand-ins on Linux: EMUSUNI_DC_HOST.)
+[ "$HOST" = 1 ] && FLAGS_CORE+=" -mno-sse4a -DEMUSUNI_DC_HOST=1"
 OPTIONS=(
   -DLIBRETRO=ON -DEMUSUNI_PORT=ON -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=OFF
   -DUSE_VULKAN=ON -DUSE_OPENGL=OFF -DUSE_GLES=OFF -DUSE_GLES2=OFF -DUSE_OPENMP=OFF
@@ -1832,14 +3521,17 @@ printf '%s' "$WANT" > "$STAMP"
 mapfile -t ARCHIVES < <(find "$BUILD" -name '*.a' -not -path '*/CMakeFiles/*' -not -name 'liblzma.a' | sort)
 ld.lld-21 -r --whole-archive "${ARCHIVES[@]}" --no-whole-archive \
   "$BUILD/core/deps/libchdr/deps/lzma-24.05/liblzma.a" -o "$OUT/dc_core_all.o"
-llvm-objcopy-21 --wildcard --keep-global-symbol='flycast_retro_*' "$OUT/dc_core_all.o" "$OUT/dc_core.o.new"
+# (And the app's own helper: the arcade boards' games, flycast_emusuni_arcade_list in hw/naomi/naomi_roms.cpp.)
+HELPERS="flycast_emusuni_arcade_list"
+llvm-objcopy-21 --wildcard --keep-global-symbol='flycast_retro_*' --keep-global-symbol='flycast_emusuni_*' \
+  "$OUT/dc_core_all.o" "$OUT/dc_core.o.new"
 rm -f "$OUT/dc_core_all.o"
 
 # The checks.
 GLOBALS=$(llvm-nm-21 -g --defined-only "$OUT/dc_core.o.new" | awk '{print $3}' | sort)
-WANT_GLOBALS=$(for f in $API; do echo "flycast_$f"; done | sort)
+WANT_GLOBALS=$( { for f in $API; do echo "flycast_$f"; done; for f in $HELPERS; do echo "$f"; done; } | sort)
 if [ "$GLOBALS" != "$WANT_GLOBALS" ]; then
-  echo "Flycast: the object's global symbols aren't exactly the renamed libretro API:"
+  echo "Flycast: the object's global symbols aren't exactly the renamed libretro API and the app's helper:"
   diff <(echo "$WANT_GLOBALS") <(echo "$GLOBALS") || true
   exit 1
 fi

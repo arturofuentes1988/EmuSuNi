@@ -77,6 +77,12 @@ public:
   // ---- For a core that draws with Vulkan ----
   // The device was made by ParaLLEl-RDP (with what it needs), so a core can draw on it.
   bool SharesVulkan() const;
+#ifdef EMUSUNI_3DS
+  // What the cores are told the device has (EMUSUNI_VK_DEVICE_FEATURES and _EXTENSIONS): the Nintendo 3DS
+  // core (Azahar) about more of it (geometry shaders, timeline semaphores, extended dynamic state, custom
+  // border colours...), when the GPU has it; the others what they always were. Before a game starts.
+  void PublishDeviceLists(bool for_3ds);
+#endif
   VkInstance Instance() const;
   VkPhysicalDevice Gpu() const;
   VkDevice Device() const;

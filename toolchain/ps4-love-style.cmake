@@ -14,8 +14,12 @@ set(PS4_RUNTIME_SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/../port/ps4_string.c)
 
 # Generate code for the PS4's CPU (AMD Jaguar: SSE4.2, AVX, BMI1, F16C, MOVBE; no AVX2) rather
-# than baseline x86-64 (SSE2).
-add_compile_options(-march=btver2)
+# than baseline x86-64 (SSE2). A section for each function and variable, so the link below can leave
+# out what nothing uses. Unwind tables only for the functions that can throw (the toolchain's flags
+# have -funwind-tables, a frame for every function: 8 MB of .eh_frame in all): C++ exceptions work
+# as before, and the crash log reads the stack itself (port/ps4_crashlog.cpp).
+add_compile_options(-march=btver2 -ffunction-sections -fdata-sections -fno-unwind-tables
+                    -fno-asynchronous-unwind-tables)
 
 # System libc heap: system modules (Piglet: program links, shader compiles, command buffers)
 # allocate from it, and OpenOrbis' crt1.o leaves its size at the ~12.7 MiB default, which
@@ -74,11 +78,58 @@ foreach (rule ".data" ".tdata" ".tbss")
     endif ()
     string(REPLACE "*(${rule})" "*(${rule} ${rule}.*)" PS4_LINK_SCRIPT_TEXT "${PS4_LINK_SCRIPT_TEXT}")
 endforeach ()
-file(WRITE ${PS4_LINK_SCRIPT} "${PS4_LINK_SCRIPT_TEXT}")
+# The link leaves out what nothing uses (--gc-sections below; the code is compiled with a section for each
+# function and variable): the cores' unused libraries and tables, Mesa's test data (3.5 MB of the image).
+# Two rules of the script have to change for it. The process parameters are only found by the loader,
+# through their section, so they are kept. The relro data was kept whole too (KEEP), every vtable and
+# table nothing uses with it: it is collected like the rest.
+foreach (rule ".data.sce_process_param" ".data.sce_module_param")
+    string(FIND "${PS4_LINK_SCRIPT_TEXT}" "*(${rule})" PS4_RULE_POS)
+    if (PS4_RULE_POS EQUAL -1)
+        message(FATAL_ERROR "Unexpected ${PS4_LINK_SCRIPT_IN}: no '*(${rule})' rule to patch")
+    endif ()
+    string(REPLACE "*(${rule})" "KEEP(*(${rule}))" PS4_LINK_SCRIPT_TEXT "${PS4_LINK_SCRIPT_TEXT}")
+endforeach ()
+string(FIND "${PS4_LINK_SCRIPT_TEXT}" "KEEP(*(.data.rel.ro .data.rel.ro.*))" PS4_RULE_POS)
+if (PS4_RULE_POS EQUAL -1)
+    message(FATAL_ERROR "Unexpected ${PS4_LINK_SCRIPT_IN}: no 'KEEP(*(.data.rel.ro .data.rel.ro.*))' rule to patch")
+endif ()
+string(REPLACE "KEEP(*(.data.rel.ro .data.rel.ro.*))" "*(.data.rel.ro .data.rel.ro.*)"
+    PS4_LINK_SCRIPT_TEXT "${PS4_LINK_SCRIPT_TEXT}")
+# create-fself copies the dynamic relocations (.rela.dyn: 24 bytes for each pointer in the program's data, 15 MB
+# of them in 00.60) into the loader's own table (PT_SCE_DYNLIBDATA), and rewrites the dynamic section to point
+# at that copy (only DT_SCE_* tags are left, no DT_RELA), but leaves the original where the linker put it, in
+# the first loaded segment: the console maps it, out of the same flexible memory as the games', and never reads
+# it. With this option the linker puts it after everything that is loaded (the segment it ends up in is one of
+# the read-only ones create-fself drops), and the program image, eboot.bin and the PKG are that much smaller
+# (00.60: 15.2 MB, about 14.5 MiB more flexible memory free at start). Checked on the files (create-fself,
+# check-oelf: the same kinds of program headers, the same dynamic tags, PT_SCE_DYNLIBDATA of the same size);
+# not run on a console yet: switch it on with cmake -DPS4_RELA_AFTER_BSS=ON and try one build there first.
+option(PS4_RELA_AFTER_BSS "Put .rela.dyn after .bss, outside the loaded segments" OFF)
+if (PS4_RELA_AFTER_BSS)
+    string(FIND "${PS4_LINK_SCRIPT_TEXT}" "*(.bss .bss.*)\n\t}" PS4_RULE_POS)
+    if (PS4_RULE_POS EQUAL -1)
+        message(FATAL_ERROR "Unexpected ${PS4_LINK_SCRIPT_IN}: no '.bss' rule to put .rela.dyn after")
+    endif ()
+    string(REPLACE "*(.bss .bss.*)\n\t}" "*(.bss .bss.*)\n\t}\n\n\t.rela.dyn : {\n\t\t*(.rela.dyn)\n\t}"
+        PS4_LINK_SCRIPT_TEXT "${PS4_LINK_SCRIPT_TEXT}")
+endif ()
+# (Written only when it changes: the link depends on the file, see ps4_add_eboot, and a new file time at every
+# configure would link again for nothing.)
+set(PS4_LINK_SCRIPT_OLD "")
+if (EXISTS ${PS4_LINK_SCRIPT})
+    file(READ ${PS4_LINK_SCRIPT} PS4_LINK_SCRIPT_OLD)
+endif ()
+if (NOT PS4_LINK_SCRIPT_OLD STREQUAL PS4_LINK_SCRIPT_TEXT)
+    file(WRITE ${PS4_LINK_SCRIPT} "${PS4_LINK_SCRIPT_TEXT}")
+endif ()
 string(REPLACE "${PS4_LINK_SCRIPT_IN}" "${PS4_LINK_SCRIPT}" CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS}")
 if (NOT CMAKE_EXE_LINKER_FLAGS MATCHES "ps4-link.x")
     string(APPEND CMAKE_EXE_LINKER_FLAGS " --script ${PS4_LINK_SCRIPT}")
 endif ()
+
+# Leave out the sections nothing uses (see the script above).
+string(APPEND CMAKE_EXE_LINKER_FLAGS " --gc-sections")
 
 # The libc heap can't initialize on retail consoles; route the malloc family to
 # port/ps4_runtime.cpp. ps4.cmake links with ld.lld directly, so these are raw linker flags.
@@ -92,6 +143,9 @@ string(APPEND CMAKE_EXE_LINKER_FLAGS " --wrap=pthread_once")
 string(APPEND CMAKE_EXE_LINKER_FLAGS " --wrap=mmap")
 # CLOCK_MONOTONIC from the time stamp counter instead of a system call (port/ps4_runtime.cpp).
 string(APPEND CMAKE_EXE_LINKER_FLAGS " --wrap=clock_gettime")
+# Every thread counted by its stack size (the stacks are what takes regular flexible memory after the start) and
+# given a stack for signals, so that one whose own stack overflows reaches crash.log (port/ps4_runtime.cpp).
+string(APPEND CMAKE_EXE_LINKER_FLAGS " --wrap=pthread_create")
 
 # Program authority ID: the system Piglet (OpenGL ES) only gives a display to processes with a
 # system authority ID. This is RetroArch for PS4's value, as used by love-ps4.
@@ -121,6 +175,8 @@ endfunction()
 # .data.rel.ro it emits the data PT_LOAD twice, which the console rejects at launch
 # ("CE-41839-5", LNC 0x80aa001a).
 function(ps4_add_eboot target)
+    # The link script is a raw linker flag: without this a change in it (PS4_RELA_AFTER_BSS, the KEEP rules) would not link again.
+    set_property(TARGET ${target} APPEND PROPERTY LINK_DEPENDS ${PS4_LINK_SCRIPT})
     set(out_dir ${CMAKE_CURRENT_BINARY_DIR}/${target}_eboot)
     add_custom_command(
         OUTPUT ${out_dir}/eboot.bin

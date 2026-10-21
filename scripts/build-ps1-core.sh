@@ -21,12 +21,14 @@
 #   - Every vkQueueSubmit and vkDeviceWaitIdle of the core under the frontend's lock_queue /
 #     unlock_queue (the queue is the menus' one too); upstream locked only its end-of-frame submit,
 #     not the ones of its VRAM read-backs.
-#   - The recompiler's code buffer (an array in the core's data, within 2 GiB of its code: 16 MiB
-#     of code and 8 of slow paths, as upstream's 32-bit ARM build, not 32 + 16: the app's data holds
-#     the N64 core's buffers too; a full buffer is flushed) is made executable through EmuSuNi
-#     (port/ps4_n64.c: emusuni_make_executable, the ways the PS4 allows), 16 KiB aligned (the PS4's
-#     pages: nothing else shares them), without guard pages. If that fails the core runs the cached
-#     interpreter instead of crashing.
+#   - The recompiler's code buffer (16 MiB of code and 8 of slow paths, as upstream's 32-bit ARM
+#     build, not 32 + 16; a full buffer is flushed) is a part of the app's shared JIT arena
+#     (port/ps4_n64.c: emusuni_jit_arena, "ps1"; 16 KiB aligned, read/write/execute the ways the PS4
+#     allows, within 2 GiB of the core's code), taken at every start of the recompiler, not an array
+#     of the core's own: the PS4 charges the app's whole static memory from its start, and only one
+#     core runs at a time. No guard pages, and its protection is never changed (the next core's
+#     arena); nothing of it is kept after the game (the app fills it with HLT then). If the arena
+#     can't be had the core runs the cached interpreter instead of crashing.
 #   - No fastmem: it relies on page faults (the app's fault handler is its crash log) and, in its
 #     mmap form, on shared memory objects, which the PS4 doesn't have the normal way. The RAM comes
 #     from the heap; the recompiler calls the memory handlers.
@@ -41,7 +43,7 @@
 #   build-ps1-core.sh <out dir> [clean]
 #   PS1_CORE_HOST=1 build-ps1-core.sh <out dir>   the same object for this PC (Linux, clang 21), for
 #                                                 the PC tests: no PS4 checks; the test frontend
-#                                                 provides emusuni_make_executable
+#                                                 provides the JIT arena (emusuni_jit_arena)
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT="$(cd "$HERE/.." && pwd)"
@@ -131,15 +133,7 @@ patch('src/core/bus.cpp',
       '    g_ram_size = 0;\n  }\n\n  m_memory_arena.Destroy();\n',
       '    g_ram_size = 0;\n  }\n\n#ifndef EMUSUNI_PORT\n  m_memory_arena.Destroy();\n#endif\n')
 
-# --- The recompiler's code buffer: executable through EmuSuNi, on its own 16 KiB pages.
-patch('src/common/jit_code_buffer.cpp',
-      'JitCodeBuffer::JitCodeBuffer() = default;\n',
-      '#ifdef EMUSUNI_PORT\n'
-      '// EmuSuNi (port/ps4_n64.c): makes [address, address + size) executable the ways the PS4 allows,\n'
-      '// each checked by running a small function there; the way that worked (0-3) or -1.\n'
-      'extern "C" int emusuni_make_executable(void* address, size_t size);\n'
-      '#endif\n\n'
-      'JitCodeBuffer::JitCodeBuffer() = default;\n')
+# --- The recompiler's code buffer: a part of the app's shared JIT arena, taken at every start.
 patch('src/common/jit_code_buffer.cpp',
       '  m_code_ptr = static_cast<uint8_t*>(mmap(nullptr, m_total_size, PROT_READ | PROT_WRITE | PROT_EXEC, flags, -1, 0));\n'
       '  if (!m_code_ptr)\n    return false;\n',
@@ -151,9 +145,8 @@ patch('src/common/jit_code_buffer.cpp',
       '  if (mprotect(buffer, size, PROT_READ | PROT_WRITE | PROT_EXEC) != 0)\n',
       '  m_code_ptr = static_cast<uint8_t*>(buffer);\n  m_old_protection = static_cast<uint32_t>(old_protect);\n'
       '#elif defined(EMUSUNI_PORT)\n'
-      '  // EmuSuNi: no guard pages (their protection could undo a new mapping of the buffer); it stays\n'
-      '  // executable after Destroy (the next game uses it again).\n'
-      '  if (emusuni_make_executable(buffer, size) < 0)\n    return false;\n'
+      '  // EmuSuNi: the buffer is a part of the app\'s JIT arena (port/ps4_n64.c), already read/write/execute:\n'
+      '  // no guard pages and no change of its protection, here or at Destroy (the next core\'s arena too).\n'
       '  m_code_ptr = static_cast<uint8_t*>(buffer);\n  m_old_protection = 0;\n'
       '#elif defined(__linux__) || defined(__ANDROID__) || defined(__APPLE__) || defined(__HAIKU__) || defined(__FreeBSD__)\n'
       '  if (mprotect(buffer, size, PROT_READ | PROT_WRITE | PROT_EXEC) != 0)\n')
@@ -161,16 +154,43 @@ patch('src/common/jit_code_buffer.cpp',
       '#else\n    mprotect(m_code_ptr, m_total_size, m_old_protection);\n#endif\n',
       '#elif !defined(EMUSUNI_PORT)\n    mprotect(m_code_ptr, m_total_size, m_old_protection);\n#endif\n')
 patch('src/core/cpu_code_cache.cpp',
+      '#include <cstring>\nLog_SetChannel(CPU::CodeCache);\n',
+      '#include <cstring>\nLog_SetChannel(CPU::CodeCache);\n\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '// EmuSuNi (port/ps4_n64.c): a part of the app\'s shared JIT arena (16 KiB aligned, read/write/execute,\n'
+      '// within 2 GiB of the core\'s code), the same one again for the same name until the app gives the\n'
+      '// arena back after the game; NULL if it can\'t be had.\n'
+      'extern "C" void* emusuni_jit_arena(size_t size, const char* name);\n'
+      '#endif\n')
+patch('src/core/cpu_code_cache.cpp',
       '#if defined(CPU_AARCH32)\n// Use a smaller code buffer size on AArch32 to have a better chance of being in range.\n',
       '#if defined(CPU_AARCH32) || defined(EMUSUNI_PORT)\n'
       '// Use a smaller code buffer size on AArch32 to have a better chance of being in range.\n'
-      '// EmuSuNi: and in the PS4 app\'s data (24 MiB, not 48: the app links two other cores\' buffers too);\n'
-      '// a full buffer is flushed ("Out of code space" in the log) and refilled.\n')
+      '// EmuSuNi: and in the PS4 app\'s JIT arena (24 MiB of its 32, not 48); a full buffer is flushed\n'
+      '// ("Out of code space" in the log) and refilled.\n')
 patch('src/core/cpu_code_cache.cpp',
-      'alignas(Recompiler::CODE_STORAGE_ALIGNMENT) static uint8_t\n',
+      'alignas(Recompiler::CODE_STORAGE_ALIGNMENT) static uint8_t\n'
+      '  s_code_storage[RECOMPILER_CODE_CACHE_SIZE + RECOMPILER_FAR_CODE_CACHE_SIZE];\n',
       '#ifdef EMUSUNI_PORT\n'
-      '// EmuSuNi: on pages of its own (the PS4\'s are 16 KiB), as it may be mapped anew to be executable.\n'
-      'alignas(16384)\n#else\nalignas(Recompiler::CODE_STORAGE_ALIGNMENT)\n#endif\nstatic uint8_t\n')
+      '// EmuSuNi: no array of its own (24 MiB of the app\'s static memory, which the PS4 charges from the\n'
+      '// app\'s start): a part of the app\'s JIT arena, taken at every Initialize (Shutdown keeps nothing of\n'
+      '// it: the arena is the next core\'s once the game ends).\n'
+      'static constexpr uint32_t EMUSUNI_CODE_STORAGE_SIZE = RECOMPILER_CODE_CACHE_SIZE + RECOMPILER_FAR_CODE_CACHE_SIZE;\n'
+      '#else\n'
+      'alignas(Recompiler::CODE_STORAGE_ALIGNMENT) static uint8_t\n'
+      '  s_code_storage[RECOMPILER_CODE_CACHE_SIZE + RECOMPILER_FAR_CODE_CACHE_SIZE];\n'
+      '#endif\n')
+patch('src/core/cpu_code_cache.cpp',
+      '    const bool has_buffer = s_code_buffer.Initialize(s_code_storage, sizeof(s_code_storage),\n'
+      '                                                     RECOMPILER_FAR_CODE_CACHE_SIZE, RECOMPILER_GUARD_SIZE);\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '    void* const code_storage = emusuni_jit_arena(EMUSUNI_CODE_STORAGE_SIZE, "ps1");\n'
+      '    const bool has_buffer = code_storage && s_code_buffer.Initialize(code_storage, EMUSUNI_CODE_STORAGE_SIZE,\n'
+      '                                                                     RECOMPILER_FAR_CODE_CACHE_SIZE, RECOMPILER_GUARD_SIZE);\n'
+      '#else\n'
+      '    const bool has_buffer = s_code_buffer.Initialize(s_code_storage, sizeof(s_code_storage),\n'
+      '                                                     RECOMPILER_FAR_CODE_CACHE_SIZE, RECOMPILER_GUARD_SIZE);\n'
+      '#endif\n')
 patch('src/core/cpu_code_cache.cpp',
       '    if (!has_buffer && !s_code_buffer.Allocate(RECOMPILER_CODE_CACHE_SIZE, RECOMPILER_FAR_CODE_CACHE_SIZE)) { }\n',
       '    if (!has_buffer && !s_code_buffer.Allocate(RECOMPILER_CODE_CACHE_SIZE, RECOMPILER_FAR_CODE_CACHE_SIZE))\n'
@@ -187,14 +207,19 @@ patch('src/core/cpu_code_cache.cpp',
       '    s_code_buffer.Initialize(s_code_storage, sizeof(s_code_storage), RECOMPILER_FAR_CODE_CACHE_SIZE,RECOMPILER_GUARD_SIZE);\n'
       '#else\n',
       '#ifdef USE_STATIC_CODE_BUFFER\n'
-      '    if (!s_code_buffer.Initialize(s_code_storage, sizeof(s_code_storage), RECOMPILER_FAR_CODE_CACHE_SIZE,RECOMPILER_GUARD_SIZE))\n'
-      '    {\n'
       '#ifdef EMUSUNI_PORT\n'
+      '    // EmuSuNi: the arena\'s part again (the same one within a game).\n'
+      '    void* const code_storage = emusuni_jit_arena(EMUSUNI_CODE_STORAGE_SIZE, "ps1");\n'
+      '    if (!code_storage || !s_code_buffer.Initialize(code_storage, EMUSUNI_CODE_STORAGE_SIZE, RECOMPILER_FAR_CODE_CACHE_SIZE,\n'
+      '                                                   RECOMPILER_GUARD_SIZE))\n'
+      '    {\n'
       '      Log_ErrorPrintf("No executable memory for the recompiler: the cached interpreter runs instead");\n'
       '      g_settings.cpu_execution_mode = CPUExecutionMode::CachedInterpreter;\n'
       '      return;\n'
-      '#endif\n'
       '    }\n'
+      '#else\n'
+      '    s_code_buffer.Initialize(s_code_storage, sizeof(s_code_storage), RECOMPILER_FAR_CODE_CACHE_SIZE,RECOMPILER_GUARD_SIZE);\n'
+      '#endif\n'
       '#else\n')
 
 # --- Vulkan: no library to open; the frontend's device adopted; the shared queue locked.
@@ -382,8 +407,10 @@ else
 fi
 
 # The Release flags (CMAKE_C_FLAGS would replace the toolchain's target flags): CMake's -O3, the
-# PS4's CPU and the renamed API.
-FLAGS_CORE="-O3 -DNDEBUG -march=btver2 -include $OUT/prefix_swanstation.h"
+# PS4's CPU, a section for each function and variable (the app's link, --gc-sections, drops the ones
+# nothing uses: the renderers and libraries the app doesn't), unwind tables only for the functions that
+# can throw (not the toolchain's -funwind-tables, a frame for every function) and the renamed API.
+FLAGS_CORE="-O3 -DNDEBUG -march=btver2 -ffunction-sections -fdata-sections -fno-unwind-tables -fno-asynchronous-unwind-tables -include $OUT/prefix_swanstation.h"
 # (On the PC: Jaguar's instructions but AMD's SSE4A, which Intel CPUs don't have.)
 [ "$HOST" = 1 ] && FLAGS_CORE+=" -mno-sse4a"
 OPTIONS=(
@@ -414,7 +441,8 @@ if [ "${2:-}" = clean ] || [ "$(cat "$STAMP" 2>/dev/null)" != "$WANT" ] || [ ! -
     exit 1
   fi
 fi
-if ! ninja -C "$BUILD" swanstation_libretro >> "$LOG" 2>&1; then
+# (At most 4 compilers at once: the PC's load, scripts/build.sh.)
+if ! ninja -C "$BUILD" -j "${EMUSUNI_JOBS:-4}" swanstation_libretro >> "$LOG" 2>&1; then
   grep -E "error:|FAILED" "$LOG" | head -30
   echo "SwanStation: build failed (see $LOG)"
   exit 1
@@ -440,6 +468,14 @@ fi
 UNDEFINED=$(llvm-nm-21 -u "$OUT/ps1_core.o.new" | awk '{print $NF}' | sort -u)
 if llvm-nm-21 --defined-only "$OUT/ps1_core.o.new" | awk '{print $NF}' | grep -E '^_Z(nw|na|dl|da)'; then
   echo "SwanStation: the object defines a C++ operator new/delete of its own"
+  exit 1
+fi
+# No static array of 1 MiB or more: the PS4 charges the app's whole static memory from its start, used or
+# not (the recompiler's code buffer is a part of the app's JIT arena).
+BIG=$(llvm-nm-21 --print-size --radix=d "$OUT/ps1_core.o.new" | awk '($3 == "b" || $3 == "B") && $2 + 0 >= 1048576 {print $4}')
+if [ -n "$BIG" ]; then
+  echo "SwanStation: the object has static arrays of 1 MiB or more:"
+  echo "$BIG"
   exit 1
 fi
 if [ "$HOST" != 1 ]; then

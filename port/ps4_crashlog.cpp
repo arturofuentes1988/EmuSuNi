@@ -25,12 +25,24 @@
 #include <typeinfo>
 
 extern "C" char __text_start[];  // defined by the OpenOrbis link.x at the start of .text
+// port/ps4_runtime.cpp: the calling thread's stack, when known (threads started through pthread_create and the
+// main thread). Weak: a program may link without it.
+extern "C" __attribute__((weak)) int ps4rt_thread_stack(uintptr_t* low, uintptr_t* high);
+// (The headers' stack_t is musl's, its fields in another order than the kernel's.)
+extern "C" int ps4_crash_sigaltstack(const void* stack, void* old) __asm__("sigaltstack");
 
 namespace {
 
 // FreeBSD values (the PS4 kernel's); the OpenOrbis musl headers may carry Linux ones.
 constexpr int kSigIll = 4, kSigAbrt = 6, kSigFpe = 8, kSigBus = 10, kSigSegv = 11;
 constexpr int kSaSiginfo = 0x40;
+// The handler runs on the thread's stack for signals (sigaltstack): a thread whose own stack overflowed has no
+// room left on it for the handler, and the app used to end without a word.
+constexpr int kSaOnstack = 0x0001;
+// A fault or stack pointer this far below the thread's stack is taken for an overflow of it.
+constexpr uintptr_t kOverflowReach = 1024 * 1024;
+// The main thread's stack for signals (the other threads get theirs as they start, port/ps4_runtime.cpp).
+alignas(16) char g_mainSignalStack[64 * 1024];
 constexpr int kMcontextOffset = 0x40;  // measured on hardware
 // Registers in FreeBSD mcontext order (after mc_onstack).
 constexpr const char* kRegNames[] = {"rdi", "rsi", "rdx", "rcx", "r8",  "r9",  "rax", "rbx",
@@ -112,12 +124,30 @@ void crashHandler(int sig, siginfo_t* info, void* context) {
         for (int i = 0; i < 15; i++)
             writeFormat(fd, "%s 0x%llx%s", kRegNames[i], static_cast<unsigned long long>(regs[1 + i]),
                         i % 4 == 3 ? "\n" : "  ");
-        writeAll(fd, "\ncode addresses on the stack (elf):\n");
-        const auto* stack = reinterpret_cast<const uint64_t*>(rsp);
+        writeAll(fd, "\n");
+        // The 16 KiB above the stack pointer, inside the thread's stack when it is known: below its bottom (an
+        // overflow) or past its top there may be nothing to read, and a fault in here ends the app at once.
+        uintptr_t from = rsp, to = rsp + 2048 * 8;
+        uintptr_t low = 0, high = 0;
+        if (ps4rt_thread_stack && ps4rt_thread_stack(&low, &high) && rsp + kOverflowReach >= low && rsp < high) {
+            const bool overflow = rsp < low || (address < low && address + kOverflowReach >= low);
+            writeFormat(fd, "thread stack 0x%llx-0x%llx (%llu KiB)%s\n", static_cast<unsigned long long>(low),
+                        static_cast<unsigned long long>(high), static_cast<unsigned long long>((high - low) / 1024),
+                        overflow ? ": it OVERFLOWED (the stack pointer or the fault is below it)" : "");
+            if (from < low) {
+                from = low;  // (the 16 KiB at its bottom: the deepest calls)
+                to = low + 2048 * 8;
+            }
+            if (to > high)
+                to = high;
+        }
+        writeAll(fd, "code addresses on the stack (elf):\n");
         int found = 0;
-        for (int i = 0; i < 2048 && found < 48; i++) {
-            if (isCode(stack[i])) {
-                writeFormat(fd, "  [rsp+0x%x] 0x%llx\n", i * 8, static_cast<unsigned long long>(toElf(stack[i])));
+        for (uintptr_t at = from; at + 8 <= to && found < 48; at += 8) {
+            const uint64_t value = *reinterpret_cast<const uint64_t*>(at);
+            if (isCode(value)) {
+                writeFormat(fd, "  [rsp+0x%llx] 0x%llx\n", static_cast<unsigned long long>(at - rsp),
+                            static_cast<unsigned long long>(toElf(value)));
                 found++;
             }
         }
@@ -155,9 +185,16 @@ __attribute__((constructor(101))) void earlyInit() {
     if (traceFd() >= 0)
         writeFormat(traceFd(), "static init (text at %p)\n", static_cast<void*>(__text_start));
     std::set_terminate(terminateHandler);
+    // FreeBSD's stack_t: the stack, its size, the flags.
+    const struct {
+        void* sp;
+        size_t size;
+        int flags;
+    } stack = {g_mainSignalStack, sizeof(g_mainSignalStack), 0};
+    ps4_crash_sigaltstack(&stack, nullptr);
     const int signals[] = {kSigIll, kSigAbrt, kSigFpe, kSigBus, kSigSegv};
     for (int sig : signals)
-        setHandler(sig, crashHandler, kSaSiginfo);
+        setHandler(sig, crashHandler, kSaSiginfo | kSaOnstack);
 }
 
 }  // namespace

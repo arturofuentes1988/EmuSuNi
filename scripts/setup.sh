@@ -9,8 +9,10 @@
 #     (~/dolphinps4-build), built with its own scripts
 #   - Snes9x 1.63, FCEUmm (libretro-fceumm), Mupen64Plus-Next, mGBA (libretro's fork), SwanStation,
 #     melonDS DS (with its dependencies in ~/src/melonds-ds-deps), PPSSPP 1.20.4 (with its
-#     submodules), Flycast 2.7 (with the submodules its libretro core needs) and Dear ImGui 1.92.2b
-#     sources (~/src)
+#     submodules), Flycast 2.7 (with the submodules its libretro core needs), Genesis Plus GX,
+#     FinalBurn Neo and Dear ImGui 1.92.2b sources (~/src), and Azahar 2126.2's unified source
+#     (~/src/azahar: every build but build.sh no-3ds uses it); YabaSanshiro 3.4.2 (~/src/yabasanshiro: only
+#     build.sh with-saturn uses it)
 # Mesa takes the longest (about half an hour). Then: scripts/build.sh and scripts/package.sh.
 #
 #   sudo -i bash /path/to/EmuSuNi/scripts/setup.sh
@@ -56,6 +58,15 @@ FLYCAST_COMMIT=5aa091fde632fb332c8d8c34e280d62dc951954c   # flyinghead/flycast, 
 # Flycast's own (standalone) builds.
 FLYCAST_SUBMODULES="core/deps/libchdr core/deps/Vulkan-Headers core/deps/VulkanMemoryAllocator
   core/deps/glslang core/deps/xbyak core/deps/asio core/deps/tinygettext"
+GPGX_COMMIT=aa74d79634cd230f65cce4180e92688e53883d2f   # libretro/Genesis-Plus-GX, 2026-10-16 (v1.7.4)
+# The romsets must match this commit's DATs (dats/, v1.0.0.03): a newer FBNeo wants newer romsets.
+FBNEO_COMMIT=2dbbac7623fbae1c7894a6437769e8a3adb78610   # libretro/FBNeo, 2026-10-19 (v1.0.0.03)
+# Azahar (Nintendo 3DS): the release's unified source tarball (every dependency in it; GPL-2.0-or-later up to
+# this version), checked by its SHA-256. scripts/build-3ds-core.sh patches it, so it is committed once.
+AZAHAR_VERSION=2126.2   # azahar-emu/azahar, 2026-10-08 (GIT-COMMIT 219d743a1e698101fe1ab8bef43e6563126c3c27)
+AZAHAR_SHA256=85c8b56fac703df04720125044b8ff887997911858a6cde545dfb1107ba4cd26
+# YabaSanshiro 3.4.2 (Sega Saturn): only for build.sh with-saturn (00.64's speed test, scripts/build-saturn-core.sh).
+YABASANSHIRO_COMMIT=09ed8e5b2e97e7a848ea2514545c34c7b809e399   # libretro/yabause, branch yabasanshiro, 2026-08-23
 MESA_TAG=mesa-26.0.8
 LIBDRM_TAG=libdrm-2.4.125
 export DEBIAN_FRONTEND=noninteractive
@@ -125,7 +136,7 @@ fi
 ln -sf "$(command -v glslangValidator)" "$BUILD_ROOT/host-tools/bin/glslangValidator"
 PS4_BUILD_ROOT="$BUILD_ROOT" scripts/build-mesa.sh setup
 
-step "Snes9x, FCEUmm, Mupen64Plus-Next, mGBA, SwanStation, melonDS DS, PPSSPP, Flycast and Dear ImGui"
+step "Snes9x, FCEUmm, Mupen64Plus-Next, mGBA, SwanStation, melonDS DS, PPSSPP, Flycast, Genesis Plus GX, FinalBurn Neo, Azahar and Dear ImGui"
 checkout https://github.com/snes9xgit/snes9x.git "$SRC_ROOT/snes9x" "$SNES9X_COMMIT"
 checkout https://github.com/libretro/libretro-fceumm.git "$SRC_ROOT/fceumm" "$FCEUMM_COMMIT"
 checkout https://github.com/libretro/mupen64plus-libretro-nx.git "$SRC_ROOT/mupen64plus-next" "$MUPEN64PLUS_COMMIT"
@@ -154,6 +165,33 @@ checkout https://github.com/flyinghead/flycast.git "$SRC_ROOT/flycast" "$FLYCAST
 # shellcheck disable=SC2086
 git -C "$SRC_ROOT/flycast" submodule update --init --depth 1 -- $FLYCAST_SUBMODULES
 git -C "$SRC_ROOT/flycast/core/deps/tinygettext" submodule update --init --depth 1
+# Genesis Plus GX (SG-1000, Master System, Game Gear, Mega Drive): its libretro core built by
+# scripts/build-gpgx-core.sh (a CMake of its own made there), which patches it each time.
+checkout https://github.com/libretro/Genesis-Plus-GX.git "$SRC_ROOT/Genesis-Plus-GX" "$GPGX_COMMIT"
+# FinalBurn Neo (Arcade): its libretro core built with its own Makefile by scripts/build-arcade-core.sh
+# in a copy of the sources, which it patches each time (make and clang 21 from above; nothing else).
+# scripts/package.sh ships its metadata/hiscore.dat.
+checkout https://github.com/libretro/FBNeo.git "$SRC_ROOT/FBNeo" "$FBNEO_COMMIT"
+# Azahar (Nintendo 3DS): its libretro core built with its own CMake by scripts/build-3ds-core.sh (unless
+# build.sh no-3ds), which patches it each time from the files as git has them: the tarball is checked,
+# unpacked and committed once (the submodules' files too, git add -A -f). Nothing else to install.
+if ! git -C "$SRC_ROOT/azahar" rev-parse -q --verify HEAD >/dev/null 2>&1; then
+    wget -q "https://github.com/azahar-emu/azahar/releases/download/$AZAHAR_VERSION/azahar-unified-source-$AZAHAR_VERSION.tar.xz" \
+        -O /tmp/azahar-source.tar.xz
+    echo "$AZAHAR_SHA256  /tmp/azahar-source.tar.xz" | sha256sum -c -
+    rm -rf "$SRC_ROOT/azahar"
+    mkdir -p "$SRC_ROOT/azahar"
+    tar xJf /tmp/azahar-source.tar.xz -C "$SRC_ROOT/azahar" --strip-components=1
+    rm -f /tmp/azahar-source.tar.xz
+    git -C "$SRC_ROOT/azahar" init -q
+    git -C "$SRC_ROOT/azahar" config core.autocrlf false
+    git -C "$SRC_ROOT/azahar" add -A -f . >/dev/null
+    git -C "$SRC_ROOT/azahar" -c user.name=EmuSuNi -c user.email=emusuni@localhost \
+        commit -q -m "Azahar $AZAHAR_VERSION unified source (GIT-COMMIT $(cat "$SRC_ROOT/azahar/GIT-COMMIT"))"
+fi
+# YabaSanshiro (Sega Saturn, only build.sh with-saturn): built by scripts/build-saturn-core.sh (a CMake of its own
+# made there, without a renderer), which patches it each time from the files as git has them.
+checkout https://github.com/libretro/yabause.git "$SRC_ROOT/yabasanshiro" "$YABASANSHIRO_COMMIT"
 checkout https://github.com/ocornut/imgui.git "$SRC_ROOT/imgui" "$IMGUI_COMMIT"
 
 step "Ready: now scripts/build.sh and scripts/package.sh <version>"

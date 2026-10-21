@@ -27,6 +27,15 @@ if [ -d "$PPSSPP_ASSETS" ]; then
         cp -r "$PPSSPP_ASSETS/$f" "$STAGE/ppsspp/PPSSPP/"
     done
 fi
+# The licences that must ship with their code, verbatim (FinalBurn Neo's), from assets/licenses.
+cp -r "$SRC/assets/licenses" "$STAGE/licenses"
+# FinalBurn Neo's high-score table (hiscore.dat: the games keep their scores, with Hiscores enabled),
+# which the app copies to /data/EmuSuNi/system/fbneo at the first arcade game (src/Emulator.cpp).
+FBNEO_METADATA="${FBNEO_DIR:-$HOME/src/FBNeo}/metadata"
+if [ -f "$FBNEO_METADATA/hiscore.dat" ]; then
+    mkdir -p "$STAGE/fbneo"
+    cp "$FBNEO_METADATA/hiscore.dat" "$STAGE/fbneo/hiscore.dat"
+fi
 echo "$VERSION" > "$STAGE/xmb/version.txt"
 # The Sony Piglet modules aren't used (the display is Mesa's RADV): an empty module folder.
 mkdir -p "$BUILD/no-modules"

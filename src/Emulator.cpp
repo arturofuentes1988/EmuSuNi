@@ -27,6 +27,7 @@
 
 #include <libretro.h>
 
+#include "Arcade.h"
 #include "Cheats.h"
 #include "Controls.h"
 #include "Display.h"
@@ -36,11 +37,14 @@
 #include "IngameMenu.h"
 #include "LibretroVulkan.h"
 #include "Log.h"
+#include "MemoryGuard.h"
+#include "Naomi.h"
 #include "Pacing.h"
 #include "PS4Lang.h"
 #include "Saves.h"
 #include "Settings.h"
 #include "Systems.h"
+#include "Touchpad.h"
 #include "Tour.h"
 #include "Upscaler.h"
 #include "VulkanFunctions.h"
@@ -54,6 +58,26 @@ extern "C" int ps4_exec_method;
 // port/ps4_n64.c: ParaLLEl-RDP's threads on cores of their own (N64 CPU Cores: Fixed).
 extern "C" int emusuni_n64_fixed_cores;
 #endif
+#ifdef EMUSUNI_DC
+// port/ps4_n64.c: Flycast's threads left where the PS4 puts them, at the priority they start with (the file
+// /data/EmuSuNi/dc-threads-free), else placed by emusuni_dc_thread.
+extern "C" int emusuni_dc_threads_free;
+#endif
+#if defined(EMUSUNI_N64) || defined(EMUSUNI_PS1) || defined(EMUSUNI_NDS) || defined(EMUSUNI_PSP) || \
+    defined(EMUSUNI_DC) || defined(EMUSUNI_3DS)
+// port/ps4_n64.c (linked with every JIT core): the one 32 MiB JIT arena the N64's, PS1's, PSP's, DS's and
+// Dreamcast's recompilers share (one core runs at a time), each taking its part as it starts.
+extern "C" void emusuni_jit_arena_reset(void);
+#endif
+// After a core's deinit: the arena's parts back, filled with HLT (a jump into a gone core's code then faults into
+// crash.log instead of running it), for the next core.
+static void JitArenaReset()
+{
+#if defined(EMUSUNI_N64) || defined(EMUSUNI_PS1) || defined(EMUSUNI_NDS) || defined(EMUSUNI_PSP) || \
+    defined(EMUSUNI_DC) || defined(EMUSUNI_3DS)
+  emusuni_jit_arena_reset();
+#endif
+}
 
 // Mesa's PS4 layer (ac_ps4_drm.c): the GPU's busy time and the span it covers (GPU clock ticks,
 // since the start), and its submissions and buffers.
@@ -91,6 +115,11 @@ struct retro_game_info_ext
   bool file_in_archive;
   bool persistent_data;
 };
+#endif
+// A core setting one of its own options (FinalBurn Neo resets its cheats so at every start): the same
+// newer libretro.h.
+#ifndef RETRO_ENVIRONMENT_SET_VARIABLE
+#define RETRO_ENVIRONMENT_SET_VARIABLE 70
 #endif
 // The disc changer with the first disc and the discs' paths (the same newer libretro.h; SwanStation and
 // Flycast give it when the frontend says version 1).
@@ -135,6 +164,13 @@ bool TakesDiscs()
   return s_system == SystemId::PS1 || s_system == SystemId::DC;
 }
 
+// A core that stops at an option it is given but never declared (Flycast: verify, DEBUGBREAK; Azahar is kept to
+// its own 32 as well, so that the PC test of Build3dsVariables says all there is): it is given only its own.
+bool StrictOptions()
+{
+  return IsFlycast(s_system) || s_system == SystemId::THREEDS;
+}
+
 // The discs the core can change between, and the one in it (from 0).
 int DiscCount()
 {
@@ -160,13 +196,54 @@ bool s_hw_vulkan = false;
 // The DS's screens as shown (DS Screens; R3 swaps to the other view): the core gives them side by
 // side (or one above the other); the Big Top Screen is placed here, on the GPU (DrawPicture).
 std::string s_nds_chosen;
-bool s_nds_alt = false, s_nds_r3 = false;
+bool s_nds_swap = false, s_nds_r3 = false;
+// The 3DS (Azahar): R3 swaps its two screens (the core's own swap option); its resolution (1x) and New 3DS Mode count
+// as the game started (Azahar reads them once; 0 and -1 until Build3dsVariables sets them).
+bool s_3ds_swap = false, s_3ds_r3 = false;
+int s_3ds_scale = 0, s_3ds_new = -1;
 // The left stick's furthest push since the last speed line (the log: the PSP's stick, 00.40).
 int s_stick_max = 0;
-// The PSP's resolution and multisampling as the game started: PPSSPP's Vulkan picture keeps the size
-// it had then (its swapchain), so a change while it runs only zoomed in.
+// The DS's or the 3DS's touchpad in the last 10 s (the log): frames with a finger on it, frames with the stylus down,
+// taps (Touchpad.h).
+int s_touch_frames = 0, s_tap_frames = 0, s_touch_taps = 0;
+// The PSP's resolution and multisampling: as the settings say, also while the game runs (since 00.62 the
+// core makes its swapchain and framebuffers again: scripts/build-psp-core.sh); with the file
+// data_dir/psp-resolution-at-start, as the game started (00.39-00.61: a change while it ran zoomed in).
 int s_psp_scale = 0;
 std::string s_psp_msaa;
+bool s_psp_at_start = false;
+// Region as the game started, for Genesis Plus GX (Region: next game start): the core changes a
+// running game's timing, and the Game Gear's without telling the new frame rate.
+std::string s_gpgx_region;
+// The Dreamcast's SH4 clock (MHz) as the game started (Dreamcast CPU Clock: next game start, BuildDcVariables).
+std::string s_dc_clock;
+// A Dreamcast game's threads left to the PS4 - any core, the priority they start with - while the file
+// /data/EmuSuNi/dc-threads-free exists (an A/B for the PS4: Resonance places none): retro_run's (the
+// renderer), the drawing beside it and Flycast's own (port/ps4_n64.c). Else the app places them.
+bool s_dc_threads_free = false;
+// The Arcade (FinalBurn Neo): the picture's rotation (SET_ROTATION: a vertical game's is turned by the
+// app as it comes in, Arcade::Rotate, into s_rotated) and the shape the core reports for it (its
+// geometry: a board's 4:3, a vertical one's 3:4), for Aspect Ratio's Auto.
+unsigned s_rotation = 0;
+std::vector<uint16_t> s_rotated;
+float s_core_aspect = 0.0f;
+// The NAOMI and the Atomiswave (Flycast's arcade boards; a vertical game's picture is the core's image, turned by the
+// app as it draws it: DrawPicture). The game's set (src/Naomi.h: its analog controls, its light gun), its TEST or
+// SERVICE button held until `s_board_press_until` (the in-game menu's Arcade Button: RetroPad L3 / R3, which the
+// core reads as those buttons) and each player's Gun Reload (RETRO_DEVICE_LIGHTGUN's reload).
+const Naomi::Set* s_board_set = nullptr;
+std::chrono::steady_clock::time_point s_board_press_until{};
+unsigned s_board_press_id = 0;
+std::array<bool, MAX_PLAYERS> s_gun_reload{};
+
+// The geometry the core reports (get_system_av_info once the game is loaded; SET_GEOMETRY and
+// SET_SYSTEM_AV_INFO when a board changes its picture's size): an arcade board's shape. The other
+// consoles' pictures are shaped by the app.
+void NoteGeometry(const retro_game_geometry& geometry)
+{
+  if (s_system == SystemId::ARCADE && geometry.aspect_ratio > 0.0f)
+    s_core_aspect = geometry.aspect_ratio;
+}
 // PSP Frame Rate Auto: God of War at 30 FPS (PPSSPP's hack) once its core couldn't keep up, until the
 // game ends.
 bool s_psp_30fps_auto = false;
@@ -306,6 +383,14 @@ struct Pointer
   bool pressed = false;
 };
 Pointer s_pointer;
+// The DS's stylus as the app moves it (src/Touchpad.h: the touchpad as a trackpad, a tap touches; or Direct): where it
+// is on the touch screen (its 256x192 pixels; it stays where the finger or the right stick left it) and whether it is
+// down.
+Touchpad::Stylus s_stylus;
+// The 3DS's stylus is the same on the touch screen's 320x240 pixels; the cursor the app draws at it (frames it still
+// shows after the finger left, and where in the core's picture, in its pixels).
+int s_3ds_cursor = 0;
+std::array<float, 2> s_3ds_at{};
 // The core's pixels are XRGB8888 (SET_PIXEL_FORMAT): each frame is made RGB565 in s_converted.
 bool s_xrgb8888 = false;
 std::vector<uint16_t> s_converted;
@@ -568,24 +653,38 @@ void BuildPs1Variables(const std::string& g)
   s_variables[p + "Controller1_AnalogDPadInDigitalMode"] = "true";
 }
 
-// "side", "big" or "stack": DS Screens, or the other view after R3.
+// "side", "big", "stack" or "single": DS Screens.
 std::string NdsView()
 {
-  if (!s_nds_alt)
-    return s_nds_chosen;
-  return s_nds_chosen == "side" ? "big" : "side";
+  return s_nds_chosen;
 }
 
-// The Big Top Screen is drawn now (from the core's side-by-side picture).
+// The DS's two screens trade places (R3, Swap Screens): the halves of the core's picture (side by
+// side, or one above the other) are swapped as it comes in (VideoRefresh), so every view shows the
+// touch screen where the top one was: Big Screen the touch screen big, One Screen the touch screen
+// alone. The core's own picture stays as it is: the touchpad still touches the touch screen.
+bool NdsSwapped(unsigned w, unsigned h)
+{
+  return s_system == SystemId::NDS && s_nds_swap && ((w == 512 && h == 192) || (w == 256 && h == 384));
+}
+
+// The Big Screen is drawn now (from the core's side-by-side picture: the left half big).
 bool NdsBig()
 {
   return s_system == SystemId::NDS && s_frame_w == 512 && s_frame_h == 192 && NdsView() == "big";
 }
 
+// One Screen is drawn now: the side-by-side picture's left half alone (the top screen, or the touch
+// screen swapped in).
+bool NdsSingle()
+{
+  return s_system == SystemId::NDS && s_frame_w == 512 && s_frame_h == 192 && NdsView() == "single";
+}
+
 // melonDS DS's options: every one of its 78 is answered (an unanswered one doesn't get the default
 // it declares). The JIT, the threaded 3D (its thread on core 3, port/ps4_n64.c), the built-in BIOS
 // and firmware unless all three of the DS's own are in the system folder, the touchpad as the touch
-// screen, two screen layouts R3 swaps between, no Wi-Fi.
+// screen, the screens side by side or one above the other (the app makes the other views), no Wi-Fi.
 void BuildNdsVariables(const std::string& g)
 {
   const std::string p = "melonds_";
@@ -595,7 +694,7 @@ void BuildNdsVariables(const std::string& g)
   // The DS's BIOS and firmware (bios7.bin, bios9.bin, firmware.bin) in system/ or system/melonDS DS/:
   // encrypted ROMs need them; most dumps don't.
   std::string firmware;
-  for (const std::string dir : {std::string(), std::string("melonDS DS/")})
+  for (const std::string& dir : {std::string(), std::string("melonDS DS/")})
   {
     if (firmware.empty() && FileExists(s_system_dir + "/" + dir + "bios7.bin") &&
         FileExists(s_system_dir + "/" + dir + "bios9.bin") && FileExists(s_system_dir + "/" + dir + "firmware.bin"))
@@ -612,13 +711,13 @@ void BuildNdsVariables(const std::string& g)
   set("jit_fast_memory", "disabled");
   set("threaded_renderer", "enabled");
   // DS Screens: the core gives the screens side by side, or one above the other; the app shows them
-  // (the Big Top Screen made on the GPU from the side-by-side picture: melonDS DS scaling it on the
-  // CPU cost ~3.6 ms a frame on the PS4) and R3 swaps to the other view (NdsView).
+  // (Big Screen and One Screen made on the GPU from the side-by-side picture: melonDS DS scaling it
+  // on the CPU cost ~3.6 ms a frame on the PS4) and R3 swaps the two screens (NdsSwapped).
   const std::string chosen = Settings::Get("nds_layout", g);
   if (chosen != s_nds_chosen)
   {
     s_nds_chosen = chosen;
-    s_nds_alt = false;
+    s_nds_swap = false;
   }
   set("number_of_screen_layouts", "1");
   set("screen_layout1", NdsView() == "stack" ? "top-bottom" : "left-right");
@@ -726,9 +825,9 @@ void BuildPspVariables(const std::string& g)
   set("texture_replacement", "disabled");
   set("texture_filtering", "Auto");
   set("smart_2d_texture_filtering", "disabled");
-  // PSP Resolution, Texture Sharpness, Texture Upscaling, Anti-Aliasing (the size and the
-  // multisampling as the game started: s_psp_scale).
-  if (s_psp_scale == 0)
+  // PSP Resolution, Texture Sharpness, Texture Upscaling, Anti-Aliasing: each change applied while the game
+  // runs (with psp-resolution-at-start the size and the multisampling stay as the game started: s_psp_scale).
+  if (s_psp_scale == 0 || !s_psp_at_start)
   {
     s_psp_scale = std::clamp(Settings::GetInt("psp_resolution", g), 1, 4);
     const std::string level = Settings::Get("psp_antialiasing", g);
@@ -781,14 +880,22 @@ void BuildPspVariables(const std::string& g)
   }
 }
 
-// Flycast's options (the Dreamcast): its recompilers, threaded rendering (SH4, ARM7 and AICA on its
+// Flycast's options (the Dreamcast, and since 00.63 its arcade boards, the NAOMI and the Atomiswave: the same
+// options, the board's own where it differs): its recompilers, threaded rendering (SH4, ARM7 and AICA on its
 // "Flycast-emu" thread, the renderer on retro_run's), Vulkan on the app's device, no GPU readbacks,
 // no network. Every option it reads is answered.
 void BuildDcVariables(const std::string& g)
 {
   const std::string p = "reicast_";
   auto set = [&](const std::string& key, const std::string& value) { s_variables[p + key] = value; };
-  set("region", "Default");     // the disc's (USA, else Europe, else Japan)
+  const bool board = IsFlycastBoard(s_system);
+  // The Dreamcast: the disc's region (USA, else Europe, else Japan). A NAOMI: the BIOS region NAOMI Region chooses
+  // (its Europe is the Export board; its Default would be Korea's BIOS), the core taking one the cartridge was made
+  // for when it wasn't; an Atomiswave: Japan, its BIOS's only region (another is looked for in vain first).
+  const std::string naomi_region = Settings::Get("naomi_region", g);
+  set("region", s_system == SystemId::NAOMI      ? (naomi_region == "japan" ? "Japan" : naomi_region == "export" ? "Europe" : "USA") :
+                s_system == SystemId::ATOMISWAVE ? "Japan" :
+                                                   "Default");
   set("broadcast", "NTSC");     // 60 Hz; Flycast picks PAL or NTSC itself for the few that need it
   set("cable_type", "VGA");     // 480p; Flycast falls back to composite for the games without VGA
   set("hle_bios", "disabled");  // the real BIOS if system/dc/dc_boot.bin is there, else its HLE BIOS
@@ -796,9 +903,20 @@ void BuildDcVariables(const std::string& g)
   set("language", l == "ja" ? "Japanese" : l == "de" ? "German" : l == "fr" ? "French" : l == "es" ? "Spanish" :
                   l == "it" ? "Italian" : "English");
   set("dc_32mb_mod", "disabled");
-  set("sh4clock", "200");
+  // Dreamcast CPU Clock: the SH4's 200 MHz, or 180, 160, 140 - the game's code then runs that much less of
+  // itself a frame (less work for the PS4; a game that needs it all slows down). As the game started
+  // (s_dc_clock): the core counts the clock into each block of code as it compiles it, so a change in the game
+  // would only reach the code compiled after it.
+  if (s_dc_clock.empty())
+  {
+    const int percent = Settings::GetInt("dc_clock", g);
+    s_dc_clock = percent == 90 ? "180" : percent == 80 ? "160" : percent == 70 ? "140" : "200";
+  }
+  set("sh4clock", s_dc_clock);
   set("gdrom_fast_loading", "disabled");
-  set("enable_dsp", "enabled");
+  // Dreamcast Sound DSP: off unless chosen, as in Flycast's own default (libretro's is on): the echo and
+  // reverb some games' sound has, for the emulation thread's time (on the PC 9% of it in Crazy Taxi).
+  set("enable_dsp", Settings::GetOn("dc_dsp", g) ? "enabled" : "disabled");
   set("threaded_rendering", "enabled");
   set("delay_frame_swapping", "enabled");
   set("detect_vsync_swap_interval", "disabled");
@@ -848,7 +966,10 @@ void BuildDcVariables(const std::string& g)
     set("vmu" + n + "_pixel_on_color", "DEFAULT_ON 00");
     set("vmu" + n + "_pixel_off_color", "DEFAULT_OFF 01");
     set("vmu" + n + "_screen_opacity", "100%");
-    set("lightgun" + n + "_crosshair", "disabled");
+    // An arcade board's light gun game aims with the left stick: its sight shown (players 1 to 4 white, red, green,
+    // blue; the core draws it in gun games only).
+    static const char* const SIGHTS[] = {"White", "Red", "Green", "Blue"};
+    set("lightgun" + n + "_crosshair", board ? SIGHTS[i - 1] : "disabled");
   }
   set("per_content_vmus", "VMU A1");  // each game's VMU A1 in saves/dc; B1-D1 shared in system/dc
   set("vmu_sound", "disabled");
@@ -860,10 +981,120 @@ void BuildDcVariables(const std::string& g)
   set("upnp", "disabled");
   set("dcnet", "disabled");
   set("network_output", "disabled");
-  set("allow_service_buttons", "disabled");  // (NAOMI only)
+  // The boards' TEST and SERVICE buttons are RetroPad L3 and R3 (the in-game menu's Arcade Button presses them; no
+  // DualShock 4 button does until the player puts them on one: Controls). The NAOMI's games on Free Play (Flycast's
+  // default: Start starts them; the Atomiswave's coins are each game's own setting, its operator menu's), coins
+  // without a limit.
+  set("allow_service_buttons", board ? "enabled" : "disabled");
   set("force_freeplay", "enabled");
   set("coin_limit", "0");
 }
+
+// Genesis Plus GX's options (the SG-1000, Master System, Game Gear and Mega Drive): the console by
+// the file's extension, the region by the game's header unless Region says; the app skips the frames
+// (GET_AUDIO_VIDEO_ENABLE) and shapes the picture itself (no borders, no NTSC filter: 256 or 320
+// pixels wide, the Game Gear's 160); no BIOS, RAM cartridge or lock-on cartridge. Every option it
+// reads is answered.
+void BuildGpgxVariables(const std::string& g)
+{
+  const std::string p = "genesis_plus_gx_";
+  auto set = [&](const char* key, const std::string& value) { s_variables[p + key] = value; };
+  set("system_hw", "auto");
+  // Region: PAL makes it a European console; NTSC only sets 60 Hz: each game keeps its own region (a
+  // Japanese Master System game's FM music, a Japanese Mega Drive game's region check), a European
+  // one runs at 60 Hz.
+  if (s_gpgx_region.empty())
+    s_gpgx_region = Settings::Get("region", g);
+  set("region_detect", s_gpgx_region == "pal" ? "pal" : "auto");
+  set("vdp_mode", s_gpgx_region == "ntsc" ? "60hz" : "auto");
+  set("bios", "disabled");
+  set("system_bram", "per bios");
+  set("cart_bram", "per cart");
+  set("cart_size", "disabled");
+  set("add_on", "auto");
+  set("lock_on", "disabled");
+  set("aspect_ratio", "auto");
+  set("overscan", "disabled");
+  set("left_border", "disabled");
+  set("gg_extra", "disabled");
+  set("blargg_ntsc_filter", "disabled");
+  set("render", "single field");  // an interlaced game's fields one at a time: 224 lines, not 448
+  set("frameskip", "disabled");
+  set("frameskip_threshold", "33");
+  // The Game Gear's LCD Ghosting: the core has only LCD Ghosting's trail (Smart and Blend Frames -
+  // chosen for all games for the Game Boy Advance, say - leave it off).
+  set("lcd_filter", ConsoleSetting("lcd_ghosting", g, "off") == "lcd" ? "enabled" : "disabled");
+  // The sound: MAME's YM2612 (Nuked's costs more CPU), the Master System's FM chip for the Japanese
+  // games that use it, the Game Gear's Sound Filter.
+  set("ym2612", "mame (ym2612)");
+  set("ym2413", "auto");
+  set("ym2413_core", "mame");
+  set("sound_output", "stereo");
+  set("audio_filter", ConsoleSetting("gb_audio_filter", g, "off") == "soft" ? "low-pass" : "disabled");
+  set("lowpass_range", "60");
+  set("psg_preamp", "150");
+  set("fm_preamp", "100");
+  set("cdda_volume", "100");
+  set("pcm_volume", "100");
+  for (const char* band : {"audio_eq_low", "audio_eq_mid", "audio_eq_high"})
+    set(band, "100");
+  set("no_sprite_limit", Settings::Get("sprite_flicker", g));
+  // Emulated CPU Clock: the 68000's (or the Z80's) speed.
+  const std::string clock = Settings::Get("cpu_clock", g);
+  set("overclock", clock == "light" ? "125" : clock == "compatible" ? "150" : clock == "max" ? "200" : "100");
+  set("force_dtack", "enabled");
+  set("addr_error", "enabled");
+  set("cd_latency", "enabled");
+  set("cd_precache", "disabled");
+  set("enhanced_vscroll", "disabled");
+  set("enhanced_vscroll_limit", "8");
+  // No light gun or mouse (the pads are plugged in after the game: Emulator::Run).
+  set("gun_input", "lightgun");
+  set("gun_cursor", "disabled");
+  set("invert_mouse", "disabled");
+}
+
+// FinalBurn Neo's options (the Arcade): RGB565 pictures (its 32-bit ones the app would only convert
+// back), the picture as the board draws it (a vertical game's is turned by the app: SET_ROTATION), each
+// board's own refresh rate unless Arcade 60 Hz, the vector games drawn at 640x480, Frame Skip's 1 and 2
+// as its fixed skips (Auto is the app's), the CPUs at their speed, the service menu on START held, the
+// high-score table (hiscore.dat in system/fbneo), no patched romsets, 48 kHz sound with 4-point
+// interpolation and no low-pass filter, the sticks at their speed, opposite directions as the last
+// pressed (SOCD), the Neo Geo as chosen, a memory card per game. The DIP switches and cheats it declares
+// per game keep their defaults (unanswered), as do its light-gun and debug options.
+void BuildArcadeVariables(const std::string& g)
+{
+  const std::string p = "fbneo-";
+  auto set = [&](const char* key, const std::string& value) { s_variables[p + key] = value; };
+  set("allow-depth-32", "disabled");
+  set("vertical-mode", "disabled");
+  set("force-60hz", Settings::GetOn("arcade_60hz", g) ? "enabled" : "disabled");
+  set("resolution", "640x480");
+  const std::string skip = Settings::Get("frameskip", g);
+  set("fixed-frameskip", skip == "1" || skip == "2" ? skip : "0");
+  set("cpu-speed-adjust", "100%");
+  set("diagnostic-input", "Hold Start");
+  set("hiscores", "enabled");
+  set("allow-patched-romsets", "disabled");
+  set("samplerate", "48000");
+  set("sample-interpolation", "4-point 3rd order");
+  set("fm-interpolation", "4-point 3rd order");
+  set("lowpass-filter", "disabled");
+  set("analog-speed", "100%");
+  set("socd", "3");
+  // Neo Geo: the setting's value is the core's, in capitals (DIPSWITCH, MVS_EUR, AES_JAP...).
+  std::string neogeo = Settings::Get("arcade_neogeo", g);
+  std::transform(neogeo.begin(), neogeo.end(), neogeo.begin(),
+                 [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+  set("neogeo-mode", neogeo);
+  set("memcard-mode", "per-game");
+}
+
+#ifdef EMUSUNI_ARCADE
+// scripts/build-arcade-core.sh: why the last load failed (FinalBurn Neo's error screen's text), which
+// Arcade::LoadError puts in the app's words.
+extern "C" const char* fbneo_emusuni_error(void);
+#endif
 
 // The DS's touch screen in the frame melonDS DS composed (its layouts, by the frame's size): x, y,
 // width, height in the frame's pixels.
@@ -878,6 +1109,162 @@ std::array<float, 4> NdsTouchScreen(unsigned w, unsigned h)
   if (w == 768 && h == 384)
     return {512, 96, 256, 192};  // big top screen (2x)
   return {0, 0, static_cast<float>(w), static_cast<float>(h)};
+}
+
+// The 3DS's two screens as Azahar lays them out for 3DS Screens (and R3's swap): the picture it gives at a
+// resolution of `factor` times the 3DS's own (ComputeLayoutGeometry in citra_libretro/emu_window; the big top
+// screen's picture is 4x at least, so that 1x stays sharp), and where the touch screen is in it, in the
+// picture's pixels (framebuffer_layout.cpp: LargeFrameLayout with the small screen below, to the right, or
+// bottom right; SingleFrameLayout). touch[2] is 0 where the touch screen isn't shown (Top Screen Only).
+struct ThreedsPicture
+{
+  unsigned w = 0, h = 0;
+  std::array<float, 4> touch{};  // x, y, width, height
+};
+
+// Are the screens swapped now? (Touch Screen Only is the single screen layout swapped; R3 swaps back.)
+bool ThreedsSwapped(const std::string& layout)
+{
+  return (layout == "bottom") != s_3ds_swap;
+}
+
+ThreedsPicture ThreedsLayout(const std::string& layout, bool swapped, int factor)
+{
+  const unsigned f = static_cast<unsigned>(std::clamp(factor, 1, 3));
+  const float k = static_cast<float>(f);
+  ThreedsPicture picture;
+  if (layout == "stack")
+  {
+    picture.w = 400 * f;
+    picture.h = 480 * f;
+    picture.touch = {40.0f * k, swapped ? 0.0f : 240.0f * k, 320.0f * k, 240.0f * k};
+  }
+  else if (layout == "large")
+  {
+    picture.w = swapped ? 1680 : 1920;
+    picture.h = 960;
+    picture.touch = swapped ? std::array<float, 4>{0.0f, 0.0f, 1280.0f, 960.0f}
+                            : std::array<float, 4>{1600.0f, 720.0f, 320.0f, 240.0f};
+  }
+  else if (layout == "top" || layout == "bottom")
+  {
+    picture.w = (swapped ? 320 : 400) * f;
+    picture.h = 240 * f;
+    if (swapped)
+      picture.touch = {0.0f, 0.0f, 320.0f * k, 240.0f * k};
+  }
+  else  // "side"
+  {
+    picture.w = 720 * f;
+    picture.h = 240 * f;
+    picture.touch = {swapped ? 0.0f : 400.0f * k, 0.0f, 320.0f * k, 240.0f * k};
+  }
+  return picture;
+}
+
+// A stick with a dead zone around its centre: a DualShock 4's rest a few units off it, and Azahar's Circle Pad
+// and C-stick have none of their own. Inside `zone` (of the way out) nothing, beyond it the rest of the range.
+void ApplyDeadZone(std::array<int16_t, 2>* stick, float zone)
+{
+  const float x = static_cast<float>((*stick)[0]) / 32768.0f, y = static_cast<float>((*stick)[1]) / 32768.0f;
+  const float length = std::sqrt(x * x + y * y);
+  if (length <= zone)
+  {
+    *stick = {0, 0};
+    return;
+  }
+  const float scale = std::min(1.0f, (length - zone) / (1.0f - zone)) / length;
+  (*stick)[0] = static_cast<int16_t>(std::clamp(x * scale * 32767.0f, -32767.0f, 32767.0f));
+  (*stick)[1] = static_cast<int16_t>(std::clamp(y * scale * 32767.0f, -32767.0f, 32767.0f));
+}
+
+// Why a 3DS game didn't start, in the app's words where Azahar's are English sentences (and one a number).
+std::string ThreedsFailure(const std::string& message)
+{
+  const auto has = [&message](const char* part) { return message.find(part) != std::string::npos; };
+  if (has("Unknown error: 13"))  // ResultStatus::ErrorN3DSApplication (core.h): a New 3DS-only game on the original 3DS
+    return "This game is made for the New 3DS only\n(Settings, Emulation: New 3DS Mode, On)";
+  if (has("decrypted"))
+    return "This game is encrypted\nOnly decrypted dumps run (.3ds, .cci, .cxi)";
+  if (has("format is not supported") || has("Failed to obtain loader"))
+    return "The emulator doesn't know this file\nIt takes .3ds, .cci, .cxi and .3dsx, decrypted";
+  if (has("GBA Virtual Console"))
+    return "GBA Virtual Console games don't run here";
+  return message;
+}
+
+// Azahar's options (the Nintendo 3DS): the original 3DS unless New 3DS Mode, its recompilers (the ARM11's and the
+// PICA shaders'), the vertex shaders on the GPU (Vulkan, on the app's device), accurate multiplication off,
+// the 3DS's own size (1x: no Quality levels for it since 00.64), no texture filters, HLE sound, the core's own
+// screen layouts (3DS Screens, R3's swap), the touchpad as the touch screen (the right stick is the C-stick), no
+// motion, no 3D. Every
+// option the core declares is answered (core_settings.cpp declares 32): one it isn't given gets the default
+// of its code, not the one it declares. (Checked against the core's source by the PC tests.)
+void Build3dsVariables(const std::string& g)
+{
+  const std::string p = "citra_";
+  auto set = [&](const char* key, const std::string& value) { s_variables[p + key] = value; };
+  // New 3DS Mode counts as the game started: Azahar reads it once, and a change under a running game would be read
+  // half-way. The resolution is the 3DS's own, 1x, whatever a settings.ini of 00.63 says (3DS Resolution is hidden:
+  // the 3DS has no Quality levels, as the Dreamcast; its 3D games are slow on the PS4 at 1x already).
+  if (s_3ds_scale == 0)
+  {
+    s_3ds_scale = 1;
+    s_3ds_new = Settings::Get("3ds_new", g) == "on" ? 1 : 0;
+  }
+  set("is_new_3ds", s_3ds_new == 1 ? "New 3DS" : "Old 3DS");
+  set("use_cpu_jit", "enabled");
+  const int clock = Settings::GetInt("3ds_clock", g);
+  set("cpu_clock_percentage", clock == 50 || clock == 75 ? std::to_string(clock) : std::string("100"));
+  set("region_value", "Auto");  // the game's
+  // The games' language: the menus' one.
+  static const std::pair<const char*, const char*> LANGUAGES[] = {
+      {"es", "Spanish"}, {"fr", "French"}, {"de", "German"}, {"it", "Italian"}, {"pt", "Portuguese"},
+      {"ja", "Japanese"}, {"ru", "Russian"}, {"ko", "Korean"}, {"nl", "Dutch"}, {"zh", "Simplified Chinese"}};
+  const std::string language = Settings::Get("language");
+  std::string name = "English";
+  for (const auto& [code, full] : LANGUAGES)
+  {
+    if (language == code)
+      name = full;
+  }
+  set("language_value", name);
+  set("audio_emulation", "hle");
+  set("input_type", "none");  // (no microphone)
+  set("graphics_api", "Vulkan");
+  set("use_hw_shader", "enabled");
+  set("use_shader_jit", "enabled");
+  set("shaders_accurate_mul", "disabled");  // a few games show artifacts with it off; the PS4 can't afford it
+  set("use_disk_shader_cache", "enabled");  // (saves/3ds/Azahar/shaders)
+  set("resolution_factor", std::to_string(s_3ds_scale));
+  set("texture_filter", "none");
+  set("texture_sampling", "GameControlled");
+  set("custom_textures", "disabled");
+  set("dump_textures", "disabled");
+  // 3DS Screens: the core's layouts. The single-screen choices are its single screen layout with the screen
+  // they show; R3 swaps the screens (its swap option: the other one is shown, or put big or first).
+  const std::string layout = Settings::Get("3ds_layout", g);
+  const bool swapped = ThreedsSwapped(layout);
+  set("layout_option", layout == "stack" ? "default" :
+                       layout == "large" ? "large_screen" :
+                       layout == "top" || layout == "bottom" ? "single_screen" :
+                                                              "side_by_side");
+  set("swap_screen", swapped ? "Bottom" : "Top");
+  set("swap_screen_mode", "Toggle");
+  set("large_screen_proportion", "4.00");  // (the size ThreedsLayout and the core's picture are made for)
+  set("render_3d", "off");
+  set("factor_3d", "0");
+  set("use_virtual_sd", "enabled");
+  set("use_libretro_save_path", "LibRetro Default");  // saves/3ds/Azahar: its sdmc, nand and caches
+  // The right stick is the C-stick (not a pointer for the touch screen); the touchpad touches (pointer
+  // input), no mouse; the app draws the stylus itself.
+  set("analog_function", "c_stick");
+  set("analog_deadzone", "15");
+  set("enable_mouse_touchscreen", "disabled");
+  set("enable_touch_touchscreen", "enabled");
+  set("enable_touch_pointer_timeout", "enabled");
+  set("enable_motion", "disabled");
+  set("motion_sensitivity", "1.0");
 }
 
 void BuildVariables()
@@ -895,8 +1282,14 @@ void BuildVariables()
     BuildNdsVariables(s_game_id);
   else if (s_system == SystemId::PSP)
     BuildPspVariables(s_game_id);
-  else if (s_system == SystemId::DC)
+  else if (IsFlycast(s_system))
     BuildDcVariables(s_game_id);
+  else if (IsGpgx(s_system))
+    BuildGpgxVariables(s_game_id);
+  else if (s_system == SystemId::ARCADE)
+    BuildArcadeVariables(s_game_id);
+  else if (s_system == SystemId::THREEDS)
+    Build3dsVariables(s_game_id);
   else
     BuildSnesVariables(s_game_id);
   s_variables_changed = true;
@@ -977,9 +1370,9 @@ bool Environment(unsigned command, void* data)
     if (undeclared && s_undeclared_logged.insert(variable->key).second)
     {
       LogF("%s: option %s isn't one the core declared: %s", s_core->name, variable->key,
-           s_system == SystemId::DC ? "not given" : "given anyway");
+           StrictOptions() ? "not given" : "given anyway");
     }
-    if (it == s_variables.end() || (undeclared && s_system == SystemId::DC))
+    if (it == s_variables.end() || (undeclared && StrictOptions()))
     {
       variable->value = nullptr;
       return false;
@@ -1041,10 +1434,10 @@ bool Environment(unsigned command, void* data)
     static_cast<retro_rumble_interface*>(data)->set_rumble_state = SetRumble;
     return true;
   case RETRO_ENVIRONMENT_GET_INPUT_BITMASKS:
-    // mGBA, SwanStation, melonDS DS and PPSSPP read all the buttons at once (InputState's mask); the
-    // others as before.
+    // mGBA, SwanStation, melonDS DS, PPSSPP, Flycast, Genesis Plus GX and FinalBurn Neo read all the
+    // buttons at once (InputState's mask); the others as before.
     return IsHandheld(s_system) || s_system == SystemId::PS1 || s_system == SystemId::NDS ||
-           s_system == SystemId::PSP || s_system == SystemId::DC;
+           s_system == SystemId::PSP || IsFlycast(s_system) || IsGpgx(s_system) || s_system == SystemId::ARCADE;
   case RETRO_ENVIRONMENT_GET_SENSOR_INTERFACE:
   {
     if (!IsHandheld(s_system) || !data)
@@ -1076,12 +1469,14 @@ bool Environment(unsigned command, void* data)
     return true;
   case RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO:
   {
-    // The region or the NTSC filter changed while the game runs.
+    // The region or the NTSC filter changed while the game runs (an arcade board's picture grew: its
+    // shape too).
     const auto* av = static_cast<const retro_system_av_info*>(data);
     if (av->timing.sample_rate > 0)
       s_sample_rate = av->timing.sample_rate;
     if (av->timing.fps > 0)
       s_game_fps = av->timing.fps;
+    NoteGeometry(av->geometry);
     return true;
   }
   case RETRO_ENVIRONMENT_SHUTDOWN:
@@ -1132,6 +1527,35 @@ bool Environment(unsigned command, void* data)
     return true;
   }
   case RETRO_ENVIRONMENT_SET_GEOMETRY:
+    // The picture's shape, for Aspect Ratio's Auto (FinalBurn Neo sends it when a board's picture changes
+    // its size; its first shape is get_system_av_info's, read as the game starts).
+    if (data)
+      NoteGeometry(*static_cast<const retro_game_geometry*>(data));
+    return true;
+  case RETRO_ENVIRONMENT_SET_ROTATION:
+  {
+    // A vertical arcade game: its picture turned by the app as it comes in (VideoRefresh), so the
+    // upscalers, the GPU's filters and the bezels see it upright. The Arcade's; and the NAOMI's and the
+    // Atomiswave's (Flycast draws the board's picture as the monitor got it, the core's image turned as it is
+    // drawn: DrawPicture).
+    if (!IsRomsetSystem(s_system) || !data)
+      return false;
+    s_rotation = *static_cast<const unsigned*>(data) & 3;
+    LogF("%s: the picture turned %u degrees", s_core->name, s_rotation * 90);
+    return true;
+  }
+  case RETRO_ENVIRONMENT_SET_VARIABLE:
+  {
+    // The core sets one of its own options (FinalBurn Neo resets its cheat options so at every start). The
+    // Arcade's only: PPSSPP makes up a MAC address this way (and FCEUmm asks with no option whether it may),
+    // answered "no" as before for them.
+    const auto* variable = static_cast<const retro_variable*>(data);
+    if (s_system != SystemId::ARCADE || !variable || !variable->key)
+      return false;
+    s_variables[variable->key] = variable->value ? variable->value : "";
+    s_variables_changed = true;
+    return true;
+  }
   case RETRO_ENVIRONMENT_SET_PERFORMANCE_LEVEL:
   case RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS:
   case RETRO_ENVIRONMENT_SET_CONTROLLER_INFO:
@@ -1150,7 +1574,14 @@ void VideoRefresh(const void* pixels, unsigned width, unsigned height, size_t pi
     // The core's own image (set_image): nothing to upload.
     if (s_defer_frame)
     {
-      s_pending = {true, true, nullptr, width, height, 0};
+      // Field by field: the image set_image has just put in s_pending stays (the whole struct assigned
+      // dropped it, so the drawing kept an older image - one the PSP core may since have freed).
+      s_pending.hw = true;
+      s_pending.fresh = true;
+      s_pending.frame = nullptr;
+      s_pending.w = width;
+      s_pending.h = height;
+      s_pending.pitch = 0;
       return;
     }
     s_frame_hw = true;
@@ -1166,23 +1597,49 @@ void VideoRefresh(const void* pixels, unsigned width, unsigned height, size_t pi
   if (s_xrgb8888)
   {
     // 32-bit pixels: 5-6-5 bits of each (the DS draws 6 bits per colour; the picture stays the same).
-    s_converted.resize(static_cast<size_t>(width) * height);
-    for (unsigned y = 0; y < height; y++)
-    {
-      const uint32_t* in = reinterpret_cast<const uint32_t*>(static_cast<const uint8_t*>(pixels) + y * pitch);
-      uint16_t* out = s_converted.data() + static_cast<size_t>(y) * width;
-      for (unsigned x = 0; x < width; x++)
+    // The DS's screens swapped (R3): the halves trade places on the way (NdsSwapped).
+    const bool swap = NdsSwapped(width, height);
+    const unsigned shift_x = swap && height == 192 ? width / 2 : 0, shift_y = swap && height == 384 ? height / 2 : 0;
+    auto convert = [](const uint32_t* in, uint16_t* out, unsigned count) {
+      for (unsigned x = 0; x < count; x++)
       {
         const uint32_t c = in[x];
         out[x] = static_cast<uint16_t>(((c >> 8) & 0xF800) | ((c >> 5) & 0x07E0) | ((c >> 3) & 0x001F));
       }
+    };
+    s_converted.resize(static_cast<size_t>(width) * height);
+    for (unsigned y = 0; y < height; y++)
+    {
+      const unsigned from_y = y + shift_y < height ? y + shift_y : y + shift_y - height;
+      const uint32_t* in =
+          reinterpret_cast<const uint32_t*>(static_cast<const uint8_t*>(pixels) + static_cast<size_t>(from_y) * pitch);
+      uint16_t* out = s_converted.data() + static_cast<size_t>(y) * width;
+      convert(in + shift_x, out, width - shift_x);  // (two runs a row: the halves swapped)
+      convert(in, out + (width - shift_x), shift_x);
     }
     pixels = s_converted.data();
     pitch = static_cast<size_t>(width) * 2;
   }
+  if (s_rotation != 0)
+  {
+    // A vertical arcade game (SET_ROTATION): turned here, its width and height swapped, so everything
+    // after sees an upright picture.
+    unsigned w = 0, h = 0;
+    Arcade::Rotate(static_cast<const uint16_t*>(pixels), pitch, width, height, s_rotation, &s_rotated, &w, &h);
+    pixels = s_rotated.data();
+    width = w;
+    height = h;
+    pitch = static_cast<size_t>(width) * 2;
+  }
   if (s_defer_frame)
   {
-    s_pending = {false, true, pixels, width, height, pitch};
+    // (Field by field, as above: a pending set_image stays.)
+    s_pending.hw = false;
+    s_pending.fresh = true;
+    s_pending.frame = pixels;
+    s_pending.w = width;
+    s_pending.h = height;
+    s_pending.pitch = pitch;
     return;
   }
   s_frame = pixels;
@@ -1228,6 +1685,10 @@ int16_t InputState(unsigned port, unsigned device, unsigned index, unsigned id)
                                                0;
     return index < 2 && id < 2 ? s_analog[port][index][id] : 0;
   }
+  // A NAOMI or Atomiswave light gun game played with the pad (the left stick aims): its reload, the gun shot off
+  // the screen (Gun Reload in Controls).
+  if (port < MAX_PLAYERS && (device & 0xFF) == RETRO_DEVICE_LIGHTGUN)
+    return id == RETRO_DEVICE_ID_LIGHTGUN_RELOAD && s_gun_reload[port] ? 1 : 0;
   if (port >= MAX_PLAYERS || (device & 0xFF) != RETRO_DEVICE_JOYPAD)
     return 0;
   if (id == RETRO_DEVICE_ID_JOYPAD_MASK)
@@ -1332,15 +1793,51 @@ struct Picture
 struct Bezel
 {
   std::string path;  // the file shown ("": none)
+  std::string want;  // what it was chosen for: the setting's value and the picture's shape (LoadBezel)
   ImTextureID texture{};
   ImVec2 min, max;  // the window on the screen
 };
 Bezel s_bezel;
 
-// The bezel file the game's console is set to ("": none). Your Own: bezels/<console>/ in the data
-// folder with the ROM's name (as The Bezel Project names its bezels) or the game's title, else
-// bezels/<console>.png; without one, the console's first built-in bezel.
-std::string BezelPath(const Library::Game& game)
+Picture PlacePicture(const std::string& game, bool framed = true);
+
+// The frames every console has (00.63: assets/xmb/bezels/frame-<name>.png), besides the Retro TV (tv.png) and the
+// console's own (<console>-<name>.png).
+bool SharedFrame(const std::string& choice)
+{
+  return choice == "cabinet" || choice == "minimal" || choice == "neon" || choice == "wood" || choice == "carbon" ||
+         choice == "stars";
+}
+
+// Which window of a built-in frame suits the picture, by its shape on a screen without one (BezelPath): "" a 4:3 one,
+// "-tall" a picture taller than wide (the DS's and the 3DS's screens one above the other, a vertical arcade game),
+// "-169" a widescreen one (the PSP, a big top screen), "-wide" two screens side by side.
+std::string BezelShape(const std::string& game)
+{
+  if (s_frame_w == 0 || s_frame_h == 0)
+    return {};
+  const Picture picture = PlacePicture(game, false);
+  const float ratio = (picture.max.x - picture.min.x) / std::max(1.0f, picture.max.y - picture.min.y);
+  return ratio < 0.95f ? "-tall" : ratio <= 1.55f ? "" : ratio <= 2.2f ? "-169" : "-wide";
+}
+
+// A built-in frame (assets/xmb/bezels/<name>.png, a 4:3 window), or its window for the picture's shape when it has
+// one (<name>-tall.png, -169.png, -wide.png; side by side screens take a 16:9 one after their own).
+std::string BuiltinBezel(const std::string& name, const std::string& shape)
+{
+  const std::string builtin = std::string(App::ASSETS_DIR) + "/xmb/bezels/" + name;
+  for (const std::string& variant : {shape, std::string(shape == "-wide" ? "-169" : "")})
+  {
+    if (!variant.empty() && FileExists(builtin + variant + ".png"))
+      return builtin + variant + ".png";
+  }
+  return builtin + ".png";
+}
+
+// The bezel file the game's console is set to ("": none), for a picture of that shape (BezelShape). Your Own:
+// bezels/<console>/ in the data folder with the ROM's name (as The Bezel Project names its bezels) or the game's
+// title, else bezels/<console>.png; without one, the console's own built-in bezel (else the Retro TV).
+std::string BezelPath(const Library::Game& game, const std::string& shape)
 {
   const System& system = GetSystem(game.system);
   const std::string choice = Settings::Get(std::string(system.key) + "_bezel", game.key);
@@ -1348,9 +1845,11 @@ std::string BezelPath(const Library::Game& game)
     return {};
   const std::string builtin = std::string(App::ASSETS_DIR) + "/xmb/bezels/";
   if (choice == "tv")
-    return builtin + "tv.png";
+    return BuiltinBezel("tv", shape);
+  if (SharedFrame(choice))
+    return BuiltinBezel("frame-" + choice, shape);
   if (choice != "custom")
-    return builtin + system.key + "-" + choice + ".png";
+    return BuiltinBezel(std::string(system.key) + "-" + choice, shape);
   const std::string own = std::string(App::DATA_DIR) + "/bezels/" + system.key;
   for (const std::string& path : {own + "/" + game.id + ".png", own + "/" + game.title + ".png", own + ".png"})
   {
@@ -1358,7 +1857,8 @@ std::string BezelPath(const Library::Game& game)
       return path;
   }
   LogF("bezel: none of your own in %s/bezels/%s", App::DATA_DIR, system.key);
-  return builtin + system.key + "-console.png";
+  const std::string first = builtin + system.key + "-console.png";
+  return FileExists(first) ? BuiltinBezel(std::string(system.key) + "-console", shape) : BuiltinBezel("tv", shape);
 }
 
 void FreeBezel(Display& display)
@@ -1368,13 +1868,24 @@ void FreeBezel(Display& display)
   s_bezel = {};
 }
 
-// Shows the bezel the settings choose, when it changed.
+// Shows the bezel the settings choose for the picture's shape, when that changed: it is called at every pass of the
+// game's loop (a choice made in the in-game menu, R3's other DS view, a picture of a new shape), so the file is looked
+// for only when the choice or the shape changes.
 void LoadBezel(Display& display, const Library::Game& game)
 {
-  const std::string path = BezelPath(game);
-  if (path == s_bezel.path)
+  const std::string choice = Settings::Get(std::string(GetSystem(game.system).key) + "_bezel", game.key);
+  const std::string shape = choice == "off" ? std::string() : BezelShape(game.key);
+  const std::string want = choice + shape;
+  if (want == s_bezel.want)
     return;
+  const std::string path = BezelPath(game, shape);
+  if (path == s_bezel.path)
+  {
+    s_bezel.want = want;
+    return;
+  }
   FreeBezel(display);
+  s_bezel.want = want;
   s_bezel.path = path;
   if (path.empty())
     return;
@@ -1432,13 +1943,18 @@ void DrawBezel(ImDrawList* dl)
   }
 }
 
-Picture PlacePicture(const std::string& game);
+// Tube TV (Graphics: an old tube TV's look, GpuFilter's Mode::Crt): its look, 1-4 (0: off).
+int CrtLook(const std::string& game)
+{
+  const std::string look = Settings::Get("crt", game);
+  return look == "tv" ? 1 : look == "arcade" ? 2 : look == "studio" ? 3 : look == "strong" ? 4 : 0;
+}
 
 void DrawScanlines(ImDrawList* dl, const Picture& picture, const std::string& game)
 {
   const std::string scanlines = Settings::Get("scanlines", game);
-  if (scanlines == "off")
-    return;
+  if (scanlines == "off" || CrtLook(game) != 0)
+    return;  // (Tube TV draws lines of its own)
   const int alpha = scanlines == "light" ? 60 : scanlines == "medium" ? 110 : 160;
   const float row = (picture.max.y - picture.min.y) / picture.rows;
   if (picture.columns > 0.0f)
@@ -1467,8 +1983,14 @@ bool NtscFilterOn(const std::string& game)
 // The GPU filter for the picture (Graphics > GPU Upscaler), as this console and picture can use it.
 GpuFilter::Mode GpuMode(const std::string& game)
 {
-  if (s_system == SystemId::DC)
-    return GpuFilter::Mode::Off;  // (the Dreamcast plays at Low: BuildDcVariables)
+  // Tube TV, on every console: it takes the console's own picture, as a TV did (the GPU Upscaler and the CPU's
+  // Resolution are left out; the NTSC filter's picture goes through it).
+  if (CrtLook(game) != 0)
+    return GpuFilter::Mode::Crt;
+  if (IsFlycast(s_system))
+    return GpuFilter::Mode::Off;  // (the Dreamcast and its arcade boards play at Low: BuildDcVariables)
+  if (s_system == SystemId::THREEDS)
+    return GpuFilter::Mode::Off;  // (the 3DS's picture is Azahar's own for now: Build3dsVariables)
   const std::string name = Settings::Get("gpu_filter", game);
   GpuFilter::Mode mode = name == "pixel"      ? GpuFilter::Mode::PixelArt :
                          name == "ai"         ? GpuFilter::Mode::AI :
@@ -1529,16 +2051,17 @@ GpuFilter::Mode GpuMode(const std::string& game)
 bool GpuRedraws(GpuFilter::Mode mode)
 {
   return mode == GpuFilter::Mode::PixelArt || mode == GpuFilter::Mode::AI || mode == GpuFilter::Mode::Smooth ||
-         mode == GpuFilter::Mode::Edges || mode == GpuFilter::Mode::NaturalHD || mode == GpuFilter::Mode::NaturalAI;
+         mode == GpuFilter::Mode::Edges || mode == GpuFilter::Mode::NaturalHD || mode == GpuFilter::Mode::NaturalAI ||
+         mode == GpuFilter::Mode::Crt;
 }
 
-Picture PlacePicture(const std::string& game)
+Picture PlacePicture(const std::string& game, bool framed)
 {
   Picture picture;
-  // The screen, or the bezel's window.
+  // The screen, or the bezel's window (framed: as it is drawn; else as if there were none, BezelShape).
   ImVec2 area(0.0f, 0.0f);
   float W = static_cast<float>(Display::WIDTH), H = static_cast<float>(Display::HEIGHT);
-  if (s_bezel.texture)
+  if (s_bezel.texture && framed)
   {
     area = s_bezel.min;
     W = s_bezel.max.x - s_bezel.min.x;
@@ -1546,35 +2069,59 @@ Picture PlacePicture(const std::string& game)
   }
   // The picture in the console's units: 256 wide (512 hi-res, 602 with the NTSC filter), 224 or
   // 239 lines (448 / 478 interlaced).
-  const bool nds_big = NdsBig();
-  const float frame_w = nds_big ? 1024.0f : static_cast<float>(s_frame_w);  // (the core's own placement)
+  // (The DS's Big Screen: the core's 512x192 placed as 1024x576; One Screen: its left half, 256x192.)
+  const bool nds_big = NdsBig(), nds_single = NdsSingle();
+  const float frame_w = nds_big ? 1024.0f : nds_single ? 256.0f : static_cast<float>(s_frame_w);
   float frame_h = nds_big ? 576.0f : static_cast<float>(s_frame_h);
   if (s_system == SystemId::PS1)
     frame_h /= static_cast<float>(std::clamp(Settings::GetInt("ps1_resolution", game), 1, 4));  // SwanStation's scale
   else if (s_system == SystemId::PSP)
     frame_h /= std::max(1.0f, std::round(static_cast<float>(s_frame_w) / 480.0f));  // PPSSPP's (480x270 at 1x)
-  else if (s_system == SystemId::DC)
+  else if (IsFlycast(s_system))
     frame_h /= std::max(1.0f, std::floor(frame_h / 480.0f));  // Flycast's internal resolution (480 lines at 1x)
+  else if (s_system == SystemId::THREEDS)
+  {
+    // Azahar's picture: the 3DS's own size (s_3ds_scale, 1x), but 4x for the big top screen (its buffer).
+    frame_h /= Settings::Get("3ds_layout", game) == "large" ? 4.0f : static_cast<float>(std::clamp(s_3ds_scale, 1, 3));
+  }
   else if (s_frame_hw && s_frame_w >= 1280)
     frame_h /= static_cast<float>(s_frame_w / 640);  // ParaLLEl-RDP's upscaled scanout
-  const float lines = frame_h > 300.0f && s_system != SystemId::NDS ? frame_h * 0.5f : frame_h;  // (the DS: two screens)
+  // A NAOMI's or Atomiswave's vertical game: the core's picture turned as it is drawn (DrawPicture), so its width
+  // is the picture's height on the TV (at Flycast's 1x).
+  const bool turned = IsFlycastBoard(s_system) && (s_rotation & 1) != 0;
+  if (turned)
+    frame_h = static_cast<float>(s_frame_w) / std::max(1.0f, std::floor(static_cast<float>(s_frame_h) / 480.0f));
+  // (The DS: two screens; an arcade board's lines are its own, 224 to 480; the 3DS's are counted above.)
+  const bool own_lines = s_system == SystemId::NDS || s_system == SystemId::ARCADE || s_system == SystemId::THREEDS;
+  const float lines = frame_h > 300.0f && !own_lines ? frame_h * 0.5f : frame_h;
   picture.rows = lines;
   const std::string aspect = Settings::Get("aspect", game);
   float ratio = 4.0f / 3.0f;
   // A handheld's screen keeps its shape (10:9, the Game Boy Advance's 3:2) at Auto and Pixel
-  // Perfect: its dots are square. The Super Game Boy's 256x224 picture was a TV's.
+  // Perfect: its dots are square. The Super Game Boy's 256x224 picture was a TV's. The Game Gear's
+  // LCD has the grid between its dots too, its shape 4:3 at Auto (Genesis Plus GX's 6:5 pixels).
   const bool screen = (IsHandheld(s_system) && s_frame_w != 256) || s_system == SystemId::NDS;
-  if (screen && !nds_big)
-    picture.columns = static_cast<float>(s_frame_w);
+  if ((screen || (HasLcd(s_system) && s_frame_w != 256)) && !nds_big)
+    picture.columns = nds_single ? 256.0f : static_cast<float>(s_frame_w);
   if (screen && (aspect == "auto" || aspect == "pixel"))
     ratio = frame_w / std::max(1.0f, frame_h);
   else if (s_system == SystemId::PS1 && Settings::Get("ps1_widescreen", game) == "on" && aspect != "stretch")
     ratio = 16.0f / 9.0f;  // the widescreen hack's picture
   else if (s_system == SystemId::PSP && (aspect == "auto" || aspect == "pixel"))
     ratio = static_cast<float>(s_frame_w) / std::max(1.0f, static_cast<float>(s_frame_h));  // its 16:9 screen
+  else if (s_system == SystemId::THREEDS && (aspect == "auto" || aspect == "pixel"))
+    ratio = static_cast<float>(s_frame_w) / std::max(1.0f, static_cast<float>(s_frame_h));  // its screens' pixels are square
+  else if (s_system == SystemId::ARCADE && aspect == "auto" && s_core_aspect > 0.0f)
+    ratio = s_core_aspect;  // the board's own shape (a vertical game's 3:4), as FinalBurn Neo reports it
+  else if (s_system == SystemId::ARCADE && (aspect == "auto" || aspect == "pixel"))
+    ratio = frame_w / std::max(1.0f, frame_h);  // its pixels square (the picture is turned already)
+  else if (turned && (aspect == "auto" || aspect == "pixel"))
+    ratio = 3.0f / 4.0f;  // a vertical NAOMI or Atomiswave game: its monitor's 4:3 standing upright
+  else if (aspect == "pixel" && IsGpgx(s_system))
+    ratio = frame_w / std::max(1.0f, lines);  // the Mega Drive's 320 or 256 pixels, the Game Gear's 160
   else if (aspect == "pixel" && s_system != SystemId::N64 && s_system != SystemId::PS1 && s_system != SystemId::PSP &&
-           s_system != SystemId::DC)
-    ratio = 256.0f / std::max(1.0f, lines);  // (the N64's and the PlayStation's pictures are 4:3 already)
+           !IsFlycast(s_system))
+    ratio = 256.0f / std::max(1.0f, lines);  // (the N64's, the PlayStation's and Flycast's pictures are 4:3 already)
   else if (aspect == "wide")
     ratio = 16.0f / 9.0f;
   else if (aspect == "stretch")
@@ -1607,6 +2154,112 @@ Picture PlacePicture(const std::string& game)
   return picture;
 }
 
+// The 3DS's stylus on the touch screen, drawn over the picture while the finger is on the touchpad or the tap
+// button is down, and a moment after (the core's own cursor is off: Build3dsVariables). s_3ds_at is where it
+// is in the core's picture, in its pixels.
+void Draw3dsStylus(ImDrawList* dl, const Picture& picture)
+{
+  if (s_3ds_cursor <= 0 || s_frame_w == 0 || s_frame_h == 0)
+    return;
+  s_3ds_cursor--;
+  const float x = picture.min.x + s_3ds_at[0] / static_cast<float>(s_frame_w) * (picture.max.x - picture.min.x);
+  const float y = picture.min.y + s_3ds_at[1] / static_cast<float>(s_frame_h) * (picture.max.y - picture.min.y);
+  const float arm = (picture.max.x - picture.min.x) * 0.012f + 6.0f;
+  const ImU32 dark = IM_COL32(0, 0, 0, 220), light = IM_COL32(255, 255, 255, 240);
+  dl->AddLine(ImVec2(x - arm, y), ImVec2(x + arm, y), dark, 5.0f);
+  dl->AddLine(ImVec2(x, y - arm), ImVec2(x, y + arm), dark, 5.0f);
+  dl->AddLine(ImVec2(x - arm, y), ImVec2(x + arm, y), light, 2.0f);
+  dl->AddLine(ImVec2(x, y - arm), ImVec2(x, y + arm), light, 2.0f);
+  if (s_stylus.down)
+    dl->AddCircle(ImVec2(x, y), arm * 0.7f, light, 16, 2.0f);
+}
+
+// Tube TV's look and screens for the picture DrawPicture hands GpuFilter (the whole picture, or the DS's One Screen's
+// half): the DS's and the 3DS's two screens each a tube of its own (their places in the picture drawn and in the
+// source, as NdsTouchScreen and ThreedsLayout lay them out), any other picture one, with the console's lines.
+void CrtScreens(GpuFilter::Source* source, const Picture& picture, const std::string& game)
+{
+  source->crt = std::max(1, CrtLook(game));
+  source->screen_count = 1;
+  source->screens[0] = GpuFilter::Source::Screen{};
+  source->screens[0].lines = picture.rows;
+  const auto set = [source](int i, std::array<float, 4> place, std::array<float, 4> from, float lines) {
+    GpuFilter::Source::Screen& screen = source->screens[i];
+    std::copy(place.begin(), place.end(), screen.place);
+    std::copy(from.begin(), from.end(), screen.from);
+    screen.lines = lines;
+  };
+  if (s_system == SystemId::NDS)
+  {
+    if (NdsSingle())
+    {
+      source->screens[0].lines = 192.0f;
+    }
+    else if (NdsBig())
+    {
+      // (Its source is the side-by-side picture: the left half 3x, the right 1x at the right, in the middle.)
+      set(0, {0.0f, 0.0f, 0.75f, 1.0f}, {0.0f, 0.0f, 0.5f, 1.0f}, 192.0f);
+      set(1, {0.75f, 1.0f / 3.0f, 0.25f, 1.0f / 3.0f}, {0.5f, 0.0f, 0.5f, 1.0f}, 192.0f);
+      source->screen_count = 2;
+    }
+    else if (s_frame_w == 512 && s_frame_h == 192)
+    {
+      set(0, {0.0f, 0.0f, 0.5f, 1.0f}, {0.0f, 0.0f, 0.5f, 1.0f}, 192.0f);
+      set(1, {0.5f, 0.0f, 0.5f, 1.0f}, {0.5f, 0.0f, 0.5f, 1.0f}, 192.0f);
+      source->screen_count = 2;
+    }
+    else if (s_frame_w == 256 && s_frame_h >= 384)
+    {
+      // One above the other (a gap between them, if the core leaves one).
+      const float h = 192.0f / static_cast<float>(s_frame_h);
+      set(0, {0.0f, 0.0f, 1.0f, h}, {0.0f, 0.0f, 1.0f, h}, 192.0f);
+      set(1, {0.0f, 1.0f - h, 1.0f, h}, {0.0f, 1.0f - h, 1.0f, h}, 192.0f);
+      source->screen_count = 2;
+    }
+    else if ((s_frame_w == 1024 && s_frame_h == 576) || (s_frame_w == 768 && s_frame_h == 384))
+    {
+      // The core's own big top screen (3x or 2x), the touch screen 1x at its right.
+      const std::array<float, 4> touch = NdsTouchScreen(s_frame_w, s_frame_h);
+      const float w = static_cast<float>(s_frame_w), h = static_cast<float>(s_frame_h);
+      const std::array<float, 4> a = {0.0f, 0.0f, touch[0] / w, 1.0f};
+      const std::array<float, 4> b = {touch[0] / w, touch[1] / h, touch[2] / w, touch[3] / h};
+      set(0, a, a, 192.0f);
+      set(1, b, b, 192.0f);
+      source->screen_count = 2;
+    }
+  }
+  else if (s_system == SystemId::THREEDS)
+  {
+    // Azahar's picture is the whole layout: the top screen where the touch screen isn't.
+    const std::string layout = Settings::Get("3ds_layout", game);
+    const bool swapped = ThreedsSwapped(layout);
+    const ThreedsPicture where = ThreedsLayout(layout, swapped, s_3ds_scale);
+    const float f = static_cast<float>(std::clamp(s_3ds_scale, 1, 3));
+    std::array<float, 4> top{};
+    if (layout == "side")
+      top = {swapped ? 320.0f * f : 0.0f, 0.0f, 400.0f * f, 240.0f * f};
+    else if (layout == "stack")
+      top = {0.0f, swapped ? 240.0f * f : 0.0f, 400.0f * f, 240.0f * f};
+    else if (layout == "large")
+      top = swapped ? std::array<float, 4>{1280.0f, 720.0f, 400.0f, 240.0f} : std::array<float, 4>{0.0f, 0.0f, 1600.0f, 960.0f};
+    if (top[2] > 0.0f && where.w == s_frame_w && where.h == s_frame_h)
+    {
+      const float w = static_cast<float>(where.w), h = static_cast<float>(where.h);
+      const std::array<float, 4> a = {top[0] / w, top[1] / h, top[2] / w, top[3] / h};
+      const std::array<float, 4> b = {where.touch[0] / w, where.touch[1] / h, where.touch[2] / w, where.touch[3] / h};
+      set(0, a, a, 240.0f);
+      set(1, b, b, 240.0f);
+      source->screen_count = 2;
+    }
+    else
+    {
+      source->screens[0].lines = 240.0f;
+    }
+  }
+  // A vertical NAOMI or Atomiswave game: its image turned as DrawPicture turns it (a turned monitor's lines).
+  source->rotation = IsFlycastBoard(s_system) ? static_cast<int>(s_rotation & 3) : 0;
+}
+
 void DrawPicture(ImDrawList* dl, Display& display, const std::string& game)
 {
   if (s_frame_w == 0 || s_frame_h == 0)
@@ -1634,22 +2287,41 @@ void DrawPicture(ImDrawList* dl, Display& display, const std::string& game)
       source.width = s_frame_w;
       source.height = s_frame_h;
       source.kind = GpuFilter::Source::Kind::Drawn;  // the cores' 3D
+      if (gpu == GpuFilter::Mode::Crt)
+        CrtScreens(&source, picture, game);
       if (GpuFilter::Draw(dl, gpu, source, picture.min, picture.max))
       {
         DrawScanlines(dl, picture, game);
+        if (s_system == SystemId::THREEDS)
+          Draw3dsStylus(dl, picture);
         return;
       }
     }
     // Above Native (2x, 4x) always smooth, as Texture Filtering promises: sharp (nearest) drops
     // whole columns of the 2560-wide picture and doubles some rows on the way to the screen.
-    const bool upscaled = s_system == SystemId::PS1   ? Settings::GetInt("ps1_resolution", game) > 1 :
-                          s_system == SystemId::PSP   ? s_frame_w > 480 :
-                          s_system == SystemId::DC    ? s_frame_h > 480 :
-                                                        s_frame_w >= 1280;
+    const bool upscaled = s_system == SystemId::PS1     ? Settings::GetInt("ps1_resolution", game) > 1 :
+                          s_system == SystemId::PSP     ? s_frame_w > 480 :
+                          IsFlycast(s_system)           ? s_frame_h > 480 :
+                          s_system == SystemId::THREEDS ? s_3ds_scale > 1 :
+                                                          s_frame_w >= 1280;
     const bool smooth = upscaled || Settings::Get("filter", game) == "smooth";
     const ImTextureID image = display.ExternalTexture(view, s_hw_image.image_layout, smooth);
-    dl->AddImage(ImTextureRef(image), picture.min, picture.max);
+    if (IsFlycastBoard(s_system) && (s_rotation & 3) != 0)
+    {
+      // A vertical NAOMI or Atomiswave game (SET_ROTATION: libretro's quarter turns anticlockwise): the image's
+      // corners drawn turned - at 1, its top right corner at the picture's top left.
+      const ImVec2 uv[4] = {ImVec2(0.0f, 0.0f), ImVec2(1.0f, 0.0f), ImVec2(1.0f, 1.0f), ImVec2(0.0f, 1.0f)};
+      const unsigned r = s_rotation & 3;
+      dl->AddImageQuad(ImTextureRef(image), picture.min, ImVec2(picture.max.x, picture.min.y), picture.max,
+                       ImVec2(picture.min.x, picture.max.y), uv[r], uv[(r + 1) & 3], uv[(r + 2) & 3], uv[(r + 3) & 3]);
+    }
+    else
+    {
+      dl->AddImage(ImTextureRef(image), picture.min, picture.max);
+    }
     DrawScanlines(dl, picture, game);
+    if (s_system == SystemId::THREEDS)
+      Draw3dsStylus(dl, picture);
     return;
   }
   if (s_texture_w == 0 || s_texture_h == 0)
@@ -1658,18 +2330,59 @@ void DrawPicture(ImDrawList* dl, Display& display, const std::string& game)
   // The GPU's filters: from the console's own picture (a picture the CPU made bigger only for HD
   // Sharpen; it is one frame old when the filter was just chosen).
   const GpuFilter::Mode gpu = GpuMode(game);
+  if (NdsSingle())
+  {
+    // The DS's One Screen: the side-by-side picture's left half (the top screen, or the touch screen
+    // swapped in by R3) over the whole picture, through the GPU's filters.
+    const float half = static_cast<float>(s_texture_w) * 0.5f;
+    bool drawn = false;
+    if (gpu != GpuFilter::Mode::Off && (!s_texture_scaled || !GpuRedraws(gpu)))
+    {
+      GpuFilter::Source source;
+      source.view = display.GameView();
+      source.width = s_texture_w / 2;
+      source.height = s_texture_h;
+      source.exact = false;
+      source.kind = GpuFilter::Source::Kind::PixelArt;
+      if (gpu == GpuFilter::Mode::Crt)
+        CrtScreens(&source, picture, game);
+      drawn = GpuFilter::Draw(dl, gpu, source, picture.min, picture.max);
+    }
+    if (!drawn)
+    {
+      const bool smooth = s_texture_scaled || Settings::Get("filter", game) == "smooth";
+      const float inset = smooth ? 0.5f : 0.0f;
+      const float tw = Display::GAME_TEXTURE_W, th = Display::GAME_TEXTURE_H;
+      dl->AddImage(ImTextureRef(display.GameTexture(smooth)), picture.min, picture.max,
+                   ImVec2(inset / tw, inset / th), ImVec2((half - inset) / tw, (s_texture_h - inset) / th));
+    }
+    DrawScanlines(dl, picture, game);
+    return;
+  }
+  if (NdsBig() && gpu == GpuFilter::Mode::Crt && !s_texture_scaled)
+  {
+    // Tube TV on the DS's Big Screen: both screens from the side-by-side picture in one pass, each a tube of its own.
+    GpuFilter::Source source;
+    source.view = display.GameView();
+    source.width = s_texture_w;
+    source.height = s_texture_h;
+    source.exact = false;
+    CrtScreens(&source, picture, game);
+    if (GpuFilter::Draw(dl, gpu, source, picture.min, picture.max))
+      return;
+  }
   if (NdsBig())
   {
-    // The DS's Big Top Screen, from the side-by-side picture: the top screen 3x over three quarters
-    // of a 16:9 picture (through the GPU's filters: it is the picture's left half, in the texture's
-    // top-left corner), the touch screen 1x at the right, in the middle.
+    // The DS's Big Screen, from the side-by-side picture: its left half (the top screen, or the touch
+    // screen swapped in by R3) 3x over three quarters of a 16:9 picture (through the GPU's filters: it
+    // is in the texture's top-left corner), the other screen 1x at the right, in the middle.
     const float s = (picture.max.x - picture.min.x) / 1024.0f;
     const ImVec2 top0 = picture.min, top1(picture.min.x + 768.0f * s, picture.min.y + 576.0f * s);
     const ImVec2 touch0(picture.min.x + 768.0f * s, picture.min.y + 192.0f * s);
     const ImVec2 touch1(picture.min.x + 1024.0f * s, picture.min.y + 384.0f * s);
     const float half = static_cast<float>(s_texture_w) * 0.5f;
     bool drawn = false;
-    if (gpu != GpuFilter::Mode::Off && (!s_texture_scaled || !GpuRedraws(gpu)))
+    if (gpu != GpuFilter::Mode::Off && gpu != GpuFilter::Mode::Crt && (!s_texture_scaled || !GpuRedraws(gpu)))
     {
       GpuFilter::Source source;
       source.view = display.GameView();
@@ -1702,6 +2415,8 @@ void DrawPicture(ImDrawList* dl, Display& display, const std::string& game)
     // bigger), anti-aliased only.
     source.kind = s_system == SystemId::NDS && s_frame_w > 768 ? GpuFilter::Source::Kind::Drawn :
                                                                   GpuFilter::Source::Kind::PixelArt;
+    if (gpu == GpuFilter::Mode::Crt)
+      CrtScreens(&source, picture, game);
     if (GpuFilter::Draw(dl, gpu, source, picture.min, picture.max))
     {
       DrawScanlines(dl, picture, game);
@@ -1723,8 +2438,13 @@ void DrawPicture(ImDrawList* dl, Display& display, const std::string& game)
 void UploadPicture(Display& display, const std::string& game)
 {
   int factor = std::atoi(Settings::Get("resolution", game).c_str());
-  if ((s_frame_w > 300 || s_frame_h > 300) && s_system != SystemId::NDS)
-    factor /= 2;  // hi-res and interlaced pictures are twice as big already
+  // Hi-res and interlaced pictures are twice as big already (a Mega Drive's 320 pixels aren't hi-res:
+  // only its interlaced lines are; an arcade board's picture is whatever size the board draws).
+  const bool doubled = s_system == SystemId::ARCADE ? false :
+                       IsGpgx(s_system)             ? s_frame_h > 300 :
+                                                      s_frame_w > 300 || s_frame_h > 300;
+  if (doubled && s_system != SystemId::NDS)
+    factor /= 2;
   if (NtscFilterOn(game))
     factor = 1;  // the NTSC filter's picture is a TV's look of its own
   const GpuFilter::Mode gpu = GpuMode(game);
@@ -1874,7 +2594,7 @@ bool SerializeCore(std::vector<uint8_t>* out)
     out->assign(size, 0);
     if (s_core->serialize(out->data(), size))
       return true;
-    if (s_system != SystemId::DC)
+    if (!IsFlycast(s_system))
       break;
   }
   std::vector<uint8_t>().swap(*out);
@@ -2152,10 +2872,20 @@ private:
     const uint64_t cores = s_system == SystemId::PSP ? (1ull << 1) | (1ull << 5) :
                            s_system == SystemId::NDS ? (1ull << 1) :
                                                        (1ull << 1) | (1ull << 4) | (1ull << 5);
-    const int affinity = emusuni_set_affinity(scePthreadSelf(), cores);
-    const int priority = scePthreadSetprio(scePthreadSelf(), 480);
-    LogF("game: drawing beside the emulation: cores %#llx (%#x), priority 480 (%#x)",
-         static_cast<unsigned long long>(cores), static_cast<unsigned>(affinity), static_cast<unsigned>(priority));
+    if (s_dc_threads_free)
+    {
+      // (A Dreamcast game's threads left to the PS4: this one too.)
+      int priority = 0;
+      scePthreadGetprio(scePthreadSelf(), &priority);
+      LogF("game: drawing beside the emulation: the PS4's cores, priority %d as it started (dc-threads-free)", priority);
+    }
+    else
+    {
+      const int affinity = emusuni_set_affinity(scePthreadSelf(), cores);
+      const int priority = scePthreadSetprio(scePthreadSelf(), 480);
+      LogF("game: drawing beside the emulation: cores %#llx (%#x), priority 480 (%#x)",
+           static_cast<unsigned long long>(cores), static_cast<unsigned>(affinity), static_cast<unsigned>(priority));
+    }
     auto* worker = static_cast<DrawWorker*>(self);
     std::unique_lock lock(worker->m_mutex);
     for (;;)
@@ -2178,10 +2908,55 @@ private:
   std::function<void()> m_job;
 };
 
+// The memory check before a game starts (src/MemoryGuard.h): a start that needs more of the PS4's regular flexible
+// memory than is left would have the PS4 close the app in the middle of it (00.58's God of War at 41 MiB free: the
+// blue error screen, no crash report); the menu asks the player to close EmuSuNi and open it again instead.
+// data_dir/memory-guard holds a number added to every need (999: every game refused, to see the message).
+static bool EnoughMemory(const Library::Game& game, std::string* error)
+{
+  static bool s_nds_started = false;  // (the DS's 1 MiB stacks are taken at its first start)
+  const System& system = GetSystem(game.system);
+  // The CPU's Resolution (src/Upscaler.cpp): its threads, the first time it makes a picture bigger (a console whose
+  // picture the CPU hands over, at 2x or more, also while a GPU Upscaler compiles; not the NTSC filter's picture).
+  const Settings::Setting* resolution = Settings::Find("resolution");
+  const bool ntsc = (game.system == SystemId::SNES || game.system == SystemId::NES) &&
+                    Settings::Get("ntsc_filter", game.key) != "disabled";
+  const bool upscaler = s_scale_name.empty() && resolution && Settings::AppliesTo(*resolution, game.system) && !ntsc &&
+                        Settings::GetInt("resolution", game.key) >= 2;
+  const int cold = MemoryGuard::ColdMiB(system.key);
+  const int own = s_nds_started ? 0 : MemoryGuard::OwnStacksMiB(system.key);
+  const int extra = MemoryGuard::ExtraFromText(ReadTextFile(std::string(App::DATA_DIR) + "/memory-guard"));
+  const MemoryGuard::Decision decision = MemoryGuard::Decide(
+      FlexibleFreeMiB(), FlexibleMostMiB(), cold + (upscaler ? MemoryGuard::UPSCALER_MIB : 0), own, extra);
+  std::string parts = "its threads " + std::to_string(cold);
+  if (upscaler)
+    parts += ", the CPU upscaler's " + std::to_string(MemoryGuard::UPSCALER_MIB);
+  if (own > 0)
+    parts += ", its 1 MiB stacks " + std::to_string(own);
+  if (extra != 0)
+    parts += ", memory-guard " + std::to_string(extra);
+  LogF("memory (before game): flexible %d MiB free, %d at most so far (%d MiB of thread stacks to reuse); %s needs "
+       "%d (%s): %s",
+       decision.free_mib, decision.most_mib, decision.reusable_mib, system.core ? system.core->name : system.key,
+       decision.need_mib, parts.c_str(),
+       decision.start ? "starting" : "not started, the player is asked to reopen EmuSuNi");
+  if (!decision.start)
+  {
+    *error = MemoryGuard::Message();
+    return false;
+  }
+  if (game.system == SystemId::NDS)
+    s_nds_started = true;
+  MemorySessionStart();
+  return true;
+}
+
 Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont* bold,
            std::string* error)
 {
   LogF("game: %s (%s)", game.title.c_str(), game.path.c_str());
+  if (!EnoughMemory(game, error))
+    return Result::Failed;
   std::vector<uint8_t> rom;
   // A CD image is read by the core itself from its path (a missing one would start the BIOS alone).
   const bool by_path = GetSystem(game.system).by_path;
@@ -2200,7 +2975,7 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
       return Result::Failed;
     }
   }
-  if (!by_path && !Library::ReadRom(game.path, &rom, error))
+  if (!by_path && !Library::ReadRom(game.path, game.system, &rom, error))
   {
     LogF("game: can't read the ROM: %s", error->c_str());
     return Result::Failed;
@@ -2218,6 +2993,24 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   s_frame_hw = false;
   s_xrgb8888 = false;  // RGB565 unless the core asks for XRGB8888
   s_pointer = {};
+  s_stylus = {};
+  s_3ds_swap = s_3ds_r3 = false;
+  s_3ds_scale = 0;
+  s_3ds_new = -1;
+  s_3ds_cursor = 0;
+  s_3ds_at = {};
+  // The stylus starts in the middle of the touch screen: the 3DS's 320x240, the DS's 256x192.
+  if (s_system == SystemId::THREEDS)
+  {
+    s_stylus.x = 160.0f;
+    s_stylus.y = 120.0f;
+  }
+  else if (s_system == SystemId::NDS)
+  {
+    s_stylus.x = 128.0f;
+    s_stylus.y = 96.0f;
+  }
+  s_touch_frames = s_tap_frames = s_touch_taps = 0;
   for (auto& player : s_analog)
     player = {};
   s_triggers = {};
@@ -2267,12 +3060,125 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
     s_save_dir += "/dc";
     MakeDirs(s_save_dir);
   }
+  // A NAOMI or Atomiswave game: its board's EEPROM and flash (the operator menu's settings, the high scores) in
+  // saves/naomi/reicast and saves/atomiswave/reicast, made by the core and named after the zip; system/dc (Flycast's
+  // own folder) can hold the BIOS zips, which it also finds beside the game. What the game needs and isn't there is
+  // said here, before the core is started (below), or if the core refuses it.
+  std::vector<std::string> board_missing;
+  s_board_set = nullptr;
+  if (IsFlycastBoard(s_system))
+  {
+    s_save_dir += s_system == SystemId::NAOMI ? "/naomi" : "/atomiswave";
+    MakeDirs(s_save_dir);
+    // A cartridge image (.dat, .bin): no set of Flycast's list (its own board, inputs and picture), naomi.zip.
+    const bool image = Naomi::IsImageName(game.path);
+    s_board_set = image ? nullptr : Naomi::Find(game.id);
+    if (image)
+    {
+      std::error_code size_error;
+      const auto bytes = std::filesystem::file_size(game.path, size_error);
+      board_missing = Naomi::ImageMissing(std::filesystem::path(game.path).parent_path().string(), s_system_dir);
+      LogF("naomi: %s, a NAOMI cartridge image of %u MiB (Flycast plays it as it is); BIOS naomi.zip", game.id.c_str(),
+           size_error ? 0u : static_cast<unsigned>(bytes >> 20));
+    }
+    if (s_board_set)
+    {
+      board_missing = Naomi::Missing(*s_board_set, std::filesystem::path(game.path).parent_path().string(), s_system_dir);
+      LogF("naomi: %s, %s, \"%s\"; BIOS %s, cartridge %u MiB%s%s%s%s", game.id.c_str(),
+           Naomi::BoardName(*s_board_set).c_str(), s_board_set->title.c_str(), Naomi::BiosZip(*s_board_set).c_str(),
+           static_cast<unsigned>(s_board_set->size >> 20), s_board_set->vertical ? ", vertical" : "",
+           s_board_set->analog ? ", analog controls" : "", s_board_set->gun ? ", light gun" : "",
+           s_board_set->linked ? ", linked boards" : "");
+    }
+    for (const std::string& file : board_missing)
+      LogF("naomi: %s isn't where the core looks for it (beside the game, or %s/dc for a BIOS)", file.c_str(),
+           s_system_dir.c_str());
+    // What makes Flycast refuse the game is said here instead (00.64): its refusal is a C++ exception, and on the PS4
+    // one doesn't come back to its catch - the app ends without a word. The board's BIOS not there (a set could carry
+    // its BIOS's files, which Flycast finds by their CRC: MAME's don't), a GD-ROM game's disc image not there, a zip
+    // whose name isn't its set's in small letters where the drive tells case apart (the PS4's storage: Flycast finds
+    // its set by the name as it is). (A file of the set missing from its zip it can't see: that one still ends the
+    // app on the PS4.)
+    std::string refusal;
+    const std::string bios = s_board_set ? Naomi::BiosZip(*s_board_set) : std::string("naomi.zip");
+    const auto missing = [&board_missing](const std::string& file) {
+      return std::find(board_missing.begin(), board_missing.end(), file) != board_missing.end();
+    };
+    if ((image || s_board_set) && missing(bios))
+      refusal = "Error: cannot load BIOS " + bios;
+    else if (s_board_set && !s_board_set->gdrom.empty() && missing(Naomi::GdromFile(*s_board_set)))
+      refusal = "Naomi GDROM: no " + Naomi::GdromFile(*s_board_set);
+    else if (!image)
+    {
+      // (Run passes the zip's name in small letters when the drive finds the file so, else as it is: below.)
+      const std::filesystem::path path(game.path);
+      std::string lower = path.filename().string();
+      std::transform(lower.begin(), lower.end(), lower.begin(),
+                     [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+      const std::string passed = FileExists((path.parent_path() / lower).string()) ?
+                                     std::filesystem::path(lower).stem().string() :
+                                     path.stem().string();
+      if (!s_board_set || passed != s_board_set->name)
+        refusal = "Unknown game";
+    }
+    if (!refusal.empty())
+    {
+      LogF("naomi: %s not started: %s (Flycast would refuse it)", game.id.c_str(), refusal.c_str());
+      *error = Naomi::LoadError(refusal, s_board_set, board_missing, s_system_dir);
+      return Result::Failed;
+    }
+  }
+  s_board_press_until = {};
+  s_gun_reload = {};
+  if (s_system == SystemId::THREEDS)
+  {
+    // Azahar's files in saves/3ds/Azahar (made by the core): its sdmc and nand (the games' saves), the shader
+    // caches, its keys (sysdata/aes_keys.txt, optional).
+    s_save_dir += "/3ds";
+    MakeDirs(s_save_dir);
+  }
+  // The zips an arcade game may need and hasn't got beside it (its BIOS set, its parent), said if the core
+  // refuses the game. Not a reason to refuse it here: the core takes the ROMs it finds, by their CRCs, from
+  // any zip it knows of, so a non-merged set (a clone's zip with its parent's files, a full one's with the
+  // BIOS's too) starts without them.
+  std::vector<std::string> arcade_not_found;
+  if (s_system == SystemId::ARCADE)
+  {
+    const Arcade::Driver* driver = Arcade::Find(game.id);
+    if (driver)
+      arcade_not_found = Arcade::Missing(*driver, std::filesystem::path(game.path).parent_path().string(), s_system_dir);
+    for (const std::string& zip : arcade_not_found)
+      LogF("arcade: %s isn't beside %s (the core goes on without it)", zip.c_str(), game.id.c_str());
+    // FinalBurn Neo's folders (saves/fbneo: the games' NVRAM; system/fbneo: hiscore.dat, samples,
+    // cheats), and its high-score table from the package the first time (scripts/package.sh).
+    MakeDirs(s_system_dir + "/fbneo");
+    MakeDirs(s_save_dir + "/fbneo");
+    const std::string hiscore = s_system_dir + "/fbneo/hiscore.dat";
+    if (!FileExists(hiscore))
+    {
+      const std::string table = ReadTextFile(std::string(App::ASSETS_DIR) + "/fbneo/hiscore.dat");
+      if (!table.empty() && WriteTextFile(hiscore, table))
+        LogF("arcade: hiscore.dat copied to %s (%zu bytes)", hiscore.c_str(), table.size());
+    }
+  }
   s_shutdown = false;
   s_dc_reboot = s_dc_stopped = false;
   s_psp_scale = 0;
+  s_psp_at_start = s_system == SystemId::PSP && FileExists(std::string(App::DATA_DIR) + "/psp-resolution-at-start");
+  if (s_psp_at_start)
+    LogLine("psp: resolution and anti-aliasing as the game starts (the file psp-resolution-at-start)");
+  s_gpgx_region.clear();
+  s_dc_clock.clear();
+  // (Before the core starts any of its threads.)
+  s_dc_threads_free = IsFlycast(s_system) && FileExists(std::string(App::DATA_DIR) + "/dc-threads-free");
+#ifdef EMUSUNI_DC
+  emusuni_dc_threads_free = s_dc_threads_free ? 1 : 0;
+#endif
+  s_rotation = 0;
+  s_core_aspect = 0.0f;
   s_psp_30fps_auto = false;
   s_nds_chosen.clear();
-  s_nds_alt = false;
+  s_nds_swap = false;
   s_nds_r3 = false;
   Saves::Init(App::DATA_DIR);
   // A Game Boy cartridge's header: for the Game Boy Color (0x80: also the Game Boy, 0xC0: only it),
@@ -2291,7 +3197,20 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
     LogF("gb: a game for the %s%s", s_gb_color_game ? "Game Boy Color" : "Game Boy",
          s_gb_sgb_game ? ", with Super Game Boy features" : "");
   }
+#ifdef EMUSUNI_3DS
+  display.PublishDeviceLists(s_system == SystemId::THREEDS);  // (the 3DS core is told more of the device)
+#endif
   BuildVariables();
+  if (IsFlycast(s_system))
+  {
+    if (IsFlycastBoard(s_system))
+      LogF("naomi: region %s, TEST and SERVICE buttons on, free play %s", s_variables["reicast_region"].c_str(),
+           s_variables["reicast_force_freeplay"].c_str());
+    LogF("dc: CPU clock %s MHz (Dreamcast CPU Clock), sound DSP %s; threads %s", s_dc_clock.c_str(),
+         s_variables["reicast_enable_dsp"] == "enabled" ? "on" : "off",
+         s_dc_threads_free ? "left to the PS4: any core, the priority they start with (/data/EmuSuNi/dc-threads-free)" :
+                             "placed: the renderer (retro_run) on core 2, Flycast-emu on core 3, both at priority 480");
+  }
   s_frame = nullptr;
   s_frame_w = s_frame_h = 0;
   s_texture_w = s_texture_h = 0;
@@ -2310,8 +3229,9 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   s_core->set_input_state(InputState);
   s_core->init();
   // The Dreamcast's pads before the game (set after it, Flycast unplugs them for 0.1 s at its first
-  // frame, and a game continued from its state then sees no pad).
-  if (s_system == SystemId::DC)
+  // frame, and a game continued from its state then sees no pad). The arcade boards' too: a pad on each of
+  // the 4 ports (their JVS board reads the 4 players from them; a light gun game is aimed with a stick).
+  if (IsFlycast(s_system))
   {
     for (unsigned port = 0; port < 4; port++)
       s_core->set_controller_port_device(port, RETRO_DEVICE_JOYPAD);
@@ -2367,6 +3287,19 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   // swaps them (the in-game menu's Disc). It starts with the disc it was played with last: a state
   // saved on disc 2 is disc 2's.
   std::string content = game.path;
+  if (IsRomsetSystem(s_system))
+  {
+    // The zip's name is the romset's, in lower case (the core compares it with its drivers' names; the
+    // USB drive finds MSLUG.ZIP for mslug.zip). (A NAOMI's or Atomiswave's: Flycast compares it with its
+    // sets' names the same way; where the drive tells case apart and has no such file, the name as it is.)
+    const std::filesystem::path path(game.path);
+    std::string file = path.filename().string();
+    std::transform(file.begin(), file.end(), file.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    content = (path.parent_path() / file).string();
+    if (IsFlycastBoard(s_system) && content != game.path && !FileExists(content))
+      content = game.path;
+  }
   if (game.discs.size() > 1)
   {
     const std::string dir = std::string(App::DATA_DIR) + "/cache/m3u/" + GetSystem(game.system).key;
@@ -2438,8 +3371,9 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
 #endif
   const bool loaded = s_core->load_game(&info);
   s_info_ext = {};
-  if (s_system == SystemId::N64 || IsHandheld(s_system) || s_system == SystemId::NDS)
-    std::vector<uint8_t>().swap(rom);  // Mupen64Plus and mGBA copy the ROM: up to 64 MiB back to the heap
+  // Mupen64Plus, mGBA and Genesis Plus GX copy the ROM: up to 64 MiB back to the heap.
+  if (s_system == SystemId::N64 || IsHandheld(s_system) || s_system == SystemId::NDS || IsGpgx(s_system))
+    std::vector<uint8_t>().swap(rom);
   if (loaded && s_hw_vulkan && s_hw_render.context_reset)
   {
     // The context is ready (the display's device): the core sets up its renderer.
@@ -2449,8 +3383,28 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   {
     // The core's own reason when it gave one (a Famicom Disk System game without its BIOS).
     *error = s_message.empty() ? "The emulator couldn't load this ROM" : s_message;
+    if (s_system == SystemId::THREEDS)
+      *error = ThreedsFailure(*error);
     if (error->find("disksys.rom") != std::string::npos)
       *error += "\nCopy the BIOS disksys.rom to\n" + s_system_dir;
+#ifdef EMUSUNI_ARCADE
+    if (s_system == SystemId::ARCADE)
+    {
+      std::string reason = fbneo_emusuni_error();
+      *error = Arcade::LoadError(reason, arcade_not_found, s_system_dir);
+      std::replace(reason.begin(), reason.end(), '\n', '|');
+      LogF("arcade: %s refused: %s", game.id.c_str(), reason.c_str());
+      s_core->unload_game();  // what the load set up before it failed: FinalBurn Neo frees it here
+    }
+#endif
+    // A NAOMI or Atomiswave game: Flycast's reason (its message: no BIOS, a file of the set not in its zip, no
+    // disc image...) in the app's words, with where the files go. (What it loaded - the cartridge's memory - is
+    // freed by the deinit below: Flycast's unloadGame of a game in its Error state.)
+    if (IsFlycastBoard(s_system))
+    {
+      LogF("naomi: %s refused: %s", game.id.c_str(), s_message.empty() ? "(no message)" : s_message.c_str());
+      *error = Naomi::LoadError(s_message, s_board_set, board_missing, s_system_dir);
+    }
     // The disc played last doesn't start (gone, or damaged): the game starts with disc 1 next time.
     if (last_disc > 0)
     {
@@ -2460,10 +3414,25 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
     }
     s_message.clear();
     s_core->deinit();
+    JitArenaReset();
     return Result::Failed;
+  }
+  // A NAOMI cartridge image: Flycast's warning for every .dat and .bin ("Please upgrade to MAME romsets or expect
+  // issues") isn't shown - the image plays (logged above). Flycast turns no image's picture (only its sets', from its
+  // list: every vertical NAOMI game there is ROT270, a quarter turn): a vertical one's header says so, and the app
+  // turns it the same way.
+  if (IsFlycastBoard(s_system) && s_message == "Please upgrade to MAME romsets or expect issues")
+    s_message.clear();
+  Naomi::Image board_image;
+  if (s_system == SystemId::NAOMI && Naomi::IsImageName(game.path) && Naomi::ReadImage(game.path, &board_image) &&
+      board_image.vertical)
+  {
+    s_rotation = 1;
+    LogF("naomi: a vertical game's image: its picture turned 90 degrees");
   }
   retro_system_av_info av = {};
   s_core->get_system_av_info(&av);
+  NoteGeometry(av.geometry);  // (FinalBurn Neo sends no SET_GEOMETRY as a game starts: its shape is here)
   s_sample_rate = av.timing.sample_rate > 0 ? av.timing.sample_rate : 32040.0;
   s_game_fps = av.timing.fps > 0 ? av.timing.fps : 60.0988;
   LogF("game: %s, %.4f FPS, %.0f Hz sound, %s", s_core->name, s_game_fps, s_sample_rate,
@@ -2472,11 +3441,19 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   // The PlayStation's pads are DualShocks (SwanStation's analog controller); the Super Multitap is
   // the Super Nintendo's (FCEUmm plugs in the Four Score by itself).
   constexpr unsigned DEVICE_DUALSHOCK = (1 << 8) | RETRO_DEVICE_ANALOG;
-  const bool ps1 = s_system == SystemId::PS1;
-  s_core->set_controller_port_device(0, ps1 ? DEVICE_DUALSHOCK : RETRO_DEVICE_JOYPAD);
+  // The Arcade's pads are FinalBurn Neo's "Modern" RetroPad (RETRO_DEVICE_SUBCLASS(ANALOG, 1): a Neo Geo
+  // game's A, B, C, D on Square, Cross, Triangle, Circle, as on its own pad), on every port.
+  constexpr unsigned DEVICE_MODERN = (2 << 8) | RETRO_DEVICE_ANALOG;
+  const bool ps1 = s_system == SystemId::PS1, arcade = s_system == SystemId::ARCADE;
+  s_core->set_controller_port_device(0, ps1 ? DEVICE_DUALSHOCK : arcade ? DEVICE_MODERN : RETRO_DEVICE_JOYPAD);
   const bool snes = s_system == SystemId::SNES;
   bool multitap = snes && Settings::GetOn("multitap", game.key);
-  s_core->set_controller_port_device(1, ps1 ? DEVICE_DUALSHOCK : multitap ? DEVICE_MULTITAP : RETRO_DEVICE_JOYPAD);
+  s_core->set_controller_port_device(1, ps1    ? DEVICE_DUALSHOCK :
+                                        arcade ? DEVICE_MODERN :
+                                        multitap ? DEVICE_MULTITAP :
+                                                   RETRO_DEVICE_JOYPAD);
+  for (unsigned port = 2; arcade && port < MAX_PLAYERS; port++)
+    s_core->set_controller_port_device(port, DEVICE_MODERN);
   AdoptDiscsCard(game);
   LoadSram();
   LoadBezel(display, game);
@@ -2537,6 +3514,18 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
     else if (LoadState(0))
       menu.Toast("Continuing where you left off");
   }
+  if (s_system == SystemId::DC)
+  {
+    // Its first start compiles the shaders (black for up to a minute), and a PAL disc then asks 50 or
+    // 60 Hz on a silent screen that waits for A: players took both for a game that doesn't start.
+    menu.Toast("Dreamcast: the first start can take a minute (shaders). Cross: A, Options: Start.", 8.0f);
+  }
+  if (IsFlycastBoard(s_system))
+  {
+    // An arcade board: coins and START, and where its TEST and SERVICE buttons are (the operator menu).
+    // (No " = " in it: the language file's separator.)
+    menu.Toast("Touchpad: Coin. Options: Start. TEST and SERVICE: Arcade Button in the L3+R3 menu.", 8.0f);
+  }
 
   GameAudio audio;
   audio.Start(Settings::GetInt("audio_buffer", game.key));
@@ -2561,16 +3550,19 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   // (ParaLLEl-RDP's shader compiles, the covers) waits instead of stopping the game. The PS4's
   // priorities: lower is higher, 700 the default. The thread never spins on another one (it blocks).
   int old_priority = 0;
-  const bool priority_set = scePthreadGetprio(scePthreadSelf(), &old_priority) == 0 &&
+  // (A Dreamcast game's with /data/EmuSuNi/dc-threads-free: left as it is, and on any core.)
+  const bool priority_set = scePthreadGetprio(scePthreadSelf(), &old_priority) == 0 && !s_dc_threads_free &&
                             scePthreadSetprio(scePthreadSelf(), 480) == 0;
   LogF("game: emulation thread priority %d -> %s", old_priority, priority_set ? "480" : "unchanged");
   // N64 (CPU Cores: Fixed): the emulation thread on core 2 and ParaLLEl-RDP's threads on cores of
   // their own (port/ps4_n64.c): the threads that wait for each other every frame don't share one.
   uint64_t old_mask = 0;
   bool pinned = false;
-  // The DS: its 3D thread on core 3; the PSP and the Dreamcast: their other threads off core 2
-  // (port/ps4_n64.c).
-  if (fixed_cores || s_system == SystemId::NDS || s_system == SystemId::PSP || s_system == SystemId::DC)
+  // The DS: its 3D thread on core 3; the PSP, the Dreamcast (and its arcade boards) and the 3DS: their other
+  // threads off core 2 (port/ps4_n64.c).
+  if ((fixed_cores || s_system == SystemId::NDS || s_system == SystemId::PSP || IsFlycast(s_system) ||
+       s_system == SystemId::THREEDS) &&
+      !s_dc_threads_free)
   {
     const int got = emusuni_get_affinity(scePthreadSelf(), &old_mask);
     const int set = got == 0 ? emusuni_set_affinity(scePthreadSelf(), 1ull << 2) : -1;
@@ -2580,11 +3572,25 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
          static_cast<unsigned>(set), sceKernelGetCurrentCpu());
   }
   Controls::Layout layout = Controls::LayoutFor(game.key, game.system);
+  // A NAOMI or Atomiswave game with analog controls (a wheel, a flight stick, pedals) or a light gun: the left stick
+  // is analog only (the wheel, the sight), not the D-pad too - Crazy Taxi's gears are Up and Down - unless the
+  // player chose Left Stick for the D-Pad in Controls.
+  const bool board_stick_analog =
+      IsFlycastBoard(s_system) && s_board_set && (s_board_set->analog || s_board_set->gun);
+  auto board_layout = [&]() {
+    if (board_stick_analog && layout.dpad && layout.left_stick)
+      layout.left_stick = false;
+  };
+  board_layout();
+  if (board_stick_analog)
+    LogF("naomi: the left stick is the game's analog control (%s), not the D-pad", s_board_set->gun ? "the gun's sight" :
+                                                                                                     "a wheel, a stick or pedals");
   // The DS: its drawing beside its emulation (DrawWorker).
   DrawWorker drawer;
   // The PSP: only while its core is heavy (one frame more latency then: psp_overlap).
-  const bool overlap_drawing =
-      (s_system == SystemId::NDS || s_system == SystemId::PSP || s_system == SystemId::DC) && drawer.Start();
+  const bool overlap_drawing = (s_system == SystemId::NDS || s_system == SystemId::PSP || IsFlycast(s_system) ||
+                                s_system == SystemId::THREEDS) &&
+                               drawer.Start();
   bool psp_overlap = false;
   s_defer_frame = false;
   s_pending = {};
@@ -2600,6 +3606,7 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   auto last = Clock::now();
   auto next_pass = last;  // V-Sync off: when the next pass is due
   double schedule = 0.0;  // frames owed
+  double clock_drift = 0.0;  // V-Sync off: the time the passes of about one refresh were off by (in refreshes)
   // The core's time per frame (a moving average), and whether it is too slow to be caught up.
   double core_avg = 0.0;
   bool heavy = false;
@@ -2611,6 +3618,9 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   Result result = Result::Menu;
   bool quit = false;
   uint32_t menu_pad_held = 0;
+  // Back from the in-game menu, player 1's pad reaches the game once every button is up (the press that closed
+  // the menu isn't the game's).
+  Controls::MenuRelease menu_release;
   float memory_log = 0.0f;
   float audio_log = 0.0f;  // play time since the sound's last health line
   while (!quit)
@@ -2657,6 +3667,7 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
           restart_dc();
         menu.SetDiscs(DiscCount(), DiscIn());
         menu.Open();
+        Touchpad::Forget(s_stylus);  // (no tap made of a finger lifted while the menu is open)
         audio.SetMuted(true);
         if (audio_log >= 1.0f)
           audio.LogHealth(audio_log);  // the play before the menu
@@ -2724,6 +3735,13 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
       case IngameMenu::Action::Quit:
         quit = true;
         break;
+      case IngameMenu::Action::ArcadeButton:
+        // The board's TEST (RetroPad L3: its operator menu) or SERVICE (R3) for half a second of the game (the menu
+        // closed itself): long enough for the board to see it, one press.
+        s_board_press_id = menu.ArcadeTest() ? RETRO_DEVICE_ID_JOYPAD_L3 : RETRO_DEVICE_ID_JOYPAD_R3;
+        s_board_press_until = Clock::now() + std::chrono::milliseconds(500);
+        LogF("naomi: %s pressed (the in-game menu's Arcade Button)", menu.ArcadeTest() ? "TEST" : "SERVICE");
+        break;
       default:
         break;
       }
@@ -2749,11 +3767,14 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
         audio.LogHealth(0.0f);  // a new window: the time in the menu isn't the game's
         audio_log = 0.0f;
         layout = Controls::LayoutFor(game.key, game.system);
+        board_layout();
         s_tilt.calibrate = true;  // how the DualShock 4 is held now is "level"
         schedule = 0.0;
+        clock_drift = 0.0;
         pacer.Restart();  // the time the menu was open isn't caught up
         ResetWindow(stats, display.GetFlipState());
         stats.counted = -1;
+        menu_release.Start();  // (the game sees player 1's pad again once every button is up)
       }
     }
     if (quit)
@@ -2763,6 +3784,7 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
     bool drawn = false;
     double pass_draw_ms = 0.0, pass_draw_wait = 0.0;
     const bool vsync = Settings::Get("vsync", game.key) != "off";
+    LoadBezel(display, game);  // (here, before the drawing: the bezel's window for the picture's shape now)
     auto draw_pass = [&](uint64_t total) {
       display.SetVsync(vsync);
       const auto draw_start = Clock::now();
@@ -2792,17 +3814,26 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
       CountShownFlips(stats, flip.shown);
     if (!menu.IsOpen())
     {
-      // Buttons of every player (the in-game menu combo isn't passed on).
+      // Buttons of every player (the in-game menu combo isn't passed on). Player 1's untouched while the
+      // buttons held as the in-game menu closed are down (Controls::MenuRelease).
+      Pads::Pad player1 = pads.pads[0];
+      int hidden_passes = 0;
+      player1.data = menu_release.Pad(player1.data, player1.ok && !touring, &hidden_passes);
+      if (hidden_passes > 0)
+        LogF("input: after the menu, player 1's pad kept from the game for %d passes, until every button was up",
+             hidden_passes);
       bool fast = false;
       for (int i = 0; i < MAX_PLAYERS; i++)
       {
-        const auto& pad = pads.pads[i];
+        const auto& pad = i == 0 ? player1 : pads.pads[i];
         s_buttons[i] = pad.ok && !touring ? Controls::PadButtons(layout, pad.data) : 0;
         if (s_system == SystemId::N64 || s_system == SystemId::PS1 || s_system == SystemId::PSP ||
-            s_system == SystemId::DC)
+            IsFlycast(s_system) || s_system == SystemId::ARCADE || s_system == SystemId::THREEDS)
         {
           // The analog sticks: the N64's control stick and C buttons, the DualShock's two sticks, the
-          // PSP's and the Dreamcast's stick (the left one).
+          // PSP's and the Dreamcast's stick (the left one), an arcade game's wheel, paddle or dial
+          // (FinalBurn Neo reads the sticks for them; a NAOMI's or Atomiswave's wheel, flight stick or gun
+          // sight, Flycast), the 3DS's Circle Pad and C-stick.
           auto axis = [](uint8_t value) {
             return static_cast<int16_t>(std::clamp((static_cast<int>(value) - 128) * 258, -32768, 32767));
           };
@@ -2812,20 +3843,37 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
             s_stick_max = std::max({s_stick_max, std::abs(static_cast<int>(s_analog[0][0][0])),
                                     std::abs(static_cast<int>(s_analog[0][0][1]))});
           s_analog[i][1] = {on ? axis(pad.data.rightStick.x) : int16_t(0), on ? axis(pad.data.rightStick.y) : int16_t(0)};
+          if (s_system == SystemId::THREEDS)
+          {
+            for (auto& stick : s_analog[i])
+              ApplyDeadZone(&stick, 0.12f);
+          }
         }
-        if (s_system == SystemId::DC)
+        if (IsFlycast(s_system))
         {
           // The Dreamcast's analog triggers: the DualShock 4's L2 / R2 pressure, where its L and R
-          // triggers are on L2 / R2 (else Flycast reads them pressed or not from the buttons).
+          // triggers are on L2 / R2 (else Flycast reads them pressed or not from the buttons). A NAOMI's
+          // driving game's accelerator and brake the same (buttons 7 and 8); the Atomiswave has no button
+          // there, its pedals are the triggers' pressure as they are.
           const bool on = pad.ok && !touring;
           auto trigger = [&](unsigned id) -> int16_t {
-            const uint32_t mask = layout.button_mask[id];
+            uint32_t mask = layout.button_mask[id];
+            if (mask == 0 && IsFlycastBoard(s_system))
+              mask = id == RETRO_DEVICE_ID_JOYPAD_L2 ? ORBIS_PAD_BUTTON_L2 : ORBIS_PAD_BUTTON_R2;
             const int value = mask == ORBIS_PAD_BUTTON_L2 ? pad.data.analogButtons.l2 :
                               mask == ORBIS_PAD_BUTTON_R2 ? pad.data.analogButtons.r2 :
                                                             0;
             return static_cast<int16_t>(on ? value * 32767 / 255 : 0);
           };
           s_triggers[i] = {trigger(RETRO_DEVICE_ID_JOYPAD_L2), trigger(RETRO_DEVICE_ID_JOYPAD_R2)};
+        }
+        if (IsFlycastBoard(s_system))
+        {
+          // Gun Reload (a light gun game's; the core asks only in those), and the in-game menu's TEST or SERVICE
+          // for player 1 while it lasts.
+          s_gun_reload[i] = pad.ok && !touring && layout.reload && (pad.data.buttons & layout.reload);
+          if (i == 0 && s_board_press_until > Clock::now())
+            s_buttons[0] |= static_cast<uint16_t>(1u << s_board_press_id);
         }
         if (i == 0 && pad.ok && !touring && layout.fast_forward && (pad.data.buttons & layout.fast_forward))
           fast = true;
@@ -2858,30 +3906,101 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
         }
         if (i == 0 && s_system == SystemId::NDS)
         {
-          // R3 (Swap Screens): the app's view of the screens, not the core's.
+          // R3 (Swap Screens): the two screens trade places in the app's view (NdsSwapped), not in
+          // the core's picture.
           const bool r3 = (s_buttons[0] >> RETRO_DEVICE_ID_JOYPAD_R3) & 1;
           s_buttons[0] &= ~(1u << RETRO_DEVICE_ID_JOYPAD_R3);
           if (r3 && !s_nds_r3)
-          {
-            const std::string before = NdsView();
-            s_nds_alt = !s_nds_alt;
-            if ((before == "stack") != (NdsView() == "stack"))
-              BuildVariables();  // the core's layout changes too
-          }
+            s_nds_swap = !s_nds_swap;
           s_nds_r3 = r3;
-          // The touchpad (1920x942) is the DS's touch screen: a finger on it is the stylus down, at
-          // the same place on the touch screen's part of the frame.
-          s_pointer = {};
+          // The touchpad (1920x942) is the DS's touch screen (src/Touchpad.h): a trackpad - the finger moves the
+          // stylus from where it is, a tap touches there, the Tap button (Controls) holds it down - or, with DS
+          // Touch Screen: Direct, the screen itself. The right stick moves the stylus too (the DS has no use for
+          // that stick); it stays where it was left.
           const auto& touch = pad.data.touch;
-          if (pad.ok && !touring && touch.fingers > 0 && s_frame_w > 0 && s_frame_h > 0)
+          const bool live = pad.ok && !touring;
+          const bool finger = live && touch.fingers > 0;
+          const bool tap = live && layout.tap && (pad.data.buttons & layout.tap);
+          const int taps_before = s_stylus.taps;
+          Touchpad::Update(s_stylus, finger, finger ? touch.touch[0].x : 0.0f, finger ? touch.touch[0].y : 0.0f, tap,
+                           256.0f, 192.0f, Settings::Get("nds_touch", game.key) == "touch");
+          if (s_stylus.taps != taps_before)
+            s_touch_taps++;
+          if (!finger && live)
+          {
+            // Up to 4 pixels a frame past the stick's dead zone.
+            const float sx = (static_cast<int>(pad.data.rightStick.x) - 128) / 128.0f;
+            const float sy = (static_cast<int>(pad.data.rightStick.y) - 128) / 128.0f;
+            const float len = std::sqrt(sx * sx + sy * sy);
+            if (len > 0.2f)
+            {
+              const float speed = 4.0f * std::min(1.0f, (len - 0.2f) / 0.8f) / len;
+              s_stylus.x = std::clamp(s_stylus.x + sx * speed, 0.0f, 255.0f);
+              s_stylus.y = std::clamp(s_stylus.y + sy * speed, 0.0f, 191.0f);
+            }
+          }
+          if (finger)
+            s_touch_frames++;
+          if (s_stylus.down)
+            s_tap_frames++;
+          s_pointer = {};
+          if (s_frame_w > 0 && s_frame_h > 0)
           {
             const auto screen = NdsTouchScreen(s_frame_w, s_frame_h);
-            const float u = std::clamp(touch.touch[0].x / 1919.0f, 0.0f, 1.0f);
-            const float v = std::clamp(touch.touch[0].y / 941.0f, 0.0f, 1.0f);
-            const float fx = screen[0] + u * (screen[2] - 1.0f), fy = screen[1] + v * (screen[3] - 1.0f);
+            const float fx = screen[0] + s_stylus.x / 255.0f * (screen[2] - 1.0f);
+            const float fy = screen[1] + s_stylus.y / 191.0f * (screen[3] - 1.0f);
             s_pointer.x = static_cast<int16_t>(std::clamp(fx * 65534.0f / s_frame_w - 32767.0f, -32767.0f, 32767.0f));
             s_pointer.y = static_cast<int16_t>(std::clamp(fy * 65534.0f / s_frame_h - 32767.0f, -32767.0f, 32767.0f));
-            s_pointer.pressed = true;
+            s_pointer.pressed = s_stylus.down;
+          }
+        }
+        if (i == 0 && s_system == SystemId::THREEDS)
+        {
+          // R3 (Swap Screens): the screens trade places in the core (its swap option: Build3dsVariables); the
+          // button isn't the game's.
+          const bool r3 = (s_buttons[0] >> RETRO_DEVICE_ID_JOYPAD_R3) & 1;
+          s_buttons[0] &= ~(1u << RETRO_DEVICE_ID_JOYPAD_R3);
+          if (r3 && !s_3ds_r3)
+          {
+            s_3ds_swap = !s_3ds_swap;
+            BuildVariables();
+          }
+          s_3ds_r3 = r3;
+          // The touchpad (1920x942) is the 3DS's touch screen (320x240), as the DS's (src/Touchpad.h): a trackpad -
+          // the finger moves the stylus from where it is, a tap touches there, the Tap button (Controls) holds it
+          // down - or, with 3DS Touch Screen: Direct, the screen itself; it stays where it was left. The core wants
+          // it where the touch screen is in its picture (ThreedsLayout), over the whole picture.
+          const auto& touch = pad.data.touch;
+          const bool live = pad.ok && !touring;
+          const bool finger = live && touch.fingers > 0;
+          const bool tap = live && layout.tap && (pad.data.buttons & layout.tap);
+          const int taps_before = s_stylus.taps;
+          Touchpad::Update(s_stylus, finger, finger ? touch.touch[0].x : 0.0f, finger ? touch.touch[0].y : 0.0f, tap,
+                           320.0f, 240.0f, Settings::Get("3ds_touch", game.key) == "touch");
+          if (s_stylus.taps != taps_before)
+            s_touch_taps++;
+          if (finger)
+            s_touch_frames++;
+          if (s_stylus.down)
+            s_tap_frames++;
+          if (finger || s_stylus.down)
+            s_3ds_cursor = 90;
+          s_pointer = {};
+          const std::string screens = Settings::Get("3ds_layout", game.key);
+          const ThreedsPicture where = ThreedsLayout(screens, ThreedsSwapped(screens), s_3ds_scale);
+          if (where.touch[2] > 0.0f && s_frame_w == where.w && s_frame_h == where.h)
+          {
+            // The middle of the stylus's pixel.
+            const float fx = where.touch[0] + (s_stylus.x + 0.5f) / 320.0f * where.touch[2];
+            const float fy = where.touch[1] + (s_stylus.y + 0.5f) / 240.0f * where.touch[3];
+            s_3ds_at = {fx, fy};
+            s_pointer.x = static_cast<int16_t>(std::clamp(fx * 65534.0f / s_frame_w - 32767.0f, -32767.0f, 32767.0f));
+            s_pointer.y = static_cast<int16_t>(std::clamp(fy * 65534.0f / s_frame_h - 32767.0f, -32767.0f, 32767.0f));
+            s_pointer.pressed = s_stylus.down;
+          }
+          else if (where.touch[2] <= 0.0f)
+          {
+            s_3ds_cursor = 0;  // (the touch screen isn't shown)
           }
         }
       }
@@ -2935,8 +4054,26 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
         if (s_system == SystemId::N64)
           schedule += ratio * std::clamp(static_cast<double>(dt) * hz, 0.5, 2.0);
         else if (Settings::Get("vsync", game.key) == "off")
-          schedule += ratio * std::clamp(static_cast<double>(dt) * hz, 0.0, 4.0);  // by the clock: the passes
-                                                                                   // don't come with the TV's refreshes
+        {
+          // By the clock: the passes don't come with the TV's refreshes. A pass of about one refresh counts as
+          // exactly one, and what it was off by is kept and given back a whole frame at a time: the wake-up of
+          // each pass's sleep moves by a fraction of a millisecond, and with the frames owed near a half (where
+          // the heavy mode leaves them) that alone ran 0, 2, 0, 2 frames a pass - the 3DS at 100% speed with
+          // "190 the same frame again, 190 jumped 2+ frames" in 600 refreshes (00.62).
+          double refreshes = std::clamp(static_cast<double>(dt) * hz, 0.0, 4.0);
+          if (std::abs(refreshes - 1.0) < 0.25)
+          {
+            clock_drift += refreshes - 1.0;
+            refreshes = 1.0;
+            if (std::abs(clock_drift) >= 1.0)
+            {
+              const double whole = clock_drift > 0.0 ? 1.0 : -1.0;
+              refreshes += whole;
+              clock_drift -= whole;
+            }
+          }
+          schedule += ratio * refreshes;
+        }
         else
           schedule += ratio;
         // The frames owed, rounded to the nearest: the backlog stays within half a frame either way.
@@ -2990,13 +4127,15 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
       }
       stats.per_pass[static_cast<size_t>(std::min(frames, 3))]++;
       audio.SetMuted(fast && ff != "off");
-      // (The PSP's and the Dreamcast's Frame Skip are their cores' own: BuildPspVariables, BuildDcVariables.)
-      const std::string skip = s_system == SystemId::PSP || s_system == SystemId::DC ?
-                                   std::string("off") :
-                                   Settings::Get("frameskip", game.key);
-      // The DS: the last picture drawn while these frames run; the PSP and the Dreamcast only while
+      // (The PSP's and the Dreamcast's Frame Skip are their cores' own: BuildPspVariables, BuildDcVariables -
+      // the NAOMI's and the Atomiswave's too; the Arcade's 1 and 2 too, BuildArcadeVariables, its Auto the app's.)
+      std::string skip = s_system == SystemId::PSP || IsFlycast(s_system) ? std::string("off") :
+                                                                            Settings::Get("frameskip", game.key);
+      if (s_system == SystemId::ARCADE && skip != "auto")
+        skip = "off";
+      // The DS: the last picture drawn while these frames run; the PSP and Flycast's machines only while
       // their core is heavy.
-      if (s_system == SystemId::PSP || s_system == SystemId::DC)
+      if (s_system == SystemId::PSP || IsFlycast(s_system))
       {
         const double refresh_ms = 1000.0 / std::max(display.RefreshHz(), 1.0);
         if (!psp_overlap && core_avg > refresh_ms * 0.85)
@@ -3004,8 +4143,10 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
         else if (psp_overlap && core_avg < refresh_ms * 0.75)
           psp_overlap = false;
       }
+      // (The 3DS: only in the heavy mode, one frame a pass: the core renders into a ring of 3 images and must
+      // never reach the one being drawn.)
       const bool overlap = overlap_drawing && frames > 0 && !touring &&
-                           (s_system == SystemId::NDS || psp_overlap);
+                           (s_system == SystemId::NDS || (s_system == SystemId::THREEDS ? heavy && !forward : psp_overlap));
       if (overlap)
       {
         s_defer_frame = true;
@@ -3062,6 +4203,8 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
       {
         // The game couldn't start (PPSSPP): the menu says why.
         *error = s_message.empty() ? "The emulator couldn't start this game" : s_message;
+        if (s_system == SystemId::THREEDS)
+          *error = ThreedsFailure(*error);
         s_message.clear();
         result = Result::Failed;
         quit = true;
@@ -3158,8 +4301,8 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
       stats.fps_time = 0.0f;
       // The N64's speed in the log every 10 seconds of play (how well the PS4 keeps up).
       // (Also for SNES/NES games drawn through a GPU filter: how busy the filter keeps the GPU.)
-      if ((s_system == SystemId::N64 || s_system == SystemId::PS1 || s_system == SystemId::PSP || s_system == SystemId::DC ||
-           s_system == SystemId::NDS || GpuMode(game.key) != GpuFilter::Mode::Off) &&
+      if ((s_system == SystemId::N64 || s_system == SystemId::PS1 || s_system == SystemId::PSP || IsFlycast(s_system) ||
+           s_system == SystemId::NDS || s_system == SystemId::ARCADE || s_system == SystemId::THREEDS || GpuMode(game.key) != GpuFilter::Mode::Off) &&
           !menu.IsOpen() &&
           stats.time10 >= 10.0f)
       {
@@ -3174,18 +4317,43 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
                                                        static_cast<double>(span - last_span) : 0.0;
         last_busy = busy;
         last_span = span;
+        // (And the regular flexible memory free: the trend up to any close of the app.)
         LogF("speed: %.1f FPS shown, %.0f%% of the game's speed; the core %.1f ms per frame (most %.1f) of %.1f; "
-             "drawing %.1f ms (%.1f of it waiting); CPU %d; GPU busy %.0f%%, %llu MiB",
+             "drawing %.1f ms (%.1f of it waiting); CPU %d; GPU busy %.0f%%, %llu MiB, flexible %d MiB free",
              stats.time10 > 0.0f ? stats.frames10 / stats.time10 : 0.0f,
              stats.time10 > 0.0f ? stats.emulated10 / stats.time10 / s_game_fps * 100.0 : 0.0,
              stats.core_runs ? stats.core_ms / stats.core_runs : 0.0, stats.core_max, 1000.0 / s_game_fps,
              stats.draws ? stats.draw_ms / stats.draws : 0.0, stats.draws ? stats.draw_wait_ms / stats.draws : 0.0,
-             sceKernelGetCurrentCpu(), gpu_busy, static_cast<unsigned long long>(bo_bytes >> 20));
+             sceKernelGetCurrentCpu(), gpu_busy, static_cast<unsigned long long>(bo_bytes >> 20), FlexibleFreeMiB());
         if (s_system == SystemId::PSP || s_system == SystemId::PS1 || s_system == SystemId::N64 ||
-            s_system == SystemId::DC)
+            IsFlycast(s_system) || s_system == SystemId::THREEDS)
         {
           LogF("input: left stick pushed up to %d%% in these 10 s", s_stick_max * 100 / 32767);
           s_stick_max = 0;
+        }
+        if (s_system == SystemId::NDS)
+        {
+          // Whether the touchpad reaches the game at all (a player couldn't start a touch-screen game).
+          LogF("input: touchpad (%s): %d frames with a finger, %d with the stylus down, %d taps in these 10 s; stylus "
+               "at %.0f,%.0f",
+               Settings::Get("nds_touch", game.key) == "touch" ? "direct" : "trackpad", s_touch_frames, s_tap_frames,
+               s_touch_taps, s_stylus.x, s_stylus.y);
+          s_touch_frames = s_tap_frames = s_touch_taps = 0;
+        }
+        if (s_system == SystemId::THREEDS)
+        {
+          // The picture the core gives against the one the touch screen's place was worked out for, and whether
+          // the touchpad reaches the game at all.
+          const std::string screens = Settings::Get("3ds_layout", game.key);
+          const ThreedsPicture where = ThreedsLayout(screens, ThreedsSwapped(screens), s_3ds_scale);
+          LogF("3ds: picture %ux%u (expected %ux%u), screens %s%s, touch screen at %.0f,%.0f %.0fx%.0f, %s 3DS at %dx; "
+               "touchpad (%s): %d frames with a finger, %d with the stylus down, %d taps in these 10 s; stylus at "
+               "%.0f,%.0f",
+               s_frame_w, s_frame_h, where.w, where.h, screens.c_str(), s_3ds_swap ? " (R3: swapped)" : "",
+               where.touch[0], where.touch[1], where.touch[2], where.touch[3], s_3ds_new == 1 ? "New" : "Old",
+               s_3ds_scale, Settings::Get("3ds_touch", game.key) == "touch" ? "direct" : "trackpad", s_touch_frames,
+               s_tap_frames, s_touch_taps, s_stylus.x, s_stylus.y);
+          s_touch_frames = s_tap_frames = s_touch_taps = 0;
         }
         // The GPU filter's own GPU time over the same 10 seconds (timestamps around its passes).
         char filter_time[768];
@@ -3242,10 +4410,11 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   if (DiscCount() > 1 && result != Result::Failed)
     WriteTextFile(Saves::DiscPath(game.key), std::to_string(DiscIn()));
   // (Not while the Dreamcast waits to start again: its machine is stopped inside the BIOS's call. When
-  // the Dreamcast's state isn't saved, the one of before goes: Continue would put back its older VMU.)
+  // the Dreamcast's state isn't saved, the one of before goes: Continue would put back its older VMU - an
+  // arcade board's older EEPROM.)
   const bool resume = Settings::GetOn("resume", game.key);
   const bool saved = resume && result != Result::Failed && !dc_reboot_pending && SaveState(0);
-  if (resume && !saved && s_system == SystemId::DC)
+  if (resume && !saved && IsFlycast(s_system))
     Saves::DeleteState(game.key, 0);
   SaveSram(true);
   if (audio_log >= 1.0f)
@@ -3255,6 +4424,7 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   Upscaler::Stop();
   std::vector<uint16_t>().swap(s_scaled);
   std::vector<uint16_t>().swap(s_converted);
+  std::vector<uint16_t>().swap(s_rotated);
   pads.Close();
   menu.ForgetPictures();
   FreeBezel(display);
@@ -3268,9 +4438,13 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   }
   s_core->unload_game();
   s_core->deinit();
+  JitArenaReset();
   s_hw_vulkan = false;
   s_hw_image_set = false;
   LogLine("game: ended");
+  // What the game left of the memory (its threads' stacks stay: src/MemoryGuard.h) and what it took.
+  LogMemory("game ended");
+  LogMemorySession();
   return result;
 }
 }  // namespace Emulator

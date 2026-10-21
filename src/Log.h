@@ -17,9 +17,23 @@ inline constexpr const char* VERSION = EMUSUNI_VERSION;
 
 void LogLine(const std::string& text);
 // libkernel's internal memory (threads, mutexes and memory mappings use it; running out kills the
-// app) and the flexible memory still free, with where it was measured.
+// app) and the flexible memory still free, with where it was measured; then the heap's use and the
+// threads alive by stack size (port/ps4_runtime.cpp). "menu" starts FlexibleMostMiB's readings.
 void LogMemory(const char* where);
 void LogF(const char* format, ...) __attribute__((format(printf, 1, 2)));
+// At the start: the stack and guard a thread gets when its creator doesn't say (libthr's default).
+void LogThreadDefaults();
+
+// The regular flexible memory free now, in MiB (a reading, as LogMemory's: see FlexibleMostMiB).
+int FlexibleFreeMiB();
+// The most flexible memory free at a reading since the menu's first one, in MiB (0 before it). Thread
+// stacks are never given back, so most of what that has above the memory free now is stacks of threads
+// that ended, kept for the next ones (src/MemoryGuard.h).
+int FlexibleMostMiB();
+// A game's memory, from its memory check before it starts to its end: LogMemorySession says how much
+// flexible memory it took (what was free before it, at its lowest reading, at its end).
+void MemorySessionStart();
+void LogMemorySession();
 
 // Small file helpers shared by the menus.
 std::string ReadTextFile(const std::string& path);

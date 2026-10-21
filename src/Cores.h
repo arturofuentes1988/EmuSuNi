@@ -62,4 +62,17 @@ extern const CoreApi PPSSPP;  // PSP (builds with EMUSUNI_PSP)
 #ifdef EMUSUNI_DC
 extern const CoreApi FLYCAST;  // Dreamcast (builds with EMUSUNI_DC)
 #endif
+#ifdef EMUSUNI_SEGA
+extern const CoreApi GPGX;  // SG-1000, Master System, Game Gear, Mega Drive (builds with EMUSUNI_SEGA)
+#endif
+#ifdef EMUSUNI_ARCADE
+extern const CoreApi FBNEO;  // Arcade (FinalBurn Neo; builds with EMUSUNI_ARCADE)
+#endif
+#ifdef EMUSUNI_3DS
+extern const CoreApi AZAHAR;  // Nintendo 3DS (Azahar; builds with EMUSUNI_3DS)
+#endif
+#ifdef EMUSUNI_SATURN
+// Sega Saturn: only its speed test (YabaSanshiro without a renderer, src/SaturnTest.h; builds with EMUSUNI_SATURN)
+extern const CoreApi YABASANSHIRO;
+#endif
 }  // namespace Cores

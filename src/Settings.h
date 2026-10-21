@@ -36,12 +36,28 @@ constexpr uint32_t FOR_PS1 = 1u << static_cast<int>(SystemId::PS1);
 constexpr uint32_t FOR_NDS = 1u << static_cast<int>(SystemId::NDS);
 constexpr uint32_t FOR_PSP = 1u << static_cast<int>(SystemId::PSP);
 constexpr uint32_t FOR_DC = 1u << static_cast<int>(SystemId::DC);
+constexpr uint32_t FOR_SG1000 = 1u << static_cast<int>(SystemId::SG1000);
+constexpr uint32_t FOR_SMS = 1u << static_cast<int>(SystemId::SMS);
+constexpr uint32_t FOR_GG = 1u << static_cast<int>(SystemId::GG);
+constexpr uint32_t FOR_MD = 1u << static_cast<int>(SystemId::MD);
+constexpr uint32_t FOR_ARCADE = 1u << static_cast<int>(SystemId::ARCADE);
+constexpr uint32_t FOR_3DS = 1u << static_cast<int>(SystemId::THREEDS);
+constexpr uint32_t FOR_NAOMI = 1u << static_cast<int>(SystemId::NAOMI);
+constexpr uint32_t FOR_ATOMISWAVE = 1u << static_cast<int>(SystemId::ATOMISWAVE);
+// Flycast's machines: the Dreamcast and its arcade boards, the NAOMI and the Atomiswave (one core, the same
+// processor and sound chip; they all play at one fixed quality, Standard).
+constexpr uint32_t FOR_FLYCAST = FOR_DC | FOR_NAOMI | FOR_ATOMISWAVE;
 // The three Game Boys (mGBA).
 constexpr uint32_t FOR_HANDHELD = FOR_GB | FOR_GBC | FOR_GBA;
+// Sega's cartridge consoles (Genesis Plus GX; the Dreamcast is Flycast's).
+constexpr uint32_t FOR_SEGA = FOR_SG1000 | FOR_SMS | FOR_GG | FOR_MD;
+// The handhelds' LCDs (HasLcd): the Game Boys' and the Game Gear's.
+constexpr uint32_t FOR_LCD = FOR_HANDHELD | FOR_GG;
 // The Super Nintendo's and the NES's (the N64 draws on the GPU, its own way).
 constexpr uint32_t FOR_RETRO = FOR_SNES | FOR_NES;
-// The consoles whose picture the CPU hands over as pixels (Resolution, Upscaling Filter).
-constexpr uint32_t FOR_PIXELS = FOR_RETRO | FOR_HANDHELD | FOR_NDS;
+// The consoles whose picture the CPU hands over as pixels (Resolution, Upscaling Filter): the Arcade's
+// too (FinalBurn Neo draws its boards on the CPU).
+constexpr uint32_t FOR_PIXELS = FOR_RETRO | FOR_HANDHELD | FOR_NDS | FOR_SEGA | FOR_ARCADE;
 
 struct Setting
 {
@@ -84,6 +100,9 @@ Scope ScopeOf(const std::string& game_id);
 // Console, the first time: the console starts with a copy of what the game uses now; Game, the
 // first time: the game starts with a copy of what it uses now.
 void SetScope(const std::string& game_id, Scope scope);
+// A game whose place was never chosen (nor its console's) gets This Console, so that changing a setting
+// in its page doesn't change every console's games; a game set to All Games on purpose stays so.
+void UseConsoleByDefault(const std::string& game_id);
 
 // Effective value: the game's own (This Game), else its console's (This Console), else global,
 // else the default.
@@ -110,4 +129,8 @@ void ResetAll();
 std::string LabelOf(const Setting& setting, const std::string& value);
 const Choice* FindChoice(const Setting& setting, const std::string& value);
 std::string Step(const Setting& setting, const std::string& value, int direction);
+// What a Quality level does on one console, in plain words (English, for PS4Lang::T): the level's help on that
+// console's games' pages, in place of the choice's own (which is for every console). "" for Custom, and for Flycast's
+// consoles (the Dreamcast, the NAOMI, the Atomiswave: one fixed level, Standard).
+std::string QualityHelp(const std::string& level, SystemId system);
 }  // namespace Settings

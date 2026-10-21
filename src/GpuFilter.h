@@ -3,8 +3,8 @@
 // The game picture drawn through the GPU's filters (shaders) instead of ImGui's plain textured
 // quad: xBRZ at the TV's resolution for pixel art, AMD's FSR 1 and RCAS, Anime4K's neural
 // network, and the three steps of the Quality levels (MMPX and SMAA anti-aliasing, then FSR, then
-// the network mixed with its input). The passes before the last draw into images of their own
-// (Display::EndFrame records them before the screen's render pass); the last one draws straight
+// the network mixed with its input); and an old tube TV's look (CRT). The passes before the last draw
+// into images of their own (Display::EndFrame records them before the screen's render pass); the last one draws straight
 // into the screen, inside ImGui's render pass, through a draw-list callback where the picture goes.
 
 #pragma once
@@ -36,8 +36,11 @@ enum class Mode
   NaturalHD,  // Natural HD: Smooth Edges' picture through FSR 1 (EASU, RCAS) to the screen
   NaturalAI,  // Natural AI: Smooth Edges' picture at about 768 wide through Anime4K's Restore network
               // mixed 70/30 with its input (textures and dithering kept: no waxy look), Catmull-Rom
+  Crt,        // Tube TV (Graphics: Tube TV): the console's own picture as an old tube TV showed it, in one pass
+              // (src/shaders/crt.frag; Source::crt says the look and the screens), a smaller copy first for the
+              // glow when the picture is drawn bigger than the console's
 };
-constexpr int MODE_COUNT = 8;
+constexpr int MODE_COUNT = 9;
 
 const char* Name(Mode mode);
 
@@ -81,6 +84,19 @@ struct Source
     Drawn,
   };
   Kind kind = Kind::Auto;
+  // Tube TV (Mode::Crt): the look (1 TV, 2 Arcade Monitor, 3 Studio Monitor, 4 Intense), and the picture's screens:
+  // one, or the DS's and the 3DS's two, each a tube of its own. A screen's place in the picture drawn and in the
+  // source (x, y, width, height, 0..1 of each), and the console's lines on it.
+  struct Screen
+  {
+    float place[4] = {0.0f, 0.0f, 1.0f, 1.0f};
+    float from[4] = {0.0f, 0.0f, 1.0f, 1.0f};
+    float lines = 240.0f;
+  };
+  int crt = 1;
+  int screen_count = 1;
+  Screen screens[2];
+  int rotation = 0;  // Tube TV: the source drawn turned, libretro's quarter turns anticlockwise (a vertical NAOMI game)
 };
 
 // DrawPicture: this frame's picture through the mode's passes, the last one into the screen at

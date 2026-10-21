@@ -112,4 +112,9 @@ PFN_vkVoidFunction Lookup(VkInstance instance, VkDevice device, const char* name
 // that draws with Vulkan (libretro's interface).
 VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL GetInstanceProcAddr(VkInstance instance, const char* name);
 VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL GetDeviceProcAddr(VkDevice device, const char* name);
+#ifdef EMUSUNI_3DS
+// While set, GetInstanceProcAddr hands out this in place of vkCreateDevice: Granite (ParaLLEl-RDP) makes the
+// device through it, and the Nintendo 3DS core's extensions are added to what it asks for (Display.cpp).
+void SetCreateDeviceHook(PFN_vkCreateDevice hook);
+#endif
 }  // namespace VulkanFunctions

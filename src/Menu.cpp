@@ -19,6 +19,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <future>
 #include <map>
 #include <mutex>
 #include <set>
@@ -37,6 +38,7 @@
 #include <orbis/UserService.h>
 #include <orbis/libkernel.h>
 
+#include "Arcade.h"
 #include "CheatDownload.h"
 #include "Cheats.h"
 #include "Controls.h"
@@ -45,6 +47,7 @@
 #include "GameAudio.h"
 #include "Image.h"
 #include "Log.h"
+#include "Naomi.h"
 #include "PS4Glyphs.h"
 #include "PS4Lang.h"
 #include "Saves.h"
@@ -52,6 +55,9 @@
 #include "Systems.h"
 #include "SystemKeyboard.h"
 #include "Tour.h"
+#ifdef EMUSUNI_SATURN
+#include "SaturnTest.h"
+#endif
 
 namespace
 {
@@ -213,6 +219,18 @@ std::string Lower(std::string text)
   std::transform(text.begin(), text.end(), text.begin(),
                  [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
   return text;
+}
+
+// The names a cover put in covers/ by hand is looked for by (the keys of m_cover_files: lower case, the
+// console's prefix, no .png): the game's key and its title, and an arcade game's full name and its
+// parent's (libretro's thumbnails are named so, ':' and '/' made '_').
+std::vector<std::string> CoverNames(const Library::Game& rom)
+{
+  const std::string prefix = GetSystem(rom.system).prefix;
+  std::vector<std::string> names = {Lower(rom.key), prefix + Lower(rom.title)};
+  for (const std::string& name : rom.cover_names)
+    names.push_back(prefix + Lower(name));
+  return names;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -633,19 +651,38 @@ enum class Category
   NdsGames,   // builds with the Nintendo DS (EMUSUNI_NDS)
   PspGames,   // builds with the PSP (EMUSUNI_PSP)
   DcGames,    // builds with the Dreamcast (EMUSUNI_DC)
+  Sg1000Games,  // builds with the Sega consoles (EMUSUNI_SEGA)
+  SmsGames,
+  GgGames,
+  MdGames,
+  ArcadeGames,  // builds with the Arcade (EMUSUNI_ARCADE)
+  ThreedsGames,  // builds with the Nintendo 3DS (EMUSUNI_3DS)
+  NaomiGames,    // builds with the Dreamcast (EMUSUNI_DC): its arcade boards
+  AtomiswaveGames,
   Favorites,
   SavedData,
   Themes,
 };
-constexpr int CATEGORY_COUNT = 15;
+constexpr int CATEGORY_COUNT = 23;
 static_assert(static_cast<int>(Category::N64Games) ==
               static_cast<int>(Category::Games) + 1 + static_cast<int>(SystemId::N64));
 static_assert(static_cast<int>(Category::GbaGames) ==
               static_cast<int>(Category::Games) + 1 + static_cast<int>(SystemId::GBA));
+static_assert(static_cast<int>(Category::MdGames) ==
+              static_cast<int>(Category::Games) + 1 + static_cast<int>(SystemId::MD));
+static_assert(static_cast<int>(Category::ArcadeGames) ==
+              static_cast<int>(Category::Games) + 1 + static_cast<int>(SystemId::ARCADE));
+static_assert(static_cast<int>(Category::ThreedsGames) ==
+              static_cast<int>(Category::Games) + 1 + static_cast<int>(SystemId::THREEDS));
+static_assert(static_cast<int>(Category::NaomiGames) ==
+              static_cast<int>(Category::Games) + 1 + static_cast<int>(SystemId::NAOMI));
+static_assert(static_cast<int>(Category::AtomiswaveGames) ==
+              static_cast<int>(Category::Games) + 1 + static_cast<int>(SystemId::ATOMISWAVE));
 static_assert(static_cast<int>(Category::Favorites) == static_cast<int>(Category::Games) + 1 + SYSTEM_COUNT);
 constexpr const char* CATEGORY_NAMES[CATEGORY_COUNT] = {
     "Settings",  "All Games", "Super Nintendo", "NES",        "Nintendo 64", "Game Boy",
     "Game Boy Color", "Game Boy Advance", "PlayStation", "Nintendo DS", "PSP", "Dreamcast",
+    "SG-1000", "Master System", "Game Gear", "Genesis", "Arcade", "Nintendo 3DS", "NAOMI", "Atomiswave",
     "Favorites", "Saved Data", "Themes"};
 constexpr const char* SORT_NAMES[][2] = {
     {"title", "A-Z"}, {"recent", "Recently Played"}, {"region", "Region"}, {"console", "Console"},
@@ -663,12 +700,18 @@ int SystemOfList(int category)
 // saved order doesn't name after the others in their usual order.
 std::vector<SystemId> s_console_order;
 int s_console_order_version = 1;  // changes with the order (Tabs() and Columns() are made again)
+// The consoles with a tab and an XMB column (Settings -> Consoles Shown, Library::ShownConsoles): some or all of
+// the console order's, in it; empty until the menu sets it (then all). Changing it changes the version too.
+std::vector<SystemId> s_shown_consoles;
 
 // The standard order (Default Order): Nintendo's consoles, then Sony's, then Sega's, each from the
-// most basic to the most powerful.
+// most basic to the most powerful, then the arcade boards: the Arcade, the NAOMI (Sega's, the
+// Dreamcast's hardware in a cabinet) and the Atomiswave (Sammy's, the same again).
 constexpr SystemId STANDARD_ORDER[] = {SystemId::GB,  SystemId::NES, SystemId::GBC, SystemId::SNES,
-                                       SystemId::GBA, SystemId::N64, SystemId::NDS, SystemId::PS1,
-                                       SystemId::PSP, SystemId::DC};
+                                       SystemId::GBA, SystemId::N64, SystemId::NDS, SystemId::THREEDS,
+                                       SystemId::PS1, SystemId::PSP, SystemId::SG1000, SystemId::SMS,
+                                       SystemId::GG,  SystemId::MD,  SystemId::DC,  SystemId::ARCADE,
+                                       SystemId::NAOMI, SystemId::ATOMISWAVE};
 
 // The consoles of this build in the standard order (any not in it after them).
 std::vector<SystemId> StandardOrder()
@@ -695,16 +738,22 @@ const std::vector<SystemId>& ConsoleOrder()
 }
 
 // Console Order's ready-made orders: "company" (the standard one), "power" (whatever the maker:
-// the most basic first), "year" (when each came out, Japan's dates), "alpha" (by name, A-Z).
+// the most basic first; the Arcade's boards, 1970s to 2000s, after the Dreamcast, then the NAOMI and the
+// Atomiswave, a Dreamcast each with more memory), "year" (when each came out, Japan's dates; the Arcade
+// by the Neo Geo's 1990), "alpha" (by name, A-Z).
 std::vector<SystemId> PresetOrder(const std::string& preset)
 {
   std::vector<SystemId> order;
   if (preset == "power")
-    order = {SystemId::GB,  SystemId::NES, SystemId::GBC, SystemId::SNES, SystemId::GBA,
-             SystemId::PS1, SystemId::N64, SystemId::NDS, SystemId::DC,  SystemId::PSP};
+    order = {SystemId::GB,  SystemId::SG1000, SystemId::NES, SystemId::SMS,    SystemId::GG,
+             SystemId::GBC, SystemId::MD,     SystemId::SNES, SystemId::GBA,   SystemId::PS1,
+             SystemId::N64, SystemId::NDS,    SystemId::DC,   SystemId::ARCADE, SystemId::NAOMI,
+             SystemId::ATOMISWAVE, SystemId::PSP, SystemId::THREEDS};
   else if (preset == "year")
-    order = {SystemId::NES, SystemId::GB,  SystemId::SNES, SystemId::PS1, SystemId::N64,  // 1983 1989 1990 1994 1996
-             SystemId::GBC, SystemId::DC,  SystemId::GBA,  SystemId::NDS, SystemId::PSP};  // 1998 1998 2001 2004 2004
+    order = {SystemId::NES, SystemId::SG1000, SystemId::SMS,  SystemId::MD,  SystemId::GB,   // 1983 1983 1985 1988 1989
+             SystemId::GG,  SystemId::ARCADE, SystemId::SNES, SystemId::PS1, SystemId::N64,  // 1990 1990 1990 1994 1996
+             SystemId::GBC, SystemId::DC,     SystemId::NAOMI, SystemId::GBA, SystemId::ATOMISWAVE,  // 1998 1998 1998 2001 2003
+             SystemId::NDS, SystemId::PSP,    SystemId::THREEDS};                             // 2004 2004 2011
   else if (preset == "alpha")
   {
     for (const System& system : Systems())
@@ -746,7 +795,24 @@ void SetConsoleOrder(const std::vector<SystemId>& order)
       list.push_back(id);
   }
   s_console_order = list;
+  // The consoles shown stay the same ones, in the new order.
+  if (!s_shown_consoles.empty())
+  {
+    std::vector<SystemId> shown;
+    for (SystemId id : list)
+    {
+      if (std::find(s_shown_consoles.begin(), s_shown_consoles.end(), id) != s_shown_consoles.end())
+        shown.push_back(id);
+    }
+    s_shown_consoles = shown;
+  }
   s_console_order_version++;
+}
+
+// The consoles with a tab, in the console order.
+const std::vector<SystemId>& ShownOrder()
+{
+  return s_shown_consoles.empty() ? ConsoleOrder() : s_shown_consoles;
 }
 
 // "snes,nes,n64" <-> the order.
@@ -763,6 +829,26 @@ std::vector<SystemId> ParseConsoleOrder(const std::string& keys)
   return order;
 }
 
+// The order a saved one stands for: a ready-made order saved before some consoles came (its keys are
+// that order's without them) is that order, the new consoles in their places; any other as it is
+// (the consoles it doesn't name go after the others: SetConsoleOrder).
+std::vector<SystemId> SavedConsoleOrder(const std::string& keys)
+{
+  const std::vector<SystemId> saved = ParseConsoleOrder(keys);
+  for (const char* preset : {"power", "year", "alpha"})
+  {
+    std::vector<SystemId> named;
+    for (SystemId id : PresetOrder(preset))
+    {
+      if (std::find(saved.begin(), saved.end(), id) != saved.end())
+        named.push_back(id);
+    }
+    if (!saved.empty() && named == saved)
+      return PresetOrder(preset);
+  }
+  return saved;
+}
+
 std::string ConsoleOrderKeys()
 {
   std::string keys;
@@ -771,7 +857,7 @@ std::string ConsoleOrderKeys()
   return keys;
 }
 
-// The XMB style's columns, left to right: Settings, all the games, a column per console (in the
+// The XMB style's columns, left to right: Settings, all the games, a column per console shown (in the
 // console order), the favorites. Saved Data and Themes are pages of Settings in both styles (Cross
 // on them in its list, Circle back).
 const std::vector<int>& Columns()
@@ -782,15 +868,15 @@ const std::vector<int>& Columns()
   {
     version = s_console_order_version;
     columns = {static_cast<int>(Category::Settings), static_cast<int>(Category::Games)};
-    for (SystemId id : ConsoleOrder())
+    for (SystemId id : ShownOrder())
       columns.push_back(static_cast<int>(Category::Games) + 1 + static_cast<int>(id));
     columns.push_back(static_cast<int>(Category::Favorites));
   }
   return columns;
 }
 
-// The Library style's tabs (L1 / R1, round and round), left to right: All, a tab per console (in
-// the console order), Favorites, Settings.
+// The Library style's tabs (L1 / R1, round and round), left to right: All, a tab per console shown
+// (in the console order), Favorites, Settings.
 const std::vector<int>& Tabs()
 {
   static std::vector<int> tabs;
@@ -799,7 +885,7 @@ const std::vector<int>& Tabs()
   {
     version = s_console_order_version;
     tabs = {static_cast<int>(Category::Games)};
-    for (SystemId id : ConsoleOrder())
+    for (SystemId id : ShownOrder())
       tabs.push_back(static_cast<int>(Category::Games) + 1 + static_cast<int>(id));
     tabs.push_back(static_cast<int>(Category::Favorites));
     tabs.push_back(static_cast<int>(Category::Settings));
@@ -909,6 +995,50 @@ std::string SearchText(const std::string& text)
   return out;
 }
 
+// What the box on a console's page says (DrawConsoleInfo): the systems it plays, the BIOS only where the player
+// must bring one (the Arcade's Neo Geo games, the NAOMI's and the Atomiswave's every game; every other core has
+// its own built in, and the optional real ones only confused players, so the box no longer lists them) and where
+// it goes (00.64: beside the games, or the core's own folder in system), and its files when its extensions alone
+// don't say it. The BIOS and Files rows fit two lines and one (the Folders rows need the room: two drives and a
+// folder of the player's are four lines).
+// (No " = " in a text: the language files' separator.)
+struct ConsoleNote
+{
+  SystemId id;
+  const char* plays;
+  const char* bios;   // nullptr: no BIOS row
+  const char* files;  // nullptr: its extensions (Systems.cpp), and a .zip or not
+};
+constexpr ConsoleNote CONSOLE_NOTES[] = {
+    {SystemId::SNES, "Super Nintendo and Super Famicom games", nullptr, nullptr},
+    {SystemId::NES, "NES, Famicom and Famicom Disk System games", nullptr, nullptr},
+    {SystemId::N64, "Nintendo 64 games", nullptr, nullptr},
+    {SystemId::GB, "Game Boy games", nullptr, nullptr},
+    {SystemId::GBC, "Game Boy Color games", nullptr, nullptr},
+    {SystemId::GBA, "Game Boy Advance games", nullptr, nullptr},
+    {SystemId::PS1, "PlayStation games, on one disc or several", nullptr, nullptr},
+    {SystemId::NDS, "Nintendo DS games", nullptr, nullptr},
+    {SystemId::PSP, "PSP games: UMD images and PSN downloads", nullptr, nullptr},
+    {SystemId::DC, "Dreamcast games, on one disc or several", nullptr, nullptr},
+    {SystemId::SG1000, "SG-1000 and SC-3000 games", nullptr, nullptr},
+    {SystemId::SMS, "Master System and Mark III games", nullptr, nullptr},
+    {SystemId::GG, "Game Gear games", nullptr, nullptr},
+    {SystemId::MD, "Genesis and Mega Drive games", nullptr, nullptr},
+    // (FinalBurn Neo finds a BIOS set beside the game, in system/fbneo or in system: Arcade::Missing.)
+    {SystemId::ARCADE, "Neo Geo, Capcom CPS1/CPS2/CPS3, Sega, Konami, Taito...",
+     "neogeo.zip and the like in Roms/arcade or /data/EmuSuNi/system/fbneo",
+     "FinalBurn Neo 1.0.0.03 sets, one .zip per game (mslug.zip)"},
+    {SystemId::THREEDS, "Nintendo 3DS games and homebrew", nullptr,
+     "Decrypted .3ds (.cci), .cxi, .3dsx; no .cia, no .zip"},
+    // (Flycast finds a BIOS zip in system/dc or beside the game: shell/libretro/oslib.cpp's findNaomiBios. A NAOMI
+    // game is a MAME set or a cartridge image, a loose .dat or .bin: src/Naomi.h.)
+    {SystemId::NAOMI, "Sega's NAOMI and NAOMI 2 arcade games",
+     "naomi.zip, naomi2.zip in Roms/naomi or /data/EmuSuNi/system/dc",
+     "MAME sets (mvsc2.zip) or .dat / .bin images, unzipped"},
+    {SystemId::ATOMISWAVE, "Sammy's Atomiswave arcade games",
+     "awbios.zip in Roms/atomiswave or /data/EmuSuNi/system/dc", "MAME sets, one .zip per game (kofxi.zip)"},
+};
+
 struct Item
 {
   std::string label;
@@ -933,7 +1063,7 @@ enum Setting
   SET_LANGUAGE,    // Language
   SET_SAVES,       // a game's saved data
   SET_DELETE,      // "Delete?" for a save
-  SET_COVERS,      // Covers: where to put them
+  SET_COVERS,      // Covers Saved On: the internal storage or a USB drive (and where to put your own)
   SET_DOWNLOAD,    // Download Covers: progress and result
   SET_DELETE_GAME,      // "Delete?" for a game (Triangle's options)
   SET_CLEANUP,          // Clean Up Games: duplicates and other regions
@@ -943,6 +1073,10 @@ enum Setting
   SET_FIND_COVER,       // Find Cover (Triangle's options): pictures to choose from
   SET_NO_COVER,         // Games Without Cover: the games without a picture, each one's Find Cover
   SET_CONSOLE_ORDER,    // Console Order: the consoles' tabs, moved up and down
+  SET_CONSOLES_SHOWN,   // Consoles Shown: all, those with games, or the ones chosen (each on or off)
+#ifdef EMUSUNI_SATURN
+  SET_SATURN_TEST,      // Saturn (speed test): builds with EMUSUNI_SATURN, with the file saturn-test (src/SaturnTest.h)
+#endif
   SET_GROUP = 100,  // + index into Settings::Categories(): an emulation settings list
 };
 
@@ -993,6 +1127,7 @@ public:
       : m_display(display), m_data_dir(data_dir), m_assets_dir(assets_dir)
   {
     m_prefs.Load(m_data_dir + "/xmb.ini");
+    // (The Roms/<console> folders are made by BuildGames: MakeFolders.)
     for (const System& system : Systems())
     {
       if (GamesFolder(system.id).rfind(m_data_dir, 0) == 0)
@@ -1067,6 +1202,28 @@ private:
                                              m_data_dir + "/" + system.default_folder;
   }
   void RefreshGames();
+  // The places games are found in by themselves (Library::FindPlaces): looked at again when a game list is
+  // entered (at most every 1.5 s, on a thread: PlacesLooked takes its answer), or `now`; the games are read
+  // again when they changed (a drive plugged in).
+  void CheckPlaces(bool now);
+  void PlacesLooked();
+  void PlacesFound(const Library::Places& places);
+  // Every console's Roms/<key> made where it is missing: the internal storage and the drives a player keeps games
+  // on (Library::GameRomsFolders); one line in the log per folder.
+  void MakeFolders(const std::vector<std::string>& drives);
+  // Settings -> Consoles Shown: the tabs and the XMB's columns follow it (every frame: the tour's "set" too).
+  std::string ShownMode() const;
+  std::string ShownDetail() const;
+  std::set<std::string> OffConsoles() const;  // the keys turned off for Only the Ones I Choose
+  void UpdateShownConsoles();
+  void OpenConsolesShown(int selected = -1);
+  // Settings -> Covers Saved On: the folder new covers go to (check: make it, and the internal storage when it
+  // can't be), and what the Settings list says of it.
+  std::string CoversSaveDir(bool check);
+  std::string CoversDetail() const;
+  // The box at the bottom left of a console's page: its rows (a label, the text) and its drawing (its right edge).
+  std::vector<std::pair<std::string, std::string>> ConsoleInfo(SystemId id) const;
+  float DrawConsoleInfo(ImDrawList* dl, SystemId id, float alpha);
 
   void HandleInput(uint32_t pressed);
   void ActivateItem(const Item& item);
@@ -1168,6 +1325,8 @@ private:
                  int focus);
   float DrawBadge(ImDrawList* dl, const Library::Game& rom, ImVec2 at, float alpha, float max_w = 0.0f);
   void DrawTopBar(ImDrawList* dl);
+  void DrawPageTitle(ImDrawList* dl, Category category, const std::string& title, const std::string& sub,
+                     float alpha, float sub_alpha);
   void Text(ImDrawList* dl, ImFont* font, float size, ImVec2 pos, ImU32 color,
             const std::string& text, bool shadow = true);
   float TextWidth(ImFont* font, float size, const std::string& text);
@@ -1185,6 +1344,19 @@ private:
   std::string m_data_dir, m_assets_dir;
   Preferences m_prefs;
   std::vector<Game> m_games;
+  // Where the games were looked for (BuildGames): the places, each console's number of games, the covers'
+  // folder on a USB drive ("" without a drive).
+  Library::Places m_places;
+  float m_places_time = 0.0f;
+  std::future<Library::Places> m_places_look;  // CheckPlaces' look on a thread (a sleeping drive can be slow)
+  Library::PlacesReads m_places_reads;         // its answer counts only if the places weren't read again since
+  std::array<int, SYSTEM_COUNT> m_console_games{};
+  std::string m_usb_covers;
+  std::set<std::string> m_folders_logged;  // the Roms folders MakeFolders has said something of
+  // The console box's text, made for one console, language and folder at a time (DrawConsoleInfo).
+  std::string m_info_key;
+  float m_info_label_w = 0.0f;
+  std::vector<std::pair<std::string, std::vector<std::string>>> m_info_rows;
   std::vector<std::string> m_wallpapers;
   std::vector<Item> m_items[CATEGORY_COUNT];
   int m_category = static_cast<int>(Category::Games);
@@ -1250,8 +1422,24 @@ private:
   std::thread m_cover_thread;
   std::mutex m_cover_mutex;
   std::condition_variable m_cover_wake;
-  std::deque<std::pair<int, std::string>> m_cover_requests;
-  std::deque<std::pair<int, ImageRGBA>> m_cover_results;
+  // A cover asked for (its game's index into m_games, its file) and its picture, each of one IndexCovers'
+  // generation: the games are read again with it (m_games in another order), so an older one's index is
+  // another game's now and it is dropped.
+  struct CoverJob
+  {
+    int game = -1;
+    std::string path;
+    uint64_t generation = 0;
+  };
+  struct CoverDone
+  {
+    int game = -1;
+    ImageRGBA image;
+    uint64_t generation = 0;
+  };
+  std::deque<CoverJob> m_cover_jobs;
+  std::deque<CoverDone> m_cover_done;
+  uint64_t m_cover_generation = 0;  // (under m_cover_mutex)
   bool m_cover_stop = false;
   // Download Covers (a background thread).
   std::thread m_dl_thread;
@@ -1263,6 +1451,7 @@ private:
   std::atomic<int> m_dl_progress{0}, m_dl_total{0};
   std::vector<std::pair<std::string, std::string>> m_dl_saved;  // id, file (under m_dl_mutex)
   bool m_dl_auto = false;  // the start's automatic download is under way or done
+  int m_dl_skipped = 0;    // the games the download left out: they have a cover (in either place)
   bool m_covers_changed = false;  // a cover was saved: Without Cover's lists again (Run)
   bool m_dl_closest = false;      // the download is Games Without Cover's "Closest for All"
   std::string m_nocover_status;   // its result, shown in Games Without Cover
@@ -1282,6 +1471,9 @@ private:
   float m_intro_time = 0.0f;
   int m_launch = -1;
   float m_launch_time = 0.0f;
+#ifdef EMUSUNI_SATURN
+  bool m_saturn_test = false;  // Settings' Saturn (speed test) picked: Run returns its stand-in (src/SaturnTest.h)
+#endif
   std::string m_pending_error;
   float m_memory_log = 0.0f;
 
@@ -1361,36 +1553,42 @@ private:
 void Menu::Impl::BuildGames()
 {
   m_games.clear();
-  std::string found;
-  // A folder that holds another console's games too (the same one, or one inside the other): its
-  // .zip files are opened to see whose they are (slower), else they are the console's.
-  auto shared = [this](SystemId id) {
-    auto tidy = [](std::string path) {
-      while (path.size() > 1 && path.back() == '/')
-        path.pop_back();
-      return path;
-    };
-    const std::string mine = tidy(GamesFolder(id));
-    for (const System& other : Systems())
-    {
-      const std::string theirs = tidy(GamesFolder(other.id));
-      if (other.id != id && (mine == theirs || theirs.rfind(mine + "/", 0) == 0 || mine.rfind(theirs + "/", 0) == 0))
-        return true;
-    }
-    return false;
-  };
+  // Each console's games in its folder (Game Folders, else its default one) and, without a folder chosen, in
+  // Roms/<console> of the internal storage and of every USB drive (Library::ScanAll: a folder shared with
+  // another console has its .zip files opened to see whose they are, a file found twice is one game).
+  const std::vector<std::string> drives_now = Library::UsbDrives();
+  MakeFolders(drives_now);  // (first: the folders made are found below, the next look sees the same places)
+  m_places = Library::FindPlaces(m_data_dir, drives_now);
+  m_places_reads.Read();  // (a look on the thread started before this is older now)
+  m_places_time = m_time;
+  m_usb_covers = Library::UsbCoversFolder(m_places.drives);
+  std::array<std::string, SYSTEM_COUNT> chosen;
+  for (const System& system : Systems())
+    chosen[static_cast<size_t>(system.id)] = GamesFolder(system.id);
+  Library::Found scan = Library::ScanAll(chosen, m_places);
+  std::string found, drives;
+  for (const std::string& drive : m_places.drives)
+    drives += (drives.empty() ? "" : ", ") + drive;
   for (const System& system : Systems())
   {
-    std::vector<Library::Game> roms = Library::Scan(GamesFolder(system.id), system.id, shared(system.id));
-    found += std::string(found.empty() ? "" : ", ") + std::to_string(roms.size()) + " " + system.tab +
-             " in " + GamesFolder(system.id);
-    for (Library::Game& rom : roms)
+    const size_t id = static_cast<size_t>(system.id);
+    std::string where;
+    for (size_t f = 0; f < scan.folders[id].size(); f++)
     {
-      Game game;
-      game.rom = std::move(rom);
-      m_games.push_back(std::move(game));
+      if (scan.found_in[id][f] > 0)
+        where += (where.empty() ? " in " : " + ") + scan.folders[id][f];
     }
+    found += std::string(found.empty() ? "" : ", ") + std::to_string(scan.counts[id]) + " " + system.tab + where;
   }
+  m_console_games = scan.counts;
+  for (Library::Game& rom : scan.games)
+  {
+    Game game;
+    game.rom = std::move(rom);
+    m_games.push_back(std::move(game));
+  }
+  Log("game places: USB drives " + (drives.empty() ? std::string("none") : drives) + "; covers on USB: " +
+      (m_usb_covers.empty() ? std::string("none") : m_usb_covers));
   // The user's own names (Rename).
   for (Game& game : m_games)
   {
@@ -1480,19 +1678,20 @@ void Menu::Impl::LoadAssets()
   m_cover_thread = std::thread([this] {
     for (;;)
     {
-      std::pair<int, std::string> request;
+      CoverJob job;
       {
         std::unique_lock lock(m_cover_mutex);
-        m_cover_wake.wait(lock, [this] { return m_cover_stop || !m_cover_requests.empty(); });
+        m_cover_wake.wait(lock, [this] { return m_cover_stop || !m_cover_jobs.empty(); });
         if (m_cover_stop)
           return;
-        request = m_cover_requests.front();
-        m_cover_requests.pop_front();
+        job = std::move(m_cover_jobs.front());
+        m_cover_jobs.pop_front();
       }
       ImageRGBA image;
-      LoadPng(request.second, &image, 600, 430);
+      LoadPng(job.path, &image, 600, 430);
       std::lock_guard lock(m_cover_mutex);
-      m_cover_results.push_back({request.first, std::move(image)});
+      if (job.generation == m_cover_generation)  // (else the games were read again meanwhile)
+        m_cover_done.push_back({job.game, std::move(image), job.generation});
     }
   });
 }
@@ -1510,20 +1709,35 @@ void Menu::Impl::StopCoverThread()
 
 // Covers: data_dir/covers/<file name>.png or <title>.png (any case), e.g. from libretro's
 // thumbnails ("Named_Boxarts"); another console's in its subfolder (covers/nes/). Indexed by the
-// game key's way: "nes/<name>".
+// game key's way: "nes/<name>". The USB drives' EmuSuNi/covers too (Covers Saved On), the place new
+// covers are saved in last: its picture wins over another place's of the same name.
 void Menu::Impl::IndexCovers()
 {
   m_cover_files.clear();
-  for (const System& system : Systems())
+  const std::string save = CoversSaveDir(false), internal = m_data_dir + "/covers";
+  std::vector<std::string> places;
+  for (const std::string& folder : Library::UsbCoversFolders(m_places.drives))
   {
-    const std::string prefix = system.prefix;
-    std::error_code ec;
-    for (const auto& entry : std::filesystem::directory_iterator(m_data_dir + "/covers/" + prefix, ec))
+    if (Library::PathKey(folder, m_places.drives) != Library::PathKey(save, m_places.drives))
+      places.push_back(folder);
+  }
+  if (internal != save)
+    places.push_back(internal);
+  places.push_back(save);
+  for (const std::string& place : places)
+  {
+    for (const System& system : Systems())
     {
-      const std::string name = entry.path().filename().string();
-      const std::string lower = Lower(name);
-      if (lower.size() > 4 && lower.compare(lower.size() - 4, 4, ".png") == 0)
-        m_cover_files[prefix + lower.substr(0, lower.size() - 4)] = entry.path().string();
+      const std::string prefix = system.prefix;
+      // (Not a range-for: its ++ throws when a USB drive goes away meanwhile; increment(ec) just stops.)
+      std::error_code ec;
+      for (std::filesystem::directory_iterator it(place + "/" + prefix, ec), end; !ec && it != end; it.increment(ec))
+      {
+        const std::string name = it->path().filename().string();
+        const std::string lower = Lower(name);
+        if (lower.size() > 4 && lower.compare(lower.size() - 4, 4, ".png") == 0)
+          m_cover_files[prefix + lower.substr(0, lower.size() - 4)] = it->path().string();
+      }
     }
   }
   for (auto& [index, cover] : m_covers)
@@ -1532,8 +1746,42 @@ void Menu::Impl::IndexCovers()
       m_display.DestroyTexture(cover.texture);
   }
   m_covers.clear();
-  Log("covers: " + std::to_string(m_cover_files.size()) + " pictures");
+  // The covers asked for or decoded before are for the games' old indexes (RefreshGames reads them again in
+  // another order): a new generation, the older one's dropped (UpdateCovers).
+  {
+    std::lock_guard lock(m_cover_mutex);
+    m_cover_jobs.clear();
+    m_cover_done.clear();
+    m_cover_generation++;
+  }
+  std::string from;
+  for (const std::string& place : places)
+    from += (from.empty() ? "" : ", ") + place;
+  Log("covers: " + std::to_string(m_cover_files.size()) + " pictures (" + from + "; new ones go to " + save + ")");
   RefreshNoCoverItem();
+}
+
+std::string Menu::Impl::CoversSaveDir(bool check)
+{
+  const std::string internal = m_data_dir + "/covers";
+  if (Settings::Get("covers_on") != "usb" || m_usb_covers.empty())
+    return internal;
+  if (!check)
+    return m_usb_covers;
+  // The drive may have been taken out since the games were read: then the internal storage.
+  MakeDirs(m_usb_covers);
+  std::error_code ec;
+  if (std::filesystem::is_directory(m_usb_covers, ec))
+    return m_usb_covers;
+  Log("covers: " + m_usb_covers + " can't be made: the internal storage instead");
+  return internal;
+}
+
+std::string Menu::Impl::CoversDetail() const
+{
+  if (Settings::Get("covers_on") != "usb")
+    return "Internal Storage";
+  return m_usb_covers.empty() ? std::string("USB Drive  -  Not connected: internal storage") : "USB Drive  -  " + m_usb_covers;
 }
 
 ImTextureID Menu::Impl::Cover(int game, float* aspect)
@@ -1552,8 +1800,7 @@ ImTextureID Menu::Impl::Cover(int game, float* aspect)
   {
     const Library::Game& rom = m_games[game].rom;
     std::string path;
-    const std::string prefix = GetSystem(rom.system).prefix;
-    for (const std::string& name : {Lower(rom.key), prefix + Lower(rom.title)})
+    for (const std::string& name : CoverNames(rom))
     {
       auto it = m_cover_files.find(name);
       if (it != m_cover_files.end())
@@ -1571,7 +1818,7 @@ ImTextureID Menu::Impl::Cover(int game, float* aspect)
       cover.requested = true;
       {
         std::lock_guard lock(m_cover_mutex);
-        m_cover_requests.push_back({game, path});
+        m_cover_jobs.push_back({game, path, m_cover_generation});
       }
       m_cover_wake.notify_one();
     }
@@ -1583,26 +1830,33 @@ ImTextureID Menu::Impl::Cover(int game, float* aspect)
 // when there are too many.
 void Menu::Impl::UpdateCovers()
 {
-  for (int i = 0; i < 3; i++)
+  for (int made = 0; made < 3;)
   {
-    std::pair<int, ImageRGBA> result;
+    CoverDone result;
     {
       std::lock_guard lock(m_cover_mutex);
-      if (m_cover_results.empty())
+      if (m_cover_done.empty())
         break;
-      result = std::move(m_cover_results.front());
-      m_cover_results.pop_front();
+      result = std::move(m_cover_done.front());
+      m_cover_done.pop_front();
+      if (result.generation != m_cover_generation)
+        continue;  // asked for before the games were read again: its index is another game's now
     }
-    CoverEntry& cover = m_covers[result.first];
+    made++;
+    const auto it = m_covers.find(result.game);
+    if (it == m_covers.end() || !it->second.requested)
+      continue;  // (not waited for anymore)
+    CoverEntry& cover = it->second;
     cover.requested = false;
-    if (result.second.empty())
+    if (result.image.empty())
     {
       cover.missing = true;
       continue;
     }
-    cover.texture = m_display.CreateTexture(result.second.pixels.data(), result.second.width,
-                                            result.second.height);
-    cover.aspect = static_cast<float>(result.second.width) / result.second.height;
+    if (cover.texture != ImTextureID{})
+      m_display.DestroyTexture(cover.texture);  // (one texture per cover: the descriptor pool holds 512)
+    cover.texture = m_display.CreateTexture(result.image.pixels.data(), result.image.width, result.image.height);
+    cover.aspect = static_cast<float>(result.image.width) / result.image.height;
   }
   constexpr size_t MAX_COVERS = 48;
   size_t loaded = 0;
@@ -1638,19 +1892,24 @@ void Menu::Impl::StartCoverDownload(bool closest)
     std::lock_guard lock(m_dl_mutex);
     m_dl_status = "Connecting to libretro...";
   }
-  // Closest for All: only the games Games Without Cover lists (a cover of the user's own named in
-  // another case is never written over).
+  // Only the games Games Without Cover lists: a cover of the user's own named in another case is never
+  // written over, and one in the other place (the internal storage or the USB drive: Covers Saved On) is
+  // never downloaded again into this one. They count as already there.
   std::vector<Library::Game> games;
+  m_dl_skipped = 0;
   for (const Game& game : m_games)
   {
-    if (!closest || !HasCover(game.rom))
+    if (!HasCover(game.rom))
       games.push_back(game.rom);
+    else
+      m_dl_skipped++;
   }
   m_dl_progress = 0;
   m_dl_total = static_cast<int>(games.size());
-  m_dl_thread = std::thread([this, games, closest] {
+  const std::string covers = CoversSaveDir(true);
+  m_dl_thread = std::thread([this, games, closest, covers] {
     const CoverDownload::Result result = CoverDownload::Download(
-        games, m_data_dir + "/covers", m_assets_dir + "/xmb/cacert.pem",
+        games, covers, m_assets_dir + "/xmb/cacert.pem",
         [this](int done, int total, const std::string& title) {
           m_dl_progress = title.empty() ? total : done + 1;
           m_dl_total = total;
@@ -1670,11 +1929,16 @@ void Menu::Impl::StartCoverDownload(bool closest)
   });
 }
 
-// A cover picture for the game: covers/<key>.png or <prefix><title>.png, any case (as Cover() looks).
+// A cover picture for the game: covers/<key>.png, <prefix><title>.png or an arcade game's thumbnail name,
+// any case (as Cover() looks).
 bool Menu::Impl::HasCover(const Library::Game& rom) const
 {
-  const std::string prefix = GetSystem(rom.system).prefix;
-  return m_cover_files.count(Lower(rom.key)) > 0 || m_cover_files.count(prefix + Lower(rom.title)) > 0;
+  for (const std::string& name : CoverNames(rom))
+  {
+    if (m_cover_files.count(name) > 0)
+      return true;
+  }
+  return false;
 }
 
 // Any game without a cover picture?
@@ -1746,6 +2010,7 @@ void Menu::Impl::UpdateCoverDownload()
     std::lock_guard lock(m_dl_mutex);
     result = m_dl_result;
   }
+  result.already += m_dl_skipped;  // (left out at the start: they had a cover)
   if (shown)
   {
     m_panel.lines = {"", "Downloaded: " + std::to_string(result.downloaded),
@@ -1759,7 +2024,7 @@ void Menu::Impl::UpdateCoverDownload()
     m_panel.lines.push_back("");
     if (result.not_found > 0)
       m_panel.lines.push_back("The rest, one by one: Games Without Cover");
-    m_panel.lines.push_back("Your own pictures: " + m_data_dir + "/covers");
+    m_panel.lines.push_back("Your own pictures: " + CoversSaveDir(false));
     Play(result.failed > 0 && result.downloaded == 0 ? "error" : "confirm");
   }
   const bool closest = m_dl_closest;
@@ -1813,6 +2078,191 @@ void Menu::Impl::RefreshGames()
   // Covers for the games of a new folder, in the background.
   if (m_dl_auto && !m_dl_thread.joinable() && MissingCovers())
     StartCoverDownload();
+  UpdateShownConsoles();  // (Only Those With Games: a console's first game, or its last one gone)
+}
+
+void Menu::Impl::CheckPlaces(bool now)
+{
+  // A look at the drives' top folders and the Roms folders only (Library::FindPlaces): the games are read
+  // again only when they changed.
+  if (now)
+  {
+    m_places_time = m_time;
+    m_places_reads.Read();
+    PlacesFound(Library::FindPlaces(m_data_dir, Library::UsbDrives()));
+    return;
+  }
+  if (m_places_look.valid() || m_time - m_places_time < 1.5f)
+    return;
+  m_places_time = m_time;
+  try
+  {
+    m_places_reads.LookStarted();
+    m_places_look = std::async(std::launch::async, [data_dir = m_data_dir] {
+      return Library::FindPlaces(data_dir, Library::UsbDrives());
+    });
+  }
+  catch (...)
+  {
+    m_places_reads.Read();
+    PlacesFound(Library::FindPlaces(m_data_dir, Library::UsbDrives()));  // (no thread: here)
+  }
+}
+
+// CheckPlaces' look, when the thread has it (every frame). Not while a game is launching (m_launch is its
+// index into m_games) or a game's options are open (they act on its list's selected game): it waits for
+// later, the games read again would be in another order.
+void Menu::Impl::PlacesLooked()
+{
+  if (m_launch >= 0 || (m_panel.open && m_panel.title == "Game"))
+    return;
+  if (!m_places_look.valid() || m_places_look.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
+    return;
+  Library::Places places;
+  try
+  {
+    places = m_places_look.get();
+  }
+  catch (const std::exception& e)
+  {
+    Log(std::string("game places: the look failed (") + e.what() + "): the games stay as they were");
+    return;
+  }
+  catch (...)
+  {
+    Log("game places: the look failed: the games stay as they were");
+    return;
+  }
+  // (Taken with get(), never dropped by resetting the future: its release would wait for the thread, on the
+  // sleeping drive the look is there to wait for.) The places read again since it started (back from a game,
+  // Covers Saved On, Square, a folder chosen, a game deleted or renamed): older than m_places, it is dropped.
+  if (!m_places_reads.LookCurrent())
+    return;
+  PlacesFound(places);
+}
+
+void Menu::Impl::PlacesFound(const Library::Places& places)
+{
+  if (places == m_places)
+    return;
+  Log(std::string("game places changed: ") + std::to_string(m_places.drives.size()) + " -> " +
+      std::to_string(places.drives.size()) + " USB drives: the games are read again");
+  const size_t before = m_games.size();
+  RefreshGames();
+  ShowToast("Game folders changed: games looked for again", 0);
+  if (m_games.size() != before)
+    Log("games: " + std::to_string(before) + " -> " + std::to_string(m_games.size()));
+}
+
+// 00.63: nobody has to make the consoles' folders. Each time the games are read (the start, a drive plugged in,
+// Square...) Roms/<key> of every console of the console table is made where it is missing, in the internal storage
+// and on the drives a player keeps games on - those with a Roms folder in any letters' case, or /usb0 when none has
+// one, never one that looks like the PS4's own storage (Library::GameRomsFolders). Only what is missing is made
+// (one look at each Roms folder); a read-only or full drive stops at its first failure and is said once. One line
+// in the log per folder: the first time, then only when something is made.
+void Menu::Impl::MakeFolders(const std::vector<std::string>& drives)
+{
+  const std::string found = Library::FindEntry(m_data_dir, "Roms");  // (its own spelling)
+  std::vector<std::string> folders = {found.empty() ? m_data_dir + "/Roms" : found};
+  for (const std::string& roms : Library::GameRomsFolders(drives))
+    folders.push_back(roms);
+  for (const std::string& roms : folders)
+  {
+    const Library::FolderMaking made = Library::MakeConsoleFolders(roms);
+    const bool first = m_folders_logged.insert(roms).second;
+    if (!first && made.made == 0)
+      continue;
+    std::string line = "folders: " + roms + ": " + std::to_string(made.made) + " made, " + std::to_string(made.there) +
+                       " there";
+    if (made.failed > 0)
+      line += ", " + std::to_string(made.failed) + " not made (" + made.error + ")";
+    Log(line);
+  }
+}
+
+std::string Menu::Impl::ShownMode() const
+{
+  const std::string mode = Settings::Get("consoles_shown");
+  return mode == "games" || mode == "chosen" ? mode : "all";
+}
+
+std::string Menu::Impl::ShownDetail() const
+{
+  const std::string mode = ShownMode();
+  return mode == "games" ? "Only Those With Games" : mode == "chosen" ? "Only the Ones I Choose" : "All Consoles";
+}
+
+std::set<std::string> Menu::Impl::OffConsoles() const
+{
+  std::set<std::string> off;
+  std::stringstream in(Settings::Get("consoles_off"));
+  std::string key;
+  while (std::getline(in, key, ','))
+  {
+    key.erase(std::remove(key.begin(), key.end(), ' '), key.end());
+    if (!key.empty())
+      off.insert(Lower(key));
+  }
+  return off;
+}
+
+// The consoles with a tab now (Library::ShownConsoles); when that changes, the tabs and columns are made again.
+// A list not shown (no longer, or jumped to by the tour) gives way to All.
+void Menu::Impl::UpdateShownConsoles()
+{
+  const std::vector<SystemId> shown =
+      Library::ShownConsoles(ConsoleOrder(), ShownMode(), m_console_games, Settings::Get("consoles_off"));
+  const bool changed = shown != s_shown_consoles;
+  if (changed)
+  {
+    s_shown_consoles = shown;
+    s_console_order_version++;
+  }
+  const int system = SystemOfList(m_category);
+  const bool hidden = system >= 0 && std::find(shown.begin(), shown.end(), static_cast<SystemId>(system)) == shown.end();
+  if (hidden)
+  {
+    if (m_panel.open && m_panel.title == "Game")
+      m_panel.open = false;  // (its options act on the list's selected game)
+    m_category = static_cast<int>(Category::Games);
+  }
+  if (changed || hidden)
+  {
+    m_category_pos = static_cast<float>(ColumnIndex(m_category));
+    m_tab_pos = static_cast<float>(LibraryTab());
+  }
+}
+
+// Consoles Shown: which consoles get a tab (and an XMB column) - all, those with games, or the ones turned on
+// here. Turning one on or off chooses the last.
+void Menu::Impl::OpenConsolesShown(int selected)
+{
+  const bool reopen = m_panel.open && m_panel.setting == SET_CONSOLES_SHOWN;
+  const int keep = reopen ? m_panel.selected : -1;
+  const float scroll = reopen ? m_panel.scroll : 0.0f;
+  const float slide = reopen ? m_panel.slide : 0.0f;  // (made again in place: it doesn't slide in again)
+  m_panel = {};
+  m_panel.open = true;
+  m_panel.slide = slide;
+  m_panel.setting = SET_CONSOLES_SHOWN;
+  m_panel.title = "Consoles Shown";
+  m_panel.rows.push_back({"Show", ShownDetail(), "shown:mode"});
+  m_panel.rows.push_back({"Only the Ones I Choose", "", "", true});
+  const std::set<std::string> off = OffConsoles();
+  for (SystemId id : ConsoleOrder())
+  {
+    const System& system = GetSystem(id);
+    const int games = m_console_games[static_cast<size_t>(id)];
+    SettingRow row{std::string(system.name) + "  -  " +
+                       (games == 0 ? std::string("No games") : std::to_string(games) + (games == 1 ? " game" : " games")),
+                   "", std::string("shown:") + system.key};
+    row.tag = off.count(system.key) ? -1 : 1;  // the choice for Only the Ones I Choose
+    m_panel.rows.push_back(row);
+  }
+  m_panel.selected = std::clamp(selected >= 0 ? selected : keep >= 0 ? keep : 0, 0,
+                                static_cast<int>(m_panel.rows.size()) - 1);
+  m_panel.scroll = scroll;
+  MoveSettingRow(0);
 }
 
 // Saved Data and Themes: pages of Settings, shown in its list's place (Circle: back to the list,
@@ -1994,12 +2444,13 @@ void Menu::Impl::OpenFolderBrowser(const std::string& path)
     rows.push_back({path, "", "", true});
     std::vector<std::string> folders;
     bool readable = false;
-    for (const auto& entry : std::filesystem::directory_iterator(path, ec))
+    // (Not a range-for: its ++ throws when the drive goes away meanwhile; increment(ec) just stops.)
+    for (std::filesystem::directory_iterator it(path, ec), end; !ec && it != end; it.increment(ec))
     {
       readable = true;
-      const std::string name = entry.path().filename().string();
+      const std::string name = it->path().filename().string();
       std::error_code type_error;
-      if (entry.is_directory(type_error) && !name.empty() && name[0] != '.' &&
+      if (it->is_directory(type_error) && !name.empty() && name[0] != '.' &&
           name != "System Volume Information" && name != "$RECYCLE.BIN")
         folders.push_back(name);
     }
@@ -2058,7 +2509,7 @@ void Menu::Impl::ApplyPreferences()
   if (!m_prefs.wallpaper.empty())
     m_wallpaper = LoadPngTexture(m_data_dir + "/themes/" + m_prefs.wallpaper, nullptr, 1920, 1080);
   if (m_prefs.console_order != ConsoleOrderKeys())
-    SetConsoleOrder(ParseConsoleOrder(m_prefs.console_order));
+    SetConsoleOrder(SavedConsoleOrder(m_prefs.console_order));
   m_prefs.Save(m_data_dir + "/xmb.ini");
 }
 
@@ -2082,9 +2533,11 @@ void Menu::Impl::BuildItems()
                         -1, -1, SET_THEMES});
   }
   settings.push_back({"Language", PS4Lang::Current().name, -1, -1, SET_LANGUAGE});
-  // The emulation settings (Video, Graphics, Performance, Emulation, System) and the controls are
-  // set from a game (Triangle -> Game Settings, Controls: for that game, its console or all games),
-  // not here.
+  // Each console's buttons (its normal layout); a game's own from the game: Triangle -> Controls, or the in-game
+  // menu's Controls.
+  settings.push_back({"Controls", "Each console's buttons on the DualShock 4", -1, -1, SET_CONTROLS});
+  // The emulation settings (Video, Graphics, Performance, Emulation, System) are set from a game
+  // (Triangle -> Game Settings: for that game, its console or all games), not here.
   settings.push_back({"Game Folders", "A folder for each console's games", -1, -1, SET_FOLDERS});
   {
     std::string order;
@@ -2092,17 +2545,24 @@ void Menu::Impl::BuildItems()
       order += std::string(order.empty() ? "" : ", ") + GetSystem(id).tab;
     settings.push_back({"Console Order", order, -1, -1, SET_CONSOLE_ORDER});
   }
+  settings.push_back({"Consoles Shown", ShownDetail(), -1, -1, SET_CONSOLES_SHOWN});
   settings.push_back({"Clean Up Games", "Duplicates and other regions", -1, -1, SET_CLEANUP});
   settings.push_back({"Download Covers", "Box art from libretro for your games", -1, -1,
                       SET_DOWNLOAD});
   settings.push_back({"Games Without Cover", NoCoverDetail(), -1, -1, SET_NO_COVER});
-  settings.push_back({"Covers", m_data_dir + "/covers", -1, -1, SET_COVERS});
+  settings.push_back({"Covers Saved On", CoversDetail(), -1, -1, SET_COVERS});
   settings.push_back({"Sound Effects", m_prefs.sounds ? "On" : "Off", -1, -1, SET_SOUNDS});
   settings.push_back({"Volume", std::to_string(m_prefs.volume), -1, -1, SET_VOLUME});
   settings.push_back({"Menu Style", Library() ? "Library" : "XMB", -1, -1, SET_STYLE});
   settings.push_back({"Clock", m_prefs.clock ? "On" : "Off", -1, -1, SET_CLOCK});
   settings.push_back({"Reset All Settings", "Every setting back to the defaults", -1, -1,
                       SET_RESET_ALL});
+#ifdef EMUSUNI_SATURN
+  // The Saturn's speed test: only with the file /data/EmuSuNi/saturn-test (src/SaturnTest.h).
+  if (SaturnTest::Enabled())
+    settings.push_back({"Saturn (speed test)", "Measures the Saturn emulator on this PS4 (no picture)", -1, -1,
+                        SET_SATURN_TEST});
+#endif
   settings.push_back({"About", "", -1, -1, SET_ABOUT});
 
   auto& games = m_items[static_cast<int>(Category::Games)];
@@ -2197,7 +2657,7 @@ void Menu::Impl::BuildItems()
     if (list.empty() && !m_search.empty())
       list.push_back({"No games match \"" + m_search + "\"", "Circle clears the search"});
     else if (list.empty())
-      list.push_back({"No games found", "Copy games to " + GamesFolder(system.id) + ", then press Square"});
+      list.push_back({"No games found", "Copy games to Roms/" + std::string(system.key) + ", then press Square"});
   }
   if (favorites.empty() && !m_search.empty() && !m_favorites.empty())
     favorites.push_back({"No favorites match \"" + m_search + "\"", "Circle clears the search"});
@@ -2391,37 +2851,30 @@ void Menu::Impl::OpenSettingPanel(int setting)
     OpenConsoleOrder();
     return;
   case SET_COVERS:
-    m_panel.title = "Covers";
+  {
+    // Where new covers go: the internal storage (as before 00.62) or a USB drive's EmuSuNi/covers; both
+    // places' covers are shown. (The drives as they are now.)
+    CheckPlaces(true);
+    m_panel.title = "Covers Saved On";
+    m_panel.options = {"Internal Storage", "USB Drive"};
+    m_panel.selected = Settings::Get("covers_on") == "usb" ? 1 : 0;
     m_panel.lines = {"",
-                     "Box art: a PNG per game in",
-                     m_data_dir + "/covers",
-                     "(NES games: " + m_data_dir + "/covers/nes)",
-#ifdef EMUSUNI_N64
-                     "(N64 games: " + m_data_dir + "/covers/n64)",
-#endif
-#ifdef EMUSUNI_GBA
-                     "(Game Boys: " + m_data_dir + "/covers/gb, gbc, gba)",
-#endif
-#ifdef EMUSUNI_PS1
-                     "(PlayStation: " + m_data_dir + "/covers/ps1)",
-#endif
-#ifdef EMUSUNI_NDS
-                     "(Nintendo DS: " + m_data_dir + "/covers/nds)",
-#endif
-#ifdef EMUSUNI_PSP
-                     "(PSP: " + m_data_dir + "/covers/psp)",
-#endif
-#ifdef EMUSUNI_DC
-                     "(Dreamcast: " + m_data_dir + "/covers/dc)",
-#endif
+                     "Internal: " + m_data_dir + "/covers",
+                     m_usb_covers.empty() ? std::string("USB: no drive connected") : "USB: " + m_usb_covers,
                      "",
-                     "named like the game's file",
-                     "(Super Mario World (U) [!].png)",
-                     "or like its title (Super Mario World.png).",
+                     "New covers go there (downloaded or chosen);",
+                     "the ones in both places are shown.",
                      "",
-                     "libretro's thumbnails work as they are.",
+                     "Your own: a PNG per game, named like",
+                     "its file or its title, in a folder per",
+                     "console (covers/nes, covers/psp...;",
+                     "the Super Nintendo's right in covers).",
                      "Square in the Library reads them again."};
     break;
+  }
+  case SET_CONSOLES_SHOWN:
+    OpenConsolesShown();
+    return;
   case SET_DOWNLOAD:
     m_panel.title = "Download Covers";
     StartCoverDownload();
@@ -2442,6 +2895,14 @@ void Menu::Impl::OpenSettingPanel(int setting)
     m_panel.title = "About";
     m_panel.lines = {"EmuSuNi", "", "Created by Arturo Fuentes", std::string("Version ") + App::VERSION};
     break;
+#ifdef EMUSUNI_SATURN
+  case SET_SATURN_TEST:
+    // No panel: Run hands its stand-in to main.cpp, which runs the test (src/SaturnTest.cpp) instead of a game.
+    m_panel.open = false;
+    m_saturn_test = true;
+    Log("saturn test: chosen in Settings");
+    return;
+#endif
   default:
     if (setting >= SET_GROUP && setting < SET_GROUP + static_cast<int>(Settings::Categories().size()))
     {
@@ -2457,6 +2918,7 @@ void Menu::Impl::OpenSettingPanel(int setting)
 // game's list has its console's settings only.
 void Menu::Impl::OpenSettingsList(const std::string& category, const std::string& game_id, int system)
 {
+  Settings::UseConsoleByDefault(game_id);  // (a game's page: This Console unless chosen otherwise)
   m_panel = {};
   m_panel.open = true;
   m_panel.category = category;
@@ -2483,8 +2945,16 @@ void Menu::Impl::BuildSettingRows()
     if (scope == Settings::Scope::Game)
       rows.push_back({"Use for All Games", "", "__toall__"});
   }
-  if (m_panel.system == static_cast<int>(SystemId::DC))
-    rows.push_back({"Dreamcast: Low quality only", "", "", true});  // (Emulator.cpp BuildDcVariables)
+  // One fixed quality level, Standard, for Flycast's consoles (Emulator.cpp BuildDcVariables); the 3DS at its own
+  // resolution only, 1x (Build3dsVariables: no Quality levels since 00.64).
+  if (m_panel.system >= 0 && IsFlycast(static_cast<SystemId>(m_panel.system)))
+    rows.push_back({std::string(GetSystem(static_cast<SystemId>(m_panel.system)).name) + ": Standard quality only", "",
+                    "", true});
+  if (m_panel.system == static_cast<int>(SystemId::THREEDS))
+  {
+    rows.push_back({"Nintendo 3DS: experimental", "", "", true});
+    rows.push_back({"3DS: the console's own resolution only", "", "", true});
+  }
   for (const char* category : Settings::Categories())
   {
     if (!m_panel.category.empty() && m_panel.category != category)
@@ -2607,11 +3077,14 @@ void Menu::Impl::ChangeSettingRow(int direction)
     }
     else if (row.key.rfind("pick:", 0) == 0)
     {
-      // The picture as the game's cover (covers/<key>.png).
+      // The picture as the game's cover (covers/<key>.png): over its cover of that name where it is (the
+      // internal storage or a USB drive), else where new covers go (Covers Saved On).
+      const auto old = m_cover_files.find(Lower(m_find_key));
+      const std::string target =
+          old != m_cover_files.end() ? old->second : CoversSaveDir(true) + "/" + m_find_key + ".png";
       {
         std::lock_guard lock(m_find_mutex);
-        m_find_jobs.push_back({2, m_find_system, m_find_titles, m_find_key, row.label,
-                               m_data_dir + "/covers/" + m_find_key + ".png"});
+        m_find_jobs.push_back({2, m_find_system, m_find_titles, m_find_key, row.label, target});
       }
       m_find_wake.notify_one();
       ShowToast("Downloading the picture...", 0);
@@ -2647,6 +3120,38 @@ void Menu::Impl::ChangeSettingRow(int direction)
         }
       }
     }
+    return;
+  }
+  if (m_panel.setting == SET_CONSOLES_SHOWN)
+  {
+    // (Global values of settings.ini, as the language; the tour's "set consoles_shown games" shows them too.)
+    if (row.key == "shown:mode")
+    {
+      static const char* const MODES[] = {"all", "games", "chosen"};
+      int at = 0;
+      while (at < 3 && ShownMode() != MODES[at])
+        at++;
+      Settings::Set("consoles_shown", MODES[(at + (direction < 0 ? 2 : 1)) % 3]);
+    }
+    else if (const System* system = row.key.rfind("shown:", 0) == 0 ? SystemByKey(row.key.substr(6)) : nullptr)
+    {
+      // On or off, and Only the Ones I Choose is what is shown then.
+      std::set<std::string> off = OffConsoles();
+      if (!off.erase(system->key))
+        off.insert(system->key);
+      std::string keys;
+      for (const std::string& key : off)
+        keys += (keys.empty() ? "" : ",") + key;
+      Settings::Set("consoles_off", keys);
+      Settings::Set("consoles_shown", "chosen");
+    }
+    else
+    {
+      return;
+    }
+    UpdateShownConsoles();
+    BuildItems();
+    OpenConsolesShown();
     return;
   }
   if (m_panel.setting == SET_FOLDERS)
@@ -3101,7 +3606,9 @@ void Menu::Impl::OpenGameOptions()
                      m_prefs.default_game == game.rom.path ? "Remove Default Game" :
                                                              "Set as Default Game",
                      "Delete Game"};
-  if (game.rom.system == SystemId::DC)  // Flycast takes no cheat codes
+  // (Flycast takes no cheat codes, for the NAOMI and the Atomiswave either; FinalBurn Neo's own cheats come in a
+  // later version: libretro's don't fit it; Azahar's libretro core takes none.)
+  if (IsFlycast(game.rom.system) || game.rom.system == SystemId::ARCADE || game.rom.system == SystemId::THREEDS)
     m_panel.options.erase(std::find(m_panel.options.begin(), m_panel.options.end(), "Cheats"));
   Play("menu");
 }
@@ -3127,9 +3634,33 @@ void Menu::Impl::ApplySettingOption(int setting, int option)
   case SET_STYLE:
     m_prefs.style = option == 0 ? "library" : "xmb";
     break;
+  case SET_COVERS:
+  {
+    // (Settings::Set: a global value of settings.ini, as the language: Reset All Settings puts it back.)
+    Settings::Set("covers_on", option == 1 ? "usb" : "internal");
+    const std::string folder = CoversSaveDir(true);  // made now on the drive
+    Log("covers: new ones go to " + folder);
+    IndexCovers();  // the place saved in wins over the other one now
+    ShowToast(option == 1 && folder == m_data_dir + "/covers" ? std::string("No USB drive: covers stay internal") :
+                                                                "Covers: " + folder,
+              0);
+    break;
+  }
   case SET_RESET_ALL:
     if (option == 1)
+    {
+      // The games' settings; the menu's own options stay, as the language does (Consoles Shown and Covers
+      // Saved On are global values of settings.ini too).
+      std::vector<std::pair<std::string, std::string>> menu;
+      for (const auto& [key, value] : Settings::GlobalValues())
+      {
+        if (key == "consoles_shown" || key == "consoles_off" || key == "covers_on")
+          menu.emplace_back(key, value);
+      }
       Settings::ResetAll();
+      for (const auto& [key, value] : menu)
+        Settings::Set(key, value);
+    }
     return;
   default:
     return;
@@ -3362,6 +3893,55 @@ void Menu::Impl::HandleInput(uint32_t pressed)
                          "Folder: " + std::filesystem::path(game.rom.path).parent_path().string()};
         if (game.rom.discs.size() > 1)
           m_panel.lines.insert(m_panel.lines.begin() + 6, "Discs: " + std::to_string(game.rom.discs.size()));
+        if (game.rom.system == SystemId::ARCADE)
+        {
+          // The romset (a clone's parent too), its board, maker and year, and the zips it may need that aren't
+          // there. The panel cuts a line it can't hold at its end, and the cut line is translated only if a
+          // pattern of the language file still matches it: so each line ends with its one value (a long maker
+          // is cut, its label kept in Spanish).
+          if (const Arcade::Driver* driver = Arcade::Find(game.rom.id))
+          {
+            std::vector<std::string> lines = {"Romset: " + driver->name};
+            if (!driver->parent.empty())
+              lines.push_back("Clone of: " + driver->parent);
+            lines.push_back("Board: " + driver->board);
+            if (!driver->maker.empty())
+              lines.push_back("Maker: " + driver->maker);
+            if (!driver->year.empty())
+              lines.push_back("Year: " + driver->year);
+            m_panel.lines.insert(m_panel.lines.begin() + 3, lines.begin(), lines.end());
+          }
+          // "May": a non-merged set carries its parent's files, so the game starts without the zip; the
+          // start says where it goes when the core refuses the game (one short line for each zip).
+          for (const std::string& zip : game.rom.missing)
+            m_panel.lines.push_back("May need: " + zip + " (not found)");
+        }
+        if (IsFlycastBoard(game.rom.system))
+        {
+          // A NAOMI or Atomiswave game, the same way: its set (a clone's parent too), its board, and what it
+          // needs that isn't there - its BIOS's zip and a GD-ROM game's disc image ("Needs"), a clone's parent
+          // zip ("May need": a non-merged set carries its files). A NAOMI cartridge image (.dat, .bin): its
+          // board, and naomi.zip when it isn't there.
+          if (Naomi::IsImageName(game.rom.path))
+          {
+            m_panel.lines.insert(m_panel.lines.begin() + 3, "Board: NAOMI (cartridge image)");
+            for (const std::string& file : game.rom.missing)
+              m_panel.lines.push_back("Needs: " + file + " (not found)");
+          }
+          else if (const Naomi::Set* set = Naomi::Find(game.rom.id))
+          {
+            std::vector<std::string> lines = {"Romset: " + set->name};
+            if (!set->parent.empty())
+              lines.push_back("Clone of: " + set->parent);
+            lines.push_back("Board: " + Naomi::BoardName(*set));
+            m_panel.lines.insert(m_panel.lines.begin() + 3, lines.begin(), lines.end());
+            for (const std::string& file : game.rom.missing)
+            {
+              const bool may = !set->parent.empty() && file == set->parent + ".zip";
+              m_panel.lines.push_back((may ? "May need: " : "Needs: ") + file + " (not found)");
+            }
+          }
+        }
       }
       else
       {
@@ -3420,11 +4000,15 @@ void Menu::Impl::HandleInput(uint32_t pressed)
   {
     m_category = prev_category;
     Play("category");
+    if (IsGameList(m_category))
+      CheckPlaces(false);  // a drive plugged in since: its games come
   }
   else if ((pressed & next_tab) && next_category >= 0)
   {
     m_category = next_category;
     Play("category");
+    if (IsGameList(m_category))
+      CheckPlaces(false);
   }
   else if ((pressed & prev_item) && selected > 0)
   {
@@ -4280,10 +4864,14 @@ void Menu::Impl::ReturnToNoCover()
 void Menu::Impl::OpenCleanUp()
 {
   // Files of one console with the same title (spaces and signs aside: "Rock N' Roll Racing", "Rock
-  // n' Roll Racing").
+  // n' Roll Racing"). Not the Arcade's, the NAOMI's or the Atomiswave's: a romset is no copy of another (a
+  // clone is another version of the game, and a split set needs its parent's zip to start), and the region
+  // in a driver's name says nothing about which of them to keep.
   std::map<std::string, std::vector<int>> groups;
   for (size_t i = 0; i < m_games.size(); i++)
   {
+    if (IsRomsetSystem(m_games[i].rom.system))
+      continue;
     std::string key = SearchText(m_games[i].rom.title);
     key.erase(std::remove(key.begin(), key.end(), ' '), key.end());
     if (!key.empty())
@@ -4357,7 +4945,8 @@ void Menu::Impl::OpenCleanUp()
   for (const Game& game : m_games)
   {
     const std::string& region = game.rom.region;
-    if (region.empty() || region.find("USA") != std::string::npos || region == "World")
+    if (region.empty() || region.find("USA") != std::string::npos || region == "World" ||
+        IsRomsetSystem(game.rom.system))
       continue;
     const int s = static_cast<int>(game.rom.system);
     others[s].push_back({std::filesystem::path(game.rom.path).filename().string(), region, "otherfile:" + game.rom.path});
@@ -4483,6 +5072,9 @@ std::string Menu::Impl::OptionHelp(const std::string& option) const
       {"Cancel", "Nothing is changed."},
       {"Delete", "Deletes for good: it can't be brought back."},
       {"Reset everything", "Every setting, global and per game, back to the default."},
+      {"Internal Storage", "New covers are saved in the PS4's own storage, as before."},
+      {"USB Drive", "New covers are saved on the USB drive (EmuSuNi/covers): the PS4's storage stays free. "
+                    "Without the drive they go to the internal storage."},
   };
   const auto it = HELP.find(option);
   return it == HELP.end() ? std::string() : it->second;
@@ -4552,9 +5144,70 @@ void Menu::Impl::TourCommand(const std::string& command)
   {
     OpenGameOptions();
   }
+  else if (word == "tab")
+  {
+    // A page by its console's key ("arcade"), or all / favorites / settings (a console not shown: All), and on
+    // it the first game whose title has the words after it ("tab snes donkey kong").
+    const size_t gap = rest.find(' ');
+    const std::string name = rest.substr(0, gap), wanted = gap == std::string::npos ? "" : Lower(rest.substr(gap + 1));
+    int page = -1;
+    if (name == "all")
+      page = games;
+    else if (name == "favorites")
+      page = static_cast<int>(Category::Favorites);
+    else if (name == "settings")
+      page = static_cast<int>(Category::Settings);
+    else if (const System* system = SystemByKey(name))
+      page = ListOfSystem(system->id);
+    if (page < 0)
+    {
+      Log("tour: no tab " + name);
+      return;
+    }
+    m_panel.open = false;
+    m_category = page;
+    UpdateShownConsoles();
+    for (size_t i = 0; !wanted.empty() && i < m_items[m_category].size(); i++)
+    {
+      const int game = m_items[m_category][i].game;
+      if (game >= 0 && Lower(m_games[game].rom.title).find(wanted) != std::string::npos)
+      {
+        m_selected[m_category] = static_cast<int>(i);
+        m_item_pos[m_category] = static_cast<float>(i);
+        break;
+      }
+    }
+    m_category_pos = static_cast<float>(ColumnIndex(m_category));
+    m_tab_pos = static_cast<float>(LibraryTab());
+  }
+  else if (word == "open")
+  {
+    // A page of Settings by a word: consoles (Consoles Shown), covers (Covers Saved On), folders (Game Folders).
+    BuildItems();  // (its rows with the tour's "set" values)
+    const int setting = rest == "consoles" ? SET_CONSOLES_SHOWN : rest == "covers" ? SET_COVERS :
+                        rest == "folders"  ? SET_FOLDERS :
+                        rest == "controls" ? SET_CONTROLS :
+                                             -1;
+    if (setting < 0)
+      Log("tour: nothing to open called " + rest);
+    else
+      OpenSettingPanel(setting);
+  }
   else if (word == "close")
   {
     m_panel.open = false;
+  }
+  else if (word == "row")
+  {
+    // The open list's row by its key or its words ("row quality", "row fast_forward", "row Fast Forward (hold)").
+    for (size_t i = 0; i < m_panel.rows.size(); i++)
+    {
+      if (!m_panel.rows[i].header && (m_panel.rows[i].key == rest || m_panel.rows[i].label == rest))
+      {
+        m_panel.selected = static_cast<int>(i);
+        break;
+      }
+    }
   }
   else if (word == "style")
   {
@@ -5002,6 +5655,172 @@ void Menu::Impl::DrawCategoryIcon(ImDrawList* dl, Category category, ImVec2 c, f
     dl->AddCircleFilled(ImVec2(p1.x - w * 0.18f, p1.y - h * 0.14f), h * 0.035f, color, 12);
     break;
   }
+  case Category::Sg1000Games:
+  {
+    // An SG-1000 seen from above: the console with its cartridge slot, the front's line and the
+    // power switch, and the joystick wired to it beside it (its base, the stick and the ball).
+    const ImU32 hole = IM_COL32(0, 0, 0, 130);
+    const ImVec2 p0(c.x - r * 0.95f, c.y - r * 0.42f), p1(c.x + r * 0.25f, c.y + r * 0.42f);
+    dl->AddRectFilled(p0, p1, color, r * 0.07f);
+    dl->AddRectFilled(ImVec2(p0.x + r * 0.2f, p0.y + r * 0.12f), ImVec2(p1.x - r * 0.2f, p0.y + r * 0.26f), hole,
+                      r * 0.03f);
+    dl->AddRectFilled(ImVec2(p0.x + r * 0.1f, c.y + r * 0.1f), ImVec2(p1.x - r * 0.1f, c.y + r * 0.16f), hole);
+    dl->AddRectFilled(ImVec2(p1.x - r * 0.32f, c.y + r * 0.23f), ImVec2(p1.x - r * 0.14f, c.y + r * 0.32f), hole);
+    const float jx = c.x + r * 0.68f;
+    dl->AddRectFilled(ImVec2(jx - r * 0.27f, c.y + r * 0.08f), ImVec2(jx + r * 0.27f, c.y + r * 0.42f), color,
+                      r * 0.06f);
+    dl->AddRectFilled(ImVec2(jx - r * 0.07f, c.y - r * 0.27f), ImVec2(jx + r * 0.07f, c.y + r * 0.08f), color);
+    dl->AddCircleFilled(ImVec2(jx, c.y - r * 0.41f), r * 0.14f, color, 16);
+    break;
+  }
+  case Category::SmsGames:
+  {
+    // A Master System seen from above: the wide box, the cartridge slot at the back, the ribs in front
+    // and the PAUSE and RESET buttons.
+    const ImU32 hole = IM_COL32(0, 0, 0, 130);
+    const ImVec2 p0(c.x - r * 0.95f, c.y - r * 0.5f), p1(c.x + r * 0.95f, c.y + r * 0.5f);
+    dl->AddRectFilled(p0, p1, color, r * 0.08f);
+    dl->AddRectFilled(ImVec2(c.x - r * 0.45f, p0.y + r * 0.14f), ImVec2(c.x + r * 0.45f, p0.y + r * 0.28f), hole,
+                      r * 0.03f);
+    for (int k = 0; k < 4; k++)
+    {
+      const float y = c.y + r * (0.02f + k * 0.11f);
+      dl->AddRectFilled(ImVec2(p0.x + r * 0.14f, y), ImVec2(c.x + r * 0.22f, y + r * 0.05f), hole);
+    }
+    for (int k = 0; k < 2; k++)
+    {
+      const float x = c.x + r * (0.46f + k * 0.24f);
+      dl->AddRectFilled(ImVec2(x, c.y + r * 0.1f), ImVec2(x + r * 0.15f, c.y + r * 0.25f), hole, r * 0.02f);
+    }
+    break;
+  }
+  case Category::GgGames:
+  {
+    // A Game Gear: the wide, round body, the big screen in its frame, the D-pad, buttons 1 and 2 and
+    // START.
+    const ImU32 hole = IM_COL32(0, 0, 0, 130);
+    const float w = r * 2.0f, h = r * 1.16f;
+    dl->AddRectFilled(ImVec2(c.x - w * 0.5f, c.y - h * 0.5f), ImVec2(c.x + w * 0.5f, c.y + h * 0.5f), color,
+                      h * 0.31f);
+    dl->AddRectFilled(ImVec2(c.x - r * 0.46f, c.y - r * 0.44f), ImVec2(c.x + r * 0.46f, c.y + r * 0.4f), hole,
+                      r * 0.06f);  // the frame
+    dl->AddRectFilled(ImVec2(c.x - r * 0.32f, c.y - r * 0.32f), ImVec2(c.x + r * 0.32f, c.y + r * 0.22f), hole,
+                      r * 0.03f);  // the screen in it
+    const ImVec2 dp(c.x - r * 0.74f, c.y + r * 0.02f);
+    const float arm = r * 0.16f, thick = r * 0.055f;
+    dl->AddRectFilled(ImVec2(dp.x - arm, dp.y - thick), ImVec2(dp.x + arm, dp.y + thick), hole);
+    dl->AddRectFilled(ImVec2(dp.x - thick, dp.y - arm), ImVec2(dp.x + thick, dp.y + arm), hole);
+    dl->AddCircleFilled(ImVec2(c.x + r * 0.62f, c.y + r * 0.1f), r * 0.085f, hole, 16);
+    dl->AddCircleFilled(ImVec2(c.x + r * 0.82f, c.y - r * 0.02f), r * 0.085f, hole, 16);
+    dl->AddCircleFilled(ImVec2(c.x + r * 0.78f, c.y - r * 0.3f), r * 0.045f, hole, 12);
+    break;
+  }
+  case Category::MdGames:
+  {
+    // A Mega Drive seen from the front: the low, wide body, the round top raised on it with the
+    // cartridge slot, the front's stripe, the power and reset buttons on the right. (The round top from
+    // above was a no-entry sign.)
+    const ImU32 hole = IM_COL32(0, 0, 0, 130);
+    const ImVec2 top(c.x - r * 0.14f, c.y - r * 0.1f);
+    const ImVec2 p0(c.x - r * 0.97f, top.y), p1(c.x + r * 0.97f, c.y + r * 0.42f);
+    dl->AddRectFilled(p0, p1, color, r * 0.12f);
+    // (The top's upper half only, on the body: no overlap, the colour can be see-through.)
+    dl->PathEllipticalArcTo(top, ImVec2(r * 0.64f, r * 0.38f), 0.0f, IM_PI, IM_PI * 2.0f, 32);
+    dl->PathFillConvex(color);
+    dl->AddEllipseFilled(ImVec2(top.x, top.y - r * 0.12f), ImVec2(r * 0.4f, r * 0.11f), hole, 0.0f, 24);
+    dl->AddRectFilled(ImVec2(p0.x + r * 0.12f, p1.y - r * 0.17f), ImVec2(p1.x - r * 0.12f, p1.y - r * 0.1f), hole);
+    for (int k = 0; k < 2; k++)
+    {
+      const float x = c.x + r * (0.56f + k * 0.2f);
+      dl->AddRectFilled(ImVec2(x, top.y + r * 0.08f), ImVec2(x + r * 0.13f, top.y + r * 0.18f), hole, r * 0.02f);
+    }
+    break;
+  }
+  case Category::ArcadeGames:
+  {
+    // An arcade cabinet seen from the front: the tall body with its marquee on top, the slanted
+    // monitor in its bezel, the control panel with the stick and two buttons, the coin door below.
+    const ImU32 hole = IM_COL32(0, 0, 0, 130);
+    const float w = r * 1.3f, h = r * 2.0f;
+    const ImVec2 p0(c.x - w * 0.5f, c.y - h * 0.5f), p1(c.x + w * 0.5f, c.y + h * 0.5f);
+    dl->AddRectFilled(p0, p1, color, h * 0.05f);
+    dl->AddRectFilled(ImVec2(p0.x + w * 0.1f, p0.y + h * 0.05f), ImVec2(p1.x - w * 0.1f, p0.y + h * 0.15f), hole,
+                      h * 0.02f);  // the marquee
+    dl->AddRectFilled(ImVec2(p0.x + w * 0.14f, p0.y + h * 0.22f), ImVec2(p1.x - w * 0.14f, p0.y + h * 0.5f), hole,
+                      h * 0.03f);  // the monitor
+    dl->AddRectFilled(ImVec2(p0.x + w * 0.08f, p0.y + h * 0.56f), ImVec2(p1.x - w * 0.08f, p0.y + h * 0.66f), hole,
+                      h * 0.02f);  // the control panel
+    const ImVec2 stick(p0.x + w * 0.3f, p0.y + h * 0.61f);
+    dl->AddRectFilled(ImVec2(stick.x - w * 0.025f, stick.y - h * 0.1f), ImVec2(stick.x + w * 0.025f, stick.y), color);
+    dl->AddCircleFilled(ImVec2(stick.x, stick.y - h * 0.11f), w * 0.07f, color, 12);  // the stick's ball
+    for (int k = 0; k < 2; k++)
+      dl->AddCircleFilled(ImVec2(p0.x + w * (0.58f + k * 0.2f), stick.y), w * 0.06f, color, 12);  // the buttons
+    dl->AddRectFilled(ImVec2(c.x - w * 0.14f, p1.y - h * 0.22f), ImVec2(c.x + w * 0.14f, p1.y - h * 0.1f), hole,
+                      h * 0.015f);  // the coin door
+    break;
+  }
+  case Category::ThreedsGames:
+  {
+    // A 3DS, open: two halves on their hinge, the wide top screen over the narrower touch screen, the
+    // Circle Pad and the D-pad at the touch screen's left, the four buttons at its right.
+    const ImU32 hole = IM_COL32(0, 0, 0, 130);
+    const float w = r * 1.75f, h = r * 0.9f, gap = r * 0.07f;
+    const ImVec2 t0(c.x - w * 0.5f, c.y - h - gap * 0.5f), t1(c.x + w * 0.5f, c.y - gap * 0.5f);
+    const ImVec2 b0(c.x - w * 0.5f, c.y + gap * 0.5f), b1(c.x + w * 0.5f, c.y + h + gap * 0.5f);
+    dl->AddRectFilled(t0, t1, color, h * 0.2f);
+    dl->AddRectFilled(b0, b1, color, h * 0.2f);
+    dl->AddRectFilled(ImVec2(c.x - w * 0.36f, t0.y + h * 0.14f), ImVec2(c.x + w * 0.36f, t1.y - h * 0.14f), hole,
+                      h * 0.04f);  // the top screen (400x240)
+    dl->AddRectFilled(ImVec2(c.x - w * 0.288f, b0.y + h * 0.14f), ImVec2(c.x + w * 0.288f, b1.y - h * 0.14f), hole,
+                      h * 0.04f);  // the touch screen (320x240)
+    dl->AddCircleFilled(ImVec2(b0.x + w * 0.1f, b0.y + h * 0.36f), h * 0.13f, hole, 16);  // the Circle Pad
+    const ImVec2 dp(b0.x + w * 0.1f, b0.y + h * 0.75f);
+    const float arm = h * 0.09f, thick = h * 0.03f;
+    dl->AddRectFilled(ImVec2(dp.x - arm, dp.y - thick), ImVec2(dp.x + arm, dp.y + thick), hole);
+    dl->AddRectFilled(ImVec2(dp.x - thick, dp.y - arm), ImVec2(dp.x + thick, dp.y + arm), hole);
+    const ImVec2 bp(b1.x - w * 0.1f, b0.y + h * 0.4f);
+    const float d = h * 0.11f, br = h * 0.045f;
+    for (const ImVec2 at : {ImVec2(bp.x, bp.y - d), ImVec2(bp.x + d, bp.y), ImVec2(bp.x, bp.y + d), ImVec2(bp.x - d, bp.y)})
+      dl->AddCircleFilled(at, br, hole, 12);
+    break;
+  }
+  case Category::NaomiGames:
+  {
+    // A NAOMI's cabinet (Sega's wide "candy" cabinet) seen from the front: the body with its round top, the big
+    // monitor, the control panel across it with each player's stick and three buttons, the coin door below.
+    const ImU32 hole = IM_COL32(0, 0, 0, 130);
+    const float w = r * 1.9f, h = r * 1.7f;
+    const ImVec2 p0(c.x - w * 0.5f, c.y - h * 0.5f), p1(c.x + w * 0.5f, c.y + h * 0.5f);
+    dl->AddRectFilled(p0, p1, color, w * 0.22f, ImDrawFlags_RoundCornersTop);
+    dl->AddRectFilled(ImVec2(p0.x + w * 0.14f, p0.y + h * 0.1f), ImVec2(p1.x - w * 0.14f, p0.y + h * 0.52f), hole,
+                      w * 0.06f);  // the monitor
+    dl->AddRectFilled(ImVec2(p0.x + w * 0.05f, p0.y + h * 0.6f), ImVec2(p1.x - w * 0.05f, p0.y + h * 0.73f), hole,
+                      h * 0.02f);  // the control panel
+    for (int player = 0; player < 2; player++)
+    {
+      const float x = c.x + (player == 0 ? -0.38f : 0.08f) * w, y = p0.y + h * 0.665f;
+      dl->AddCircleFilled(ImVec2(x, y), r * 0.09f, color, 12);  // the stick's ball
+      for (int k = 0; k < 3; k++)
+        dl->AddCircleFilled(ImVec2(x + w * (0.11f + k * 0.07f), y), r * 0.06f, color, 10);  // the buttons
+    }
+    dl->AddRectFilled(ImVec2(c.x - w * 0.12f, p1.y - h * 0.19f), ImVec2(c.x + w * 0.12f, p1.y - h * 0.07f), hole,
+                      h * 0.015f);  // the coin door
+    break;
+  }
+  case Category::AtomiswaveGames:
+  {
+    // Atomiswave's wave: a disc with a wave across it (the board's name), as a sign.
+    const ImU32 hole = IM_COL32(0, 0, 0, 130);
+    dl->AddCircleFilled(c, r * 0.92f, color, 40);
+    ImVec2 wave[25];
+    for (int k = 0; k < 25; k++)
+    {
+      const float t = static_cast<float>(k) / 24.0f;
+      wave[k] = ImVec2(c.x - r * 0.68f + t * r * 1.36f, c.y - std::sin(t * IM_PI * 2.0f) * r * 0.3f);
+    }
+    dl->AddPolyline(wave, 25, hole, ImDrawFlags_None, r * 0.17f);
+    break;
+  }
   case Category::Favorites:
     DrawStar(dl, c, r * 0.95f, color);
     break;
@@ -5252,7 +6071,45 @@ void Menu::Impl::DrawSidePanel(ImDrawList* dl, float dt)
       if (m_capture)
         help = "Press the DualShock 4 button for " + row.label + "...  (5 s: cancel)";
       else if (row.key.rfind("ctl:", 0) == 0)
-        help = "Cross: press a new button for it. Left: none. D-Pad: Left/Right to choose.";
+      {
+        // The Arcade's buttons are FinalBurn Neo's generic ones (Buttons 1 to 10): which of them a Neo Geo
+        // or a six-button fighting game uses is said here, on the buttons' rows.
+        const auto& bindings = Controls::Bindings(m_controls_system);
+        const size_t index = static_cast<size_t>(std::atoi(row.key.c_str() + 4));
+        const bool arcade_button =
+            m_controls_system == SystemId::ARCADE && index < bindings.size() && !bindings[index].stick_group;
+        help = arcade_button ?
+                   "Cross: press a new button. Left: none. Neo Geo games: A, B, C, D are Buttons 3, 1, 4, 2 (Square, "
+                   "Cross, Triangle, Circle). Six-button fighters: punches 3, 4, 6; kicks 1, 2, 5." :
+                   "Cross: press a new button for it. Left: none. D-Pad: Left/Right to choose.";
+        // A NAOMI's or Atomiswave's buttons (Flycast's: the cabinet's own numbers), TEST and SERVICE, Gun Reload.
+        if (IsFlycastBoard(m_controls_system) && index < bindings.size())
+        {
+          const std::string key = bindings[index].key;
+          if (key == "l3")
+            help = "Cross: press a new button. Left: none. TEST opens the board's operator menu (coins, difficulty, "
+                   "the game's settings); the Arcade Button of the L3+R3 menu presses it too.";
+          else if (key == "r3")
+            help = "Cross: press a new button. Left: none. SERVICE gives a credit; in the operator menu it moves to "
+                   "the next line (TEST chooses it).";
+          else if (key == "reload")
+            help = "Cross: press a new button. Left: none. A light gun game's reload (the gun shot off the screen); "
+                   "the left stick aims.";
+          else if (bindings[index].stick_group)
+            help = "D-Pad: Left/Right to choose. A game with a wheel, a flight stick or a gun has that on the left "
+                   "stick, not the D-pad (unless Left Stick is chosen).";
+          else if (m_controls_system == SystemId::NAOMI)
+            help = "Cross: press a new button. Left: none. Fighting games: punches 1, 2, 3, kicks 4, 5, 6 (as on a "
+                   "cabinet: punches on Square, Triangle, R1, kicks on Cross, Circle, R2).";
+          else
+            help = "Cross: press a new button. Left: none. Fighting games: punches 1 and 2, kicks 4 and 5, 3 their "
+                   "special move.";
+        }
+        // Fast Forward: every console has the row (None at first where all the buttons are the console's).
+        if (index < bindings.size() && std::string(bindings[index].key) == "fast_forward")
+          help = "Cross: press a new button. Left: none. Held, the game runs faster (how fast: Fast Forward in the "
+                 "game's settings). A button the console uses too does both.";
+      }
       else if (row.key == "__ctlreset__")
         help = "Back to the default layout.";
       else if (row.key == "__ctlscope__")
@@ -5271,15 +6128,25 @@ void Menu::Impl::DrawSidePanel(ImDrawList* dl, float dt)
       else if (row.key.rfind("nocover:", 0) == 0)
         help = "Cross: choose this game's cover (Find Cover). Circle there brings you back here.";
       else if (row.key.rfind("folder:", 0) == 0)
-        help = "Cross: choose the folder of this console's games (its subfolders count too).";
+        help = "Cross: choose a folder of this console's games (its subfolders count too). Roms/<console> on a "
+               "USB drive and in /data/EmuSuNi are looked in anyway.";
+      else if (row.key == "shown:mode")
+        help = "Which consoles get a tab (L1 / R1) and an XMB column: all of them, only those with games, or "
+               "only the ones turned on below. When none would be left, all of them are shown.";
+      else if (row.key.rfind("shown:", 0) == 0)
+        help = "Cross: this console's tab on or off (that chooses Only the Ones I Choose). Its games stay in All "
+               "and in Favorites.";
       else if (row.key == "order:preset:company")
-        help = "Nintendo's consoles, then Sony's, then Sega's, each from the most basic to the most powerful.";
+        help = "Nintendo's consoles, then Sony's, then Sega's, each from the most basic to the most powerful, "
+               "then the arcade boards: the Arcade, the NAOMI and the Atomiswave.";
       else if (row.key == "order:preset:power")
-        help = "From the most basic console to the most powerful, whoever made it.";
+        help = "From the most basic console to the most powerful, whoever made it (the Arcade's boards, from the "
+               "1970s to the 2000s, after the Dreamcast, then the NAOMI and the Atomiswave; the Nintendo 3DS last).";
       else if (row.key == "order:preset:year")
-        help = "In the order they came out: NES 1983, Game Boy 1989, Super Nintendo 1990, PlayStation 1994, "
-               "Nintendo 64 1996, Game Boy Color and Dreamcast 1998, Game Boy Advance 2001, Nintendo DS and PSP "
-               "2004.";
+        help = "In the order they came out in Japan: NES and SG-1000 1983, Master System 1985, Mega Drive 1988, "
+               "Game Boy 1989, Game Gear, the Arcade (by the Neo Geo) and Super Nintendo 1990, PlayStation 1994, "
+               "Nintendo 64 1996, Game Boy Color, Dreamcast and NAOMI 1998, Game Boy Advance 2001, Atomiswave 2003, "
+               "Nintendo DS and PSP 2004, Nintendo 3DS 2011.";
       else if (row.key == "order:preset:alpha")
         help = "By name, from A to Z.";
       else if (row.key.rfind("order:", 0) == 0)
@@ -5321,10 +6188,19 @@ void Menu::Impl::DrawSidePanel(ImDrawList* dl, float dt)
       if (const Settings::Setting* setting = help.empty() ? Settings::Find(row.key) : nullptr)
       {
         shown = PS4Lang::T(setting->help);
+        // Fast Forward on a game's page: the button that does it in that game (its controls or its console's).
+        if (row.key == "fast_forward" && m_panel.system >= 0)
+          shown = PS4Lang::T(Controls::FastForwardHelp(m_panel.game_id, static_cast<SystemId>(m_panel.system)));
         if (!setting->live)
           shown += std::string(" ") + PS4Lang::T("(Next game start.)");
         const Settings::Choice* choice = Settings::FindChoice(*setting, Settings::Get(row.key, m_panel.game_id));
-        if (choice && choice->help)
+        // Quality on a game's page: what the level does on that console.
+        const std::string level = choice && row.key == "quality" && m_panel.system >= 0 ?
+                                      Settings::QualityHelp(choice->value, static_cast<SystemId>(m_panel.system)) :
+                                      std::string();
+        if (!level.empty())
+          shown += std::string("\n") + PS4Lang::T(choice->label) + ": " + PS4Lang::T(level);
+        else if (choice && choice->help)
           shown += std::string("\n") + PS4Lang::T(choice->label) + ": " + PS4Lang::T(choice->help);
       }
       const std::string wrapped = WrapText(m_font, 25, shown, width - 100);
@@ -5410,6 +6286,170 @@ void Menu::Impl::DrawTopBar(ImDrawList* dl)
     Text(dl, m_bold, 30, ImVec2(x, 62), Rgba(theme.text, 0.95f), letter);
     x += TextWidth(m_bold, 30, letter) + 7.0f;
   }
+  // The version under the name.
+  Text(dl, m_font, 22, ImVec2(154, 100), Rgba(theme.text, 0.6f), std::string("v") + App::VERSION, false);
+}
+
+// A Library page's title: the page's icon (its console's, Favorites' star, Settings' gear...), its
+// name beside it (a console's full name: the tabs show short ones) and a line under the name.
+void Menu::Impl::DrawPageTitle(ImDrawList* dl, Category category, const std::string& title,
+                               const std::string& sub, float alpha, float sub_alpha)
+{
+  const Theme& theme = CurrentTheme();
+  constexpr float X = 90.0f, Y = 150.0f, ICON = 76.0f;
+  DrawCategoryIcon(dl, category, ImVec2(X + ICON * 0.5f, Y + 46.0f), ICON, Rgba(theme.text, alpha));
+  const float x = X + ICON + 26.0f;
+  Text(dl, m_bold, 50, ImVec2(x, Y), Rgba(theme.text, alpha), title);
+  Text(dl, m_bold, 26, ImVec2(x + 2, Y + 64), Rgba(theme.wave, sub_alpha), sub, false);
+}
+
+// The rows of a console's box (DrawConsoleInfo): what it plays, the BIOS it needs, its files, and its folders -
+// Roms/<key> (found there by themselves) and, when it is another one, its folder of Game Folders.
+std::vector<std::pair<std::string, std::string>> Menu::Impl::ConsoleInfo(SystemId id) const
+{
+  const System& system = GetSystem(id);
+  const ConsoleNote* note = nullptr;
+  for (const ConsoleNote& each : CONSOLE_NOTES)
+  {
+    if (each.id == id)
+      note = &each;
+  }
+  std::string files;
+  if (note && note->files)
+  {
+    files = note->files;
+  }
+  else if (std::find(system.extensions.begin(), system.extensions.end(), ".zip") != system.extensions.end())
+  {
+    files = "One .zip or .7z per game, not unpacked";  // (a romset console without a note of its own)
+  }
+  else
+  {
+    for (const std::string& extension : system.extensions)
+      files += (files.empty() ? "" : " ") + extension;
+    files += system.by_path ? ", not in a .zip" : ", or in a .zip";
+  }
+  std::vector<std::pair<std::string, std::string>> rows = {{"Plays", note ? note->plays : system.name}};
+  if (note && note->bios)
+    rows.push_back({"BIOS", note->bios});
+  rows.push_back({"Files", files});
+  // The folders written out in full, one per place, as the app makes them and looks in them (MakeFolders,
+  // Library::FindPlaces) in their own spelling: on a USB drive as a PC shows it ("USB: Roms/psp", with the drive
+  // when there are several), in the PS4's storage as FTP shows it ("PS4: /data/EmuSuNi/Roms/psp"); then the
+  // console's own folder of Game Folders when it is another one. Without a drive, where it will be made.
+  std::vector<std::pair<std::string, std::string>> on_drives;  // (path on the drive, the drive's name)
+  std::vector<std::string> lines;
+  const auto found = m_places.folders.find(system.key);
+  for (const std::string& folder : found == m_places.folders.end() ? std::vector<std::string>{} : found->second)
+  {
+    if (folder.rfind(m_data_dir + "/", 0) == 0)
+      continue;  // (below)
+    for (const std::string& drive : m_places.drives)
+    {
+      if (folder.rfind(drive + "/", 0) == 0)
+        on_drives.push_back({folder.substr(drive.size() + 1), std::filesystem::path(drive).filename().string()});
+    }
+  }
+  for (const auto& [path, drive] : on_drives)
+    lines.push_back("USB: " + path + (on_drives.size() > 1 ? " (" + drive + ")" : std::string()));
+  if (on_drives.empty())
+    lines.push_back("USB: Roms/" + std::string(system.key));
+  const size_t usb_lines = lines.size();
+  for (const std::string& folder : found == m_places.folders.end() ? std::vector<std::string>{} : found->second)
+  {
+    if (folder.rfind(m_data_dir + "/", 0) == 0)
+      lines.push_back("PS4: " + folder);
+  }
+  if (lines.size() == usb_lines)
+    lines.push_back("PS4: " + m_data_dir + "/Roms/" + system.key);
+  const std::string own = GamesFolder(id);
+  if (!Library::IsRomsFolder(own, system.key, m_data_dir))
+    lines.push_back("Also: " + own);
+  for (size_t i = 0; i < lines.size(); i++)
+    rows.push_back({i == 0 ? "Folders" : "", lines[i]});
+  return rows;
+}
+
+// A console's box at the bottom left of its page (Library style): under the covers' row (their feet at 706-720),
+// above the hints' line (972), as wide as leaves the selected game's title room in the middle (DrawLibraryGames
+// moves a long one right of it). The help texts' 25 px and the headers' bold 26 px, sizes the font atlas has
+// already (each size drawn is one more set of glyphs in it); its text made once for each console, language and
+// folder. Its right edge (0: not drawn).
+float Menu::Impl::DrawConsoleInfo(ImDrawList* dl, SystemId id, float alpha)
+{
+  if (alpha <= 0.01f)
+    return 0.0f;
+  constexpr float X = 64.0f, BOX_W = 620.0f, BOTTOM = 962.0f, TOP_MOST = 724.0f, SIZE = 25.0f, LABEL = 26.0f,
+                  LINE = 30.0f, PAD = 14.0f;
+  // (Its rows change with the language, the drives and Game Folders: wrapped again when they do.)
+  const auto rows = ConsoleInfo(id);
+  std::string key = PS4Lang::Current().code;
+  for (const auto& [label, text] : rows)
+    key += '\n' + label + '\t' + text;
+  if (key != m_info_key)
+  {
+    m_info_key = key;
+    m_info_rows.clear();
+    float label_w = 0.0f;
+    for (const auto& [label, text] : rows)
+      label_w = std::max(label_w, TextWidth(m_bold, LABEL, label));
+    m_info_label_w = label_w + 16.0f;
+    const float text_w = BOX_W - PAD * 2 - m_info_label_w;
+    std::vector<std::pair<std::string, std::vector<std::string>>> wrapped_rows;  // (its label in English, lines)
+    for (const auto& [label, text] : rows)
+    {
+      std::vector<std::string> lines;
+      std::stringstream wrapped(WrapText(m_font, SIZE, PS4Lang::T(text), text_w));
+      for (std::string line; std::getline(wrapped, line);)
+        lines.push_back(line);
+      wrapped_rows.push_back({label, lines});
+    }
+    // More lines than the box holds (several drives, a folder of the player's, a console with long notes): what it
+    // plays gives way. The BIOS (the Arcade's, the NAOMI's, the Atomiswave's: where it goes), the files and the
+    // folders always stay - the notes are short enough for two drives and a folder of the player's, and more than
+    // that makes the box taller (below).
+    const int fit = static_cast<int>((BOTTOM - TOP_MOST - PAD * 2 + (LINE - SIZE)) / LINE);
+    auto count = [&wrapped_rows] {
+      int n = 0;
+      for (const auto& row : wrapped_rows)
+        n += std::max(1, static_cast<int>(row.second.size()));
+      return n;
+    };
+    if (count() > fit)
+      wrapped_rows.erase(std::remove_if(wrapped_rows.begin(), wrapped_rows.end(),
+                                        [](const auto& row) { return row.first == "Plays"; }),
+                         wrapped_rows.end());
+    for (auto& [label, lines] : wrapped_rows)
+      m_info_rows.push_back({PS4Lang::T(label), std::move(lines)});
+  }
+  // Every line of the rows left: more than fit under the covers only with three drives or more (or a long folder of
+  // Game Folders) - then the box is taller, over the covers' feet, rather than without a folder.
+  int lines = 0;
+  for (const auto& row : m_info_rows)
+    lines += std::max(1, static_cast<int>(row.second.size()));
+  const float top = BOTTOM - PAD * 2 - static_cast<float>(lines) * LINE + (LINE - SIZE);
+  const Theme& theme = CurrentTheme();
+  const bool light = theme.text != 0xFFFFFF;
+  dl->AddRectFilled(ImVec2(X, top), ImVec2(X + BOX_W, BOTTOM),
+                    light ? Rgba(0xFFFFFF, 0.6f * alpha) : Rgba(0x000000, 0.4f * alpha), 14.0f);
+  dl->AddRect(ImVec2(X, top), ImVec2(X + BOX_W, BOTTOM), Rgba(theme.wave, 0.45f * alpha), 14.0f, 0, 1.5f);
+  float y = top + PAD;
+  int drawn = 0;
+  for (const auto& [label, row_lines] : m_info_rows)
+  {
+    if (drawn >= lines)
+      break;
+    if (!label.empty())
+      dl->AddText(m_bold, LABEL, ImVec2(X + PAD, y - 1.0f), Rgba(theme.wave, alpha), label.c_str());
+    const size_t count = std::max<size_t>(1, row_lines.size());
+    for (size_t i = 0; i < count && drawn < lines; i++, drawn++, y += LINE)
+    {
+      if (i < row_lines.size())
+        dl->AddText(m_font, SIZE, ImVec2(X + PAD + m_info_label_w, y), Rgba(theme.text, 0.92f * alpha),
+                    row_lines[i].c_str());
+    }
+  }
+  return X + BOX_W;
 }
 
 void Menu::Impl::Draw(float dt)
@@ -5493,6 +6533,10 @@ void Menu::Impl::Draw(float dt)
       Text(dl, m_bold, 40, ImVec2(W - 110 - tw, 70), Rgba(theme.text, 0.95f), clock);
     }
     DrawEmblem(dl, ImVec2(110, 90), 70, 0.9f);
+    // The version under the emblem.
+    const std::string version = std::string("v") + App::VERSION;
+    Text(dl, m_font, 22, ImVec2(110 - TextWidth(m_font, 22, version) * 0.5f, 132), Rgba(theme.text, 0.6f),
+         version, false);
   }
 
   if (m_keyboard_ask)
@@ -5922,6 +6966,14 @@ void Menu::Impl::DrawLibrary(ImDrawList* dl, float dt)
   case Category::NdsGames:
   case Category::PspGames:
   case Category::DcGames:
+  case Category::Sg1000Games:
+  case Category::SmsGames:
+  case Category::GgGames:
+  case Category::MdGames:
+  case Category::ArcadeGames:
+  case Category::ThreedsGames:
+  case Category::NaomiGames:
+  case Category::AtomiswaveGames:
   case Category::Favorites:
     DrawLibraryGames(dl, alpha, m_category);
     break;
@@ -5945,8 +6997,9 @@ void Menu::Impl::DrawLibraryGames(ImDrawList* dl, float alpha, int c)
   // While the search keyboard is up (k: 0 -> 1) the covers move up and shrink above it, and the
   // title under them makes way.
   const float k = m_keyboard_slide;
-  Text(dl, m_bold, 50, ImVec2(90, 150), Rgba(theme.text, alpha),
-       favorites ? "Your favorites" : list_system >= 0 ? GetSystem(static_cast<SystemId>(list_system)).name : "Your games");
+  const std::string page_title = favorites        ? "Your favorites" :
+                                 list_system >= 0 ? GetSystem(static_cast<SystemId>(list_system)).name :
+                                                    "Your games";
   std::string sub;
   if (any)
     sub = std::to_string(count) + (count == 1 ? " game" : " games") + "  -  " + SortName();
@@ -5963,56 +7016,83 @@ void Menu::Impl::DrawLibraryGames(ImDrawList* dl, float alpha, int c)
     sub += "  -  Downloading covers " + std::to_string(m_dl_progress.load()) + " / " +
            std::to_string(m_dl_total.load());
   }
-  Text(dl, m_bold, 26, ImVec2(92, 214), Rgba(theme.wave, alpha * (m_sort_shown > 0.0f ? 1.0f : 0.85f)),
-       sub, false);
+  DrawPageTitle(dl, static_cast<Category>(c), page_title, sub, alpha,
+                alpha * (m_sort_shown > 0.0f ? 1.0f : 0.85f));
   if (!any)
   {
-    std::string line1, line2, line3, line4;
+    std::string line1;
+    std::vector<std::string> lines;  // smaller, under it
     if (m_all_covered[c])
     {
       line1 = m_search.empty() ? "Every game has a cover" : "Every game found has a cover";
-      line2 = "Options shows every game again";
+      lines = {"Options shows every game again"};
     }
     else if (!m_search.empty())
     {
       line1 = "No games match \"" + m_search + "\"";
-      line2 = "Circle clears the search. R2 changes it.";
+      lines = {"Circle clears the search. R2 changes it."};
     }
     else if (favorites)
     {
       line1 = "No favorites yet";
-      line2 = "Press L2 on a game in the Library (or Triangle: Add to Favorites).";
+      lines = {"Press L2 on a game in the Library (or Triangle: Add to Favorites)."};
     }
     else if (list_system >= 0)
     {
-      line1 = "Copy your games to " + GamesFolder(static_cast<SystemId>(list_system));
-      line2 = "then press Square to look again (or pick a folder in Settings).";
+      // Where the games go (found there by themselves); what goes there - the systems, the BIOS, the files -
+      // is in the console's box at the bottom left (DrawConsoleInfo). (No " = " in a text: the language
+      // file's separator.)
+      const std::string key = GetSystem(static_cast<SystemId>(list_system)).key;
+      line1 = "Copy your games to Roms/" + key + " on the USB drive or to " + m_data_dir + "/Roms/" + key;
+      lines = {"then press Square to look again (or pick a folder in Settings)."};
+      if (list_system == static_cast<int>(SystemId::ARCADE))
+        lines.push_back("Only FinalBurn Neo v1.0.0.03 sets work (MAME's often don't).");
+      if (list_system == static_cast<int>(SystemId::THREEDS))
+        lines.push_back("Light 2D games play well on the PS4; heavy 3D ones run slower than on a 3DS.");
+      if (list_system == static_cast<int>(SystemId::NAOMI))
+        lines.push_back("MAME sets (mvsc2.zip) or unzipped .dat / .bin images, and naomi.zip, the BIOS, beside them.");
+      if (list_system == static_cast<int>(SystemId::ATOMISWAVE))
+        lines.push_back("MAME sets, one .zip per game (kofxi.zip), and awbios.zip, the BIOS, beside them.");
     }
     else
     {
       line1 = "Copy your games to their console's folder";
-      // The folders on two lines when there are more than three consoles.
-      const size_t half = Systems().size() > 3 ? (Systems().size() + 1) / 2 : Systems().size();
-      for (size_t i = 0; i < Systems().size(); i++)
+      // Roms/<console> anywhere, the consoles' folder names, then the folders of Game Folders that aren't one
+      // of those (and the first ones of the PS4's storage) in rows as wide as the screen allows.
+      std::string keys;
+      for (SystemId id : ConsoleOrder())
+        keys += (keys.empty() ? "" : "   ") + std::string(GetSystem(id).key);
+      lines = {"USB: Roms/<console>      PS4: " + m_data_dir + "/Roms/<console>", keys};
+      std::string row;
+      for (const System& system : Systems())
       {
-        std::string& line = i < half ? line2 : line3;
-        line += std::string(line.empty() ? "" : "      ") + Systems()[i].tab + ": " + GamesFolder(Systems()[i].id);
+        if (Library::IsRomsFolder(GamesFolder(system.id), system.key, m_data_dir))
+          continue;
+        const std::string folder = std::string(system.tab) + ": " + GamesFolder(system.id);
+        if (!row.empty() && TextWidth(m_font, 28, "Also: " + row + "      " + folder) > W - 120.0f)
+        {
+          lines.push_back("Also: " + row);
+          row.clear();
+        }
+        row += (row.empty() ? "" : "      ") + folder;
       }
-      (line3.empty() ? line3 : line4) = "then press Square to look again (or pick the folders in Settings).";
+      if (!row.empty())
+        lines.push_back("Also: " + row);
+      lines.push_back("then press Square to look again (or pick the folders in Settings).");
     }
     const float y = 470.0f - 160.0f * k;
     if (favorites && m_search.empty() && !m_all_covered[c])
       DrawStar(dl, ImVec2(W * 0.5f, y - 80.0f), 46.0f, Rgba(0xFFD34D, alpha * 0.9f), Rgba(0x7A5A00, alpha));
     Text(dl, m_bold, 36, ImVec2(W * 0.5f - TextWidth(m_bold, 36, line1) * 0.5f, y), Rgba(theme.text, alpha),
          line1);
-    Text(dl, m_font, 28, ImVec2(W * 0.5f - TextWidth(m_font, 28, line2) * 0.5f, y + 60),
-         Rgba(theme.text, alpha * 0.75f), line2);
-    if (!line3.empty())
-      Text(dl, m_font, 28, ImVec2(W * 0.5f - TextWidth(m_font, 28, line3) * 0.5f, y + 108),
-           Rgba(theme.text, alpha * 0.75f), line3);
-    if (!line4.empty())
-      Text(dl, m_font, 28, ImVec2(W * 0.5f - TextWidth(m_font, 28, line4) * 0.5f, y + 156),
-           Rgba(theme.text, alpha * 0.75f), line4);
+    for (size_t i = 0; i < lines.size(); i++)
+    {
+      Text(dl, m_font, 28,
+           ImVec2(W * 0.5f - TextWidth(m_font, 28, lines[i]) * 0.5f, y + 60.0f + 48.0f * static_cast<float>(i)),
+           Rgba(theme.text, alpha * 0.75f), lines[i]);
+    }
+    if (list_system >= 0)
+      DrawConsoleInfo(dl, static_cast<SystemId>(list_system), alpha * (1.0f - k));
     return;
   }
   {
@@ -6072,19 +7152,24 @@ void Menu::Impl::DrawLibraryGames(ImDrawList* dl, float alpha, int c)
       selected_top = a.y;
   }
   const float info_alpha = alpha * (1.0f - k);
+  // The console's box at the bottom left, over the covers' reflections (it fades out under the keyboard).
+  const float box_right =
+      list_system >= 0 ? DrawConsoleInfo(dl, static_cast<SystemId>(list_system), info_alpha) : 0.0f;
   const float pulse = 0.65f + 0.35f * std::sin(m_time * 3.0f);
   const float gw = PS4Glyphs::Width("Triangle", 40);
   if (info_alpha > 0.01f)
     PS4Glyphs::Draw(dl, m_bold, "Triangle", W * 0.5f - gw * 0.5f, selected_top - 44, 40, info_alpha * pulse);
   // The title stays in view above the keyboard: the game found. (Two sizes only: every font size
-  // drawn is one more set of glyphs in the font atlas.)
+  // drawn is one more set of glyphs in the font atlas.) Centred, unless that would put it over the
+  // console's box: then just right of it (and the line under it too).
+  const float left = box_right > 0.0f && k < 0.5f ? box_right + 24.0f : 80.0f, right = W - 80.0f;
   const Game& game = m_games[items[selected].game];
   const float title_size =
-      k > 0.5f ? 34.0f : TextWidth(m_bold, 46, game.rom.title) > W - 200 ? 36.0f : 46.0f;
-  const std::string title = Fit(m_bold, title_size, game.rom.title, W - 160);
+      k > 0.5f ? 34.0f : TextWidth(m_bold, 46, game.rom.title) > right - left - 40.0f ? 36.0f : 46.0f;
+  const std::string title = Fit(m_bold, title_size, game.rom.title, right - left);
   const float tw = TextWidth(m_bold, title_size, title);
-  Text(dl, m_bold, title_size, ImVec2(W * 0.5f - tw * 0.5f, 800.0f - 290.0f * k), Rgba(theme.text, alpha),
-       title);
+  Text(dl, m_bold, title_size, ImVec2(std::max(left, W * 0.5f - tw * 0.5f), 800.0f - 290.0f * k),
+       Rgba(theme.text, alpha), title);
   if (info_alpha < 0.01f)
     return;
   const System& system = GetSystem(game.rom.system);
@@ -6095,7 +7180,7 @@ void Menu::Impl::DrawLibraryGames(ImDrawList* dl, float alpha, int c)
   if (!m_prefs.default_game.empty() && game.rom.path == m_prefs.default_game)
     info += "  -  Starts when EmuSuNi opens";
   const float iw = TextWidth(m_font, 26, info);
-  Text(dl, m_font, 26, ImVec2(W * 0.5f - iw * 0.5f, 860), Rgba(theme.text, info_alpha * 0.72f), info);
+  Text(dl, m_font, 26, ImVec2(std::max(left, W * 0.5f - iw * 0.5f), 860), Rgba(theme.text, info_alpha * 0.72f), info);
   const float bw = 210.0f, bh = 62.0f, by = 908.0f;
   const ImVec2 b0(W * 0.5f - bw * 0.5f, by), b1(W * 0.5f + bw * 0.5f, by + bh);
   dl->AddRectFilled(b0, b1, Rgba(theme.wave, info_alpha * 0.18f), 14.0f);
@@ -6227,9 +7312,8 @@ void Menu::Impl::DrawLibrarySaves(ImDrawList* dl, float alpha)
   const int c = static_cast<int>(Category::SavedData);
   const auto& items = m_items[c];
   const int selected = m_selected[c];
-  Text(dl, m_bold, 50, ImVec2(90, 150), Rgba(theme.text, alpha), "Saved Data");
-  Text(dl, m_bold, 26, ImVec2(92, 214), Rgba(theme.wave, alpha * 0.85f),
-       "Battery saves and save states, the latest first", false);
+  DrawPageTitle(dl, Category::SavedData, "Saved Data", "Battery saves and save states, the latest first", alpha,
+                alpha * 0.85f);
   constexpr float LIST_X = 90.0f, LIST_W = 700.0f, ROW_H = 118.0f, TOP = 280.0f, BOTTOM = 960.0f;
   const float visible = (BOTTOM - TOP) / ROW_H;
   const float scroll = std::clamp(m_item_pos[c] - visible * 0.5f + 0.5f, 0.0f,
@@ -6303,11 +7387,10 @@ void Menu::Impl::DrawLibraryList(ImDrawList* dl, float alpha)
   const int c = m_category;
   const auto& items = m_items[c];
   const bool themes = c == static_cast<int>(Category::Themes);
-  Text(dl, m_bold, 50, ImVec2(90, 150), Rgba(theme.text, alpha), themes ? "Themes" : "Settings");
-  Text(dl, m_bold, 26, ImVec2(92, 214), Rgba(theme.wave, alpha * 0.85f),
-       themes ? "Colours and wallpapers (PNG in " + m_data_dir + "/themes)" :
-                "Saved data, themes, emulation, controls, folders and more",
-       false);
+  DrawPageTitle(dl, themes ? Category::Themes : Category::Settings, themes ? "Themes" : "Settings",
+                themes ? "Colours and wallpapers (PNG in " + m_data_dir + "/themes)" :
+                         "Saved data, themes, emulation, controls, folders and more",
+                alpha, alpha * 0.85f);
   constexpr float X = 90.0f, ROW_H = 84.0f, TOP = 280.0f, BOTTOM = 960.0f;
   const float right = W - 90.0f;
   const float visible = (BOTTOM - TOP) / ROW_H;
@@ -6430,12 +7513,18 @@ bool Menu::Impl::Run(Library::Game* result)
   BuildItems();
   m_launch = -1;
   m_launch_time = 0.0f;
+#ifdef EMUSUNI_SATURN
+  m_saturn_test = false;
+#endif
   m_fade = 1.0f;
   m_panel = {};
   m_controls_open = false;
   m_keyboard = false;
   m_keyboard_slide = 0.0f;
   m_toast_time = 0.0f;
+  // A drive plugged in or taken out while a game ran: the games read again (the first time, as just read).
+  CheckPlaces(true);
+  UpdateShownConsoles();
   if (Tour::Active() && !m_tour)
   {
     m_tour = true;
@@ -6538,9 +7627,13 @@ bool Menu::Impl::Run(Library::Game* result)
       {
         m_prefs.style = m_tour_style;
         ApplyPreferences();
-        BuildItems();
       }
+      BuildItems();  // (the Settings rows without the tour's "set" values)
     }
+    // A drive plugged in (CheckPlaces' look on its thread), Consoles Shown (the Settings page, a console's first
+    // or last game, the tour's "set"): the games and the tabs follow.
+    PlacesLooked();
+    UpdateShownConsoles();
     // While the tour plays, the controller is left out (a press would change what it shows).
     const bool touring = Tour::Active();
     if (m_intro)
@@ -6591,6 +7684,14 @@ bool Menu::Impl::Run(Library::Game* result)
       picked = true;
       break;
     }
+#ifdef EMUSUNI_SATURN
+    if (m_saturn_test)
+    {
+      *result = SaturnTest::Entry();  // (main.cpp runs the test instead of a game)
+      picked = true;
+      break;
+    }
+#endif
   }
   m_input.Close();
   m_audio.Stop();

@@ -33,11 +33,12 @@
 #     on another thread while retro_run runs, and PPSSPP's render thread (EMUSUNI_PSP_RENDER_THREAD=1;
 #     off unless set) records and submits the GPU work beside the emulation, calling only
 #     lock_queue / unlock_queue (the frontend then gets each frame one retro_run later).
-#   - The JIT's code memory (one 22 MiB array in the core's data, within 2 GiB of its code, 16 KiB
-#     aligned: the MIPS JIT's 16 MiB, its thunks and safe-memory functions, the vertex decoder JIT,
-#     the software renderer's) is made executable once through EmuSuNi (port/ps4_n64.c:
-#     emusuni_make_executable, the ways the PS4 allows) instead of mmap/mprotect, and shared out to
-#     the code blocks. If that fails, the core says it can't JIT and runs the IR interpreter.
+#   - The JIT's code memory (22 MiB: the MIPS JIT's 16 MiB, its thunks and safe-memory functions, the
+#     vertex decoder JIT, the software renderer's) is the PSP's part of the app's shared JIT arena
+#     (port/ps4_n64.c: emusuni_jit_arena, 32 MiB in the app's data, within 2 GiB of the core's code,
+#     read/write/execute, which the recompiling cores take turns on; until 00.62 an array of the core's
+#     own), taken at each game's start instead of mmap/mprotect and shared out to the code blocks; every
+#     block is freed at the game's end. Without it the core says it can't JIT and runs the IR interpreter.
 #   - The PSP's memory: masked addresses (MASKED_PSP_MEMORY, as upstream's 32-bit builds). Fast Memory
 #     as the option ppsspp_fast_memory says when the game starts (EMUSUNI_PSP_FASTMEM=0/1 overrides):
 #     then the core's fault handler (only then) skips the JIT's stray accesses as upstream's does and
@@ -48,13 +49,22 @@
 #     The views (scratchpad, VRAM and its three mirrors, RAM) are mapped in a 1 GiB reserved range
 #     (every masked address; Common/MemArenaEmuSuNi.cpp): on the PS4 one block of direct memory,
 #     mapped again for the mirrors (sceKernelReserveVirtualRange, sceKernelAllocateDirectMemory,
-#     sceKernelMapDirectMemory); if the system refuses a second mapping a mirror gets its own memory
-#     (upstream's NO_MMAP behaviour) - the log says which ("VRAM mirrors aliased"). On this PC: a
-#     memfd mapped the same way (EMUSUNI_PSP_NO_ALIAS=1 tries the PS4's fallback).
+#     sceKernelMapDirectMemory), which the kernel allows once the app has enabled direct memory
+#     aliasing at its start (src/main.cpp, port/ps4_runtime.cpp: "dmem: ..." in the log); each mirror
+#     is checked to be the same memory (a word written through each mapping read through the other).
+#     If the system refuses the second mapping, or it isn't the same memory, the mirror gets memory of
+#     its own (upstream's NO_MMAP behaviour, the PS4 before 00.62) - the log says which and why ("VRAM
+#     mirrors aliased ..." / "NOT aliased ...: <why>"). On this PC: a memfd mapped the same way
+#     (EMUSUNI_PSP_NO_ALIAS=1 tries the PS4's fallback).
 #   - Threads: every thread PPSSPP names (its pool's "PoolW n" / "PoolW IO n", "ShaderCompile",
 #     "IO", "ExecLoader", "SaveIO"...; "Main" for the emulation thread in retro_init) first calls
 #     emusuni_psp_thread(name), which the app defines (port/): its core, priority and name. The
-#     thread pool has at most 4 compute threads (and 4 for blocking I/O).
+#     thread pool has at most 4 compute threads and 2 for blocking I/O; the GLSL compiles run on 4 threads of
+#     their own ("ShaderGLSL n"; upstream made a new detached thread for each, and on the PS4 every new thread's
+#     stack is memory the system keeps); no UPnP thread (UPnP isn't built).
+#   - Two plain tables out of the image (the PS4 charges it whole at load): glslang's SPIR-V instruction table
+#     (6 MiB, made only if glslang's disassembler or remapper ever runs) and the ad hoc relay's session tables
+#     (2 MiB, from the relay's start to the core's end) on the heap.
 #   - ISOs are never cached whole in RAM (ppsspp_cache_iso is ignored); files are read with stdio
 #     (libretro-common without mmap). The sound conversion fixed for blocks of more than 1024 frames
 #     (upstream read past a 1024-frame stack buffer).
@@ -78,6 +88,16 @@
 #   - God of War: Ghost of Sparta without the first-frame readbacks (compat.ini's
 #     DisableFirstFrameReadback): each new framebuffer was copied to the PSP's memory with the GPU
 #     drained, a hitch each time; the game never reads it (the same pictures through its intro).
+#   - The memory stick is saves/psp, a folder named PSP, which PPSSPP takes for the stick's PSP folder
+#     itself (ms0:/PSP/x is saves/psp/x): a path's case is fixed only on its part that is on the disk
+#     (the PS4's names are case-sensitive; the games' saves failed until 00.62, their folders left
+#     empty). Each save is logged ("EmuSuNi: save written: ..." or "EmuSuNi: save NOT written: <folder>:
+#     <why>"), and the free space told to a game that asks (the disk's from the app: port/ps4_diskfree.c,
+#     the PS4 libc's statvfs fills nothing).
+#   - The picture's options apply while the game runs: the internal resolution (the PSP's framebuffers and
+#     the emulated swapchain made again at the new size; the swapchain's old images kept until the frontend
+#     can't be using them, each picture handed with its own image's size) and the anisotropic filtering's
+#     level (the samplers made again), as upstream does the texture shader and the anti-aliasing (MSAA).
 #   - Built as a static library, without LTO (ld -r of LLVM bitcode), with its own zlib, libpng,
 #     zstd (without its dictionary builder), libchdr... (nothing of the system's), no Discord, UPnP or
 #     HTTPS. As one object: the JIT's common files only in Core (upstream also puts them in Common for
@@ -96,7 +116,9 @@
 #   build-psp-core.sh <out dir> [clean]
 #   PSP_CORE_HOST=1 build-psp-core.sh <out dir>   the same object for this PC (Linux, clang 21), for
 #                                                 the PC tests: no PS4 checks; the test frontend
-#                                                 provides emusuni_make_executable and
+#                                                 provides the JIT arena (emusuni_jit_arena,
+#                                                 emusuni_jit_arena_generation, emusuni_jit_check:
+#                                                 scratchpad mem0063/B/pc-jit-arena.c's) and
 #                                                 emusuni_psp_thread
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -151,6 +173,156 @@ patch('CMakeLists.txt',
 patch('CMakeLists.txt',
       '\tCommon/MemArenaHorizon.cpp\n',
       '\tCommon/MemArenaHorizon.cpp\n\tCommon/MemArenaEmuSuNi.cpp\n')
+# The memory stick's free space: the PS4 libc's statvfs fills nothing (it calls statfs64 into a buffer
+# of its own and returns only its sign), so PPSSPP read zeros and the games refused to save ("not enough
+# space"). The app answers instead (port/ps4_diskfree.c).
+patch('Common/File/DiskFree.cpp',
+      '#include "Common/Data/Encoding/Utf8.h"\n',
+      '#include "Common/Data/Encoding/Utf8.h"\n'
+      '#ifdef EMUSUNI_PORT\n'
+      'extern "C" int emusuni_free_disk_space(const char *path, int64_t *out);  // EmuSuNi: port/ps4_diskfree.c\n'
+      '#endif\n')
+patch('Common/File/DiskFree.cpp',
+      '\tstruct statvfs diskstat;\n\tint res = statvfs(path.c_str(), &diskstat);\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '\t// EmuSuNi: the PS4 libc\'s statvfs fills nothing; the app reads the kernel\'s statfs.\n'
+      '\treturn emusuni_free_disk_space(path.c_str(), &space) == 0;\n'
+      '#endif\n'
+      '\tstruct statvfs diskstat;\n\tint res = statvfs(path.c_str(), &diskstat);\n')
+# --- The memory stick: saves/psp, a folder named PSP. PPSSPP then takes it for the stick's PSP folder itself
+# ("/PSP compatibility mode", as on Android: STRIP_PSP) and ms0:/PSP/<x> is saves/psp/<x> (GetLocalPath drops
+# the "PSP/"). On a disk whose names are case-sensitive (the PS4's /data, as Linux; "Is file system case
+# sensitive? yes" in the log) the guest's path is first fixed for case (FixPathCase), and that walked it whole:
+# no folder "PSP" in saves/psp, so every file opened to be written under ms0:/PSP failed ("file not found").
+# A game's save made its folder (MkDir lets a part be missing) and none of its files: the folder stayed empty
+# (FIFA 14's ULES01590001 on the owner's console, 00.61's log: "OpenFile('/PSP/SAVEDATA/ULES01590001/
+# PARAM.SFO'): FAILED, 2"), and games said they couldn't save. Renaming and the case-fixing second tries of
+# the other operations had the same flaw. Now the case is fixed only on the part that is on the disk (what
+# follows "PSP/"); the guest's path keeps its "PSP/", which GetLocalPath drops once, as before. (The PC tests
+# never saw it: their memory stick folder was named "saves".)
+patch('Core/FileSystems/DirectoryFileSystem.cpp',
+      '#include "Core/ELF/ParamSFO.h"\n',
+      '#include "Core/ELF/ParamSFO.h"\n'
+      '\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '// EmuSuNi (scripts/build-psp-core.sh): FixPathCase on the part of a guest path that is on the disk. With\n'
+      '// STRIP_PSP (the memory stick\'s folder is itself named PSP, as EmuSuNi\'s saves/psp) the guest\'s "PSP/" is\n'
+      '// no folder there (GetLocalPath drops it): only what follows it is fixed, and the path keeps its "PSP/".\n'
+      'static bool EmuSuNiFixPathCase(const Path &basePath, std::string &path, FixPathCaseBehavior behavior, FileSystemFlags flags) {\n'
+      '\tif (flags & FileSystemFlags::STRIP_PSP) {\n'
+      '\t\tconst size_t lead = (!path.empty() && path[0] == \'/\') ? 1 : 0;\n'
+      '\t\tconst std::string_view rest = std::string_view(path).substr(lead);\n'
+      '\t\tif (rest == "PSP")\n'
+      '\t\t\treturn true;  // the memory stick\'s folder itself\n'
+      '\t\tif (startsWithNoCase(rest, "PSP/")) {\n'
+      '\t\t\tstd::string onDisk = path.substr(lead + 4);\n'
+      '\t\t\tconst bool fixed = FixPathCase(basePath, onDisk, behavior);\n'
+      '\t\t\tpath.replace(lead + 4, std::string::npos, onDisk);\n'
+      '\t\t\treturn fixed;\n'
+      '\t\t}\n'
+      '\t}\n'
+      '\treturn FixPathCase(basePath, path, behavior);\n'
+      '}\n'
+      '#else\n'
+      '#define EmuSuNiFixPathCase(basePath, path, behavior, flags) FixPathCase(basePath, path, behavior)\n'
+      '#endif\n')
+# Every FixPathCase of the file: the handle's flags in DirectoryFileHandle::Open, the file system's elsewhere
+# (this->flags: GetDirListing has a local "flags"). The first of Open's two identical calls by its context.
+patch('Core/FileSystems/DirectoryFileSystem.cpp',
+      'DEBUG_LOG(Log::FileSystem, "Checking case for path %s", fileName.c_str());\n'
+      '\t\t\tif (!FixPathCase(basePath, fileName, FPC_PATH_MUST_EXIST)) {\n',
+      'DEBUG_LOG(Log::FileSystem, "Checking case for path %s", fileName.c_str());\n'
+      '\t\t\tif (!EmuSuNiFixPathCase(basePath, fileName, FPC_PATH_MUST_EXIST, fileSystemFlags_)) {\n')
+for call, flags in (('basePath, fileName, FPC_PATH_MUST_EXIST', 'fileSystemFlags_'),
+                    ('basePath, fixedCase, FPC_PARTIAL_ALLOWED', 'this->flags'),
+                    ('basePath, fullPath, FPC_FILE_MUST_EXIST', 'this->flags'),
+                    ('basePath, fullTo, FPC_PATH_MUST_EXIST', 'this->flags'),
+                    ('basePath, fullFromPath, FPC_FILE_MUST_EXIST', 'this->flags'),
+                    ('basePath, fullNamePath, FPC_FILE_MUST_EXIST', 'this->flags'),
+                    ('basePath, filename, FPC_FILE_MUST_EXIST', 'this->flags'),
+                    ('basePath, fixedPath, FPC_FILE_MUST_EXIST', 'this->flags'),
+                    ('basePath, fixedCase, FPC_FILE_MUST_EXIST', 'this->flags')):
+    # (Each call's text once in the file: the new text no longer holds it, its arguments end otherwise.)
+    patch('Core/FileSystems/DirectoryFileSystem.cpp',
+          'FixPathCase(' + call + ')', 'EmuSuNiFixPathCase(' + call + ', ' + flags + ')')
+# One line in the log for every save a game makes through the system's save dialogs (sceUtilitySavedata):
+# "EmuSuNi: save written: ms0:/PSP/SAVEDATA/<folder> (PARAM.SFO n bytes, <file> n bytes...)" or "EmuSuNi: save
+# NOT written: <folder>: <why>" (the folder couldn't be made, a file couldn't be written - the file system's
+# line before says why - or the game's request was refused before anything was written).
+patch('Core/Dialog/SavedataParam.cpp',
+      'int SavedataParam::Save(SceUtilitySavedataParam* param, const std::string &saveDirName, bool secureMode) {\n',
+      'int SavedataParam::Save(SceUtilitySavedataParam* param, const std::string &saveDirName, bool secureMode) {\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t// EmuSuNi: one line in the log for every save, written (its files) or not (why).\n'
+      '\tstruct EmuSuNiSaveLine {\n'
+      '\t\tstd::string dir, files, why;\n'
+      '\t\tbool done = false;\n'
+      '\t\t~EmuSuNiSaveLine() {\n'
+      '\t\t\tif (done && why.empty())\n'
+      '\t\t\t\tINFO_LOG(Log::sceUtility, "EmuSuNi: save written: %s (%s) in %s", dir.c_str(), files.c_str(), g_Config.memStickDirectory.c_str());\n'
+      '\t\t\telse\n'
+      '\t\t\t\tERROR_LOG(Log::sceUtility, "EmuSuNi: save NOT written: %s: %s", dir.empty() ? "(no folder yet)" : dir.c_str(),\n'
+      '\t\t\t\t\twhy.empty() ? "the game\'s request was refused before anything was written (the line before says why)" : why.c_str());\n'
+      '\t\t}\n'
+      '\t} emusuniLine;\n'
+      '#endif\n')
+patch('Core/Dialog/SavedataParam.cpp',
+      '\tstd::string dirPath = GetSaveFilePath(param, GetSaveDir(param, saveDirName));\n'
+      '\n'
+      '\tif (!pspFileSystem.GetFileInfo(dirPath).exists) {\n'
+      '\t\tif (!pspFileSystem.MkDir(dirPath)) {\n',
+      '\tstd::string dirPath = GetSaveFilePath(param, GetSaveDir(param, saveDirName));\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\temusuniLine.dir = dirPath;\n'
+      '#endif\n'
+      '\n'
+      '\tif (!pspFileSystem.GetFileInfo(dirPath).exists) {\n'
+      '\t\tif (!pspFileSystem.MkDir(dirPath)) {\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\t\temusuniLine.why = "its folder couldn\'t be made on the memory stick; ";\n'
+      '#endif\n')
+patch('Core/Dialog/SavedataParam.cpp',
+      '\tClearSFOCache();\n\tWritePSPFile(sfopath, sfoData, (SceSize)sfoSize);\n',
+      '\tClearSFOCache();\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\tif (WritePSPFile(sfopath, sfoData, (SceSize)sfoSize))\n'
+      '\t\temusuniLine.files += StringFromFormat("%s %d bytes", SFO_FILENAME.c_str(), (int)sfoSize);\n'
+      '\telse\n'
+      '\t\temusuniLine.why += SFO_FILENAME + " couldn\'t be written (the file system\'s line before says why); ";\n'
+      '#else\n'
+      '\tWritePSPFile(sfopath, sfoData, (SceSize)sfoSize);\n'
+      '#endif\n')
+patch('Core/Dialog/SavedataParam.cpp',
+      '\t\t\t\tERROR_LOG(Log::sceUtility, "Error writing file %s", filePath.c_str());\n',
+      '\t\t\t\tERROR_LOG(Log::sceUtility, "Error writing file %s", filePath.c_str());\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\t\t\temusuniLine.why += fileName + " couldn\'t be written (the file system\'s line before says why): the game hears the memory stick is full";\n'
+      '#endif\n')
+patch('Core/Dialog/SavedataParam.cpp',
+      '\t\t\t\treturn SCE_UTILITY_SAVEDATA_ERROR_SAVE_MS_NOSPACE;\n\t\t\t}\n',
+      '\t\t\t\treturn SCE_UTILITY_SAVEDATA_ERROR_SAVE_MS_NOSPACE;\n\t\t\t}\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\t\temusuniLine.files += StringFromFormat(", %s %u bytes", fileName.c_str(), (unsigned)saveSize);\n'
+      '#endif\n')
+patch('Core/Dialog/SavedataParam.cpp',
+      '\t\t\tWritePSPFile(snd0path, param->snd0FileData.buf, param->snd0FileData.size);\n\t\t}\n\t}\n\treturn 0;\n}\n',
+      '\t\t\tWritePSPFile(snd0path, param->snd0FileData.buf, param->snd0FileData.size);\n\t\t}\n\t}\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\tif (param->icon0FileData.buf.IsValid() || param->pic1FileData.buf.IsValid())\n'
+      '\t\temusuniLine.files += ", its pictures";\n'
+      '\temusuniLine.done = true;\n'
+      '#endif\n'
+      '\treturn 0;\n}\n')
+# The free space told to a game that asks (the save dialogs' sizes, the stick's devctl): the disk's (port/
+# ps4_diskfree.c, "disk: free space at ...") and the stick's own size less this game's saves, the smaller.
+patch('Core/HW/MemoryStick.cpp',
+      '\tINFO_LOG(Log::IO, "Done calculating free disk space (%0.3f s): %llu", time_now_d() - start, (unsigned long long)space);\n',
+      '\tINFO_LOG(Log::IO, "Done calculating free disk space (%0.3f s): %llu", time_now_d() - start, (unsigned long long)space);\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\tINFO_LOG(Log::IO, "EmuSuNi: free space told to the game: %llu MiB (the disk %llu MiB, the memory stick %llu MiB less %llu MiB of this game\'s saves)",\n'
+      '\t\t(unsigned long long)(space >> 20), (unsigned long long)(realFreeSpace >> 20), (unsigned long long)(memStickSize >> 20),\n'
+      '\t\t(unsigned long long)(memstickCurrentUse >> 20));\n'
+      '#endif\n')
 patch('CMakeLists.txt',
       'if(LIBRETRO)\n\tadd_subdirectory(libretro)\nendif()\n',
       'if(EMUSUNI_PORT)\n'
@@ -251,14 +423,19 @@ addfile('Common/MemArenaEmuSuNi.cpp', r'''// EmuSuNi (scripts/build-psp-core.sh)
 // 0x00010000, VRAM at 0x04000000 and its three mirrors, the RAM at 0x08000000. They are mapped in one
 // reserved range of 1 GiB (every address the JIT can make), nothing else in it: with Fast Memory a
 // stray access faults there and the core's handler skips it (Core/MemFault.cpp), as upstream's. A
-// mirror is the same memory mapped again (the PS4: one block of direct memory; this PC: a memfd);
-// if the system refuses a second mapping, the mirror gets memory of its own (upstream's NO_MMAP
-// behaviour) and Memory::Init logs it.
+// mirror is the same memory mapped again (the PS4: one block of direct memory, which the kernel maps a
+// second time only once the app has enabled direct memory aliasing at its start - src/main.cpp,
+// port/ps4_runtime.cpp; this PC: a memfd), checked before it is used: a word written through each of the
+// two mappings must be read back through the other. If the system refuses the second mapping, or it isn't
+// the same memory, the mirror gets memory of its own (upstream's NO_MMAP behaviour) and Memory::Init logs
+// why (EmuSuNiMirrorReport).
 #include "ppsspp_config.h"
 
 #ifdef EMUSUNI_PORT
 
+#include <cstdarg>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <cerrno>
@@ -288,8 +465,15 @@ constexpr size_t SPAN = 0x40000000;   // the masked map: 0x00000000-0x3FFFFFFF
 constexpr size_t GRANULE = 0x10000;   // where views start in the backing memory (64 KiB)
 uintptr_t g_base = 0;                 // the reserved range
 size_t g_size = 0;                    // the backing memory
-s64 g_mappedOffsets[32];              // offsets of the backing memory mapped once already
+struct Mapped {
+	s64 offset;                       // a part of the backing memory mapped once already
+	void *address;                    // where (the first view of it)
+};
+Mapped g_mapped[32];
 int g_mappedCount = 0;
+int g_aliased = 0;                    // mirrors that are the same memory (this map)
+int g_own = 0;                        // mirrors with memory of their own
+char g_ownWhy[200] = "";              // why (the first one)
 #if defined(__ORBIS__)
 constexpr int32_t PROT_CPU_RW = 0x03;   // SCE_KERNEL_PROT_CPU_READ | SCE_KERNEL_PROT_CPU_WRITE
 constexpr int32_t MAP_FIXED_FLAG = 0x10;  // SCE_KERNEL_MAP_FIXED
@@ -300,19 +484,58 @@ off_t g_phys = 0;
 int g_fd = -1;
 #endif
 
-bool MappedBefore(s64 offset) {
+void *FirstMapping(s64 offset) {
 	for (int i = 0; i < g_mappedCount; i++) {
-		if (g_mappedOffsets[i] == offset)
-			return true;
+		if (g_mapped[i].offset == offset)
+			return g_mapped[i].address;
 	}
-	return false;
+	return nullptr;
 }
 
-void RememberMapped(s64 offset) {
-	if (g_mappedCount < (int)(sizeof(g_mappedOffsets) / sizeof(g_mappedOffsets[0])))
-		g_mappedOffsets[g_mappedCount++] = offset;
+void RememberMapped(s64 offset, void *address) {
+	if (g_mappedCount < (int)(sizeof(g_mapped) / sizeof(g_mapped[0])))
+		g_mapped[g_mappedCount++] = {offset, address};
+}
+
+// The self-test of a mirror: the same memory as its first mapping when a word written through each one is
+// read back through the other (at both ends of the view); every word is put back as it was.
+bool SameMemory(void *first, void *mirror, size_t size) {
+	const size_t places[] = {0, size / 2, size - sizeof(u32)};
+	for (size_t at : places) {
+		volatile u32 *a = (volatile u32 *)((u8 *)first + at);
+		volatile u32 *b = (volatile u32 *)((u8 *)mirror + at);
+		const u32 old = *a;
+		*b = old ^ 0x45535550u;
+		const bool seenThroughFirst = *a == (old ^ 0x45535550u);
+		*a = old;
+		const bool seenThroughMirror = *b == old;
+		if (!seenThroughFirst || !seenThroughMirror)
+			return false;
+	}
+	return true;
+}
+
+__attribute__((format(printf, 1, 2))) void NoteOwnMirror(const char *format, ...) {
+	g_own++;
+	if (g_ownWhy[0])
+		return;
+	va_list args;
+	va_start(args, format);
+	vsnprintf(g_ownWhy, sizeof(g_ownWhy), format, args);
+	va_end(args);
 }
 }  // namespace
+
+// Memory::Init's log line (Core/MemMap.cpp): whether the VRAM mirrors are the same memory, and why not.
+const char *EmuSuNiMirrorReport(bool aliased) {
+	static char text[320];
+	if (aliased && g_own == 0)
+		snprintf(text, sizeof(text), "VRAM mirrors aliased (the same memory mapped again %d times, self-test ok)", g_aliased);
+	else
+		snprintf(text, sizeof(text), "VRAM mirrors NOT aliased (memory of their own, as upstream's NO_MMAP build): %s",
+			g_ownWhy[0] ? g_ownWhy : (aliased ? "a mirror isn't" : "the mirror reads other memory"));
+	return text;
+}
 
 size_t MemArena::roundup(size_t x) {
 	return (x + GRANULE - 1) & ~(GRANULE - 1);
@@ -325,6 +548,9 @@ bool MemArena::NeedsProbing() {
 bool MemArena::GrabMemSpace(size_t size) {
 	g_size = (size + GRANULE - 1) & ~(GRANULE - 1);
 	g_mappedCount = 0;
+	g_aliased = 0;
+	g_own = 0;
+	g_ownWhy[0] = '\0';
 #if defined(__ORBIS__)
 	off_t phys = 0;
 	const int32_t ret = sceKernelAllocateDirectMemory(0, (off_t)sceKernelGetDirectMemorySize(), g_size, GRANULE, WB_ONION, &phys);
@@ -370,22 +596,33 @@ void MemArena::ReleaseSpace() {
 }
 
 void *MemArena::CreateView(s64 offset, size_t size, void *base) {
-	const bool mirror = MappedBefore(offset);
+	void *first = FirstMapping(offset);  // a mirror's: its first mapping
 #if defined(__ORBIS__)
 	void *at = base;
 	int32_t ret = sceKernelMapDirectMemory(&at, size, PROT_CPU_RW, MAP_FIXED_FLAG, g_phys + offset, PAGE);
-	if (ret == 0 && at == base) {
-		if (!mirror) {
-			memset(base, 0, size);  // direct memory comes as it was left
-			RememberMapped(offset);
-		}
-		return base;
+	if (ret == 0 && at != base) {
+		sceKernelMunmap(at, size);  // (never with MAP_FIXED)
+		ret = -1;
 	}
-	if (!mirror) {
+	if (ret == 0) {
+		if (!first) {
+			memset(base, 0, size);  // direct memory comes as it was left
+			RememberMapped(offset, base);
+			return base;
+		}
+		if (SameMemory(first, base, size)) {
+			g_aliased++;
+			return base;
+		}
+		sceKernelMunmap(base, size);
+		NoteOwnMirror("the system mapped the memory again at %p but it isn't the same memory", base);
+	} else if (!first) {
 		ERROR_LOG(Log::MemMap, "EmuSuNi: mapping %d KiB of the PSP's memory at %p failed (%08x)", (int)(size / 1024), base, (unsigned)ret);
 		return nullptr;
+	} else {
+		NoteOwnMirror("the system won't map the same memory twice (%08x: direct memory aliasing isn't enabled)", (unsigned)ret);
 	}
-	// A mirror the system won't map again: memory of its own.
+	// A mirror of memory of its own.
 	at = base;
 	ret = sceKernelMapNamedSystemFlexibleMemory(&at, size, PROT_CPU_RW, MAP_FIXED_FLAG, "ppsspp mirror");
 	if (ret != 0 || at != base) {
@@ -398,14 +635,30 @@ void *MemArena::CreateView(s64 offset, size_t size, void *base) {
 	void *at;
 	if (g_fd >= 0)
 		at = mmap(base, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_FIXED, g_fd, offset);
-	else  // EMUSUNI_PSP_NO_ALIAS: every view memory of its own, as the PS4's fallback
+	else  // EMUSUNI_PSP_NO_ALIAS: every view memory of its own, as the PS4 without aliasing
 		at = mmap(base, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
 	if (at != base) {
 		ERROR_LOG(Log::MemMap, "EmuSuNi: mapping %d KiB of the PSP's memory at %p failed: %s", (int)(size / 1024), base, strerror(errno));
 		return nullptr;
 	}
-	if (!mirror)
-		RememberMapped(offset);
+	if (!first) {
+		RememberMapped(offset, base);
+		return base;
+	}
+	if (g_fd < 0) {
+		NoteOwnMirror("EMUSUNI_PSP_NO_ALIAS: memory of its own, as the PS4 without direct memory aliasing");
+		return base;
+	}
+	if (SameMemory(first, base, size)) {
+		g_aliased++;
+		return base;
+	}
+	// (Not the same memory: memory of its own instead, as the PS4 does.)
+	if (mmap(base, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0) != base) {
+		ERROR_LOG(Log::MemMap, "EmuSuNi: no memory for a %d KiB mirror at %p: %s", (int)(size / 1024), base, strerror(errno));
+		return nullptr;
+	}
+	NoteOwnMirror("the memfd mapped again at %p isn't the same memory", base);
 	return base;
 #endif
 }
@@ -453,16 +706,24 @@ patch('Core/MemMap.cpp',
       '\tif (!MemoryMap_Setup(flags)) {\n\t\treturn false;\n\t}\n'
       '#ifdef EMUSUNI_PORT\n'
       '\t{\n'
-      '\t\t// EmuSuNi (Common/MemArenaEmuSuNi.cpp): are the VRAM mirrors the same memory?\n'
+      '\t\t// EmuSuNi (Common/MemArenaEmuSuNi.cpp): are the VRAM mirrors the same memory? (Each mirror was\n'
+      '\t\t// checked as it was mapped; the last one again here.)\n'
       '\t\tvolatile u32 *vram = (volatile u32 *)(base + 0x04000000);\n'
       '\t\tvolatile u32 *mirror = (volatile u32 *)(base + 0x04600000);\n'
       '\t\tconst u32 old = *vram;\n'
       '\t\t*vram = 0x45535550;\n'
       '\t\tconst bool aliased = *mirror == 0x45535550;\n'
       '\t\t*vram = old;\n'
-      '\t\tINFO_LOG(Log::MemMap, "EmuSuNi: PSP memory map at %p, %u MiB of RAM, VRAM mirrors %s", base,\n'
-      '\t\t\t(unsigned)(g_MemorySize >> 20), aliased ? "aliased" : "NOT aliased (memory of their own, as upstream\'s NO_MMAP build)");\n'
+      '\t\tINFO_LOG(Log::MemMap, "EmuSuNi: PSP memory map at %p, %u MiB of RAM, %s", base,\n'
+      '\t\t\t(unsigned)(g_MemorySize >> 20), EmuSuNiMirrorReport(aliased));\n'
       '\t}\n'
+      '#endif\n')
+patch('Core/MemMap.cpp',
+      '#include "Common/MemArena.h"\n',
+      '#include "Common/MemArena.h"\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '// EmuSuNi (Common/MemArenaEmuSuNi.cpp): whether the VRAM mirrors are the same memory, and why not.\n'
+      'const char *EmuSuNiMirrorReport(bool aliased);\n'
       '#endif\n')
 patch('Core/System.cpp',
       '\tInstallExceptionHandler(&Memory::HandleFault);\n',
@@ -574,51 +835,106 @@ patch('libretro/libretro.cpp',
       '   g_Config.bRenderDuplicateFrames = true;\n'
       '#endif\n')
 
-# --- The JIT's code memory: one array in the core's data, executable through EmuSuNi, else no JIT.
+# --- The JIT's code memory: this game's part of the app's shared JIT arena, else no JIT.
 patch('Common/MemoryUtil.h',
       'bool PlatformIsWXExclusive();\n',
       'bool PlatformIsWXExclusive();\n'
       '#ifdef EMUSUNI_PORT\n'
-      '// EmuSuNi (MemoryUtil.cpp): whether the JIT\'s code memory could be made executable (tried once).\n'
+      '// EmuSuNi (MemoryUtil.cpp): whether this game has its executable JIT memory (taken at the first ask of each\n'
+      '// game); at the core\'s end (retro_deinit) a line in the log if any of its blocks is still held.\n'
       'bool EmuSuNiJitAvailable();\n'
+      'void EmuSuNiJitEndGame();\n'
       '#endif\n')
 patch('Common/MemoryUtil.cpp',
       'static int hint_location;\n',
       '#ifdef EMUSUNI_PORT\n'
-      '#include <iterator>\n#include <map>\n#include <mutex>\n\n'
-      '// EmuSuNi (port/ps4_n64.c): makes [address, address + size) executable the ways the PS4 allows,\n'
-      '// each checked by running a small function there; the way that worked (0-3) or -1.\n'
-      'extern "C" int emusuni_make_executable(void *address, size_t size);\n\n'
-      '// EmuSuNi: the JIT\'s code memory is one array in the core\'s data (the x86-64 JIT reaches the core\'s\n'
-      '// code and data with 32-bit offsets), made executable once through EmuSuNi instead of mmap and\n'
-      '// mprotect, on 16 KiB pages of its own (the PS4\'s). It is shared out to the code blocks (the MIPS\n'
-      '// JIT 16 MiB, its thunks 1 MiB and safe-memory functions 512 KiB, the vertex decoder JIT 256 KiB,\n'
-      '// the software renderer 2 x 256 KiB); a freed block is used again. If it can\'t be made executable,\n'
+      '#include <atomic>\n#include <iterator>\n#include <map>\n#include <mutex>\n\n'
+      '// EmuSuNi (port/ps4_n64.c): the app\'s shared JIT arena (32 MiB in the app\'s data, read/write/execute: the code\n'
+      '// memory of whichever recompiling core runs). emusuni_jit_arena: this game\'s part of it, the same memory each time\n'
+      '// it is asked for until the app gives the arena back after the core\'s deinit (Emulator::Run; the arena\'s\n'
+      '// generation changes then), NULL if it can\'t be executable; emusuni_jit_check: the way it was made executable\n'
+      '// (0-3).\n'
+      'extern "C" void *emusuni_jit_arena(size_t size, const char *name);\n'
+      'extern "C" unsigned emusuni_jit_arena_generation(void);\n'
+      'extern "C" int emusuni_jit_check(void);\n\n'
+      '// EmuSuNi: the JIT\'s code memory is the PSP\'s part of the app\'s JIT arena (in the app\'s data: the x86-64 JIT\n'
+      '// reaches the core\'s code and data with 32-bit offsets; until 00.62 an array of the core\'s own, 22 MiB of the\n'
+      '// app\'s image), taken at each game\'s first ask instead of mmap and mprotect, on 16 KiB pages (the PS4\'s). It is\n'
+      '// shared out to the code blocks (the MIPS JIT 16 MiB, its thunks 1 MiB and safe-memory functions 512 KiB, the\n'
+      '// vertex decoder JIT 256 KiB, the software renderer 2 x 256 KiB); a freed block is used again. Other cores write\n'
+      '// there between two PSP games: every block is freed at the game\'s end (PSP_Shutdown), the next game\'s part\n'
+      '// starts whole, and a block freed that this game didn\'t hand out is left alone. If there is no part,\n'
       '// SYSPROP_CAN_JIT is false (libretro/libretro.cpp): the IR interpreter runs instead.\n'
       'namespace {\n'
       'constexpr size_t EMUSUNI_JIT_SIZE = 22 * 1024 * 1024;\n'
       'constexpr size_t EMUSUNI_JIT_PAGE = 16384;\n'
-      'alignas(16384) uint8_t g_emusuniJitMemory[EMUSUNI_JIT_SIZE];\n'
       'std::mutex g_emusuniJitLock;\n'
-      'int g_emusuniJitState = 0;  // 0: not tried yet, 1: executable, -1: not possible\n'
+      'std::atomic<uint8_t *> g_emusuniJitMemory{nullptr};  // this game\'s part\n'
+      '// Every part this core has had (the same one each game, normally): a block of one of them is the app\'s arena,\n'
+      '// never unmapped or protected otherwise here, whichever game it was handed out in.\n'
+      'std::atomic<uint8_t *> g_emusuniJitParts[4];\n'
+      'int g_emusuniJitState = 0;            // 0: not taken yet, 1: executable, -1: none\n'
+      'unsigned g_emusuniJitGeneration = 0;  // the arena\'s generation it was taken in\n'
       'std::map<size_t, size_t> g_emusuniJitFree;  // offset -> size of each free block\n'
+      'std::map<size_t, size_t> g_emusuniJitUsed;  // offset -> size of each block handed out\n'
       '}  // namespace\n\n'
+      '// With g_emusuniJitLock held: whether this game has its part (taken now when the arena was given back since).\n'
+      'static bool EmuSuNiJitTake() {\n'
+      '\tif (g_emusuniJitState != 0 && g_emusuniJitGeneration == emusuni_jit_arena_generation())\n'
+      '\t\treturn g_emusuniJitState > 0;\n'
+      '\tif (!g_emusuniJitUsed.empty()) {\n'
+      '\t\tsize_t kept = 0;\n'
+      '\t\tfor (const auto &block : g_emusuniJitUsed)\n'
+      '\t\t\tkept += block.second;\n'
+      '\t\tERROR_LOG(Log::JIT, "EmuSuNi: %d KiB of the last game\'s JIT blocks were never freed (forgotten)", (int)(kept / 1024));\n'
+      '\t}\n'
+      '\tg_emusuniJitFree.clear();\n'
+      '\tg_emusuniJitUsed.clear();\n'
+      '\tuint8_t *memory = (uint8_t *)emusuni_jit_arena(EMUSUNI_JIT_SIZE, "psp");\n'
+      '\tg_emusuniJitGeneration = emusuni_jit_arena_generation();  // (after the take: it may have given one back)\n'
+      '\tg_emusuniJitState = memory ? 1 : -1;\n'
+      '\tif (memory) {\n'
+      '\t\tg_emusuniJitMemory = memory;\n'
+      '\t\tfor (auto &part : g_emusuniJitParts) {\n'
+      '\t\t\tif (part == memory)\n'
+      '\t\t\t\tbreak;\n'
+      '\t\t\tif (!part) {\n'
+      '\t\t\t\tpart = memory;\n'
+      '\t\t\t\tbreak;\n'
+      '\t\t\t}\n'
+      '\t\t}\n'
+      '\t\tg_emusuniJitFree[0] = EMUSUNI_JIT_SIZE;\n'
+      '\t\tINFO_LOG(Log::JIT, "EmuSuNi: %d MiB of executable JIT memory at %p (way %d)", (int)(EMUSUNI_JIT_SIZE >> 20), (void *)memory,\n'
+      '\t\t\temusuni_jit_check());\n'
+      '\t} else {\n'
+      '\t\tERROR_LOG(Log::JIT, "EmuSuNi: no executable JIT memory (the app\'s JIT arena): the IR interpreter runs instead");\n'
+      '\t}\n'
+      '\treturn memory != nullptr;\n'
+      '}\n\n'
       'bool EmuSuNiJitAvailable() {\n'
       '\tstd::lock_guard<std::mutex> guard(g_emusuniJitLock);\n'
-      '\tif (g_emusuniJitState == 0) {\n'
-      '\t\tconst int way = emusuni_make_executable(g_emusuniJitMemory, EMUSUNI_JIT_SIZE);\n'
-      '\t\tg_emusuniJitState = way >= 0 ? 1 : -1;\n'
-      '\t\tif (way >= 0) {\n'
-      '\t\t\tg_emusuniJitFree[0] = EMUSUNI_JIT_SIZE;\n'
-      '\t\t\tINFO_LOG(Log::JIT, "EmuSuNi: %d MiB of executable JIT memory at %p (way %d)", (int)(EMUSUNI_JIT_SIZE >> 20), (void *)g_emusuniJitMemory, way);\n'
-      '\t\t} else {\n'
-      '\t\t\tERROR_LOG(Log::JIT, "EmuSuNi: the JIT memory can\'t be made executable: the IR interpreter runs instead");\n'
-      '\t\t}\n'
-      '\t}\n'
-      '\treturn g_emusuniJitState > 0;\n'
+      '\treturn EmuSuNiJitTake();\n'
       '}\n\n'
+      'void EmuSuNiJitEndGame() {\n'
+      '\tstd::lock_guard<std::mutex> guard(g_emusuniJitLock);\n'
+      '\tif (g_emusuniJitState <= 0)\n'
+      '\t\treturn;\n'
+      '\tsize_t kept = 0;\n'
+      '\tfor (const auto &block : g_emusuniJitUsed)\n'
+      '\t\tkept += block.second;\n'
+      '\tif (kept)\n'
+      '\t\tERROR_LOG(Log::JIT, "EmuSuNi: %d KiB of JIT blocks still held at the core\'s end", (int)(kept / 1024));\n'
+      '\telse\n'
+      '\t\tINFO_LOG(Log::JIT, "EmuSuNi: every JIT block freed at the core\'s end");\n'
+      '}\n\n'
+      '// In a part of the arena this core has had (this game\'s or an earlier one\'s).\n'
       'static bool EmuSuNiInJitMemory(const void *ptr) {\n'
-      '\treturn (const uint8_t *)ptr >= g_emusuniJitMemory && (const uint8_t *)ptr < g_emusuniJitMemory + EMUSUNI_JIT_SIZE;\n'
+      '\tfor (const auto &part : g_emusuniJitParts) {\n'
+      '\t\tconst uint8_t *memory = part.load();\n'
+      '\t\tif (memory && (const uint8_t *)ptr >= memory && (const uint8_t *)ptr < memory + EMUSUNI_JIT_SIZE)\n'
+      '\t\t\treturn true;\n'
+      '\t}\n'
+      '\treturn false;\n'
       '}\n'
       '#endif\n\n'
       'static int hint_location;\n')
@@ -626,14 +942,14 @@ patch('Common/MemoryUtil.cpp',
       'void *AllocateExecutableMemory(size_t size) {\n\tstatic char *map_hint = nullptr;\n',
       'void *AllocateExecutableMemory(size_t size) {\n'
       '#ifdef EMUSUNI_PORT\n'
-      '\t// EmuSuNi: the first free block of the JIT\'s array that is big enough.\n'
-      '\tif (!EmuSuNiJitAvailable()) {\n'
-      '\t\tERROR_LOG(Log::MemMap, "EmuSuNi: no executable memory for %d bytes of code", (int)size);\n'
-      '\t\treturn nullptr;\n'
-      '\t}\n'
+      '\t// EmuSuNi: the first free block of this game\'s JIT memory that is big enough.\n'
       '\t{\n'
       '\t\tconst size_t want = (size + EMUSUNI_JIT_PAGE - 1) & ~(EMUSUNI_JIT_PAGE - 1);\n'
       '\t\tstd::lock_guard<std::mutex> guard(g_emusuniJitLock);\n'
+      '\t\tif (!EmuSuNiJitTake()) {\n'
+      '\t\t\tERROR_LOG(Log::MemMap, "EmuSuNi: no executable memory for %d bytes of code", (int)size);\n'
+      '\t\t\treturn nullptr;\n'
+      '\t\t}\n'
       '\t\tfor (auto it = g_emusuniJitFree.begin(); it != g_emusuniJitFree.end(); ++it) {\n'
       '\t\t\tif (it->second < want)\n'
       '\t\t\t\tcontinue;\n'
@@ -641,7 +957,8 @@ patch('Common/MemoryUtil.cpp',
       '\t\t\tg_emusuniJitFree.erase(it);\n'
       '\t\t\tif (left)\n'
       '\t\t\t\tg_emusuniJitFree[offset + want] = left;\n'
-      '\t\t\treturn g_emusuniJitMemory + offset;\n'
+      '\t\t\tg_emusuniJitUsed[offset] = want;\n'
+      '\t\t\treturn g_emusuniJitMemory.load() + offset;\n'
       '\t\t}\n'
       '\t}\n'
       '\tERROR_LOG(Log::MemMap, "EmuSuNi: the JIT memory is full (%d bytes wanted)", (int)size);\n'
@@ -653,10 +970,17 @@ patch('Common/MemoryUtil.cpp',
       'void FreeExecutableMemory(void *ptr, size_t size) {\n'
       '#ifdef EMUSUNI_PORT\n'
       '\tif (ptr && EmuSuNiInJitMemory(ptr)) {\n'
-      '\t\t// EmuSuNi: back to the JIT array\'s free blocks, merged with its neighbours.\n'
+      '\t\t// EmuSuNi: back to the JIT memory\'s free blocks, merged with its neighbours (only a block this game\n'
+      '\t\t// handed out: the arena isn\'t the core\'s to unmap).\n'
       '\t\tstd::lock_guard<std::mutex> guard(g_emusuniJitLock);\n'
-      '\t\tsize_t offset = (const uint8_t *)ptr - g_emusuniJitMemory;\n'
-      '\t\tsize_t length = (size + EMUSUNI_JIT_PAGE - 1) & ~(EMUSUNI_JIT_PAGE - 1);\n'
+      '\t\tsize_t offset = (const uint8_t *)ptr - g_emusuniJitMemory.load();\n'
+      '\t\tauto used = g_emusuniJitUsed.find(offset);\n'
+      '\t\tif (used == g_emusuniJitUsed.end()) {\n'
+      '\t\t\tWARN_LOG(Log::MemMap, "EmuSuNi: a JIT block this game didn\'t hand out was freed (%p, %d bytes): left alone", ptr, (int)size);\n'
+      '\t\t\treturn;\n'
+      '\t\t}\n'
+      '\t\tsize_t length = used->second;\n'
+      '\t\tg_emusuniJitUsed.erase(used);\n'
       '\t\tauto next = g_emusuniJitFree.lower_bound(offset);\n'
       '\t\tif (next != g_emusuniJitFree.end() && offset + length == next->first) {\n'
       '\t\t\tlength += next->second;\n'
@@ -1209,6 +1533,20 @@ patch('GPU/Vulkan/PipelineManagerVulkan.cpp',
       '\t\t\tcontinue;\n'
       '\t\t}\n'
       '#endif\n')
+# The shader cache itself is off unless EMUSUNI_PSP_SHADER_CACHE=1: loading a game's .vkshadercache makes
+# all its pipelines again at once when the game starts, and with God of War: Ghost of Sparta's (22 + 25
+# shaders, saved by its session before) the PS4 killed the app right after opening it (00.58 to 00.60: the
+# blue error screen, no crash report); the game started once the file was moved away. Without it each
+# pipeline is made when the game first draws with it, as on a first start.
+patch('libretro/libretro.cpp',
+      '   g_Config.bDiscordRichPresence = false;\n',
+      '   g_Config.bDiscordRichPresence = false;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '   {\n'
+      '      const char *cache = getenv("EMUSUNI_PSP_SHADER_CACHE");\n'
+      '      g_Config.bShaderCache = cache && atoi(cache) != 0;\n'
+      '   }\n'
+      '#endif\n')
 
 # --- A game that can't start (a bad file, an ELF it can't place): the core asks the frontend to
 # shut it down (RETRO_ENVIRONMENT_SHUTDOWN); if the frontend calls retro_run again anyway, nothing
@@ -1270,11 +1608,346 @@ patch('Common/Thread/ThreadUtil.cpp',
 patch('libretro/libretro.cpp',
       '   g_threadManager.Init(cpu_info.num_cores, cpu_info.logical_cpu_count);\n',
       '#ifdef EMUSUNI_PORT\n'
-      '   // EmuSuNi: at most 4 compute threads (and as many for blocking I/O): the PS4 has 7 cores for the\n'
-      '   // app, the emulation thread is on one of them and the GPU work on others.\n'
+      '   // EmuSuNi: at most 4 compute threads (2 more for blocking I/O and 4 for the GLSL compiles:\n'
+      '   // Common/Thread/ThreadManager.cpp): the PS4 has 7 cores for the app, the emulation thread is on one\n'
+      '   // of them and the GPU work on others.\n'
       '   g_threadManager.Init(std::max(1, std::min(cpu_info.num_cores * cpu_info.logical_cpu_count, 4)), 1);\n'
       '#else\n'
       '   g_threadManager.Init(cpu_info.num_cores, cpu_info.logical_cpu_count);\n'
+      '#endif\n')
+# Fewer threads (00.63). On the PS4 every thread's stack (2 MiB + 16 KiB) is taken from the regular flexible memory and
+# kept by the system for the next thread of the same size, never given back: the most threads alive at once since the
+# app started is memory gone for good. Upstream made a new detached thread for every GLSL compile ("DedicatedThreadTask",
+# its only DEDICATED_THREAD task: ShaderManagerVulkan.cpp), and a game's bursts of compiles took a stack each (God of
+# War: 18 in 24 ms; its first session cost ~30 MiB more after its load), plus 4 threads for blocking I/O and the UPnP
+# service's. Now the compiles go to 4 threads of their own ("ShaderGLSL n", the same cores and priority as before:
+# port/'s emusuni_psp_thread), made with the pool and joined at the core's end once every compile queued is done (not
+# the compute pool's threads: its pipeline tasks wait for these compiles, VulkanRenderManager.cpp); 2 threads for
+# blocking I/O (the core's few I/O tasks - the memory stick's size, screenshots, texture replacement - wait for no
+# other); no UPnP thread (UPnP isn't built: USE_MINIUPNPC=OFF; it polled every 500 ms for nothing). A game's start
+# makes 16 threads as before (15), and its play none.
+patch('Common/Thread/ThreadManager.cpp',
+      'ThreadManager g_threadManager;\n',
+      'ThreadManager g_threadManager;\n'
+      r'''
+#ifdef EMUSUNI_PORT
+// EmuSuNi (scripts/build-psp-core.sh): the DEDICATED_THREAD tasks - the GLSL compiles (ShaderManagerVulkan.cpp) -
+// on EMUSUNI_GLSL_THREADS threads of their own ("ShaderGLSL n"), made in Init with the pool and joined in Teardown
+// once every compile queued is done, not a new detached thread each (upstream): on the PS4 each new thread's stack
+// is regular flexible memory the system never gives back. Not the compute pool's threads: its pipeline tasks wait
+// for these compiles (VulkanRenderManager.cpp), they could all be waiting. A compile handed over when the threads
+// aren't there (before Init, after Teardown) runs at once on its caller's thread.
+static constexpr int EMUSUNI_GLSL_THREADS = 4;
+static constexpr int EMUSUNI_IO_THREADS = 2;
+
+namespace {
+struct EmuSuNiDedicated {
+	std::mutex mutex;
+	std::condition_variable cond;
+	std::deque<Task *> queue;
+	std::thread *threads[EMUSUNI_GLSL_THREADS] = {};
+	int running = 0;        // threads made
+	bool stopping = false;  // Teardown: they leave once the queue is empty
+	int done = 0;           // tasks run on them since Init
+	int mostWaiting = 0;    // the longest the queue got
+};
+EmuSuNiDedicated g_emusuniDedicated;
+
+void EmuSuNiDedicatedThread(int index) {
+	char name[16];
+	snprintf(name, sizeof(name), "ShaderGLSL %d", index);
+	SetCurrentThreadName(name);
+	EmuSuNiDedicated &d = g_emusuniDedicated;
+	std::unique_lock<std::mutex> lock(d.mutex);
+	while (true) {
+		if (d.queue.empty()) {
+			if (d.stopping)
+				break;
+			d.cond.wait(lock);
+			continue;
+		}
+		Task *task = d.queue.front();
+		d.queue.pop_front();
+		lock.unlock();
+		task->Run();
+		task->Release();
+		lock.lock();
+		d.done++;
+	}
+}
+
+void EmuSuNiStartDedicated() {
+	EmuSuNiDedicated &d = g_emusuniDedicated;
+	std::lock_guard<std::mutex> guard(d.mutex);
+	if (d.running)
+		return;
+	d.stopping = false;
+	d.done = 0;
+	d.mostWaiting = 0;
+	for (int i = 0; i < EMUSUNI_GLSL_THREADS; i++)
+		d.threads[i] = new std::thread(&EmuSuNiDedicatedThread, i);
+	d.running = EMUSUNI_GLSL_THREADS;
+	INFO_LOG(Log::System, "EmuSuNi: %d threads for the GLSL compiles (ShaderGLSL), %d for blocking I/O", d.running, EMUSUNI_IO_THREADS);
+}
+
+// Every compile queued is done when this returns.
+void EmuSuNiStopDedicated() {
+	EmuSuNiDedicated &d = g_emusuniDedicated;
+	{
+		std::lock_guard<std::mutex> guard(d.mutex);
+		if (!d.running)
+			return;
+		d.stopping = true;
+		d.cond.notify_all();
+	}
+	for (std::thread *&thread : d.threads) {
+		if (thread) {
+			thread->join();
+			delete thread;
+			thread = nullptr;
+		}
+	}
+	std::lock_guard<std::mutex> guard(d.mutex);
+	INFO_LOG(Log::System, "EmuSuNi: %d GLSL compiles on the %d ShaderGLSL threads (at most %d waiting at once)", d.done,
+		d.running, d.mostWaiting);
+	d.running = 0;
+	d.stopping = false;
+}
+
+// False when the threads aren't there (the caller runs it).
+bool EmuSuNiQueueDedicated(Task *task) {
+	EmuSuNiDedicated &d = g_emusuniDedicated;
+	std::lock_guard<std::mutex> guard(d.mutex);
+	if (!d.running || d.stopping)
+		return false;
+	d.queue.push_back(task);
+	d.mostWaiting = std::max(d.mostWaiting, (int)d.queue.size());
+	d.cond.notify_one();
+	return true;
+}
+}  // namespace
+#endif
+''')
+patch('Common/Thread/ThreadManager.cpp',
+      'void ThreadManager::Teardown() {\n',
+      'void ThreadManager::Teardown() {\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\tEmuSuNiStopDedicated();  // EmuSuNi: every GLSL compile queued done first (pipeline tasks may wait for them)\n'
+      '#endif\n')
+patch('Common/Thread/ThreadManager.cpp',
+      '\tint numThreads = numComputeThreads_ + std::max(MIN_IO_BLOCKING_THREADS, numComputeThreads_);\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '\t// EmuSuNi: EMUSUNI_IO_THREADS for blocking I/O (upstream: as many as the compute threads, at least 4 - with the\n'
+      '\t// max(), MIN_IO_BLOCKING_THREADS alone changes nothing).\n'
+      '\tint numThreads = numComputeThreads_ + EMUSUNI_IO_THREADS;\n'
+      '#else\n'
+      '\tint numThreads = numComputeThreads_ + std::max(MIN_IO_BLOCKING_THREADS, numComputeThreads_);\n'
+      '#endif\n')
+patch('Common/Thread/ThreadManager.cpp',
+      '\t\tthread->thread = std::thread(&WorkerThreadFunc, global_, thread);\n'
+      '\t\tglobal_->threads_.push_back(thread);\n'
+      '\t}\n'
+      '}\n',
+      '\t\tthread->thread = std::thread(&WorkerThreadFunc, global_, thread);\n'
+      '\t\tglobal_->threads_.push_back(thread);\n'
+      '\t}\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\tEmuSuNiStartDedicated();  // EmuSuNi: the GLSL compiles\' threads\n'
+      '#endif\n'
+      '}\n')
+patch('Common/Thread/ThreadManager.cpp',
+      '\tif (task->Type() == TaskType::DEDICATED_THREAD) {\n'
+      '\t\tstd::thread th([=](Task *task) {\n'
+      '\t\t\tSetCurrentThreadName("DedicatedThreadTask");\n'
+      '\t\t\ttask->Run();\n'
+      '\t\t\ttask->Release();\n'
+      '\t\t}, task);\n'
+      '\t\tth.detach();\n'
+      '\t\treturn;\n'
+      '\t}\n',
+      '\tif (task->Type() == TaskType::DEDICATED_THREAD) {\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\t// EmuSuNi: on the ShaderGLSL threads (above), not a new thread of its own; at once here without them.\n'
+      '\t\tif (!EmuSuNiQueueDedicated(task)) {\n'
+      '\t\t\ttask->Run();\n'
+      '\t\t\ttask->Release();\n'
+      '\t\t}\n'
+      '#else\n'
+      '\t\tstd::thread th([=](Task *task) {\n'
+      '\t\t\tSetCurrentThreadName("DedicatedThreadTask");\n'
+      '\t\t\ttask->Run();\n'
+      '\t\t\ttask->Release();\n'
+      '\t\t}, task);\n'
+      '\t\tth.detach();\n'
+      '#endif\n'
+      '\t\treturn;\n'
+      '\t}\n')
+patch('Core/HLE/sceNet.cpp',
+      '#ifdef __LIBRETRO__\n\t__UPnPInit(2000);\n#endif\n',
+      '#if defined(__LIBRETRO__) && !defined(EMUSUNI_PORT)  // EmuSuNi: no UPnP thread (UPnP isn\'t built: USE_MINIUPNPC=OFF)\n'
+      '\t__UPnPInit(2000);\n#endif\n')
+for request in ('void UPnP_Add(const char* protocol, unsigned short port, unsigned short intport) {\n',
+                'void UPnP_Remove(const char* protocol, unsigned short port) {\n'):
+    # (Upstream kept them until the service's end; with no service they would pile up for the app's life.)
+    patch('Core/Util/PortManager.cpp', request,
+          request + '#ifdef EMUSUNI_PORT\n'
+          '\tif (!upnpServiceRunning)\n'
+          '\t\treturn;  // EmuSuNi: no UPnP service to take it (sceNet.cpp)\n'
+          '#endif\n')
+
+# --- The image's plain tables (00.63): the PS4 charges the app's whole image at load, .bss included, so a table
+# in it is memory gone for every game. These two are filled only by code PPSSPP seldom or never runs: on the heap
+# when first needed instead.
+#   - glslang's SPIR-V instruction table (spv::InstructionDesc, 6 MiB, kept in the image by its own static
+#     constructor): made by the first spv::Parameterize(), which only glslang's disassembler and SPIR-V remapper
+#     call (PPSSPP calls neither). Never freed, as upstream's.
+#   - aemu_postoffice's session tables (2 MiB): made by the ad hoc relay's start (aemu_post_office_init), given back
+#     at the core's end (retro_deinit), every session still open closed first as a new run's start does.
+patch('SPIRV/doc.cpp',
+      'InstructionParameters InstructionDesc[OpCodeMask + 1];\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '// EmuSuNi (scripts/build-psp-core.sh): on the heap from the first Parameterize() (the disassembler and the SPIR-V\n'
+      '// remapper call it before they read it; PPSSPP calls neither), not 6 MiB of the app\'s image.\n'
+      'InstructionParameters *InstructionDesc = nullptr;\n'
+      '#else\n'
+      'InstructionParameters InstructionDesc[OpCodeMask + 1];\n'
+      '#endif\n',
+      repo=root + '/ext/glslang')
+patch('SPIRV/doc.cpp',
+      '    static bool initialized = false;\n    if (initialized)\n        return;\n    initialized = true;\n',
+      '    static bool initialized = false;\n    if (initialized)\n        return;\n    initialized = true;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '    InstructionDesc = new InstructionParameters[OpCodeMask + 1];  // EmuSuNi: on the heap (above)\n'
+      '#endif\n',
+      repo=root + '/ext/glslang')
+patch('SPIRV/doc.h',
+      'extern InstructionParameters InstructionDesc[];\n',
+      '#ifdef EMUSUNI_PORT\n'
+      'extern InstructionParameters *InstructionDesc;  // EmuSuNi: on the heap (doc.cpp)\n'
+      '#else\n'
+      'extern InstructionParameters InstructionDesc[];\n'
+      '#endif\n',
+      repo=root + '/ext/glslang')
+patch('client/postoffice_mem_stdc.c',
+      'int NUM_PDP_SESSIONS = SESSIONS_PER_TYPE;\n'
+      'int NUM_PTP_LISTEN_SESSIONS = SESSIONS_PER_TYPE;\n'
+      'int NUM_PTP_SESSIONS = SESSIONS_PER_TYPE;\n'
+      '\n'
+      'struct pdp_session _pdp_sessions[SESSIONS_PER_TYPE];\n'
+      'struct ptp_listen_session _ptp_listen_sessions[SESSIONS_PER_TYPE];\n'
+      'struct ptp_session _ptp_sessions[SESSIONS_PER_TYPE];\n'
+      '\n'
+      'struct pdp_session *pdp_sessions = _pdp_sessions;\n'
+      'struct ptp_listen_session *ptp_listen_sessions = _ptp_listen_sessions;\n'
+      'struct ptp_session *ptp_sessions = _ptp_sessions;\n'
+      '\n'
+      'void init_postoffice_mem(){\n'
+      '}\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '#include <stdlib.h>\n'
+      '\n'
+      '// EmuSuNi (scripts/build-psp-core.sh): the session tables (2 MiB) on the heap from the relay\'s start\n'
+      '// (aemu_post_office_init) until the core ends (emusuni_post_office_end, postoffice.c), not in the app\'s image.\n'
+      '// No sessions at all until then (or without memory): every open fails.\n'
+      'int NUM_PDP_SESSIONS = 0;\n'
+      'int NUM_PTP_LISTEN_SESSIONS = 0;\n'
+      'int NUM_PTP_SESSIONS = 0;\n'
+      '\n'
+      'struct pdp_session *pdp_sessions = NULL;\n'
+      'struct ptp_listen_session *ptp_listen_sessions = NULL;\n'
+      'struct ptp_session *ptp_sessions = NULL;\n'
+      '\n'
+      'void emusuni_free_postoffice_mem(void){\n'
+      '\tfree(pdp_sessions);\n'
+      '\tfree(ptp_listen_sessions);\n'
+      '\tfree(ptp_sessions);\n'
+      '\tpdp_sessions = NULL;\n'
+      '\tptp_listen_sessions = NULL;\n'
+      '\tptp_sessions = NULL;\n'
+      '\tNUM_PDP_SESSIONS = NUM_PTP_LISTEN_SESSIONS = NUM_PTP_SESSIONS = 0;\n'
+      '}\n'
+      '\n'
+      'void init_postoffice_mem(){\n'
+      '\tpdp_sessions = calloc(SESSIONS_PER_TYPE, sizeof(struct pdp_session));\n'
+      '\tptp_listen_sessions = calloc(SESSIONS_PER_TYPE, sizeof(struct ptp_listen_session));\n'
+      '\tptp_sessions = calloc(SESSIONS_PER_TYPE, sizeof(struct ptp_session));\n'
+      '\tif (!pdp_sessions || !ptp_listen_sessions || !ptp_sessions){\n'
+      '\t\temusuni_free_postoffice_mem();\n'
+      '\t\treturn;\n'
+      '\t}\n'
+      '\tNUM_PDP_SESSIONS = NUM_PTP_LISTEN_SESSIONS = NUM_PTP_SESSIONS = SESSIONS_PER_TYPE;\n'
+      '}\n'
+      '#else\n'
+      'int NUM_PDP_SESSIONS = SESSIONS_PER_TYPE;\n'
+      'int NUM_PTP_LISTEN_SESSIONS = SESSIONS_PER_TYPE;\n'
+      'int NUM_PTP_SESSIONS = SESSIONS_PER_TYPE;\n'
+      '\n'
+      'struct pdp_session _pdp_sessions[SESSIONS_PER_TYPE];\n'
+      'struct ptp_listen_session _ptp_listen_sessions[SESSIONS_PER_TYPE];\n'
+      'struct ptp_session _ptp_sessions[SESSIONS_PER_TYPE];\n'
+      '\n'
+      'struct pdp_session *pdp_sessions = _pdp_sessions;\n'
+      'struct ptp_listen_session *ptp_listen_sessions = _ptp_listen_sessions;\n'
+      'struct ptp_session *ptp_sessions = _ptp_sessions;\n'
+      '\n'
+      'void init_postoffice_mem(){\n'
+      '}\n'
+      '#endif\n',
+      repo=root + '/ext/aemu_postoffice')
+patch('client/postoffice.c',
+      'int aemu_post_office_init(){\n\tstatic bool first_run = true;\n\tif (first_run){\n',
+      '#ifdef EMUSUNI_PORT\n'
+      'void emusuni_free_postoffice_mem(void);  // EmuSuNi: postoffice_mem_stdc.c\n'
+      '#endif\n'
+      '\n'
+      'int aemu_post_office_init(){\n\tstatic bool first_run = true;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\tif (!pdp_sessions)\n'
+      '\t\tfirst_run = true;  // EmuSuNi: the tables were given back at the core\'s end (below): made again\n'
+      '#endif\n'
+      '\tif (first_run){\n',
+      repo=root + '/ext/aemu_postoffice')
+patch('client/postoffice.c',
+      '\treturn 0;\n}\n\nstatic int create_and_init_socket(',
+      '\treturn 0;\n}\n'
+      '\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '// EmuSuNi (scripts/build-psp-core.sh): at the core\'s end (libretro.cpp\'s retro_deinit) every session still open is\n'
+      '// closed, as a new run\'s start does, and the tables go back to the heap (postoffice_mem_stdc.c).\n'
+      'void emusuni_post_office_end(void){\n'
+      '\tif (!pdp_sessions)\n'
+      '\t\treturn;\n'
+      '\tfor (int i = 0;i < NUM_PDP_SESSIONS;i++){\n'
+      '\t\tif(pdp_sessions[i].sock != -1){\n'
+      '\t\t\tpdp_delete(&pdp_sessions[i]);\n'
+      '\t\t}\n'
+      '\t}\n'
+      '\tfor (int i = 0;i < NUM_PTP_LISTEN_SESSIONS;i++){\n'
+      '\t\tif(ptp_listen_sessions[i].sock != -1){\n'
+      '\t\t\tptp_listen_close(&ptp_listen_sessions[i]);\n'
+      '\t\t}\n'
+      '\t}\n'
+      '\tfor (int i = 0;i < NUM_PTP_SESSIONS;i++){\n'
+      '\t\tif(ptp_sessions[i].sock != -1){\n'
+      '\t\t\tptp_close(&ptp_sessions[i]);\n'
+      '\t\t}\n'
+      '\t}\n'
+      '\temusuni_free_postoffice_mem();\n'
+      '}\n'
+      '#endif\n'
+      '\n'
+      'static int create_and_init_socket(',
+      repo=root + '/ext/aemu_postoffice')
+patch('libretro/libretro.cpp',
+      'void retro_deinit(void)\n{\n   g_threadManager.Teardown();\n',
+      '#ifdef EMUSUNI_PORT\n'
+      'extern "C" void emusuni_post_office_end(void);  // EmuSuNi: ext/aemu_postoffice/client/postoffice.c\n'
+      '#endif\n'
+      '\n'
+      'void retro_deinit(void)\n{\n   g_threadManager.Teardown();\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '   emusuni_post_office_end();  // EmuSuNi: the ad hoc relay\'s session tables back to the heap\n'
+      '   EmuSuNiJitEndGame();        // EmuSuNi: the log says if a JIT block is still held (the app takes the arena back next)\n'
       '#endif\n')
 
 # --- Sound: every frame converted (upstream converted at most 1024 into a stack buffer, then copied
@@ -1780,7 +2453,7 @@ bool EmuSuNiTiming::ProfileFrame() {
    return true;
 }
 
-// The GPU emulation's counters (never reset in the libretro core): their change per frame.
+// The GPU emulation's counters (reset when the PSP is: Reset Game): their change per frame.
 static void EmuSuNiGpuStats(uint32_t stats[16]) {
    const int values[16] = { gpuStats.numFlips, gpuStats.numDrawCalls, gpuStats.numFlushes,
       gpuStats.numBlockingReadbacks, gpuStats.numReadbacks, gpuStats.numBlockTransfers, gpuStats.numUploads,
@@ -1803,7 +2476,9 @@ static void EmuSuNiLog(uint64_t frames, double seconds, double msPerTick, const 
    }
    const double f = (double)frames;
    auto ms = [&](int slot) { return (double)t[slot] * msPerTick / f; };
-   auto per = [&](int i) { return (double)(uint32_t)(stats[i] - last[i]) / f; };
+   // (A counter that went back: the PSP was reset, its counters start from zero.)
+   auto delta = [&](int i) { return stats[i] >= last[i] ? stats[i] - last[i] : stats[i]; };
+   auto per = [&](int i) { return (double)delta(i) / f; };
    const bool thread = g_Config.bRenderMultiThreading && g_Config.iInflightFrames > 1;
    const double recording = thread ? 0.0 : std::max(0.0, ms(Recording) - ms(Readbacks));
    const double rest = ms(RetroRun) - ms(DisplayLists) - ms(WaitRenderThread) - ms(WaitGpu) - ms(Frontend) - recording;
@@ -1812,7 +2487,7 @@ static void EmuSuNiLog(uint64_t frames, double seconds, double msPerTick, const 
       "psp: %llu frames in %.1f s (%.1f/s), the game's own %.1f/s; per frame: retro_run %.2f ms = display lists %.2f "
       "(blocking readbacks %.2f, %.2f a frame) + %s %.2f (%u times) + waiting for the GPU %.2f (%u times, %d frames in "
       "flight) + set_image and sound %.2f + the CPU and the rest %.2f",
-      (unsigned long long)frames, seconds, f / seconds, (double)(uint32_t)(stats[0] - last[0]) / seconds,
+      (unsigned long long)frames, seconds, f / seconds, (double)delta(0) / seconds,
       ms(RetroRun), ms(DisplayLists), ms(Readbacks), (double)n[Readbacks] / f,
       thread ? "waiting for the render thread" : "recording and submitting", thread ? ms(WaitRenderThread) : recording,
       thread ? n[WaitRenderThread] : n[Recording], ms(WaitGpu), n[WaitGpu], g_Config.iInflightFrames, ms(Frontend), rest);
@@ -2104,6 +2779,255 @@ patch('assets/compat.ini',
       '\n'
       '[GoWFramerateHack60]\n')
 
+# --- The picture's options while a game runs. Upstream's libretro core applies the texture upscaling shader
+# (the textures redone) and the anti-aliasing (the framebuffers made again) at once, but not:
+#   - the internal resolution with Vulkan ("not working with Vulkan (TODO)"): the emulated swapchain kept the
+#     size the game started with, so a bigger picture came out cropped into a corner (00.38; since 00.39 the
+#     app gave the resolution only as a game started). Now it is made again at the new size, as PPSSPP's own
+#     frontends do when their window changes size: the backbuffers let go (the render thread stopped, the
+#     queue idle), the swapchain destroyed and created, the backbuffers back. The old images are kept: the one
+#     the frontend shows until it is given a newer one, the others 30 retro_runs (libretro_vulkan.cpp); and
+#     each picture goes to the frontend with its own image's size (the render thread presents the first one
+#     of the new size a frame later). The PSP's framebuffers are made again at the new render size too (as
+#     for an MSAA change: upstream told the GPU only that the display changed, so they stayed at the old size
+#     and the bigger picture was the old one enlarged).
+#   - the anisotropic filtering's level: the samplers are kept by a key that only says whether it is on, so
+#     4x, 8x and 16x stayed as the first one used. A change now makes them again (with the textures).
+# Logged: "EmuSuNi: the picture's size changed while the game runs: ...", "EmuSuNi: the PSP's framebuffers are
+# drawn at ...", "EmuSuNi: anisotropic filtering ...", "EmuSuNi: anti-aliasing ...".
+patch('libretro/libretro.cpp',
+      '#include "libretro/LibretroGraphicsContext.h"\n',
+      '#include "libretro/LibretroGraphicsContext.h"\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '#include "libretro/LibretroVulkanContext.h"\n'
+      '#endif\n')
+patch('libretro/libretro.cpp',
+      '   var.key = "ppsspp_texture_anisotropic_filtering";\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '   const int emusuniAnisotropyPrev = g_Config.iAnisotropyLevel;  // EmuSuNi: its samplers made again below\n'
+      '#endif\n'
+      '   var.key = "ppsspp_texture_anisotropic_filtering";\n')
+patch('libretro/libretro.cpp',
+      '   if (gpu && (g_Config.iTexScalingType != iTexScalingType_prev\n'
+      '         || g_Config.iTexScalingLevel != iTexScalingLevel_prev\n'
+      '         || g_Config.sTextureShaderName != sTextureShaderName_prev))\n'
+      '   {\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '   if (gpu && g_Config.iAnisotropyLevel != emusuniAnisotropyPrev)\n'
+      '      INFO_LOG(Log::G3D, "EmuSuNi: anisotropic filtering %dx -> %dx while the game runs (the samplers made again)",\n'
+      '         emusuniAnisotropyPrev ? 1 << emusuniAnisotropyPrev : 0, g_Config.iAnisotropyLevel ? 1 << g_Config.iAnisotropyLevel : 0);\n'
+      '#endif\n'
+      '   if (gpu && (g_Config.iTexScalingType != iTexScalingType_prev\n'
+      '         || g_Config.iTexScalingLevel != iTexScalingLevel_prev\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '         || g_Config.iAnisotropyLevel != emusuniAnisotropyPrev\n'
+      '#endif\n'
+      '         || g_Config.sTextureShaderName != sTextureShaderName_prev))\n'
+      '   {\n')
+patch('libretro/libretro.cpp',
+      '         gpu->NotifyDisplayResized();\n'
+      '         if (ctx && ctx->GetGPUCore() != GPUCORE_VULKAN)\n'
+      '            resetHWContext = true;\n',
+      '         gpu->NotifyDisplayResized();\n'
+      '         if (ctx && ctx->GetGPUCore() != GPUCORE_VULKAN)\n'
+      '            resetHWContext = true;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '         // EmuSuNi: the Vulkan swapchain made again at the new size (LibretroVulkanContext.cpp), and the\n'
+      '         // PSP\'s framebuffers at the next frame (their render size from the new resolution; told only that\n'
+      '         // the display changed, they went on being drawn at the old size).\n'
+      '         if (ctx && ctx->GetGPUCore() == GPUCORE_VULKAN) {\n'
+      '            ((LibretroVulkanContext *)ctx)->EmuSuNiResize();\n'
+      '            gpu->NotifyRenderResized(g_Config.GetDisplayLayoutConfig(g_display.GetDeviceOrientation()));\n'
+      '         }\n'
+      '#endif\n')
+# The PSP's framebuffers' render size, logged when it is set (the game's start, a resolution or MSAA change).
+patch('GPU/Common/FramebufferManagerCommon.cpp',
+      '\tif (draw_ && UpdateRenderSize(msaaLevel)) {\n'
+      '\t\tdraw_->StopThreads();\n'
+      '\t\tDestroyAllFBOs();\n'
+      '\t\tdraw_->StartThreads();\n'
+      '\t}\n',
+      '\tif (draw_ && UpdateRenderSize(msaaLevel)) {\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\tINFO_LOG(Log::G3D, "EmuSuNi: the PSP\'s framebuffers are drawn at %dx%d (x%d, MSAA level %d)", w, h, scaleFactor, msaaLevel);\n'
+      '#endif\n'
+      '\t\tdraw_->StopThreads();\n'
+      '\t\tDestroyAllFBOs();\n'
+      '\t\tdraw_->StartThreads();\n'
+      '\t}\n')
+patch('libretro/libretro.cpp',
+      '   if (g_Config.iMultiSampleLevel != iMultiSampleLevel_prev && PSP_IsInited())\n'
+      '   {\n',
+      '   if (g_Config.iMultiSampleLevel != iMultiSampleLevel_prev && PSP_IsInited())\n'
+      '   {\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '      INFO_LOG(Log::G3D, "EmuSuNi: anti-aliasing (MSAA) x%d -> x%d while the game runs (the framebuffers made again)",\n'
+      '         1 << iMultiSampleLevel_prev, 1 << g_Config.iMultiSampleLevel);\n'
+      '#endif\n')
+patch('GPU/Vulkan/TextureCacheVulkan.cpp',
+      'void TextureCacheVulkan::NotifyConfigChanged() {\n\tTextureCacheCommon::NotifyConfigChanged();\n\tCompileScalingShader();\n}\n',
+      'void TextureCacheVulkan::NotifyConfigChanged() {\n\tTextureCacheCommon::NotifyConfigChanged();\n\tCompileScalingShader();\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t// EmuSuNi: the samplers are kept by a key that only says whether anisotropic filtering is on: made again\n'
+      '\t// (the old ones deleted once the frames using them are done) when its level changed since they were made.\n'
+      '\tstatic int emusuniSamplerAnisotropy = -1;\n'
+      '\tVulkanContext *vulkan = draw_ ? (VulkanContext *)draw_->GetNativeObject(Draw::NativeObject::CONTEXT) : nullptr;\n'
+      '\tif (vulkan && emusuniSamplerAnisotropy != g_Config.iAnisotropyLevel) {\n'
+      '\t\tsamplerCache_.DeviceLost();\n'
+      '\t\tsamplerCache_.DeviceRestore(vulkan);\n'
+      '\t\temusuniSamplerAnisotropy = g_Config.iAnisotropyLevel;\n'
+      '\t}\n'
+      '#endif\n'
+      '}\n')
+patch('libretro/LibretroVulkanContext.h',
+      '\tvoid ContextReset() override;\n\tvoid ContextDestroy() override;\n',
+      '\tvoid ContextReset() override;\n\tvoid ContextDestroy() override;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t// EmuSuNi: the swapchain made again at the internal resolution\'s size (libretro.cpp, when it changes).\n'
+      '\tvoid EmuSuNiResize();\n'
+      '#endif\n')
+patch('libretro/LibretroVulkanContext.cpp',
+      'void vk_libretro_wait_for_presentation();\n',
+      'void vk_libretro_wait_for_presentation();\n'
+      '#ifdef EMUSUNI_PORT\n'
+      'void vk_libretro_retire_swapchain();\n'
+      'bool vk_libretro_shown_size(int *width, int *height);\n'
+      '#endif\n')
+patch('libretro/LibretroVulkanContext.cpp',
+      'void LibretroVulkanContext::SwapBuffers() {\n\tvk_libretro_wait_for_presentation();\n\tLibretroHWRenderContext::SwapBuffers();\n}\n',
+      'void LibretroVulkanContext::SwapBuffers() {\n\tvk_libretro_wait_for_presentation();\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t// EmuSuNi: the size of the image the frontend shows: when the resolution changed, the picture before\n'
+      '\t// keeps its own size until one of the new size is presented (with the render thread, a frame later).\n'
+      '\tint width = 0, height = 0;\n'
+      '\tif (vk_libretro_shown_size(&width, &height)) {\n'
+      '\t\tvideo_cb(RETRO_HW_FRAME_BUFFER_VALID, width, height, 0);\n'
+      '\t\treturn;\n'
+      '\t}\n'
+      '#endif\n'
+      '\tLibretroHWRenderContext::SwapBuffers();\n}\n'
+      '\n'
+      '#ifdef EMUSUNI_PORT\n'
+      'void LibretroVulkanContext::EmuSuNiResize() {\n'
+      '\t// As PPSSPP\'s frontends do when their window changes size (SDLVulkanGraphicsContext::Resize).\n'
+      '\tif (!vk || !draw_ || !vk->GetSwapchain())\n'
+      '\t\treturn;\n'
+      '\tconst int oldWidth = vk->GetBackbufferWidth(), oldHeight = vk->GetBackbufferHeight();\n'
+      '\tdraw_->HandleEvent(Draw::Event::LOST_BACKBUFFER, oldWidth, oldHeight);\n'
+      '\tvk_libretro_retire_swapchain();  // the frontend may still show one of its images\n'
+      '\tvk->DestroySwapchain();\n'
+      '\tif (!vk->InitSwapchain(VK_PRESENT_MODE_FIFO_KHR))\n'
+      '\t\tERROR_LOG(Log::G3D, "EmuSuNi: the swapchain couldn\'t be made again at the new size");\n'
+      '\tdraw_->HandleEvent(Draw::Event::GOT_BACKBUFFER, vk->GetBackbufferWidth(), vk->GetBackbufferHeight());\n'
+      '\tINFO_LOG(Log::G3D, "EmuSuNi: the picture\'s size changed while the game runs: %dx%d -> %dx%d (the swapchain made again)",\n'
+      '\t\toldWidth, oldHeight, vk->GetBackbufferWidth(), vk->GetBackbufferHeight());\n'
+      '}\n'
+      '#endif\n')
+# The emulated swapchain: destroyed for a resize, its images (with their memory and views) are kept, retired:
+# the one the frontend shows stays as long as it is the last one handed to it (set_image), the others go 30
+# retro_runs after they stopped being shown (the frontend's frames in flight, and its drawing beside the
+# emulation, done with them by then), on retro_run's thread. Destroyed at once otherwise (the core's end: the
+# frontend waited for its GPU work before context_destroy).
+patch('libretro/libretro_vulkan.cpp',
+      'static int emusuni_shown = -1;           // the image last handed to set_image\n',
+      'static int emusuni_shown = -1;           // the image last handed to set_image\n'
+      'static uint32_t emusuni_chain_width = 0, emusuni_chain_height = 0;  // the swapchain\'s images\' size\n'
+      'static int emusuni_shown_width = 0, emusuni_shown_height = 0;       // the image last handed to set_image\n'
+      'static VkImage emusuni_shown_image = VK_NULL_HANDLE;                 // (its handle)\n'
+      '// Images of swapchains destroyed for a resize, until the frontend can\'t be using them any more.\n'
+      'struct EmuSuNiRetired {\n'
+      '\tVkDevice device;\n'
+      '\tVkImage image;\n'
+      '\tVkImageView view;\n'
+      '\tVkDeviceMemory memory;\n'
+      '\tint age;  // retro_runs since the frontend was last given it\n'
+      '};\n'
+      'static std::vector<EmuSuNiRetired> emusuni_retired;\n'
+      'static bool emusuni_retire_next = false;  // the next vkDestroySwapchainKHR keeps its images\n'
+      'static constexpr int EMUSUNI_RETIRED_AGE = 30;\n'
+      '\n'
+      'static void EmuSuNiDestroyRetired(size_t index) {\n'
+      '\tEmuSuNiRetired &r = emusuni_retired[index];\n'
+      '\tvkDestroyImageView(r.device, r.view, nullptr);\n'
+      '\tvkDestroyImage(r.device, r.image, nullptr);\n'
+      '\tvkFreeMemory(r.device, r.memory, nullptr);\n'
+      '\temusuni_retired.erase(emusuni_retired.begin() + index);\n'
+      '}\n'
+      '\n'
+      'void vk_libretro_retire_swapchain() {\n'
+      '\temusuni_retire_next = true;\n'
+      '}\n'
+      '\n'
+      'bool vk_libretro_shown_size(int *width, int *height) {\n'
+      '\tstd::lock_guard<std::mutex> lock(chain.mutex);\n'
+      '\tif (emusuni_shown_width <= 0 || emusuni_shown_height <= 0)\n'
+      '\t\treturn false;\n'
+      '\t*width = emusuni_shown_width;\n'
+      '\t*height = emusuni_shown_height;\n'
+      '\treturn true;\n'
+      '}\n')
+patch('libretro/libretro_vulkan.cpp',
+      '#ifdef EMUSUNI_PORT\n\temusuni_next_image = 0;\n\temusuni_presented = -1;\n\temusuni_shown = -1;\n'
+      '#endif\n'
+      '\t*pSwapchain = (VkSwapchainKHR)&chain;\n',
+      '#ifdef EMUSUNI_PORT\n\temusuni_next_image = 0;\n\temusuni_presented = -1;\n\temusuni_shown = -1;\n'
+      '\temusuni_chain_width = pCreateInfo->imageExtent.width;\n'
+      '\temusuni_chain_height = pCreateInfo->imageExtent.height;\n'
+      '#endif\n'
+      '\t*pSwapchain = (VkSwapchainKHR)&chain;\n')
+patch('libretro/libretro_vulkan.cpp',
+      '\t\tif (show >= 0 && vulkan)\n'
+      '\t\t\tvulkan->set_image(vulkan->handle, &chain.images[show].retro_image, 0, nullptr, vulkan->queue_index);\n'
+      '\t\treturn;\n',
+      '\t\tif (show >= 0 && vulkan) {\n'
+      '\t\t\tvulkan->set_image(vulkan->handle, &chain.images[show].retro_image, 0, nullptr, vulkan->queue_index);\n'
+      '\t\t\tstd::lock_guard<std::mutex> lock(chain.mutex);\n'
+      '\t\t\temusuni_shown_width = (int)emusuni_chain_width;\n'
+      '\t\t\temusuni_shown_height = (int)emusuni_chain_height;\n'
+      '\t\t\temusuni_shown_image = chain.images[show].handle;\n'
+      '\t\t}\n'
+      '\t\t{\n'
+      '\t\t\t// The kept images grow older, but the one the frontend still shows; the old enough ones go.\n'
+      '\t\t\tstd::lock_guard<std::mutex> lock(chain.mutex);\n'
+      '\t\t\tfor (size_t i = emusuni_retired.size(); i-- > 0;) {\n'
+      '\t\t\t\tif (emusuni_retired[i].image == emusuni_shown_image)\n'
+      '\t\t\t\t\temusuni_retired[i].age = 0;\n'
+      '\t\t\t\telse if (++emusuni_retired[i].age >= EMUSUNI_RETIRED_AGE)\n'
+      '\t\t\t\t\tEmuSuNiDestroyRetired(i);\n'
+      '\t\t\t}\n'
+      '\t\t}\n'
+      '\t\treturn;\n')
+patch('libretro/libretro_vulkan.cpp',
+      'static VKAPI_ATTR void VKAPI_CALL vkDestroySwapchainKHR_libretro(VkDevice device, VkSwapchainKHR swapchain, const VkAllocationCallbacks *pAllocator) {\n',
+      'static VKAPI_ATTR void VKAPI_CALL vkDestroySwapchainKHR_libretro(VkDevice device, VkSwapchainKHR swapchain, const VkAllocationCallbacks *pAllocator) {\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t{\n'
+      '\t\t// EmuSuNi: for a resize, the images kept a while (the frontend may still show one); else they go\n'
+      '\t\t// at once, and the ones kept from before too.\n'
+      '\t\tstd::lock_guard<std::mutex> lock(chain.mutex);\n'
+      '\t\tconst bool retire = emusuni_retire_next;\n'
+      '\t\temusuni_retire_next = false;\n'
+      '\t\tif (!retire) {\n'
+      '\t\t\twhile (!emusuni_retired.empty())\n'
+      '\t\t\t\tEmuSuNiDestroyRetired(emusuni_retired.size() - 1);\n'
+      '\t\t\temusuni_shown_width = emusuni_shown_height = 0;\n'
+      '\t\t\temusuni_shown_image = VK_NULL_HANDLE;\n'
+      '\t\t} else {\n'
+      '\t\t\tfor (uint32_t i = 0; i < chain.count; i++)\n'
+      '\t\t\t\temusuni_retired.push_back({device, chain.images[i].handle, chain.images[i].retro_image.image_view,\n'
+      '\t\t\t\t\tchain.images[i].memory, 0});\n'
+      '\t\t\tmemset(&chain.images, 0x00, sizeof(chain.images));\n'
+      '\t\t\tchain.count = 0;\n'
+      '\t\t\temusuni_next_image = 0;\n'
+      '\t\t\temusuni_presented = -1;\n'
+      '\t\t\temusuni_shown = -1;\n'
+      '\t\t\tchain.current_index = -1;\n'
+      '\t\t\tchain.ever_presented = false;\n'
+      '\t\t\treturn;\n'
+      '\t\t}\n'
+      '\t}\n'
+      '#endif\n')
+
 written = 0
 for (repo, path), text in patched.items():
     full = repo + '/' + path
@@ -2154,7 +3078,7 @@ fi
 FF_SRC="$SRC/ffmpeg"
 FF_BUILD="$OUT/ffmpeg-build"
 FF_PREFIX="$OUT/ffmpeg"
-FF_CFLAGS="-O3 -march=btver2 -Wno-error=incompatible-function-pointer-types -Wno-error=int-conversion"
+FF_CFLAGS="-O3 -march=btver2 -ffunction-sections -fdata-sections -fno-unwind-tables -fno-asynchronous-unwind-tables -Wno-error=incompatible-function-pointer-types -Wno-error=int-conversion"
 FF_CFLAGS+=" -Wno-error=implicit-function-declaration -Wno-error=implicit-int -Wno-error=incompatible-pointer-types"
 [ "$HOST" = 1 ] && FF_CFLAGS+=" -mno-sse4a"
 FF_OPTS=(
@@ -2202,8 +3126,11 @@ if [ "${2:-}" = clean ] || [ "$(cat "$FF_STAMP" 2>/dev/null)" != "$FF_WANT" ] ||
 fi
 
 # The Release flags (CMAKE_C_FLAGS would replace the toolchain's target flags): CMake's -O3, the
-# PS4's CPU and the renamed API.
-FLAGS_CORE="-O3 -DNDEBUG -march=btver2 -include $OUT/prefix_ppsspp.h"
+# PS4's CPU, a section for each function and variable (the app's link, --gc-sections, drops the ones
+# nothing uses: the JIT emitters of other CPUs, SPIRV-Cross's other backends...), unwind tables only for
+# the functions that can throw (not the toolchain's -funwind-tables, a frame for every function) and the
+# renamed API.
+FLAGS_CORE="-O3 -DNDEBUG -march=btver2 -ffunction-sections -fdata-sections -fno-unwind-tables -fno-asynchronous-unwind-tables -include $OUT/prefix_ppsspp.h"
 # (On the PC: Jaguar's instructions but AMD's SSE4A, which Intel CPUs don't have.)
 [ "$HOST" = 1 ] && FLAGS_CORE+=" -mno-sse4a"
 # The PS4: a FreeBSD for armips' ghc::filesystem (OpenOrbis' sys/param.h doesn't say BSD).
@@ -2295,7 +3222,7 @@ if [ "$HOST" != 1 ]; then
   # (__dso_handle: ld.lld defines it for the program, as for the other C++ cores. The threads' hook,
   # emusuni_psp_thread, is the app's to define in port/: a note if it isn't yet.)
   APP_GIVES=$( { llvm-nm-21 --defined-only "$OUT/check_ps4_new.o" "$OUT/check_ps4_n64.o" | awk 'NF >= 3 {print $3}';
-                 echo __dso_handle; echo emusuni_psp_thread; } | sort -u)
+                 echo __dso_handle; echo emusuni_psp_thread; echo emusuni_free_disk_space; } | sort -u)
   rm -f "$OUT/check_ps4_new.o" "$OUT/check_ps4_n64.o"
   if ! grep -qs "emusuni_psp_thread" "$PROJECT"/port/*.c "$PROJECT"/port/*.cpp; then
     echo "PPSSPP: note: port/ doesn't define emusuni_psp_thread yet (the app won't link without it)"

@@ -67,6 +67,58 @@ const std::vector<System>& Systems()
        "/usb0/Roms/dc", {".gdi", ".cdi", ".chd", ".cue", ".m3u"}, "Sega - Dreamcast",
        "libretro-thumbnails/Sega_-_Dreamcast", &Cores::FLYCAST, true},
 #endif
+#ifdef EMUSUNI_SEGA
+      // The four share Genesis Plus GX; each has its tab, folder and covers. The core tells them apart
+      // by the file's extension (a .zip's game: the console's first one); a .sc is an SG-1000 game
+      // too (scripts/build-gpgx-core.sh), a .bin only ever a Mega Drive one. Badge colours unlike the
+      // others' (All Games shows every console's covers side by side): the Mega Drive's navy, not the
+      // PlayStation's blue; the Master System's vermilion, not the Famicom's red.
+      {SystemId::SG1000, "sg1000", "SG-1000", "SG-1000", "SG-1000", "SG-1000", "SG-1000", 0x9A5B23, 0x9A5B23,
+       "sg1000/", "/usb0/Roms/sg1000", {".sg", ".sc"}, "Sega - SG-1000", "libretro-thumbnails/Sega_-_SG-1000",
+       &Cores::GPGX},
+      {SystemId::SMS, "sms", "Master System", "Mark III", "SMS", "SMS", "SMS", 0xE0301E, 0xE0301E, "sms/",
+       "/usb0/Roms/sms", {".sms", ".bms"}, "Sega - Master System - Mark III",
+       "libretro-thumbnails/Sega_-_Master_System_-_Mark_III", &Cores::GPGX},
+      {SystemId::GG, "gg", "Game Gear", "Game Gear", "GG", "GG", "GG", 0x00838F, 0x00838F, "gg/", "/usb0/Roms/gg",
+       {".gg"}, "Sega - Game Gear", "libretro-thumbnails/Sega_-_Game_Gear", &Cores::GPGX},
+      // Genesis (the user's name for it; Japanese games: Mega Drive, as Super Famicom for the SNES).
+      {SystemId::MD, "md", "Genesis", "Mega Drive", "GEN", "GENESIS", "MEGA DRIVE", 0x0E2A66, 0x0E2A66, "md/", "/usb0/Roms/md",
+       {".md", ".gen", ".smd", ".bin", ".mdx", ".68k", ".sgd"}, "Sega - Mega Drive - Genesis",
+       "libretro-thumbnails/Sega_-_Mega_Drive_-_Genesis", &Cores::GPGX},
+#endif
+#ifdef EMUSUNI_ARCADE
+      // Arcade games are romsets: a .zip (or .7z) named after FinalBurn Neo's driver (mslug.zip), which
+      // the core reads itself from its path (by_path; the app never opens it): the Library lists the
+      // zips whose name is a driver's (src/Arcade.h). The badge in the cabinets' black.
+      {SystemId::ARCADE, "arcade", "Arcade", "Arcade", "Arcade", "ARCADE", "ARCADE", 0x2E2E36, 0x2E2E36, "arcade/",
+       "/usb0/Roms/arcade", {".zip", ".7z"}, "FBNeo - Arcade Games", "libretro-thumbnails/FBNeo_-_Arcade_Games",
+       &Cores::FBNEO, true},
+#endif
+#ifdef EMUSUNI_DC
+      // Sega's NAOMI (and NAOMI 2) and Sammy's Atomiswave: the Dreamcast's hardware in arcade boards, played by
+      // the Dreamcast's core (Flycast). A game is a MAME set: a .zip (or .7z) named after it (mvsc2.zip,
+      // kofxi.zip) that the core reads itself (by_path; the app never opens it), the Library lists the zips whose
+      // name is one of Flycast's sets of the board (src/Naomi.h), and its BIOS (naomi.zip, awbios.zip) goes
+      // beside the games or in system/dc. Keys of their own (naomi/, atomiswave/: their saves, settings and
+      // covers apart from the Arcade's), libretro's thumbnails of each board ("Atomiswave" is that folder's
+      // name on the thumbnail server), badges in colours no other console has: the NAOMI's gold, the
+      // Atomiswave's green. A NAOMI game can also be a cartridge image, a loose .dat or .bin (00.64: its header
+      // says NAOMI; the Library reads it).
+      {SystemId::NAOMI, "naomi", "NAOMI", "NAOMI", "NAOMI", "NAOMI", "NAOMI", 0x9A7400, 0x9A7400, "naomi/",
+       "/usb0/Roms/naomi", {".zip", ".7z", ".dat", ".bin"}, "Sega - Naomi", "libretro-thumbnails/Sega_-_Naomi",
+       &Cores::FLYCAST, true},
+      {SystemId::ATOMISWAVE, "atomiswave", "Atomiswave", "Atomiswave", "Atomiswave", "ATOMISWAVE", "ATOMISWAVE",
+       0x558B2F, 0x558B2F, "atomiswave/", "/usb0/Roms/atomiswave", {".zip", ".7z"}, "Atomiswave",
+       "libretro-thumbnails/Atomiswave", &Cores::FLYCAST, true},
+#endif
+#ifdef EMUSUNI_3DS
+      // 3DS games are decrypted dumps (.3ds / .cci, .cxi, or a homebrew's .3dsx; no .cia, which the core
+      // can't install) of up to 4 GiB: the core reads them itself from their path (by_path), so no .zip
+      // either. The badge in the 3DS's aqua blue.
+      {SystemId::THREEDS, "3ds", "Nintendo 3DS", "Nintendo 3DS", "3DS", "3DS", "3DS", 0x1CA0DC, 0x1CA0DC, "3ds/",
+       "/usb0/Roms/3ds", {".3ds", ".cci", ".cxi", ".3dsx"}, "Nintendo - Nintendo 3DS",
+       "libretro-thumbnails/Nintendo_-_Nintendo_3DS", &Cores::AZAHAR, true},
+#endif
   };
   return SYSTEMS;
 }
@@ -102,6 +154,10 @@ const System* SystemOfFile(const std::string& name)
                  [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
   for (const System& system : Systems())
   {
+    // (Not the Arcade's, the NAOMI's and the Atomiswave's .zip and .7z: a .zip is any console's, and an arcade
+    // game is known by its name, not its extension - Library.cpp.)
+    if (IsRomsetSystem(system.id))
+      continue;
     if (std::find(system.extensions.begin(), system.extensions.end(), extension) != system.extensions.end())
       return &system;
   }

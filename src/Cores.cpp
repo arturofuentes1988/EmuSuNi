@@ -66,6 +66,18 @@ DECLARE_CORE(ppsspp)
 #ifdef EMUSUNI_DC
 DECLARE_CORE(flycast)
 #endif
+#ifdef EMUSUNI_SEGA
+DECLARE_CORE(gpgx)
+#endif
+#ifdef EMUSUNI_ARCADE
+DECLARE_CORE(fbneo)
+#endif
+#ifdef EMUSUNI_3DS
+DECLARE_CORE(azahar)
+#endif
+#ifdef EMUSUNI_SATURN
+DECLARE_CORE(yabasanshiro)
+#endif
 
 namespace Cores
 {
@@ -88,5 +100,17 @@ const CoreApi PPSSPP = CORE_TABLE(ppsspp, "PPSSPP");
 #endif
 #ifdef EMUSUNI_DC
 const CoreApi FLYCAST = CORE_TABLE(flycast, "Flycast");
+#endif
+#ifdef EMUSUNI_SEGA
+const CoreApi GPGX = CORE_TABLE(gpgx, "Genesis Plus GX");
+#endif
+#ifdef EMUSUNI_ARCADE
+const CoreApi FBNEO = CORE_TABLE(fbneo, "FinalBurn Neo");
+#endif
+#ifdef EMUSUNI_3DS
+const CoreApi AZAHAR = CORE_TABLE(azahar, "Azahar");
+#endif
+#ifdef EMUSUNI_SATURN
+const CoreApi YABASANSHIRO = CORE_TABLE(yabasanshiro, "YabaSanshiro");
 #endif
 }  // namespace Cores

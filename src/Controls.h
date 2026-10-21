@@ -42,6 +42,13 @@ void ResetToDefault(const std::string& game_key, SystemId system);
 
 // The control's name as shown when it has no icon.
 std::string Describe(const std::string& value);
+// The DualShock 4 control that fast-forwards a game (its own layout, else its console's normal one), as the menus name
+// it ("R2", "Touchpad", "D-Pad Up"), or "None". Every console has the Fast Forward (hold) row: on those whose buttons
+// are all the console's (the PlayStation, the arcade boards, the Dreamcast, the 3DS) it starts at None.
+std::string FastForwardButton(const std::string& game_key, SystemId system);
+// The Fast Forward setting's help for a game's or a console's page (game_key empty: the console's normal layout):
+// the button that does it now - the player's own if they changed it - or that none does yet. English, for PS4Lang::T.
+std::string FastForwardHelp(const std::string& game_key, SystemId system);
 // A button capture: true when nothing is pressed; the first pressed control's name, or "".
 bool IsAtRest(const OrbisPadData& data);
 std::string Capture(const OrbisPadData& data);
@@ -52,7 +59,41 @@ struct Layout
   uint32_t button_mask[16] = {};  // per libretro joypad id: the DS4 button bits that press it
   bool dpad = true, left_stick = true;
   uint32_t fast_forward = 0;
+  uint32_t tap = 0;  // the DS's stylus down (Tap the Screen)
+  uint32_t reload = 0;  // a NAOMI or Atomiswave light gun game's reload (Gun Reload: the gun shot off the screen)
 };
 Layout LayoutFor(const std::string& game_key, SystemId system);
 uint16_t PadButtons(const Layout& layout, const OrbisPadData& data);
+
+// Every button of the DualShock 4 (the pad's other bits aren't the player's).
+constexpr uint32_t PAD_BUTTONS = ORBIS_PAD_BUTTON_L3 | ORBIS_PAD_BUTTON_R3 | ORBIS_PAD_BUTTON_OPTIONS |
+                                 ORBIS_PAD_BUTTON_UP | ORBIS_PAD_BUTTON_RIGHT | ORBIS_PAD_BUTTON_DOWN |
+                                 ORBIS_PAD_BUTTON_LEFT | ORBIS_PAD_BUTTON_L2 | ORBIS_PAD_BUTTON_R2 | ORBIS_PAD_BUTTON_L1 |
+                                 ORBIS_PAD_BUTTON_R1 | ORBIS_PAD_BUTTON_TRIANGLE | ORBIS_PAD_BUTTON_CIRCLE |
+                                 ORBIS_PAD_BUTTON_CROSS | ORBIS_PAD_BUTTON_SQUARE | ORBIS_PAD_BUTTON_TOUCH_PAD;
+// The pad as nobody touches it: no button, the sticks in the middle, the triggers up, no finger on the
+// touchpad (the motion sensors as they are).
+OrbisPadData Untouched(const OrbisPadData& data);
+// After the in-game menu (whatever took the game back: Resume, Circle, L3+R3, a state loaded, Reset, a disc
+// changed; src/Emulator.cpp), player 1's pad reaches the game again only once every button is up: the
+// press that closed the menu - Cross, Circle, or L3+R3 and the sticks pushed with them - isn't the game's.
+// Until then the game sees the pad untouched.
+class MenuRelease
+{
+public:
+  void Start()  // the menu has just closed
+  {
+    m_waiting = true;
+    m_passes = 0;
+  }
+  bool Waiting() const { return m_waiting; }
+  // Player 1's pad for the game this pass (`connected`: read this pass, and not the screenshot tour's). The
+  // wait ends at the first pass the pad is read with every button up (the pad goes to the game as it is then);
+  // `hidden_passes` then says how many passes it kept the pad untouched, else 0.
+  OrbisPadData Pad(const OrbisPadData& data, bool connected, int* hidden_passes = nullptr);
+
+private:
+  bool m_waiting = false;
+  int m_passes = 0;
+};
 }  // namespace Controls

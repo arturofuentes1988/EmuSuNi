@@ -3,7 +3,8 @@
 #
 # Makes the built-in bezels (all original): frames that fill the sides a 4:3 picture leaves on a
 # 16:9 TV, see-through where the game goes (the emulator finds that window and fits the picture
-# in it). Three for each console, and an old TV for all of them:
+# in it). Three for each of the first consoles, one for each of the others (00.63), an old TV and six frames for
+# all of them:
 #   assets/xmb/bezels/snes-console.png   dark grey, the purple line, the D-pad and face buttons
 #   assets/xmb/bezels/snes-sfc.png       the Super Famicom's light grey and four colours
 #   assets/xmb/bezels/snes-purple.png    deep purple with pixel stars
@@ -26,12 +27,34 @@
 #   assets/xmb/bezels/ps1-psone.png      the PSone's white and silver
 #   assets/xmb/bezels/ps1-dark.png       Midnight: black and deep blue, the symbols glowing
 #   assets/xmb/bezels/tv.png             a wooden tube TV around the picture
+#   assets/xmb/bezels/tv-169.png         the same TV with a widescreen tube, for wide pictures (00.63)
+# 00.63, the consoles that had none of their own (no logos or names of theirs, only their shapes and colours):
+#   assets/xmb/bezels/sg1000-console.png black, the red band between white lines, the joystick, 1 and 2
+#   assets/xmb/bezels/sms-console.png    black, the ribbed top and red lines, the pad, 1 and 2, PAUSE
+#   assets/xmb/bezels/gg-console.png     the Game Gear around its 4:3 screen (1152x864)
+#   assets/xmb/bezels/md-console.png     black with round grooves, 16-BIT, the round D-pad, A B C
+#   assets/xmb/bezels/psp-console.png    the PSP in glossy black around a 16:9 window (1600x900)
+#   assets/xmb/bezels/dc-console.png     white, the round lid, the orange light, the four coloured buttons
+#   assets/xmb/bezels/naomi-console.png  a white cabinet with gold trim (the NAOMI)
+#   assets/xmb/bezels/atomiswave-console.png  a black cabinet with green lights and a cartridge
+#   assets/xmb/bezels/nds-console[-wide|-tall|-169].png  the DS in white, a window for each DS Screens view
+#   assets/xmb/bezels/3ds-console[-wide|-tall|-169].png  the 3DS in aqua blue, a window for each 3DS Screens view
+# and six frames for every console, each with a 4:3, a 16:9 (-169), a wide (-wide: two screens side by side) and
+# a tall (-tall) window (Emulator.cpp picks the one for the picture's shape):
+#   assets/xmb/bezels/frame-cabinet*.png an arcade cabinet's sides: art, trim, marquee, stick, buttons, coins
+#   assets/xmb/bezels/frame-minimal*.png dark and plain, a thin rim
+#   assets/xmb/bezels/frame-neon*.png    a neon night: grid, sun, stars, glowing tubes
+#   assets/xmb/bezels/frame-wood*.png    walnut, black ribs, chrome trim, two switches
+#   assets/xmb/bezels/frame-carbon*.png  carbon fibre, brushed aluminium, a red pinstripe, screws
+#   assets/xmb/bezels/frame-stars*.png   deep space, a nebula, stars
 # The handhelds' windows have their screen's shape at a whole multiple: 960x864 (6x 160x144) for
 # the Game Boy and Color, 1200x800 (5x 240x160) for the Advance.
 #
-#   python3 scripts/make-bezels.py [preview.png]   (needs Pillow; with a game picture, also writes
-#                                                   previews to /tmp/bezel-previews)
+#   python3 scripts/make-bezels.py [names or prefixes...] [preview.png]   (needs Pillow, with libimagequant for
+#                       the palette PNGs; with a game picture, also writes previews to /tmp/bezel-previews;
+#                       BEZELS_OUT=dir writes elsewhere)
 
+import math
 import os
 import random
 import sys
@@ -39,7 +62,7 @@ import sys
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-OUT = os.path.join(ROOT, "assets/xmb/bezels")
+OUT = os.environ.get("BEZELS_OUT", os.path.join(ROOT, "assets/xmb/bezels"))  # (BEZELS_OUT: elsewhere, to try)
 FONT = os.path.join(ROOT, "assets/xmb/fonts/Michroma-Regular.ttf")
 S = 2  # drawn at twice the size, then made smaller (smooth edges)
 W, H = 1920 * S, 1080 * S
@@ -757,6 +780,837 @@ def tv():
     return image
 
 
+# --- 00.63: frames for every console, with a window for each shape of picture ------------------------------------
+# A frame's window for each shape (1x pixels: x0, y0, x1, y1; Emulator.cpp BezelShape picks the file by the
+# picture's shape, <name><shape>.png, else <name>.png):
+WINDOWS = {
+    "": (240, 0, 1680, 1080),       # 4:3 at full height (as X0, X1)
+    "-169": (160, 90, 1760, 990),   # 16:9, 1600x900: a widescreen picture (the PSP) made a little smaller
+    "-wide": (0, 180, 1920, 900),   # 8:3, the whole width: the DS's two screens side by side (the 3DS's 3:1 fits)
+    "-tall": (510, 0, 1410, 1080),  # 5:6 at full height: screens one above the other, a vertical arcade game
+}
+
+
+def scaled(rect):
+    return tuple(v * S for v in rect)
+
+
+def cut_box(image, rect):
+    """The see-through window (1x rect), square-cornered."""
+    x0, y0, x1, y1 = scaled(rect)
+    ImageDraw.Draw(image).rectangle((x0, y0, x1 - 1, y1 - 1), fill=(0, 0, 0, 0))
+
+
+def regions(rect):
+    """The frame's parts around a window (2x boxes): the sides and the bands above and below, where there is room."""
+    x0, y0, x1, y1 = scaled(rect)
+    boxes = {"left": (0, 0, x0, H), "right": (x1, 0, W, H), "top": (x0, 0, x1, y0), "bottom": (x0, y1, x1, H)}
+    return {k: b for k, b in boxes.items() if b[2] - b[0] >= 60 * S and b[3] - b[1] >= 60 * S}
+
+
+def glow(image, layer, blur, strength=1):
+    """A layer with its glow (blurred copies under it)."""
+    soft = layer.filter(ImageFilter.GaussianBlur(blur))
+    for _ in range(strength):
+        image.alpha_composite(soft)
+    image.alpha_composite(layer)
+
+
+def ring(draw, rect, pad, colour, width):
+    """A line `pad` (1x) outside a window's edges."""
+    x0, y0, x1, y1 = scaled(rect)
+    p = pad * S
+    draw.rectangle((x0 - p, y0 - p, x1 + p - 1, y1 + p - 1), outline=colour, width=width * S)
+
+
+def light_from_above(image, alpha=22):
+    light = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    ImageDraw.Draw(light).ellipse((int(W * 0.1), int(-H * 0.6), int(W * 0.9), int(H * 0.35)), fill=(255, 255, 255, alpha))
+    image.alpha_composite(light.filter(ImageFilter.GaussianBlur(110 * S)))
+
+
+def spot(rect, where):
+    """Where a small detail goes (2x centre): "led" near the bottom right of the frame, "low" the lower part of the
+    side panels (or of the band below), "high" their upper part."""
+    x0, y0, x1, y1 = scaled(rect)
+    parts = regions(rect)
+    if "right" in parts:
+        cx = (x1 + W) // 2
+        return {"led": (cx, H - 50 * S), "low": (cx, int(H * 0.72)), "high": (cx, int(H * 0.25))}[where]
+    return {"led": (W - 70 * S, (y1 + H) // 2), "low": (W - 220 * S, (y1 + H) // 2), "high": (W - 220 * S, y0 // 2)}[where]
+
+
+def power_led(image, centre, colour=(90, 200, 255)):
+    cx, cy = centre
+    halo = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    ImageDraw.Draw(halo).ellipse((cx - 18 * S, cy - 18 * S, cx + 18 * S, cy + 18 * S), fill=colour + (110,))
+    image.alpha_composite(halo.filter(ImageFilter.GaussianBlur(8 * S)))
+    ImageDraw.Draw(image).ellipse((cx - 5 * S, cy - 5 * S, cx + 5 * S, cy + 5 * S), fill=(235, 250, 255, 255))
+
+
+def frame_minimal(rect):
+    """Dark Minimal: a plain charcoal frame, lit softly from above, a thin rim around the picture."""
+    image = vertical_gradient((W, H), (40, 40, 45), (13, 13, 16))
+    light_from_above(image, 26)
+    x0, y0, x1, y1 = scaled(rect)
+    draw = ImageDraw.Draw(image)
+    for pad, colour in ((16, (66, 66, 72, 255)), (14, (24, 24, 27, 255)), (6, (6, 6, 7, 255))):
+        p = pad * S
+        draw.rounded_rectangle((x0 - p, y0 - p, x1 + p - 1, y1 + p - 1), radius=p, fill=colour)
+    cut_box(image, rect)
+    power_led(image, spot(rect, "led"), (120, 210, 255))
+    return image
+
+
+def frame_neon(rect):
+    """Neon: a night of the 1980s - a magenta grid to the horizon, a setting sun, stars, and neon tubes around the
+    picture."""
+    image = vertical_gradient((W, H), (24, 8, 48), (6, 2, 16))
+    x0, y0, x1, y1 = scaled(rect)
+    parts = regions(rect)
+    sides = "left" in parts
+    horizon = int(H * 0.62) if sides else y1 + 40 * S
+    rnd = random.Random(1984)
+    draw = ImageDraw.Draw(image)
+    for _ in range(220):
+        x, y = rnd.randrange(W), rnd.randrange(max(1, horizon))
+        a = int(230 * (1.0 - y / max(1, horizon)) * rnd.uniform(0.3, 1.0))
+        r = rnd.choice((1, 1, 1, 2)) * S
+        draw.ellipse((x - r, y - r, x + r, y + r), fill=(255, 210, 250, a))
+    # The floor: darker magenta below the horizon.
+    floor = vertical_gradient((W, H - horizon), (60, 6, 70), (14, 2, 26))
+    image.paste(floor, (0, horizon))
+    # The setting suns, one in each side (their lower halves cut in stripes).
+    if sides:
+        radius = int(min(parts["left"][2] * 0.38, 230 * S))
+        for cx in ((parts["left"][2]) // 2, (parts["right"][0] + W) // 2):
+            # The sun: yellow at its top to pink at the horizon, its lower part cut by bands that widen downwards.
+            top = int(horizon - radius * 1.7)
+            mask = Image.new("L", (W, H), 0)
+            mdraw = ImageDraw.Draw(mask)
+            mdraw.ellipse((cx - radius, top, cx + radius, top + 2 * radius), fill=255)
+            for k in range(5):
+                band = horizon - radius * 0.95 + k * radius * 0.21
+                mdraw.rectangle((cx - radius, band, cx + radius, band + radius * (0.04 + 0.025 * k)), fill=0)
+            mdraw.rectangle((0, horizon, W, H), fill=0)
+            halo = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+            ImageDraw.Draw(halo).ellipse((cx - radius * 1.35, top - radius * 0.35, cx + radius * 1.35, top + radius * 2.35),
+                                         fill=(255, 70, 170, 90))
+            image.alpha_composite(halo.filter(ImageFilter.GaussianBlur(36 * S)))
+            sun = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+            sun.paste(vertical_gradient((2 * radius, 2 * radius), (255, 226, 80), (255, 36, 160)), (cx - radius, top))
+            image.paste(sun, (0, 0), mask)
+    # The grid: lines across, closer together towards the horizon, and lines to the middle of the horizon.
+    grid = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    gdraw = ImageDraw.Draw(grid)
+    colour = (255, 70, 210, 230)
+    rows = 14
+    for k in range(1, rows + 1):
+        y = horizon + (H - horizon) * (k / rows) ** 2.2
+        gdraw.line((0, y, W, y), fill=colour, width=2 * S)
+    for i in range(-24, 25):
+        gdraw.line((W // 2 + i * 26 * S, horizon, W // 2 + i * 260 * S, H), fill=colour, width=2 * S)
+    gdraw.line((0, horizon, W, horizon), fill=(255, 150, 230, 255), width=3 * S)
+    glow(image, grid, 6 * S)
+    # The neon tubes around the picture: cyan inside, magenta outside, each with its white-hot core.
+    tubes = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    tdraw = ImageDraw.Draw(tubes)
+    ring(tdraw, rect, 16, (70, 235, 255, 255), 7)
+    ring(tdraw, rect, 38, (255, 60, 210, 255), 6)
+    glow(image, tubes, 16 * S, 3)
+    cores = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    cdraw = ImageDraw.Draw(cores)
+    ring(cdraw, rect, 18, (215, 255, 255, 255), 2)
+    ring(cdraw, rect, 40, (255, 205, 245, 255), 2)
+    glow(image, cores, 3 * S)
+    cut_box(image, rect)
+    return image
+
+
+def woodgrain(size, top, bottom, seed):
+    """Dark wood with its grain running across."""
+    w, h = size
+    image = vertical_gradient((w, h), top, bottom)
+    rnd = random.Random(seed)
+    grain = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(grain)
+    for _ in range(int(h / (5 * S))):
+        y = rnd.uniform(-20 * S, h + 20 * S)
+        amp = rnd.uniform(2, 16) * S
+        freq = rnd.uniform(0.6, 2.4) / (1000 * S)
+        phase = rnd.uniform(0, 6.3)
+        dark = rnd.random() < 0.72
+        colour = (34, 16, 6, rnd.randrange(40, 105)) if dark else (226, 170, 110, rnd.randrange(16, 44))
+        points = [(x, y + amp * math.sin(freq * x + phase) + amp * 0.35 * math.sin(freq * 3.1 * x + phase * 1.7))
+                  for x in range(-40 * S, w + 80 * S, 40 * S)]
+        draw.line(points, fill=colour, width=rnd.choice((1, 1, 2, 3)) * S)
+    image.alpha_composite(grain.filter(ImageFilter.GaussianBlur(1.2 * S)))
+    return image
+
+
+def toggle(image, centre, up=True):
+    """A chrome toggle switch: its plate, its lever."""
+    cx, cy = centre
+    soft_shadow(image, (cx - 34 * S, cy - 50 * S + 6 * S, cx + 34 * S, cy + 50 * S + 6 * S), 12 * S, 8 * S)
+    draw = ImageDraw.Draw(image)
+    draw.rounded_rectangle((cx - 34 * S, cy - 50 * S, cx + 34 * S, cy + 50 * S), radius=12 * S, fill=(26, 26, 28, 255))
+    draw.rounded_rectangle((cx - 12 * S, cy - 40 * S, cx + 12 * S, cy + 40 * S), radius=8 * S, fill=(8, 8, 9, 255))
+    tip = cy - 30 * S if up else cy + 30 * S
+    draw.line((cx, cy, cx, tip), fill=(150, 152, 158, 255), width=10 * S)
+    draw.ellipse((cx - 11 * S, tip - 11 * S, cx + 11 * S, tip + 11 * S), fill=(214, 216, 222, 255))
+    draw.ellipse((cx - 5 * S, tip - 7 * S, cx + 2 * S, tip), fill=(255, 255, 255, 200))
+
+
+def frame_wood(rect):
+    """Wood Panel: dark walnut with black ribbed plastic and a chrome trim around the picture, two switches."""
+    image = woodgrain((W, H), (138, 86, 46), (78, 46, 22), 1977)
+    gloss(image, 0, W, 34)
+    x0, y0, x1, y1 = scaled(rect)
+    parts = regions(rect)
+    draw = ImageDraw.Draw(image)
+    # The black ribbed strips beside the picture (above and below it when it fills the width).
+    rib = 70 * S
+    if "left" in parts:
+        strips = [(x0 - rib, 0, x0, H, "v"), (x1, 0, x1 + rib, H, "v")]
+    else:
+        strips = []
+    if "top" in parts:
+        strips += [(0, y0 - rib, W, y0, "h"), (0, y1, W, y1 + rib, "h")]
+    for sx0, sy0, sx1, sy1, way in strips:
+        draw.rectangle((sx0, sy0, sx1, sy1), fill=(16, 16, 17, 255))
+        if way == "v":
+            for x in range(sx0 + 4 * S, sx1, 10 * S):
+                draw.rectangle((x, sy0, x + 3 * S, sy1), fill=(34, 34, 36, 255))
+        else:
+            for y in range(sy0 + 4 * S, sy1, 10 * S):
+                draw.rectangle((sx0, y, sx1, y + 3 * S), fill=(34, 34, 36, 255))
+    # The chrome trim.
+    for pad, colour in ((8, (90, 92, 98, 255)), (6, (216, 218, 224, 255)), (3, (150, 152, 158, 255))):
+        p = pad * S
+        draw.rectangle((x0 - p, y0 - p, x1 + p - 1, y1 + p - 1), fill=colour)
+    cut_box(image, rect)
+    # Two switches on the wood.
+    cx, cy = spot(rect, "low")
+    if "right" in parts:
+        toggle(image, (cx, cy - 70 * S), True)
+        toggle(image, (cx, cy + 90 * S), False)
+    else:
+        toggle(image, (cx - 60 * S, cy), True)
+        toggle(image, (cx + 60 * S, cy), False)
+    return image
+
+
+def carbon(size, cell=10):
+    """Carbon fibre: a twill of tows, each lit along its length."""
+    c = cell * S
+    tile = Image.new("RGBA", (4 * c, 4 * c))
+    across = vertical_gradient((c, c), (66, 66, 72), (20, 20, 23)).rotate(90)
+    down = vertical_gradient((c, c), (54, 54, 60), (16, 16, 19))
+    for i in range(4):
+        for j in range(4):
+            tile.paste(across if ((i + j) // 2) % 2 == 0 else down, (i * c, j * c))
+    image = Image.new("RGBA", size)
+    for x in range(0, size[0], tile.width):
+        for y in range(0, size[1], tile.height):
+            image.paste(tile, (x, y))
+    return image
+
+
+def screw(image, centre):
+    cx, cy = centre
+    draw = ImageDraw.Draw(image)
+    draw.ellipse((cx - 13 * S, cy - 13 * S, cx + 13 * S, cy + 13 * S), fill=(40, 40, 44, 255))
+    draw.ellipse((cx - 11 * S, cy - 11 * S, cx + 11 * S, cy + 11 * S), fill=(150, 152, 160, 255))
+    hexagon = [(cx + 6 * S * math.cos(a * math.pi / 3), cy + 6 * S * math.sin(a * math.pi / 3)) for a in range(6)]
+    draw.polygon(hexagon, fill=(46, 46, 50, 255))
+
+
+def frame_carbon(rect):
+    """Carbon: carbon fibre, a brushed aluminium edge with a red pinstripe, screws in the corners."""
+    image = carbon((W, H))
+    light_from_above(image, 30)
+    x0, y0, x1, y1 = scaled(rect)
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((x0 - 26 * S, y0 - 26 * S, x1 + 26 * S - 1, y1 + 26 * S - 1), fill=(196, 30, 40, 255))
+    draw.rectangle((x0 - 22 * S, y0 - 22 * S, x1 + 22 * S - 1, y1 + 22 * S - 1), fill=(12, 12, 14, 255))
+    # Brushed aluminium: fine lines along it, lit from above.
+    metal = vertical_gradient((W, H), (196, 198, 204), (112, 114, 120))
+    rnd = random.Random(7)
+    mdraw = ImageDraw.Draw(metal)
+    for y in range(0, H, S):
+        if rnd.random() < 0.45:
+            mdraw.line((0, y, W, y), fill=(255, 255, 255, rnd.randrange(10, 40)) if rnd.random() < 0.5 else
+                       (0, 0, 0, rnd.randrange(10, 36)), width=S)
+    mask = Image.new("L", (W, H), 0)
+    ImageDraw.Draw(mask).rectangle((x0 - 18 * S, y0 - 18 * S, x1 + 18 * S - 1, y1 + 18 * S - 1), fill=255)
+    image.paste(metal, (0, 0), mask)
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((x0 - 18 * S, y0 - 18 * S, x1 + 18 * S - 1, y1 + 18 * S - 1), outline=(230, 232, 238, 255), width=S)
+    draw.rectangle((x0 - 4 * S, y0 - 4 * S, x1 + 4 * S - 1, y1 + 4 * S - 1), fill=(20, 20, 22, 255))
+    cut_box(image, rect)
+    for name, (bx0, by0, bx1, by1) in regions(rect).items():
+        for cx, cy in ((bx0 + 34 * S, by0 + 34 * S), (bx1 - 34 * S, by0 + 34 * S), (bx0 + 34 * S, by1 - 34 * S),
+                       (bx1 - 34 * S, by1 - 34 * S)):
+            if bx1 - bx0 > 120 * S and by1 - by0 > 120 * S:
+                screw(image, (cx, cy))
+    return image
+
+
+def frame_stars(rect):
+    """Starfield: deep space, a faint nebula, stars and a few bright ones, a thin glow around the picture."""
+    image = vertical_gradient((W, H), (10, 12, 36), (2, 2, 10))
+    rnd = random.Random(2063)
+    nebula = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(nebula)
+    for colour in ((130, 50, 180, 80), (40, 110, 190, 70), (200, 70, 140, 50), (70, 40, 160, 70)):
+        for _ in range(3):
+            cx, cy = rnd.randrange(W), rnd.randrange(H)
+            rx, ry = rnd.randrange(160, 520) * S, rnd.randrange(110, 340) * S
+            draw.ellipse((cx - rx, cy - ry, cx + rx, cy + ry), fill=colour)
+    image.alpha_composite(nebula.filter(ImageFilter.GaussianBlur(100 * S)))
+    stars = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(stars)
+    for _ in range(900):
+        x, y = rnd.randrange(W), rnd.randrange(H)
+        r = rnd.choice((0.7, 0.9, 1.1, 1.5)) * S
+        tint = rnd.choice(((255, 255, 255), (200, 220, 255), (255, 236, 210)))
+        draw.ellipse((x - r, y - r, x + r, y + r), fill=tint + (rnd.randrange(70, 255),))
+    image.alpha_composite(stars)
+    for _ in range(14):
+        x, y = rnd.randrange(W), rnd.randrange(H)
+        star = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+        sdraw = ImageDraw.Draw(star)
+        length = rnd.randrange(16, 34) * S
+        for dx, dy in ((1, 0), (0, 1)):
+            sdraw.line((x - dx * length, y - dy * length, x + dx * length, y + dy * length), fill=(210, 230, 255, 150),
+                       width=S)
+        sdraw.ellipse((x - 3 * S, y - 3 * S, x + 3 * S, y + 3 * S), fill=(255, 255, 255, 255))
+        glow(image, star, 3 * S)
+    rim_layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    ring(ImageDraw.Draw(rim_layer), rect, 6, (130, 180, 255, 230), 2)
+    glow(image, rim_layer, 6 * S, 2)
+    cut_box(image, rect)
+    return image
+
+
+def joystick(image, centre, size, ball=(222, 34, 44)):
+    """An arcade stick from above: its dust washer, the shaft's shadow, the ball."""
+    cx, cy = centre
+    r = size // 2
+    draw = ImageDraw.Draw(image)
+    draw.ellipse((cx - r, cy - r, cx + r, cy + r), fill=(14, 14, 16, 255))
+    draw.ellipse((cx - r * 0.86, cy - r * 0.86, cx + r * 0.86, cy + r * 0.86), outline=(46, 46, 52, 255), width=2 * S)
+    soft_shadow(image, (cx - r * 0.5 + 8 * S, cy - r * 0.5 + 14 * S, cx + r * 0.5 + 8 * S, cy + r * 0.5 + 14 * S), r // 2,
+                8 * S, 170)
+    br = r * 0.56
+    draw = ImageDraw.Draw(image)
+    draw.ellipse((cx - br, cy - br, cx + br, cy + br), fill=ball + (255,))
+    shade = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    ImageDraw.Draw(shade).ellipse((cx - br * 0.55, cy - br * 0.75, cx + br * 0.05, cy - br * 0.2), fill=(255, 255, 255, 120))
+    image.alpha_composite(shade.filter(ImageFilter.GaussianBlur(3 * S)))
+
+
+def arcade_button(image, centre, radius, colour):
+    """A round arcade button from above: its black ring, the convex top."""
+    cx, cy = centre
+    draw = ImageDraw.Draw(image)
+    draw.ellipse((cx - radius * 1.28, cy - radius * 1.28, cx + radius * 1.28, cy + radius * 1.28), fill=(18, 18, 20, 255))
+    soft_shadow(image, (cx - radius, cy - radius + 4 * S, cx + radius, cy + radius + 4 * S), radius, 4 * S, 140)
+    draw = ImageDraw.Draw(image)
+    draw.ellipse((cx - radius, cy - radius, cx + radius, cy + radius), fill=colour + (255,))
+    lighter = tuple(min(255, c + 60) for c in colour)
+    draw.ellipse((cx - radius * 0.7, cy - radius * 0.78, cx + radius * 0.5, cy + radius * 0.3), fill=lighter + (110,))
+    draw.ellipse((cx - radius * 0.42, cy - radius * 0.6, cx - radius * 0.06, cy - radius * 0.3), fill=(255, 255, 255, 120))
+
+
+def light_box(image, box, colours=((255, 236, 170), (255, 120, 40))):
+    """A backlit marquee: a glowing panel with rays from its middle."""
+    x0, y0, x1, y1 = box
+    soft_shadow(image, (x0, y0 + 6 * S, x1, y1 + 6 * S), 18 * S, 10 * S, 160)
+    panel = Image.new("RGBA", (x1 - x0, y1 - y0), (0, 0, 0, 0))
+    panel.paste(vertical_gradient((x1 - x0, y1 - y0), *colours), (0, 0))
+    rays = Image.new("RGBA", panel.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(rays)
+    cx, cy = panel.width / 2, panel.height / 2
+    reach = max(panel.width, panel.height)
+    for k in range(18):
+        a0 = k * math.pi / 9
+        a1 = a0 + math.pi / 30
+        draw.polygon([(cx, cy), (cx + reach * math.cos(a0), cy + reach * math.sin(a0)),
+                      (cx + reach * math.cos(a1), cy + reach * math.sin(a1))], fill=(255, 255, 255, 70))
+    panel.alpha_composite(rays)
+    mask = Image.new("L", panel.size, 0)
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, panel.width - 1, panel.height - 1), radius=16 * S, fill=255)
+    image.paste(panel, (x0, y0), mask)
+    ImageDraw.Draw(image).rounded_rectangle(box, radius=16 * S, outline=(30, 30, 34, 255), width=5 * S)
+
+
+def coin_door(image, centre):
+    """Two coin slots, their red lights."""
+    cx, cy = centre
+    soft_shadow(image, (cx - 70 * S, cy - 90 * S + 6 * S, cx + 70 * S, cy + 90 * S + 6 * S), 10 * S, 8 * S)
+    draw = ImageDraw.Draw(image)
+    draw.rounded_rectangle((cx - 70 * S, cy - 90 * S, cx + 70 * S, cy + 90 * S), radius=10 * S, fill=(120, 122, 128, 255))
+    draw.rounded_rectangle((cx - 64 * S, cy - 84 * S, cx + 64 * S, cy + 84 * S), radius=8 * S, outline=(160, 162, 168, 255),
+                           width=2 * S)
+    for dx in (-30, 30):
+        x = cx + dx * S
+        draw.rounded_rectangle((x - 16 * S, cy - 64 * S, x + 16 * S, cy - 6 * S), radius=5 * S, fill=(70, 72, 78, 255))
+        draw.rectangle((x - 3 * S, cy - 56 * S, x + 3 * S, cy - 14 * S), fill=(10, 10, 12, 255))
+        light = Image.new("RGBA", image.size, (0, 0, 0, 0))
+        ImageDraw.Draw(light).rounded_rectangle((x - 16 * S, cy + 16 * S, x + 16 * S, cy + 60 * S), radius=5 * S,
+                                                fill=(255, 40, 40, 255))
+        glow(image, light, 6 * S)
+
+
+BUTTONS = ((222, 38, 48), (248, 196, 32), (36, 110, 222), (40, 170, 80), (240, 240, 240), (150, 60, 200))
+
+
+def cartridge(image, centre):
+    """An arcade cartridge in its slot, seen from above: the slot, the black cartridge, its label."""
+    cx, cy = centre
+    draw = ImageDraw.Draw(image)
+    draw.rounded_rectangle((cx - 86 * S, cy - 20 * S, cx + 86 * S, cy + 20 * S), radius=8 * S, fill=(6, 6, 7, 255))
+    soft_shadow(image, (cx - 74 * S, cy - 150 * S + 8 * S, cx + 74 * S, cy + 10 * S), 10 * S, 8 * S, 170)
+    draw = ImageDraw.Draw(image)
+    draw.rounded_rectangle((cx - 74 * S, cy - 150 * S, cx + 74 * S, cy + 8 * S), radius=10 * S, fill=(34, 36, 38, 255))
+    draw.rounded_rectangle((cx - 60 * S, cy - 132 * S, cx + 60 * S, cy - 40 * S), radius=6 * S, fill=(80, 170, 60, 255))
+    for k in range(3):
+        draw.rectangle((cx - 44 * S, cy - (118 - k * 22) * S, cx + (20 - k * 12) * S, cy - (110 - k * 22) * S),
+                       fill=(230, 250, 220, 220))
+
+
+def frame_cabinet(rect, ball=(222, 34, 44), trim=(250, 190, 30), stripes=((250, 200, 40), (240, 120, 30),
+                                                                          (220, 40, 50)), buttons=BUTTONS, base=None,
+                  waves=False, marquee=((255, 236, 170), (255, 120, 40)), door="coins"):
+    """Arcade Cabinet: the cabinet's black sides with their art (three bold stripes, or waves), the coloured trim
+    beside the picture, a backlit marquee above, the stick and the buttons below, and the coin door (or a
+    cartridge)."""
+    image = vertical_gradient((W, H), *(base or ((30, 30, 34), (10, 10, 12))))
+    light_from_above(image, 20)
+    x0, y0, x1, y1 = scaled(rect)
+    parts = regions(rect)
+    sides = "left" in parts
+    # The side art: three stripes rising to the right on each side (or across the bands), or three waves.
+    art = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(art)
+    slope = 1.1
+    for k, colour in enumerate(stripes):
+        if waves:
+            points = [(x, H * 0.36 + k * 34 * S + 70 * S * math.sin(x / (W * 0.16) + k * 0.5)) for x in range(0, W + 8 * S, 8 * S)]
+            draw.line(points, fill=colour + (235,), width=14 * S)
+            continue
+        for origin in ((-300 + k * 60) * S, (1500 + k * 60) * S):
+            x = origin
+            draw.polygon([(x, H), (x + 34 * S, H), (x + 34 * S + H * slope, 0), (x + H * slope, 0)], fill=colour + (235,))
+    image.alpha_composite(art)
+    # The trim: a T-molding along the picture's sides (or above and below it).
+    draw = ImageDraw.Draw(image)
+    t = 14 * S
+    edges = []
+    if sides:
+        edges += [(x0 - t, 0, x0, H), (x1, 0, x1 + t, H)]
+    if "top" in parts:
+        edges += [(0, y0 - t, W, y0), (0, y1, W, y1 + t)]
+    for ex0, ey0, ex1, ey1 in edges:
+        draw.rectangle((ex0, ey0, ex1 - 1, ey1 - 1), fill=trim + (255,))
+        if ex1 - ex0 == t:
+            draw.rectangle((ex0 + 4 * S, ey0, ex0 + 7 * S, ey1 - 1), fill=(255, 255, 255, 110))
+        else:
+            draw.rectangle((ex0, ey0 + 4 * S, ex1 - 1, ey0 + 7 * S), fill=(255, 255, 255, 110))
+    cut_box(image, rect)
+    # The marquee, the controls, the coin door, as there is room.
+    if sides:
+        lx0, rx0 = parts["left"][2], parts["right"][0]
+        for bx0, bx1 in ((0, lx0 - t), (rx0 + t, W)):
+            m = 26 * S
+            light_box(image, (bx0 + m, 40 * S, bx1 - m, 40 * S + int((bx1 - bx0) * 0.55)), marquee)
+        lcx, rcx = (lx0 - t) // 2, (rx0 + t + W) // 2
+        panel = min(lx0 - t, 360 * S)
+        joystick(image, (lcx, int(H * 0.80)), int(panel * 0.62), ball)
+        r = int(panel * 0.105)
+        if lx0 - t > 400 * S:
+            for i in range(6):
+                arcade_button(image, (rcx + (i % 3 - 1) * int(r * 3.0), int(H * 0.77) + (i // 3) * int(r * 3.0) +
+                                      (i % 3) * -int(r * 0.6)), r, buttons[i])
+        else:
+            for i in range(3):
+                arcade_button(image, (rcx, int(H * 0.69) + i * int(r * 3.0)), r, buttons[i])
+        if door == "cartridge":
+            cartridge(image, (lcx, int(H * 0.58)))
+        else:
+            coin_door(image, (lcx, int(H * 0.53)))
+    else:
+        if "top" in parts:
+            bx0, by0, bx1, by1 = parts["top"]
+            light_box(image, (bx0 + 30 * S, by0 + 18 * S, bx1 - 30 * S, by1 - 18 * S - t), marquee)
+        if "bottom" in parts:
+            bx0, by0, bx1, by1 = parts["bottom"]
+            cy = (by0 + t + by1) // 2
+            size = min(by1 - by0 - t - 20 * S, 150 * S)
+            joystick(image, (bx0 + 180 * S, cy), size, ball)
+            r = int(size * 0.17)
+            for i in range(6):
+                arcade_button(image, (bx1 - 420 * S + (i % 3) * int(r * 3.2), cy - int(r * 1.5) + (i // 3) * int(r * 3.0)),
+                              r, buttons[i])
+            for i in range(2):
+                arcade_button(image, (W // 2 + (i * 2 - 1) * 60 * S, cy), int(r * 0.7), (240, 240, 240))
+    return image
+
+
+# --- 00.63: the consoles that had none of their own -------------------------------------------------------------
+
+def dot_grille(image, centre, columns, rows, step, radius, colour):
+    """A speaker's holes in a grid."""
+    cx, cy = centre
+    draw = ImageDraw.Draw(image)
+    for i in range(columns):
+        for j in range(rows):
+            x = cx + (i - (columns - 1) / 2) * step
+            y = cy + (j - (rows - 1) / 2) * step
+            draw.ellipse((x - radius, y - radius, x + radius, y + radius), fill=colour)
+
+
+def diamond(image, centre, distance, radius, buttons):
+    """Four face buttons in a diamond: (colour, label) at the top, left, right and bottom."""
+    cx, cy = centre
+    for (dx, dy), (colour, label, ink) in zip(((0, -1), (-1, 0), (1, 0), (0, 1)), buttons):
+        button(image, (cx + dx * distance, cy + dy * distance), radius, colour + (255,), label, ink)
+
+
+def sg1000_console():
+    """The SG-1000: black with its red band between white lines; the joystick, buttons 1 and 2."""
+    image = side_panels((36, 36, 39), (10, 10, 12))
+    gloss(image, 0, X0, 40)
+    gloss(image, X1, W, 40)
+    draw = ImageDraw.Draw(image)
+    for x0, x1 in ((0, X0), (X1, W)):
+        draw.rectangle((x0, 300 * S, x1, 372 * S), fill=(206, 28, 38, 255))
+        for y in (282, 290, 382, 390):
+            draw.rectangle((x0, y * S, x1, y * S + 3 * S), fill=(236, 236, 240, 255))
+    cut_window(image)
+    window_edges(image, (18, 18, 20, 255), (206, 28, 38, 255))
+    joystick(image, (LEFT, 730 * S), 180 * S, (206, 28, 38))
+    button(image, (RIGHT, 650 * S), 36 * S, (206, 28, 38, 255), "1")
+    button(image, (RIGHT, 800 * S), 36 * S, (206, 28, 38, 255), "2")
+    vertical_text(image, "8-BIT", (LEFT, 150 * S), 34 * S, (236, 236, 240, 230), spacing=0.3)
+    vertical_text(image, "8-BIT", (RIGHT, 150 * S), 34 * S, (236, 236, 240, 230), angle=-90, spacing=0.3)
+    return image
+
+
+def sms_console():
+    """The Master System: black, its ribbed top and red lines; the pad's D-pad, buttons 1 and 2, PAUSE."""
+    image = side_panels((32, 32, 35), (8, 8, 10))
+    draw = ImageDraw.Draw(image)
+    for x0, x1 in ((22 * S, X0 - 40 * S), (X1 + 40 * S, W - 22 * S)):
+        for y in range(80 * S, 420 * S, 14 * S):
+            draw.rectangle((x0, y, x1, y + 5 * S), fill=(50, 50, 55, 255))
+        draw.rectangle((x0, 444 * S, x1, 451 * S), fill=(214, 26, 36, 255))
+        draw.rectangle((x0, 460 * S, x1, 463 * S), fill=(214, 26, 36, 255))
+    cut_window(image)
+    window_edges(image, (14, 14, 16, 255), (214, 26, 36, 255))
+    draw = ImageDraw.Draw(image)
+    draw.rounded_rectangle((LEFT - 80 * S, 660 * S, LEFT + 80 * S, 820 * S), radius=14 * S, fill=(20, 20, 22, 255))
+    dpad(image, (LEFT, 740 * S), 130 * S, (66, 66, 72, 255), (44, 44, 50, 255))
+    button(image, (RIGHT, 690 * S), 34 * S, (60, 60, 66, 255), "1")
+    button(image, (RIGHT, 820 * S), 34 * S, (60, 60, 66, 255), "2")
+    for x, label in ((LEFT, "PAUSE"),):
+        pill(image, (x, 560 * S), (90 * S, 26 * S), (214, 26, 36), angle=0)
+        centred_text(ImageDraw.Draw(image), label, (x, 598 * S), 15 * S, (220, 220, 226, 255))
+    return image
+
+
+GG_WINDOW = (384 * S, 108 * S, 1536 * S, 972 * S)  # 1152x864: the Game Gear's 4:3 picture, 6x its 192x144 at 4:3
+
+
+def gg_console():
+    """The Game Gear: its black body with round ends, the wide dark lens, the D-pad and START left, 1 and 2 right."""
+    image = Image.new("RGBA", (W, H), (8, 8, 10, 255))
+    shape = Image.new("L", (W, H), 0)
+    ImageDraw.Draw(shape).rounded_rectangle((10 * S, 26 * S, W - 10 * S, H - 26 * S), radius=400 * S, fill=255)
+    soft_shadow(image, (10 * S, 36 * S, W - 10 * S, H - 16 * S), 400 * S, 14 * S, 160)
+    image.paste(vertical_gradient((W, H), (56, 56, 62), (18, 18, 22)), (0, 0), shape)
+    gloss(image, 0, W, 40)
+    box = (330 * S, 56 * S, 1590 * S, 1024 * S)
+    lens(image, box, (26, 26, 32), 34 * S)
+    draw = ImageDraw.Draw(image)
+    draw.rounded_rectangle(box, radius=34 * S, outline=(70, 70, 80, 255), width=2 * S)
+    for k, colour in enumerate(((0, 160, 200), (36, 112, 214))):
+        draw.rectangle((420 * S, (990 + k * 9) * S, 1500 * S, (994 + k * 9) * S), fill=colour + (255,))
+    led(image, (366 * S, 300 * S), (60, 226, 96), "POWER", (190, 190, 200, 255))
+    cut(image, GG_WINDOW)
+    draw = ImageDraw.Draw(image)
+    draw.ellipse((172 * S - 120 * S, 470 * S - 120 * S, 172 * S + 120 * S, 470 * S + 120 * S), fill=(40, 40, 46, 255))
+    dpad(image, (172 * S, 470 * S), 190 * S, (26, 26, 30, 255), (16, 16, 18, 255))
+    pill(image, (228 * S, 760 * S), (74 * S, 28 * S), (44, 110, 210), angle=-20)
+    centred_text(ImageDraw.Draw(image), "START", (228 * S, 806 * S), 15 * S, (200, 200, 210, 255))
+    button(image, (1690 * S, 560 * S), 46 * S, (44, 44, 50, 255), "1")
+    button(image, (1808 * S, 470 * S), 46 * S, (44, 44, 50, 255), "2")
+    dot_grille(image, (1750 * S, 800 * S), 4, 3, 30 * S, 7 * S, (0, 0, 0, 140))
+    return image
+
+
+def md_console():
+    """The Genesis (Mega Drive): black, the round grooves of its top, 16-BIT in gold; the round D-pad, A, B, C."""
+    image = side_panels((32, 32, 34), (6, 6, 7))
+    grooves = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(grooves)
+    for k in range(12):
+        r = (740 + k * 18) * S
+        draw.ellipse((W / 2 - r, H / 2 - r, W / 2 + r, H / 2 + r), outline=(80, 80, 88, 255), width=3 * S)
+    image.alpha_composite(grooves)
+    gloss(image, 0, X0, 46)
+    gloss(image, X1, W, 46)
+    cut_window(image)
+    window_edges(image, (12, 12, 13, 255), (210, 30, 40, 255))
+    vertical_text(image, "16-BIT", (LEFT, 230 * S), 42 * S, (214, 172, 84, 255), spacing=0.3)
+    vertical_text(image, "16-BIT", (RIGHT, 230 * S), 42 * S, (214, 172, 84, 255), angle=-90, spacing=0.3)
+    draw = ImageDraw.Draw(image)
+    soft_shadow(image, (LEFT - 78 * S, 652 * S + 6 * S, LEFT + 78 * S, 808 * S + 6 * S), 78 * S, 8 * S)
+    ImageDraw.Draw(image).ellipse((LEFT - 78 * S, 652 * S, LEFT + 78 * S, 808 * S), fill=(48, 48, 54, 255))
+    dpad(image, (LEFT, 730 * S), 120 * S, (30, 30, 34, 255), (20, 20, 24, 255))
+    for i, label in enumerate("ABC"):
+        button(image, (RIGHT, (620 + i * 115) * S), 40 * S, (40, 40, 46, 255), label)
+    led(image, (LEFT, 900 * S), (230, 30, 30), "POWER", (190, 190, 200, 255))
+    return image
+
+
+def psp_console():
+    """The PSP in glossy black around its 16:9 screen (in the 1600x900 window): the D-pad and the stick left, the
+    four symbols right, the shoulder buttons above, START and SELECT below."""
+    rect = WINDOWS["-169"]
+    x0, y0, x1, y1 = scaled(rect)
+    image = Image.new("RGBA", (W, H), (0, 0, 0, 255))
+    shape = Image.new("L", (W, H), 0)
+    ImageDraw.Draw(shape).rounded_rectangle((0, 8 * S, W - 1, H - 8 * S), radius=300 * S, fill=255)
+    image.paste(vertical_gradient((W, H), (44, 44, 50), (8, 8, 10)), (0, 0), shape)
+    gloss(image, 0, W, 70)
+    draw = ImageDraw.Draw(image)
+    draw.rounded_rectangle((2 * S, 10 * S, W - 3 * S, H - 10 * S), radius=298 * S, outline=(150, 152, 162, 200), width=3 * S)
+    for sx0, sx1 in ((70 * S, 360 * S), (W - 360 * S, W - 70 * S)):
+        draw.rounded_rectangle((sx0, 20 * S, sx1, 46 * S), radius=13 * S, fill=(64, 64, 72, 255))
+    draw.rounded_rectangle((x0 - 20 * S, y0 - 20 * S, x1 + 20 * S - 1, y1 + 20 * S - 1), radius=16 * S, fill=(14, 14, 16, 255))
+    cut_box(image, rect)
+    # The D-pad: four buttons around a dip.
+    cx, cy, d = 80 * S, 420 * S, 40 * S
+    draw = ImageDraw.Draw(image)
+    draw.ellipse((cx - 64 * S, cy - 64 * S, cx + 64 * S, cy + 64 * S), fill=(22, 22, 26, 255))
+    for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0)):
+        bx, by = cx + dx * d, cy + dy * d
+        w, h = (22 * S, 30 * S) if dx == 0 else (30 * S, 22 * S)
+        draw.rounded_rectangle((bx - w, by - h, bx + w, by + h), radius=8 * S, fill=(70, 70, 78, 255))
+        tip = (bx + dx * 8 * S, by + dy * 8 * S)
+        draw.polygon([(tip[0] + dx * 6 * S, tip[1] + dy * 6 * S), (tip[0] - dy * 7 * S - dx * 6 * S, tip[1] - dx * 7 * S - dy * 6 * S),
+                      (tip[0] + dy * 7 * S - dx * 6 * S, tip[1] + dx * 7 * S - dy * 6 * S)], fill=(170, 170, 180, 255))
+    # The stick: a small round nub in its well.
+    draw.ellipse((cx - 40 * S, 700 * S - 40 * S, cx + 40 * S, 700 * S + 40 * S), fill=(16, 16, 18, 255))
+    soft_shadow(image, (cx - 28 * S, 700 * S - 24 * S, cx + 28 * S, 700 * S + 32 * S), 28 * S, 5 * S)
+    ImageDraw.Draw(image).ellipse((cx - 28 * S, 700 * S - 28 * S, cx + 28 * S, 700 * S + 28 * S), fill=(120, 122, 130, 255))
+    # The four symbols on their buttons.
+    sx, sy = W - 80 * S, 420 * S
+    for dx, dy in ((0, -1), (-1, 0), (1, 0), (0, 1)):
+        button(image, (sx + dx * 44 * S, sy + dy * 44 * S), 24 * S, (34, 34, 40, 255))
+    ps_symbols(image, (sx, sy), 44 * S, 11 * S, 3 * S, colours=((200, 202, 210),) * 4)
+    for x, label in ((W - 300 * S, "SELECT"), (W - 170 * S, "START")):
+        pill(image, (x, H - 46 * S), (70 * S, 20 * S), (90, 92, 100), angle=0)
+    pill(image, (240 * S, H - 46 * S), (90 * S, 20 * S), (90, 92, 100), angle=0)
+    dot_grille(image, (420 * S, H - 46 * S), 6, 2, 16 * S, 4 * S, (0, 0, 0, 200))
+    return image
+
+
+def dc_console():
+    """The Dreamcast's white: its round lid, the orange light, 128-BIT; the controller's stick, D-pad and four
+    coloured buttons."""
+    image = side_panels((244, 244, 246), (206, 208, 214))
+    gloss(image, 0, X0, 60)
+    gloss(image, X1, W, 60)
+    draw = ImageDraw.Draw(image)
+    for cx in (LEFT, RIGHT):
+        draw.ellipse((cx - 100 * S, 330 * S, cx + 100 * S, 530 * S), fill=(236, 237, 240, 255), outline=(190, 192, 200, 255),
+                     width=5 * S)
+        draw.ellipse((cx - 30 * S, 400 * S, cx + 30 * S, 460 * S), fill=(214, 216, 222, 255))
+    cut_window(image)
+    window_edges(image, (200, 202, 210, 255), (242, 110, 30, 255), width=8, accent_width=3)
+    led(image, (LEFT, 600 * S), (255, 130, 20), "POWER", (120, 120, 130, 255))
+    stick(image, (LEFT, 770 * S), well=(176, 178, 186), rim=(206, 208, 214), cap=(140, 142, 150))
+    dpad(image, (LEFT, 950 * S), 110 * S, (96, 98, 106, 255), (76, 78, 86, 255))
+    diamond(image, (RIGHT, 760 * S), 48 * S, 28 * S, (((60, 170, 80), "Y", (255, 255, 255, 220)),
+                                                      ((240, 196, 40), "X", (255, 255, 255, 220)),
+                                                      ((50, 110, 220), "B", (255, 255, 255, 220)),
+                                                      ((222, 50, 50), "A", (255, 255, 255, 220))))
+    vertical_text(image, "128-BIT", (LEFT, 140 * S), 32 * S, (150, 152, 162, 255), spacing=0.3)
+    vertical_text(image, "128-BIT", (RIGHT, 140 * S), 32 * S, (150, 152, 162, 255), angle=-90, spacing=0.3)
+    return image
+
+
+def naomi_console():
+    """The NAOMI: a white arcade cabinet with gold trim and gold waves, a cool white marquee, the stick, buttons."""
+    return frame_cabinet(WINDOWS[""], ball=(40, 92, 210), trim=(206, 164, 52),
+                         stripes=((214, 172, 64), (186, 136, 40), (236, 214, 150)), base=((240, 240, 236), (198, 198, 192)),
+                         waves=True, marquee=((255, 255, 255), (186, 206, 255)))
+
+
+def atomiswave_console():
+    """The Atomiswave: a black cabinet with green trim and green light waves, its cartridge, the stick, buttons."""
+    return frame_cabinet(WINDOWS[""], ball=(80, 200, 70), trim=(86, 170, 60),
+                         stripes=((120, 230, 90), (70, 170, 50), (200, 250, 170)), base=((26, 30, 26), (6, 8, 6)),
+                         waves=True, marquee=((214, 255, 200), (60, 160, 50)), door="cartridge",
+                         buttons=((80, 200, 70), (240, 240, 240), (80, 200, 70), (240, 240, 240), (80, 200, 70),
+                                  (240, 240, 240)))
+
+
+# The DS's and the 3DS's windows for each way their screens are shown (Emulator.cpp BezelShape): one screen (4:3),
+# side by side (the DS's 8:3, the 3DS's 3:1), one above the other (the DS's 2:3, the 3DS's 5:6), the big top screen
+# or the 3DS's top screen alone (16:9, the picture made smaller).
+NDS_WINDOWS = {"": (240, 0, 1680, 1080), "-wide": (0, 180, 1920, 900), "-tall": (600, 0, 1320, 1080),
+               "-169": (160, 90, 1760, 990)}
+DS3_WINDOWS = {"": (240, 0, 1680, 1080), "-wide": (0, 220, 1920, 860), "-tall": (510, 0, 1410, 1080),
+               "-169": (160, 90, 1760, 990)}
+
+
+def handheld_controls(image, rect, colours):
+    """The DS's (or the 3DS's) controls where the window leaves room: the speaker grilles above, the D-pad (and the
+    3DS's Circle Pad) left, A B X Y and START and SELECT right; the hinge between screens one above the other."""
+    x0, y0, x1, y1 = scaled(rect)
+    parts = regions(rect)
+    body, dark, keys, ink, grille, pad = colours
+    abxy = (((keys, "X", ink)), ((keys, "Y", ink)), ((keys, "A", ink)), ((keys, "B", ink)))
+    if "left" in parts and x0 >= 400 * S:
+        # One above the other: wide sides, the hinge across them at the middle.
+        draw = ImageDraw.Draw(image)
+        for hx0, hx1 in ((0, x0 - 30 * S), (x1 + 30 * S, W)):
+            draw.rectangle((hx0, H // 2 - 26 * S, hx1, H // 2 + 26 * S), fill=tuple(int(c * 0.82) for c in body) + (255,))
+            draw.rectangle((hx0, H // 2 - 26 * S, hx1, H // 2 - 22 * S), fill=(255, 255, 255, 90))
+        lx, rx = x0 // 2, (x1 + W) // 2
+        dot_grille(image, (lx, 250 * S), 5, 5, 28 * S, 6 * S, grille)
+        dot_grille(image, (rx, 250 * S), 5, 5, 28 * S, 6 * S, grille)
+        if pad:
+            stick(image, (lx, 690 * S), well=dark, rim=tuple(min(255, c + 30) for c in dark), cap=pad)
+            dpad(image, (lx, 900 * S), 170 * S, dark + (255,), tuple(int(c * 0.7) for c in dark) + (255,))
+        else:
+            dpad(image, (lx, 780 * S), 210 * S, dark + (255,), tuple(int(c * 0.7) for c in dark) + (255,))
+        diamond(image, (rx, 760 * S), 64 * S, 38 * S, abxy)
+        for k in range(2):
+            pill(image, (rx - 50 * S + k * 100 * S, 940 * S), (70 * S, 22 * S), dark, angle=0)
+    elif "left" in parts:
+        # One screen (4:3) or the 16:9 window: narrow sides.
+        wide = x0 >= 200 * S
+        lx, rx = x0 // 2, (x1 + W) // 2
+        size = 150 * S if wide else 104 * S
+        dot_grille(image, (lx, (150 if wide else 210) * S), 3, 4, 24 * S, 5 * S, grille)
+        dot_grille(image, (rx, (150 if wide else 210) * S), 3, 4, 24 * S, 5 * S, grille)
+        if pad:
+            stick(image, (lx, (520 if wide else 480) * S), well=dark, rim=tuple(min(255, c + 30) for c in dark), cap=pad)
+        dpad(image, (lx, (740 if wide else 680) * S), size, dark + (255,), tuple(int(c * 0.7) for c in dark) + (255,))
+        diamond(image, (rx, (600 if wide else 560) * S), int(size * 0.32), int(size * 0.19), abxy)
+        for k in range(2):
+            pill(image, (rx, (820 + k * 60) * S if wide else (790 + k * 50) * S), (60 * S, 18 * S), dark, angle=0)
+    else:
+        # Side by side: the bands above and below.
+        cy = (y1 + H) // 2
+        dot_grille(image, (220 * S, y0 // 2), 7, 3, 26 * S, 6 * S, grille)
+        dot_grille(image, (W - 220 * S, y0 // 2), 7, 3, 26 * S, 6 * S, grille)
+        size = min(H - y1 - 30 * S, 150 * S)
+        if pad:
+            stick(image, (120 * S, cy), well=dark, rim=tuple(min(255, c + 30) for c in dark), cap=pad)
+            dpad(image, (300 * S, cy), size, dark + (255,), tuple(int(c * 0.7) for c in dark) + (255,))
+        else:
+            dpad(image, (200 * S, cy), size, dark + (255,), tuple(int(c * 0.7) for c in dark) + (255,))
+        diamond(image, (W - 200 * S, cy), int(size * 0.3), int(size * 0.18), abxy)
+        for k in range(2):
+            pill(image, (W - 520 * S + k * 100 * S, cy), (70 * S, 22 * S), dark, angle=0)
+
+
+def nds_console(shape):
+    """The Nintendo DS in white: its glossy body, the screens' dark surround, the speakers, the D-pad, A B X Y."""
+    rect = NDS_WINDOWS[shape]
+    x0, y0, x1, y1 = scaled(rect)
+    image = vertical_gradient((W, H), (250, 250, 252), (210, 212, 218))
+    gloss(image, 0, W, 60)
+    draw = ImageDraw.Draw(image)
+    draw.rounded_rectangle((x0 - 22 * S, y0 - 22 * S, x1 + 22 * S - 1, y1 + 22 * S - 1), radius=18 * S, fill=(52, 52, 58, 255))
+    draw.rounded_rectangle((x0 - 22 * S, y0 - 22 * S, x1 + 22 * S - 1, y1 + 22 * S - 1), radius=18 * S,
+                           outline=(170, 172, 180, 255), width=2 * S)
+    cut_box(image, rect)
+    handheld_controls(image, rect, ((236, 237, 240), (70, 72, 80), (224, 226, 232), (60, 62, 70, 255),
+                                    (150, 152, 160, 255), None))
+    power_led(image, spot(rect, "led"), (90, 220, 120))
+    return image
+
+
+def ds3_console(shape):
+    """The Nintendo 3DS in aqua blue: its metallic body, the screens' black face, the speakers, the Circle Pad and
+    D-pad, A B X Y."""
+    rect = DS3_WINDOWS[shape]
+    x0, y0, x1, y1 = scaled(rect)
+    image = vertical_gradient((W, H), (74, 178, 214), (18, 86, 128))
+    rnd = random.Random(3)
+    flakes = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    fdraw = ImageDraw.Draw(flakes)
+    for _ in range(1400):
+        x, y = rnd.randrange(W), rnd.randrange(H)
+        fdraw.point((x, y), fill=(220, 250, 255, rnd.randrange(30, 90)))
+    image.alpha_composite(flakes)
+    gloss(image, 0, W, 70)
+    draw = ImageDraw.Draw(image)
+    draw.rounded_rectangle((x0 - 34 * S, y0 - 34 * S, x1 + 34 * S - 1, y1 + 34 * S - 1), radius=24 * S, fill=(14, 16, 20, 255))
+    cut_box(image, rect)
+    handheld_controls(image, rect, ((40, 120, 160), (40, 42, 48), (34, 36, 42), (230, 232, 240, 255),
+                                    (8, 40, 60, 200), (150, 152, 160)))
+    # The 3D slider beside the top screen.
+    parts = regions(rect)
+    if "right" in parts:
+        sx = x1 + 70 * S if x1 + 120 * S < W else W - 40 * S
+        sy = 140 * S
+        draw = ImageDraw.Draw(image)
+        draw.rounded_rectangle((sx - 8 * S, sy, sx + 8 * S, sy + 120 * S), radius=8 * S, fill=(10, 30, 44, 255))
+        draw.rounded_rectangle((sx - 14 * S, sy + 70 * S, sx + 14 * S, sy + 100 * S), radius=6 * S, fill=(200, 210, 220, 255))
+    power_led(image, spot(rect, "led"), (90, 200, 255))
+    return image
+
+
+def tv_wide():
+    """The wooden tube TV with a widescreen tube (16:9, 1440x810, for wide pictures): the speaker and knobs right."""
+    image = vertical_gradient((W, H), (96, 64, 38), (58, 37, 22))
+    rnd = random.Random(64)
+    grain = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(grain)
+    for _ in range(900):
+        x = rnd.randrange(W)
+        draw.line((x, 0, x + rnd.randrange(-40, 40), H), fill=(30, 18, 8, rnd.randrange(10, 40)),
+                  width=rnd.randrange(1, 4) * S)
+    image.alpha_composite(grain.filter(ImageFilter.GaussianBlur(2 * S)))
+    sx0, sy0, sx1, sy1 = 110 * S, 120 * S, 1550 * S, 930 * S  # the screen window
+    soft_shadow(image, (sx0 - 60 * S, sy0 - 60 * S, sx1 + 60 * S, sy1 + 60 * S), 80 * S, 18 * S, 180)
+    draw = ImageDraw.Draw(image)
+    draw.rounded_rectangle((sx0 - 50 * S, sy0 - 50 * S, sx1 + 50 * S, sy1 + 50 * S), radius=80 * S, fill=(22, 20, 19, 255))
+    draw.rounded_rectangle((sx0 - 14 * S, sy0 - 14 * S, sx1 + 14 * S, sy1 + 14 * S), radius=52 * S, fill=(8, 8, 8, 255))
+    mask = Image.new("L", (W, H), 0)
+    ImageDraw.Draw(mask).rounded_rectangle((sx0, sy0, sx1 - 1, sy1 - 1), radius=44 * S, fill=255)
+    image.paste(Image.new("RGBA", (W, H), (0, 0, 0, 0)), (0, 0), mask)
+    draw = ImageDraw.Draw(image)
+    gx0, gx1 = 1660 * S, 1850 * S
+    draw.rounded_rectangle((gx0 - 20 * S, 110 * S, gx1 + 20 * S, 560 * S), radius=24 * S, fill=(40, 28, 18, 255))
+    for i in range(18):
+        y = (130 + i * 23) * S
+        draw.rounded_rectangle((gx0, y, gx1, y + 10 * S), radius=5 * S, fill=(16, 11, 7, 255))
+    for i, y in enumerate((690, 860)):
+        cx, cy, r = 1755 * S, y * S, 62 * S
+        soft_shadow(image, (cx - r, cy - r + 8 * S, cx + r, cy + r + 8 * S), r, 10 * S)
+        draw = ImageDraw.Draw(image)
+        draw.ellipse((cx - r, cy - r, cx + r, cy + r), fill=(44, 42, 40, 255))
+        draw.ellipse((cx - r * 0.78, cy - r * 0.78, cx + r * 0.78, cy + r * 0.78), fill=(70, 66, 62, 255))
+        draw.line((cx, cy, cx + r * (0.55 if i else 0.0), cy - r * (0.0 if i else 0.6)), fill=(230, 220, 200, 255),
+                  width=8 * S)
+    centred_text(draw, "EmuSuNi", (830 * S, 1030 * S), 28 * S, (214, 184, 120, 255))
+    return image
+
+
+def frames(name, make):
+    """A shared frame in every window: frame-<name>.png and its -169, -wide and -tall windows."""
+    return {"frame-" + name + shape: (lambda make=make, rect=rect: make(rect)) for shape, rect in WINDOWS.items()}
+
+
 BEZELS = {
     "snes-console": snes_console, "snes-sfc": snes_sfc, "snes-purple": snes_purple,
     "nes-console": nes_console, "nes-famicom": nes_famicom, "nes-black": nes_black,
@@ -766,16 +1620,42 @@ BEZELS = {
     "gba-console": gba_console, "gba-glacier": gba_glacier, "gba-black": gba_black,
     "ps1-console": ps1_console, "ps1-psone": ps1_psone, "ps1-dark": ps1_dark,
     "tv": tv,
+    **frames("cabinet", frame_cabinet), **frames("minimal", frame_minimal), **frames("neon", frame_neon),
+    **frames("wood", frame_wood), **frames("carbon", frame_carbon), **frames("stars", frame_stars),
+    "tv-169": tv_wide,
+    "sg1000-console": sg1000_console, "sms-console": sms_console, "gg-console": gg_console, "md-console": md_console,
+    "psp-console": psp_console, "dc-console": dc_console, "naomi-console": naomi_console,
+    "atomiswave-console": atomiswave_console,
+    **{"nds-console" + shape: (lambda shape=shape: nds_console(shape)) for shape in NDS_WINDOWS},
+    **{"3ds-console" + shape: (lambda shape=shape: ds3_console(shape)) for shape in DS3_WINDOWS},
 }
+# Since 00.63 every bezel is saved as a palette PNG (libimagequant, dithered: half the size or less, the same look;
+# the older ones were made smaller that way too, from their files).
+PALETTE = set(BEZELS)
+
+
+def save(image, path, palette):
+    if palette:
+        try:
+            image = image.quantize(colors=256, method=Image.Quantize.LIBIMAGEQUANT, dither=Image.Dither.FLOYDSTEINBERG)
+        except (ValueError, OSError):
+            print("  (no libimagequant in this Pillow: saved as RGBA)")
+    image.save(path, optimize=True)
 
 
 if __name__ == "__main__":
+    # make-bezels.py [names or name prefixes...] [game picture.png for previews]
+    args = sys.argv[1:]
+    game = None
+    if args and args[-1].endswith(".png") and os.path.isfile(args[-1]):
+        game = Image.open(args.pop()).convert("RGBA")
     os.makedirs(OUT, exist_ok=True)
-    game = Image.open(sys.argv[1]).convert("RGBA") if len(sys.argv) > 1 else None
     for name, make in BEZELS.items():
+        if args and not any(name == a or name.startswith(a) for a in args):
+            continue
         image = make().resize((W // S, H // S), Image.LANCZOS)
         path = os.path.join(OUT, name + ".png")
-        image.save(path, optimize=True)
+        save(image, path, name in PALETTE)
         print(path, os.path.getsize(path) // 1024, "KiB")
         if game:
             # A preview: the game picture in the window (found as the emulator does), the frame over it.

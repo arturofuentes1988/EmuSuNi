@@ -245,6 +245,208 @@ PFN_vkVoidFunction LoadFunction(const char* name, void*)
   return function;
 }
 
+#ifdef EMUSUNI_3DS
+// ---- The Nintendo 3DS core (Azahar) asks the device for more than the other cores do ----
+// A few extensions with their features (no geometry shaders: the first geometry-shader draw hung the
+// PS4's GPU in 00.62; Azahar no longer uses them there, scripts/build-3ds-core.sh). Granite (ParaLLEl-RDP)
+// enables the timeline semaphores, the pipeline creation cache control and
+// the image format list by itself when the GPU has them; extended dynamic state, custom border colours,
+// 8-bit indices and the fragment shader interlock and barycentrics it knows nothing of: ExtraCreateDevice
+// adds them to what Granite asks vkCreateDevice for (VulkanFunctions::SetCreateDeviceHook). The 3DS core is
+// told (EMUSUNI_VK_DEVICE_FEATURES and _EXTENSIONS, PublishDeviceLists) only what the device really has, and
+// the other cores what they always were.
+struct Extras
+{
+  VkPhysicalDeviceExtendedDynamicStateFeaturesEXT dynamic_state = {
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_FEATURES_EXT};
+  VkPhysicalDeviceCustomBorderColorFeaturesEXT border_color = {
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CUSTOM_BORDER_COLOR_FEATURES_EXT};
+  VkPhysicalDeviceIndexTypeUint8FeaturesEXT index_uint8 = {
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_INDEX_TYPE_UINT8_FEATURES_EXT};
+  VkPhysicalDeviceFragmentShaderInterlockFeaturesEXT interlock = {
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADER_INTERLOCK_FEATURES_EXT};
+  VkPhysicalDeviceFragmentShaderBarycentricFeaturesKHR barycentric = {
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADER_BARYCENTRIC_FEATURES_KHR};
+  std::vector<const char*> extensions;  // the ones ExtraCreateDevice adds
+  // The names the 3DS core is told, besides the other cores': what Granite enables by itself, and what
+  // ExtraCreateDevice adds (only told when the device was made with them).
+  std::string granite_features, granite_extensions, hook_features, hook_extensions;
+  bool added = false;  // the device was made with ExtraCreateDevice's additions
+};
+Extras s_extras;
+std::string s_features_base, s_extensions_base, s_features_3ds, s_extensions_3ds;
+
+void AddName(std::string* list, const char* name)
+{
+  *list += std::string(list->empty() ? "" : ",") + name;
+}
+
+// What the GPU can give the 3DS core: from its extensions and the features each reports.
+void ProbeExtras(const std::vector<VkExtensionProperties>& all, [[maybe_unused]] const VkPhysicalDeviceFeatures& supported)
+{
+  auto has = [&all](const char* name) {
+    return std::any_of(all.begin(), all.end(),
+                       [name](const VkExtensionProperties& e) { return std::strcmp(e.extensionName, name) == 0; });
+  };
+  s_extras = Extras();
+  const auto get_features = reinterpret_cast<PFN_vkGetPhysicalDeviceFeatures2>(
+      VulkanFunctions::Lookup(s_instance, VK_NULL_HANDLE, "vkGetPhysicalDeviceFeatures2"));
+  if (has(VK_KHR_IMAGE_FORMAT_LIST_EXTENSION_NAME))
+    AddName(&s_extras.granite_extensions, VK_KHR_IMAGE_FORMAT_LIST_EXTENSION_NAME);
+  if (!get_features)
+  {
+    Log("3DS: no vkGetPhysicalDeviceFeatures2: no extra features asked for");
+    return;
+  }
+  // The features of each extension the GPU lists, as the GPU reports them.
+  VkPhysicalDeviceFeatures2 query = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+  VkPhysicalDeviceTimelineSemaphoreFeaturesKHR timeline = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES_KHR};
+  VkPhysicalDevicePipelineCreationCacheControlFeaturesEXT cache = {
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PIPELINE_CREATION_CACHE_CONTROL_FEATURES_EXT};
+  Extras probe;  // (its structs: the same chain types as the ones the device will be made with)
+  const bool want_timeline = has(VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME);
+  const bool want_cache = has(VK_EXT_PIPELINE_CREATION_CACHE_CONTROL_EXTENSION_NAME);
+  const bool want_dynamic = has(VK_EXT_EXTENDED_DYNAMIC_STATE_EXTENSION_NAME);
+  const bool want_border = has(VK_EXT_CUSTOM_BORDER_COLOR_EXTENSION_NAME);
+  const bool want_uint8 = has(VK_EXT_INDEX_TYPE_UINT8_EXTENSION_NAME);
+  const bool want_interlock = has(VK_EXT_FRAGMENT_SHADER_INTERLOCK_EXTENSION_NAME);
+  const bool want_barycentric = has(VK_KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME);
+  void** next = &query.pNext;
+  auto chain = [&next](auto& feature) {
+    *next = &feature;
+    next = &feature.pNext;
+  };
+  if (want_timeline)
+    chain(timeline);
+  if (want_cache)
+    chain(cache);
+  if (want_dynamic)
+    chain(probe.dynamic_state);
+  if (want_border)
+    chain(probe.border_color);
+  if (want_uint8)
+    chain(probe.index_uint8);
+  if (want_interlock)
+    chain(probe.interlock);
+  if (want_barycentric)
+    chain(probe.barycentric);
+  get_features(s_gpu, &query);
+  if (want_timeline && timeline.timelineSemaphore)
+  {
+    AddName(&s_extras.granite_features, "timelineSemaphore");
+    AddName(&s_extras.granite_extensions, VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME);
+  }
+  if (want_cache && cache.pipelineCreationCacheControl)
+  {
+    AddName(&s_extras.granite_features, "pipelineCreationCacheControl");
+    AddName(&s_extras.granite_extensions, VK_EXT_PIPELINE_CREATION_CACHE_CONTROL_EXTENSION_NAME);
+  }
+  if (want_dynamic && probe.dynamic_state.extendedDynamicState)
+  {
+    s_extras.dynamic_state.extendedDynamicState = VK_TRUE;
+    s_extras.extensions.push_back(VK_EXT_EXTENDED_DYNAMIC_STATE_EXTENSION_NAME);
+    AddName(&s_extras.hook_features, "extendedDynamicState");
+    AddName(&s_extras.hook_extensions, VK_EXT_EXTENDED_DYNAMIC_STATE_EXTENSION_NAME);
+  }
+  if (want_border && probe.border_color.customBorderColors)
+  {
+    s_extras.border_color.customBorderColors = VK_TRUE;
+    s_extras.border_color.customBorderColorWithoutFormat = probe.border_color.customBorderColorWithoutFormat;
+    s_extras.extensions.push_back(VK_EXT_CUSTOM_BORDER_COLOR_EXTENSION_NAME);
+    AddName(&s_extras.hook_features, "customBorderColors");
+    if (probe.border_color.customBorderColorWithoutFormat)
+      AddName(&s_extras.hook_features, "customBorderColorWithoutFormat");
+    AddName(&s_extras.hook_extensions, VK_EXT_CUSTOM_BORDER_COLOR_EXTENSION_NAME);
+  }
+  if (want_uint8 && probe.index_uint8.indexTypeUint8)
+  {
+    s_extras.index_uint8.indexTypeUint8 = VK_TRUE;
+    s_extras.extensions.push_back(VK_EXT_INDEX_TYPE_UINT8_EXTENSION_NAME);
+    AddName(&s_extras.hook_features, "indexTypeUint8");
+    AddName(&s_extras.hook_extensions, VK_EXT_INDEX_TYPE_UINT8_EXTENSION_NAME);
+  }
+  if (want_interlock && probe.interlock.fragmentShaderPixelInterlock)
+  {
+    s_extras.interlock.fragmentShaderPixelInterlock = VK_TRUE;
+    s_extras.extensions.push_back(VK_EXT_FRAGMENT_SHADER_INTERLOCK_EXTENSION_NAME);
+    AddName(&s_extras.hook_features, "fragmentShaderPixelInterlock");
+    AddName(&s_extras.hook_extensions, VK_EXT_FRAGMENT_SHADER_INTERLOCK_EXTENSION_NAME);
+  }
+  if (want_barycentric && probe.barycentric.fragmentShaderBarycentric)
+  {
+    s_extras.barycentric.fragmentShaderBarycentric = VK_TRUE;
+    s_extras.extensions.push_back(VK_KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME);
+    AddName(&s_extras.hook_features, "fragmentShaderBarycentric");
+    AddName(&s_extras.hook_extensions, VK_KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME);
+  }
+}
+
+// vkCreateDevice as Granite calls it: its device plus the 3DS core's extensions and their features. A device
+// the driver refuses with them is made again without (the other cores must still be able to draw).
+VKAPI_ATTR VkResult VKAPI_CALL ExtraCreateDevice(VkPhysicalDevice gpu, const VkDeviceCreateInfo* info,
+                                                 const VkAllocationCallbacks* allocator, VkDevice* device)
+{
+  std::vector<const char*> names(info->ppEnabledExtensionNames,
+                                 info->ppEnabledExtensionNames + info->enabledExtensionCount);
+  for (const char* extra : s_extras.extensions)
+  {
+    if (std::none_of(names.begin(), names.end(), [extra](const char* name) { return std::strcmp(name, extra) == 0; }))
+      names.push_back(extra);
+  }
+  VkDeviceCreateInfo created = *info;
+  created.enabledExtensionCount = static_cast<uint32_t>(names.size());
+  created.ppEnabledExtensionNames = names.data();
+  // The feature structs first in the chain, then Granite's (VkPhysicalDeviceFeatures2 and its own).
+  void* head = const_cast<void*>(info->pNext);
+  auto chain = [&head](auto& feature) {
+    feature.pNext = head;
+    head = &feature;
+  };
+  if (s_extras.dynamic_state.extendedDynamicState)
+    chain(s_extras.dynamic_state);
+  if (s_extras.border_color.customBorderColors)
+    chain(s_extras.border_color);
+  if (s_extras.index_uint8.indexTypeUint8)
+    chain(s_extras.index_uint8);
+  if (s_extras.interlock.fragmentShaderPixelInterlock)
+    chain(s_extras.interlock);
+  if (s_extras.barycentric.fragmentShaderBarycentric)
+    chain(s_extras.barycentric);
+  created.pNext = head;
+  const VkResult result = vkCreateDevice(gpu, &created, allocator, device);
+  if (result == VK_SUCCESS)
+  {
+    s_extras.added = true;
+    return result;
+  }
+  LogF("display: the device couldn't be made with the 3DS's extensions (%d): made without them",
+       static_cast<int>(result));
+  return vkCreateDevice(gpu, info, allocator, device);
+}
+
+// The lists the 3DS core is told: the other cores' and what the device has for it besides.
+void Build3dsLists(const std::string& features, const std::string& extensions)
+{
+  s_features_base = features;
+  s_extensions_base = extensions;
+  s_features_3ds = features;
+  s_extensions_3ds = extensions;
+  for (const std::string& part : {s_extras.granite_features, s_extras.added ? s_extras.hook_features : std::string()})
+  {
+    if (!part.empty())
+      s_features_3ds += (s_features_3ds.empty() ? "" : ",") + part;
+  }
+  for (const std::string& part :
+       {s_extras.granite_extensions, s_extras.added ? s_extras.hook_extensions : std::string()})
+  {
+    if (!part.empty())
+      s_extensions_3ds += (s_extensions_3ds.empty() ? "" : ",") + part;
+  }
+  LogF("display: told to the Nintendo 3DS core: features %s; extensions %s%s", s_features_3ds.c_str(),
+       s_extensions_3ds.c_str(), s_extras.extensions.empty() ? "" : (s_extras.added ? " (added to the device)" : " (NOT added)"));
+}
+#endif
+
 bool CreateDevice()
 {
   if (!VulkanFunctions::LoadGlobal())
@@ -326,10 +528,22 @@ bool CreateDevice()
       }
       if (has(VK_EXT_SHADER_STENCIL_EXPORT_EXTENSION_NAME))
         extensions.push_back(VK_EXT_SHADER_STENCIL_EXPORT_EXTENSION_NAME);
+#ifdef EMUSUNI_3DS
+      ProbeExtras(all, supported);
+#endif
     }
-    if (parallel_create_device(&context, s_instance, s_gpu, VK_NULL_HANDLE, VulkanFunctions::GetInstanceProcAddr,
-                               extensions.data(), static_cast<unsigned>(extensions.size()), nullptr, 0, &wanted) &&
-        context.device != VK_NULL_HANDLE)
+#ifdef EMUSUNI_3DS
+    // Granite makes the device through vkCreateDevice as GetInstanceProcAddr hands it out: with the 3DS core's
+    // extensions added (ExtraCreateDevice).
+    VulkanFunctions::SetCreateDeviceHook(s_extras.extensions.empty() ? nullptr : ExtraCreateDevice);
+#endif
+    const bool made = parallel_create_device(&context, s_instance, s_gpu, VK_NULL_HANDLE,
+                                             VulkanFunctions::GetInstanceProcAddr, extensions.data(),
+                                             static_cast<unsigned>(extensions.size()), nullptr, 0, &wanted);
+#ifdef EMUSUNI_3DS
+    VulkanFunctions::SetCreateDeviceHook(nullptr);
+#endif
+    if (made && context.device != VK_NULL_HANDLE)
     {
       s_device = context.device;
       s_queue = context.queue;
@@ -375,6 +589,9 @@ bool CreateDevice()
         add(&extension_list, name);
       setenv("EMUSUNI_VK_DEVICE_FEATURES", features.c_str(), 1);
       setenv("EMUSUNI_VK_DEVICE_EXTENSIONS", extension_list.c_str(), 1);
+#ifdef EMUSUNI_3DS
+      Build3dsLists(features, extension_list);
+#endif
       LogF("display: device made by ParaLLEl-RDP (queue family %u), with %s; extensions %s", s_queue_family,
            ours.empty() ? "no extra features" : ours.c_str(), extension_list.empty() ? "none" : extension_list.c_str());
     }
@@ -806,6 +1023,16 @@ bool Display::SharesVulkan() const
 {
   return s_shared;
 }
+
+#ifdef EMUSUNI_3DS
+void Display::PublishDeviceLists(bool for_3ds)
+{
+  if (!s_shared)
+    return;  // (no device of ParaLLEl-RDP's: nothing was published)
+  setenv("EMUSUNI_VK_DEVICE_FEATURES", (for_3ds ? s_features_3ds : s_features_base).c_str(), 1);
+  setenv("EMUSUNI_VK_DEVICE_EXTENSIONS", (for_3ds ? s_extensions_3ds : s_extensions_base).c_str(), 1);
+}
+#endif
 
 VkInstance Display::Instance() const
 {

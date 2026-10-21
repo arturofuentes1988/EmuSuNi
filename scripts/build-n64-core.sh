@@ -9,8 +9,13 @@
 #   - ParaLLEl-RDP keeps its Vulkan context between games: EmuSuNi creates its only Vulkan device
 #     with it once, at start (src/Display.cpp).
 #   - Granite (ParaLLEl's Vulkan layer) uses one queue for everything, the one the menus draw on.
-#   - The dynarec's code cache (an array in the core's data) is made executable through EmuSuNi
-#     (port/ps4_n64.c), the ways the PS4 allows.
+#   - The dynarec's code cache is not an array in the core's data (34 MiB of g_dev) but the app's
+#     shared JIT arena (port/ps4_n64.c's emusuni_jit_arena: 32 MiB of the app's .bss that the PS1's,
+#     PSP's, DS's and Dreamcast's JITs use too, one core at a time; within 2 GiB of the core, made
+#     executable the ways the PS4 allows), taken again at every start of the dynarec. Its end leaves
+#     the arena executable for the next core (no mprotect back to read/write).
+#   - GLideN64's 4 MiB RDP command buffer (that renderer is never used here) on the heap, made in
+#     RDP_Init, not in the .bss.
 #   - The N64's memory: not the 512 MiB layout (the app's heap is 512 MiB) but the compressed one,
 #     aligned to 64 KiB as ParaLLEl-RDP wants it.
 #   - No VK_EXT_external_memory_host: the PS4's RADV lists it but can't import host memory
@@ -75,14 +80,69 @@ patch('mupen64plus-core/src/device/r4300/new_dynarec/new_dynarec.c',
       "#else\n  mprotect ((u_char *)g_dev.r4300.extra_memory, 1<<TARGET_SIZE_2,\n"
       "            PROT_READ | PROT_WRITE | PROT_EXEC);\n  base_addr = g_dev.r4300.extra_memory;\n"
       "  base_addr_rx = base_addr;\n#endif\n#endif\n#endif",
-      "#elif defined(__PS4__)\n  {\n    // EmuSuNi (port/ps4_n64.c): the ways the PS4 allows code made at run time.\n"
-      "    extern int emusuni_make_executable(void *address, size_t size);\n"
-      "    if (emusuni_make_executable(g_dev.r4300.extra_memory, 1<<TARGET_SIZE_2) < 0)\n"
-      "      DebugMessage(M64MSG_ERROR, \"dynarec: the code cache can't be made executable\");\n  }\n"
+      "#elif defined(__PS4__)\n"
+      "  // EmuSuNi: the shared JIT arena's part (ensure_dynarec_cache_alignment), read/write/execute already.\n"
+      "  if (g_dev.r4300.extra_memory == NULL)\n"
+      "    DebugMessage(M64MSG_ERROR, \"dynarec: no executable memory for the code cache (EmuSuNi's JIT arena)\");\n"
       "  base_addr = g_dev.r4300.extra_memory;\n  base_addr_rx = base_addr;\n"
       "#else\n  mprotect ((u_char *)g_dev.r4300.extra_memory, 1<<TARGET_SIZE_2,\n"
       "            PROT_READ | PROT_WRITE | PROT_EXEC);\n  base_addr = g_dev.r4300.extra_memory;\n"
       "  base_addr_rx = base_addr;\n#endif\n#endif\n#endif")
+# EmuSuNi 00.63: the code cache out of g_dev (34 MiB of the app's .bss, which the PS4 charges at load): a
+# part of the app's shared JIT arena, taken at every start of the dynarec (another core may have used it
+# between two N64 games) and left executable at its end. g_dev's layout changes: the assembly's offsets
+# (asm_defines_nasm.h) are made again from asm_defines.o by the core's Makefile.
+patch('mupen64plus-core/src/device/r4300/r4300_core.h',
+      "    ALIGN(4096, unsigned char extra_memory_buffer[NEW_DYNAREC_CACHE_SIZE + NEW_DYNAREC_CACHE_PAGE_PAD]);\n"
+      "    unsigned char* extra_memory;\n",
+      "#ifndef __PS4__\n"
+      "    ALIGN(4096, unsigned char extra_memory_buffer[NEW_DYNAREC_CACHE_SIZE + NEW_DYNAREC_CACHE_PAGE_PAD]);\n"
+      "#endif\n"
+      "    /* EmuSuNi (PS4): the code cache, a part of the app's shared JIT arena (port/ps4_n64.c). */\n"
+      "    unsigned char* extra_memory;\n")
+patch('mupen64plus-core/src/device/r4300/new_dynarec/new_dynarec.c',
+      "static void ensure_dynarec_cache_alignment(void)\n{\n"
+      "  if (g_dev.r4300.extra_memory != NULL)\n    return;\n\n"
+      "  g_dev.r4300.extra_memory = (unsigned char*)\n"
+      "      dynarec_align_cache_buffer(g_dev.r4300.extra_memory_buffer,\n"
+      "                                 sizeof(g_dev.r4300.extra_memory_buffer));\n}\n",
+      "static void ensure_dynarec_cache_alignment(void)\n{\n"
+      "#ifdef __PS4__\n"
+      "  /* EmuSuNi (port/ps4_n64.c): the app's shared JIT arena (the PS1's, PSP's, DS's and Dreamcast's JITs\n"
+      "     write there between N64 games), taken again at every start: 32 MiB, read/write/execute, within\n"
+      "     2 GiB of the core. NULL: no executable memory (the app then runs the cached interpreter). */\n"
+      "  extern void *emusuni_jit_arena(size_t size, const char *name);\n"
+      "  g_dev.r4300.extra_memory = (unsigned char*)emusuni_jit_arena(NEW_DYNAREC_CACHE_SIZE, \"n64\");\n"
+      "#else\n"
+      "  if (g_dev.r4300.extra_memory != NULL)\n    return;\n\n"
+      "  g_dev.r4300.extra_memory = (unsigned char*)\n"
+      "      dynarec_align_cache_buffer(g_dev.r4300.extra_memory_buffer,\n"
+      "                                 sizeof(g_dev.r4300.extra_memory_buffer));\n"
+      "#endif\n}\n")
+patch('mupen64plus-core/src/device/r4300/new_dynarec/new_dynarec.c',
+      "  #else\n    mprotect(base_addr, 1<<TARGET_SIZE_2, PROT_READ | PROT_WRITE);\n  #endif\n",
+      "  #elif defined(__PS4__)\n"
+      "    /* EmuSuNi: the shared JIT arena stays read/write/execute for the next core (port/ps4_n64.c). */\n"
+      "  #else\n    mprotect(base_addr, 1<<TARGET_SIZE_2, PROT_READ | PROT_WRITE);\n  #endif\n")
+# GLideN64 (never used: ParaLLEl-RDP draws N64 games) - its 4 MiB command buffer on the heap, made by
+# RDP_Init (never called), not in the .bss.
+patch('GLideN64/src/RDP.h',
+      "\tu32 cmd_data[MAXCMD + 32];\n",
+      "#ifdef __PS4__\n"
+      "\tu32 *cmd_data; // EmuSuNi: MAXCMD + 32 words on the heap (RDP_Init), not 4 MiB in the .bss\n"
+      "#else\n"
+      "\tu32 cmd_data[MAXCMD + 32];\n"
+      "#endif\n")
+patch('GLideN64/src/RDP.cpp',
+      "#include <cstring>\n",
+      "#include <cstring>\n#include <cstdlib>\n")
+patch('GLideN64/src/RDP.cpp',
+      "void RDP_Init()\n{\n",
+      "void RDP_Init()\n{\n"
+      "#ifdef __PS4__\n"
+      "\tif (RDP.cmd_data == nullptr)\n"
+      "\t\tRDP.cmd_data = static_cast<u32*>(calloc(MAXCMD + 32, sizeof(u32)));\n"
+      "#endif\n")
 patch('mupen64plus-core/src/device/memory/memory.c',
       "#else\n    if (posix_memalign(&mem_base, MB_RDRAM_DRAM_ALIGNMENT_REQUIREMENT, MB_MAX_SIZE_FULL) != 0)\n"
       "        mem_base = NULL;\n#endif // HAVE_LIBNX",
@@ -1543,9 +1603,12 @@ API="retro_set_environment retro_set_video_refresh retro_set_audio_sample
   for f in $API; do echo "#define $f mupen64plus_$f"; done
 } > "$OUT/prefix_mupen64plus.h"
 
-# The PS4 target, as the toolchain file sets it for the app.
+# The PS4 target, as the toolchain file sets it for the app, except for the unwind tables (only for the
+# functions that can throw, not a frame for every function) and a section for each function and variable
+# (the app's link, --gc-sections, drops the ones nothing uses).
 PS4="-target x86_64-pc-freebsd12-elf -D_GNU_SOURCE -D__PS4__ -D__OPENORBIS__ -D__ORBIS__ -DPS4"
-PS4+=" -D__BSD_VISIBLE -D_BSD_SOURCE -fPIC -funwind-tables -isysroot /opt/pacbrew/ps4/openorbis"
+PS4+=" -D__BSD_VISIBLE -D_BSD_SOURCE -fPIC -fno-unwind-tables -fno-asynchronous-unwind-tables"
+PS4+=" -ffunction-sections -fdata-sections -isysroot /opt/pacbrew/ps4/openorbis"
 PS4+=" -isystem $HOME/dolphinps4-build/sysroot/libc-overlay -isystem /opt/pacbrew/ps4/openorbis/include"
 PS4+=" -I/opt/pacbrew/ps4/openorbis/usr/include -march=btver2"
 # GL headers for GLideN64's code (never used), looked in last: Mesa's Vulkan headers are a newer
@@ -1565,7 +1628,7 @@ if [ "${2:-}" = clean ] || [ "$(cat "$STAMP" 2>/dev/null)" != "$WANT" ]; then
   make clean > /dev/null 2>&1 || true
   rm -f "$STAMP" "$SRC/mupen64plus_next_libretro.a"  # make clean leaves the archive (updated in place)
 fi
-if ! make -j"$(nproc)" $MAKEFLAGS_CORE TARGET=mupen64plus_next_libretro.a \
+if ! make -j"${EMUSUNI_JOBS:-4}" $MAKEFLAGS_CORE TARGET=mupen64plus_next_libretro.a \
      CC="clang-21 $PS4" CXX="clang++-21 $CXXSYS $PS4" CC_AS="clang-21 $PS4" AR=llvm-ar-21 \
      NASM=nasm STRINGS=strings GIT_VERSION=" $(git rev-parse --short HEAD 2>/dev/null || echo unknown)" \
      > "$LOG" 2>&1; then

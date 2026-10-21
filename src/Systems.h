@@ -5,7 +5,10 @@
 // is in builds with EMUSUNI_N64, the Game Boy, Game Boy Color and Game Boy Advance (mGBA) in
 // builds with EMUSUNI_GBA, the PlayStation (SwanStation) in builds with EMUSUNI_PS1, the Nintendo
 // DS (melonDS DS) in builds with EMUSUNI_NDS, the PSP (PPSSPP) in builds with EMUSUNI_PSP, the
-// Dreamcast (Flycast) in builds with EMUSUNI_DC (scripts/build.sh's).
+// Dreamcast (Flycast) in builds with EMUSUNI_DC, the SG-1000, Master System, Game Gear and Mega
+// Drive (Genesis Plus GX) in builds with EMUSUNI_SEGA, the Arcade (FinalBurn Neo) in builds with
+// EMUSUNI_ARCADE, the Nintendo 3DS (Azahar) in builds with EMUSUNI_3DS (scripts/build.sh's); Sega's NAOMI
+// and Sammy's Atomiswave, Flycast's arcade boards, with the Dreamcast (EMUSUNI_DC).
 //
 // A game is known by its key: its file name without the extension for the Super Nintendo (as
 // before EmuSuNi played other consoles), "<console>/<file name>" for the others. Its settings,
@@ -32,8 +35,16 @@ enum class SystemId
   NDS = 7,
   PSP = 8,
   DC = 9,
+  SG1000 = 10,
+  SMS = 11,
+  GG = 12,
+  MD = 13,
+  ARCADE = 14,
+  THREEDS = 15,
+  NAOMI = 16,       // Sega's NAOMI (and NAOMI 2): Flycast, the Dreamcast's core
+  ATOMISWAVE = 17,  // Sammy's Atomiswave: Flycast too
 };
-constexpr int SYSTEM_COUNT = 10;  // the most there can be: Systems() has those of this build
+constexpr int SYSTEM_COUNT = 18;  // the most there can be: Systems() has those of this build
 
 struct System
 {
@@ -52,6 +63,8 @@ struct System
   const char* thumbnails_repo; // its GitHub project (libretro-thumbnails/...)
   const CoreApi* core;
   bool by_path = false;        // the core reads the game itself from its path (CD images): no .zip
+  // (The Arcade's by_path game is the .zip itself, named after the core's driver: src/Arcade.h; the NAOMI's
+  // and the Atomiswave's after Flycast's set: src/Naomi.h.)
 };
 
 const std::vector<System>& Systems();
@@ -63,6 +76,34 @@ bool HasSystem(SystemId id);
 inline bool IsHandheld(SystemId id)
 {
   return id == SystemId::GB || id == SystemId::GBC || id == SystemId::GBA;
+}
+// The SG-1000, Master System, Game Gear and Mega Drive: one core (Genesis Plus GX), cartridges.
+inline bool IsGpgx(SystemId id)
+{
+  return id == SystemId::SG1000 || id == SystemId::SMS || id == SystemId::GG || id == SystemId::MD;
+}
+// A handheld's LCD (the grid between its dots, LCD Ghosting): the Game Boys' and the Game Gear's
+// (not IsHandheld: another core, and its dots aren't square).
+inline bool HasLcd(SystemId id)
+{
+  return IsHandheld(id) || id == SystemId::GG;
+}
+// The NAOMI and the Atomiswave: Flycast's arcade boards (src/Naomi.h), the Dreamcast's hardware in a cabinet.
+inline bool IsFlycastBoard(SystemId id)
+{
+  return id == SystemId::NAOMI || id == SystemId::ATOMISWAVE;
+}
+// Flycast's machines: the Dreamcast and its arcade boards (one core; they play at Low, as the Dreamcast).
+inline bool IsFlycast(SystemId id)
+{
+  return id == SystemId::DC || IsFlycastBoard(id);
+}
+// The consoles whose game is a romset: a .zip (or .7z) named after the set, never opened by the app (the core
+// reads it), found by its name, not its extension: the Arcade's (FinalBurn Neo's drivers) and the NAOMI's and
+// Atomiswave's (Flycast's sets).
+inline bool IsRomsetSystem(SystemId id)
+{
+  return id == SystemId::ARCADE || IsFlycastBoard(id);
 }
 // The console whose ROM files have this name's extension (nullptr: none, or a .zip).
 const System* SystemOfFile(const std::string& name);

@@ -29,10 +29,19 @@
 #include "Saves.h"
 #include "Settings.h"
 #include "Tour.h"
+#ifdef EMUSUNI_SATURN
+#include "SaturnTest.h"
+#endif
 
 #ifdef EMUSUNI_N64
 extern "C" int ps4_exec_probe();  // port/ps4_runtime.cpp
 #endif
+#if defined(EMUSUNI_N64) || defined(EMUSUNI_PS1) || defined(EMUSUNI_NDS) || defined(EMUSUNI_PSP) || \
+    defined(EMUSUNI_DC) || defined(EMUSUNI_3DS)
+#define EMUSUNI_JIT_CORES 1  // port/ps4_n64.c is linked: it has the JIT arena
+extern "C" void emusuni_jit_window_probe(void);  // port/ps4_n64.c
+#endif
+extern "C" int emusuni_enable_dmem_aliasing(char* text, size_t size);  // port/ps4_runtime.cpp
 
 namespace
 {
@@ -140,12 +149,27 @@ int main()
   setvbuf(stdout, nullptr, _IONBF, 0);
   setvbuf(stderr, nullptr, _IONBF, 0);
   LogF("%s %s starting", App::NAME, App::VERSION);
+  // The stack a thread gets by default: what each thread alive at once takes of the regular flexible memory.
+  LogThreadDefaults();
+  // Direct memory aliasing for the whole process, before the first mapping of direct memory (the GPU's,
+  // with the display): the PSP's VRAM mirrors and the Dreamcast's fast memory map the same memory twice,
+  // which the kernel refuses until then (port/ps4_runtime.cpp; the cores check it again themselves).
+  {
+    char aliasing[200] = "";
+    emusuni_enable_dmem_aliasing(aliasing, sizeof(aliasing));
+    LogF("dmem: %s", aliasing);
+  }
   LoadSystemModules();
   SetTimeZone();
 #ifdef EMUSUNI_N64
   // How the PS4 lets code made at run time run (the N64 core's recompilers), once at start: every
   // executable mapping after this is made that way (port/ps4_runtime.cpp's mmap wrapper).
   LogF("n64: executable memory: method %d", ps4_exec_probe());
+#endif
+#ifdef EMUSUNI_JIT_CORES
+  // Could the JIT arena leave the program's data (00.64: 32 MiB more free at the start)? System flexible memory
+  // just past the program, made read/write/execute and run: tried once, all given back at once ("memory probe:").
+  emusuni_jit_window_probe();
 #endif
   sceUserServiceInitialize(nullptr);
   scePadInit();
@@ -186,6 +210,15 @@ int main()
     if (!start_now && !menu.Run(&game))
       continue;
     start_now = false;
+#ifdef EMUSUNI_SATURN
+    // The Saturn's speed test (Settings' row, with the file /data/EmuSuNi/saturn-test): run instead of a game.
+    if (SaturnTest::IsEntry(game))
+    {
+      SaturnTest::Run(display, regular, bold);
+      menu.GameEnded(std::string());
+      continue;
+    }
+#endif
     std::string error;
     const Emulator::Result result = Emulator::Run(display, game, regular, bold, &error);
     menu.GameEnded(result == Emulator::Result::Failed ? error : std::string());

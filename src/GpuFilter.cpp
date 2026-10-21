@@ -26,6 +26,8 @@ extern "C" int emusuni_filter_affinity(OrbisPthread thread, uint64_t mask) __asm
 // The shaders as SPIR-V: CMakeLists.txt compiles src/shaders with glslangValidator.
 #include "catmull.frag.h"
 #include "copy.frag.h"
+#include "crt.frag.h"
+#include "crt_glow.frag.h"
 #include "easu.frag.h"
 #include "mmpx.frag.h"
 #include "quad.vert.h"
@@ -91,6 +93,24 @@ constexpr double SMALL_AI_PIXELS = 768.0 * 576.0;
 // PlayStation and the PSP up to 2x. The PSP at 3x (1440x810) is nearly the screen's size already,
 // and SMAA there would take Natural HD past 2 ms of the PS4's GPU.
 constexpr double SMAA_MAX_PIXELS = 1.0e6;
+// Tube TV's looks (Source::crt 1..4, src/shaders/crt.frag): the glass's curvature across and down, the corners' radius
+// (of the screen's height); the beam's hardness (the lines' darkness: exp2(hardness * d * d) d lines from a line's
+// middle) and how much brighter parts widen it; the phosphors' mask (1 aperture grille, 2 slot mask, 3 dots) and its
+// strength; the glass's glow; the vignette; the sharpness across (1: one screen pixel's step between texels, less is
+// softer, as a TV's signal).
+struct CrtLook
+{
+  float curve_x, curve_y, corner;
+  float hardness, widening;
+  uint32_t mask;
+  float mask_strength, glow, vignette, sharpness;
+};
+const CrtLook CRT_LOOKS[4] = {
+    {0.031f, 0.041f, 0.040f, -9.0f, 0.50f, 3, 0.22f, 0.10f, 0.22f, 0.30f},   // TV
+    {0.022f, 0.030f, 0.028f, -12.0f, 0.45f, 2, 0.28f, 0.07f, 0.16f, 0.60f},  // Arcade Monitor
+    {0.0f, 0.0f, 0.010f, -11.0f, 0.40f, 1, 0.18f, 0.04f, 0.06f, 1.00f},      // Studio Monitor: flat, crisp
+    {0.045f, 0.060f, 0.055f, -16.0f, 0.45f, 2, 0.40f, 0.14f, 0.32f, 0.40f},  // Intense
+};
 
 enum class Target
 {
@@ -116,6 +136,8 @@ enum Shader
   SMAA_BLEND,
   SHARP_BILINEAR,
   RESTORE_PARTIAL,  // RESTORE0 + 7 with the network's correction scaled (Natural AI)
+  CRT_GLOW,         // Tube TV: a picture drawn bigger made smaller for the glow
+  CRT,              // Tube TV
   SHADER_COUNT,
 };
 
@@ -148,6 +170,8 @@ const ShaderCode SHADERS[SHADER_COUNT] = {
     EMUSUNI_SPV("smaa-blend", emusuni_spv_smaa_blend_frag),
     EMUSUNI_SPV("sharp-bilinear", emusuni_spv_sharp_bilinear_frag),
     EMUSUNI_SPV("restore7-partial", emusuni_spv_restore_m_7_partial_frag),
+    EMUSUNI_SPV("crt-glow", emusuni_spv_crt_glow_frag),
+    EMUSUNI_SPV("crt", emusuni_spv_crt_frag),
 };
 #undef EMUSUNI_SPV
 
@@ -433,6 +457,10 @@ std::vector<Need> Needs(Mode mode)
       needs.push_back({RESTORE_PARTIAL, Target::Rgba8});
       needs.push_back({CATMULL, Target::Screen});
     }
+    break;
+  case Mode::Crt:
+    needs.push_back({CRT_GLOW, Target::Rgba8});
+    needs.push_back({CRT, Target::Screen});
     break;
   case Mode::Off:
     needs.clear();
@@ -869,6 +897,20 @@ void EasuConstants(uint32_t* con, double in_w, double in_h, double out_w, double
     con[i] = FloatBits(values[i]);
 }
 
+// Tube TV's glow reads a picture of about the console's size: one drawn bigger (its lines two texels apart or more:
+// HD 3D, an interlaced picture) is made smaller first, a block of its texels for each of the console's pixels (else
+// the glow's taps would fall between its details). The block's side, 1 (the picture itself) to 8.
+uint32_t CrtGlowBlock(const Source& source)
+{
+  double per_line = 1.0;
+  for (int i = 0; i < std::clamp(source.screen_count, 1, 2); i++)
+  {
+    const Source::Screen& screen = source.screens[i];
+    per_line = std::max(per_line, double(screen.from[3]) * source.height / std::max(1.0, double(screen.lines)));
+  }
+  return per_line >= 1.75 ? std::min<uint32_t>(8, static_cast<uint32_t>(std::lround(per_line))) : 1;
+}
+
 // The passes for the mode and the images they draw into; false when the images can't be made.
 bool BuildChain(Mode mode, const Source& source, uint32_t picture_w, uint32_t picture_h)
 {
@@ -1054,6 +1096,18 @@ bool BuildChain(Mode mode, const Source& source, uint32_t picture_w, uint32_t pi
     }
     break;
   }
+  case Mode::Crt:
+  {
+    const uint32_t block = CrtGlowBlock(source);
+    int glow = picture;
+    if (block >= 2)
+    {
+      glow = image(std::max<uint32_t>(4, sw / block), std::max<uint32_t>(4, sh / block), Target::Rgba8);
+      pass(CRT_GLOW, Target::Rgba8, glow, {picture}, true);
+    }
+    pass(CRT, Target::Screen, -1, {picture, glow}, true);
+    break;
+  }
   case Mode::Off:
     return false;
   }
@@ -1075,6 +1129,71 @@ void InputSize(int input, double* width, double* height)
     *width = s_images[input].spec.width;
     *height = s_images[input].spec.height;
   }
+}
+
+// Two values of 0..1 as 16-bit fractions in one word (GLSL's unpackUnorm2x16).
+uint32_t PackUnorm2(float a, float b)
+{
+  const auto unorm = [](float v) { return static_cast<uint32_t>(std::lround(std::clamp(v, 0.0f, 1.0f) * 65535.0f)); };
+  return unorm(a) | (unorm(b) << 16);
+}
+
+// A float as a 16-bit one (normal numbers; GLSL's unpackHalf2x16 reads two from a word).
+uint32_t Half(float value)
+{
+  const uint32_t bits = FloatBits(value);
+  const uint32_t sign = (bits >> 16) & 0x8000u;
+  const int exponent = static_cast<int>((bits >> 23) & 0xFFu) - 127 + 15;
+  if (exponent <= 0)
+    return sign;  // too small: 0
+  if (exponent >= 31)
+    return sign | 0x7C00u;
+  return sign | (static_cast<uint32_t>(exponent) << 10) | ((bits & 0x7FFFFFu) >> 13);
+}
+
+uint32_t PackHalf2(float a, float b)
+{
+  return Half(a) | (Half(b) << 16);
+}
+
+// Tube TV's constants (src/shaders/crt.frag's list): the screens, the look.
+void CrtConstants(Push& push)
+{
+  const Source& source = s_job.source;
+  const CrtLook& look = CRT_LOOKS[std::clamp(source.crt, 1, 4) - 1];
+  const int screens = std::clamp(source.screen_count, 1, 2);
+  for (int i = 0; i < 2; i++)
+  {
+    const Source::Screen& screen = source.screens[i < screens ? i : 0];
+    push.con[i * 4 + 0] = PackUnorm2(screen.place[0], screen.place[1]);
+    push.con[i * 4 + 1] = PackUnorm2(screen.place[2], screen.place[3]);
+    push.con[i * 4 + 2] = PackUnorm2(screen.from[0], screen.from[1]);
+    push.con[i * 4 + 3] = PackUnorm2(screen.from[2], screen.from[3]);
+    push.con[8 + i] = FloatBits(std::max(1.0f, screen.lines));
+  }
+  // One screen that is the whole picture: the shader has nothing to work out about where it is.
+  const Source::Screen& first = source.screens[0];
+  const bool whole = screens == 1 && first.place[0] == 0.0f && first.place[1] == 0.0f && first.place[2] == 1.0f &&
+                     first.place[3] == 1.0f && first.from[0] == 0.0f && first.from[1] == 0.0f && first.from[2] == 1.0f &&
+                     first.from[3] == 1.0f;
+  push.con[10] = static_cast<uint32_t>(screens) | (look.mask << 8) | (static_cast<uint32_t>(source.rotation & 3) << 16) |
+                 (CrtGlowBlock(source) << 20) | (whole ? 1u << 24 : 0u);
+  push.con[11] = PackHalf2(look.curve_x, look.curve_y);
+  push.con[12] = PackHalf2(look.hardness, look.widening);
+  push.con[13] = PackHalf2(look.mask_strength, look.glow);
+  push.con[14] = PackHalf2(look.vignette, look.corner);
+  // The light the mask takes away, given back (the average of its lit and dark stripes).
+  const float s = look.mask_strength;
+  const float mask_average = look.mask == 1 ? 1.0f - s / 2.0f :
+                             look.mask == 2 ? (1.0f - 2.0f * s / 3.0f) * (1.0f - s / 6.0f) :
+                             look.mask == 3 ? 1.0f - 2.0f * s / 3.0f :
+                                              1.0f;
+  push.con[15] = PackHalf2(1.0f / mask_average, look.sharpness);
+  // sqrt(1 - widening * level) as 1 + level * (b + level * c), exact at the levels 0, 1/2 and 1.
+  const float at_half = std::sqrt(1.0f - 0.5f * look.widening) - 1.0f, at_one = std::sqrt(1.0f - look.widening) - 1.0f;
+  const float c = 2.0f * at_one - 4.0f * at_half;
+  push.origin[2] = at_one - c;
+  push.origin[3] = c;
 }
 
 // Every pass's push constants for this frame (the picture's place can change any frame).
@@ -1120,6 +1239,9 @@ void SetConstants()
       break;
     case RESTORE_PARTIAL:
       push.origin[2] = NATURAL_AI_STRENGTH;
+      break;
+    case CRT:
+      CrtConstants(push);
       break;
     default:
       break;
@@ -1262,6 +1384,8 @@ const char* Name(Mode mode)
     return "Natural HD";
   case Mode::NaturalAI:
     return "Natural AI";
+  case Mode::Crt:
+    return "Tube TV (CRT)";
   case Mode::Off:
     break;
   }
@@ -1502,7 +1626,12 @@ bool Draw(ImDrawList* dl, Mode mode, const Source& source, ImVec2 min, ImVec2 ma
   char what[160];
   const bool steps = mode == Mode::Edges || mode == Mode::NaturalHD || mode == Mode::NaturalAI;
   const bool drawn = source.kind == Source::Kind::Drawn || (source.kind == Source::Kind::Auto && source.exact);
-  std::snprintf(what, sizeof(what), "%s, %ux%u%s to %dx%d, %zu passes", Name(mode), source.width, source.height,
+  static const char* const CRT_NAMES[4] = {" (TV", " (Arcade Monitor", " (Studio Monitor", " (Intense"};
+  char crt[64] = "";
+  if (mode == Mode::Crt)
+    std::snprintf(crt, sizeof(crt), "%s, %d screen%s)", CRT_NAMES[std::clamp(source.crt, 1, 4) - 1],
+                  std::clamp(source.screen_count, 1, 2), source.screen_count > 1 ? "s" : "");
+  std::snprintf(what, sizeof(what), "%s%s, %ux%u%s to %dx%d, %zu passes", Name(mode), crt, source.width, source.height,
                 !steps ? "" : drawn ? " (drawn)" : " (pixel art)", x1 - x0, y1 - y0, s_chain.size());
   if (s_logged != what)
   {

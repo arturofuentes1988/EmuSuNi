@@ -3,9 +3,10 @@
 </p>
 
 <p align="center">
-  <b>Ten classic consoles in one app for jailbroken PS4 consoles.</b><br>
-  Super Nintendo · NES · Nintendo 64 · Game Boy · Game Boy Color · Game Boy Advance ·
-  PlayStation · Nintendo DS · PSP · Dreamcast
+  <b>Eighteen classic consoles and arcade boards in one app for jailbroken PS4 consoles.</b><br>
+  Super Nintendo · NES · Nintendo 64 · Game Boy · Game Boy Color · Game Boy Advance · PlayStation ·
+  Nintendo DS · Nintendo 3DS · PSP · Dreamcast · NAOMI · Atomiswave · SG-1000 · Master System ·
+  Game Gear · Genesis · Arcade
 </p>
 
 <p align="center">
@@ -16,7 +17,7 @@
 <p align="center">
   <a href="https://github.com/arturofuentes1988/EmuSuNi/releases/latest"><img alt="Download" src="https://img.shields.io/github/v/release/arturofuentes1988/EmuSuNi?label=download&style=for-the-badge&color=7b4dff"></a>
   <img alt="PS4 with GoldHEN" src="https://img.shields.io/badge/PS4-GoldHEN-003791?style=for-the-badge&logo=playstation&logoColor=white">
-  <img alt="10 consoles" src="https://img.shields.io/badge/consoles-10-e5484d?style=for-the-badge">
+  <img alt="18 consoles" src="https://img.shields.io/badge/consoles-18-e5484d?style=for-the-badge">
   <a href="LICENSE"><img alt="License GPL-2.0+" src="https://img.shields.io/badge/license-GPL--2.0%2B-3db46d?style=for-the-badge"></a>
 </p>
 
@@ -24,33 +25,51 @@
 
 ---
 
-## The ten consoles
+## The consoles
 
-| Console | Emulator | Highlights |
-|---|---|---|
-| **Super Nintendo** | Snes9x 1.63 | Every chip (SuperFX, SA-1, DSP...), hi-res modes, up to 5 players |
-| **NES** and Famicom Disk System | FCEUmm | Palettes, turbo buttons, NTSC filter |
-| **Nintendo 64** | Mupen64Plus-Next | Drawn by the PS4's GPU up to 4x (ParaLLEl-RDP), Controller Pak and Rumble Pak |
-| **Game Boy** and **Game Boy Color** | mGBA | Game Boy Color or Super Game Boy colours, bezels shaped like each handheld |
-| **Game Boy Advance** | mGBA | Tilt and sunlight sensors, rumble, the cartridges' clock |
-| **PlayStation** — *new* | SwanStation | HD 3D up to 4x, steady polygons (PGXP), True Colour, both analog sticks, games on several discs |
-| **Nintendo DS** — *new* | melonDS DS 1.4.0 | Three screen layouts in DS Screens (R3 swaps between yours and Side by Side, or Big Top Screen), the touchpad is the touch screen, L3 blows into the mic |
-| **PSP** — *new* | PPSSPP 1.20.4 | Up to 4x (Full HD) with texture upscaling, no BIOS needed |
-| **Dreamcast** — *new* | Flycast 2.7 | Analog triggers on L2 / R2, a VMU for each game, rumble, games on several discs |
+| Console | Emulator | Formats | BIOS |
+|---|---|---|---|
+| **Super Nintendo** | Snes9x 1.63 | `.sfc` `.smc` `.swc` `.fig` `.bs` | Not needed |
+| **NES** and Famicom Disk System | FCEUmm | `.nes` `.fds` `.unf` `.unif` | Not needed (Disk System games: `disksys.rom`) |
+| **Nintendo 64** | Mupen64Plus-Next | `.z64` `.n64` `.v64` | Not needed |
+| **Game Boy** and **Game Boy Color** | mGBA | `.gb` `.sgb` `.dmg` `.gbc` `.cgb` | Not needed |
+| **Game Boy Advance** | mGBA | `.gba` `.agb` | Not needed |
+| **PlayStation** | SwanStation | `.cue` `.chd` `.pbp` `.m3u` `.iso` `.img` `.ecm` `.mds` | Built in (a real one runs more games) |
+| **Nintendo DS** | melonDS DS 1.4.0 | `.nds` `.ids` | Built in |
+| **Nintendo 3DS** — *experimental* | Azahar 2126.2 | Decrypted `.3ds` `.cci` `.cxi` `.3dsx` | Not needed |
+| **PSP** | PPSSPP 1.20.4 | `.iso` `.cso` `.chd` `.pbp` `.elf` | Not needed |
+| **Dreamcast** | Flycast 2.7 | `.gdi` `.cdi` `.chd` `.cue` `.m3u` | Built in |
+| **NAOMI** and NAOMI 2 — *new* | Flycast 2.7 | MAME sets `.zip` `.7z`, images `.dat` `.bin` | **Yours**: `naomi.zip`, `naomi2.zip` |
+| **Atomiswave** — *new* | Flycast 2.7 | MAME sets `.zip` `.7z` | **Yours**: `awbios.zip` |
+| **SG-1000** and SC-3000 | Genesis Plus GX | `.sg` `.sc` | Not needed |
+| **Master System** | Genesis Plus GX | `.sms` `.bms` | Not needed |
+| **Game Gear** | Genesis Plus GX | `.gg` | Not needed |
+| **Genesis** / Mega Drive | Genesis Plus GX | `.md` `.gen` `.smd` `.bin` `.mdx` `.68k` `.sgd` | Not needed |
+| **Arcade**: Neo Geo, Capcom CPS1/CPS2/CPS3, Sega, Konami, Taito... | FinalBurn Neo 1.0.0.03 | One `.zip` / `.7z` per game, not unpacked | Neo Geo: **yours**, `neogeo.zip` |
 
-No BIOS files are needed to start, except `disksys.rom` for Famicom Disk System games; the real ones
-are used when you add them ([BIOS](#bios-files)).
+No BIOS files or games are included. Only the Arcade's Neo Geo games, NAOMI and Atomiswave need a BIOS
+of yours ([BIOS](#bios-files)).
 
-## What's new in 00.20
+## What's new in 00.21
 
-- **PlayStation, Nintendo DS, PSP and Dreamcast** join the six consoles of 00.19.
-- **Games on several discs** (PlayStation, Dreamcast) show up as one game; the in-game menu changes the disc.
-- **Find Cheats Online**: libretro's cheat collection, searched for your game.
-- **Smooth Edges, Natural HD and Natural AI**: three new GPU filters, for the Medium, High and Ultra
-  Quality levels (coming from 00.19, choose your level again in **Triangle → Game Settings → Quality**).
-- **Console Order**: the consoles in your order, or By Company, By Power, By Year or Alphabetical.
-- A game's settings and controls are set from the game itself (**Triangle**).
-- For now the Dreamcast always plays at Low quality: the higher levels are too heavy for the PS4.
+- **Eight new consoles**: SG-1000, Master System, Game Gear and Genesis; the **Arcade** (FinalBurn Neo:
+  Neo Geo, Capcom CPS1 to CPS3, Sega, Konami, Taito...); **NAOMI** and **Atomiswave**; and the
+  **Nintendo 3DS**, experimental.
+- **Twice the memory**: the app starts with about 180 MiB free instead of about 90, so heavy games
+  (God of War, Dreamcast, 3DS) have room. A game that wouldn't fit asks you to reopen the app instead of
+  closing it.
+- **Faster Dreamcast** (fast memory, a faster recompiler), with a **Sound DSP** switch and a **CPU Clock**
+  for each game.
+- **PSP**: saves work, the quality changes while you play, and God of War no longer closes the app.
+- **Tube TV (CRT)** effect for every console, and **bezels for every console** plus six shared frames.
+- **Quality levels Low, Medium, High and Ultra** for every console (Low is the console's own resolution).
+- **Touch screen (DS and 3DS) like a laptop's touchpad**: the stylus moves from where you left it, a tap
+  is a touch.
+- **Controls** from Settings, from a game's options (Triangle) and from the in-game menu; Fast Forward's
+  help says each console's button.
+- **Your games are found by themselves** in `Roms/<console>` on every USB drive and on the PS4, and the
+  app makes those folders. Each console's page shows its formats and folders.
+- **Consoles Shown** (all, those with games, or the ones you choose) and **covers saved on the USB drive**.
 
 All the details: the [release notes](https://github.com/arturofuentes1988/EmuSuNi/releases/latest) and the [changelog](CHANGELOG.md).
 
@@ -131,8 +150,9 @@ All the details: the [release notes](https://github.com/arturofuentes1988/EmuSuN
 - **HD 3D**: the Nintendo 64 and the PlayStation up to 4x, the PSP up to 4x with texture upscaling.
 - **Resolution** 2x–6x with xBRZ, HQx or Sharp Pixels; aspect ratio, integer scaling, zoom,
   scanlines (on the Game Boys, the grid of their screen), NTSC filter, V-Sync.
-- **Bezels** (every console but the DS, the PSP and the Dreamcast): three per console plus a retro
-  TV (the Game Boys shaped like each handheld; the PlayStation, the PSone and Midnight), or your own.
+- **Bezels for every console**: its own console's frame, a retro TV and six shared frames (arcade
+  cabinet, dark minimal, neon, wood, carbon, starfield), or your own. **Tube TV (CRT)**: curved glass,
+  scanlines and a phosphor mask, in four looks.
 
 **Playing**
 - Battery saves written automatically, **8 save-state slots** with screenshots, *resume where you
@@ -190,30 +210,22 @@ To update, install the new package over the old one: your settings, saves and co
 
 ## Where the games go
 
-The easiest is a **USB drive** with a folder per console:
+The app makes a folder for every console by itself, on the PS4 and on the USB drive you use for games:
 
-```
-USB drive
-└── Roms
-    ├── snes    (Super Nintendo)
-    ├── nes
-    ├── n64
-    ├── gb
-    ├── gbc
-    ├── gba
-    ├── ps1     (PlayStation)
-    ├── nds     (Nintendo DS)
-    ├── psp
-    └── dc      (Dreamcast)
-```
+| Where | Path | Over FTP |
+|---|---|---|
+| USB drive | `Roms/<console>` at the drive's root | `/mnt/usb0/Roms/<console>` |
+| The PS4 | `/data/EmuSuNi/Roms/<console>` | `/data/EmuSuNi/Roms/<console>` |
 
-- **Every console but the Super Nintendo and the NES** looks in its `Roms` folder on the USB drive
-  without any setup.
-- **Super Nintendo and NES** start in `/data/EmuSuNi/games` and `/data/EmuSuNi/nes` (on the PS4,
-  by FTP).
-- **Any folder works**: in **Settings → Game Folders** you choose each console's, on a USB drive or
-  on the PS4. Subfolders are searched too.
-- After copying games, press **Square** in the Library to look for them again.
+The folders: `snes`, `nes`, `n64`, `gb`, `gbc`, `gba`, `ps1`, `nds`, `3ds`, `psp`, `dc`, `naomi`,
+`atomiswave`, `sg1000`, `sms`, `gg`, `md` (Genesis) and `arcade`.
+
+- Copy your games there (by FTP or with the USB drive on a PC): they show up by themselves. Press
+  **Square** in the Library to look again right away.
+- **Any folder works** too: **Settings → Game Folders** sets another one for a console.
+- On the PS4's own storage letters' case matters: an arcade, NAOMI or Atomiswave zip must keep its
+  set's name in small letters (`mslug.zip`, `mvsc2.zip`).
+- Deleting or updating the app doesn't delete `/data/EmuSuNi`: your games, saves, covers and settings stay.
 
 **Games on several discs** (PlayStation, Dreamcast) become one game by themselves when:
 - their files sit side by side with the disc in their names: `Game (Disc 1).chd`, `Game (Disc 2).chd`
@@ -226,18 +238,18 @@ next time, the game starts with the disc you played last.
 
 ## BIOS files
 
-None are needed to play, except `disksys.rom` for the Famicom Disk System. Copy the real ones by FTP
-if you have them:
+None are included. Only these need yours:
 
 | Console | Files | Folder |
 |---|---|---|
-| PlayStation (recommended: more games work) | `scph5501.bin`, `scph5500.bin`, `scph5502.bin` or another | `/data/EmuSuNi/system` |
-| Nintendo DS (all three) | `bios7.bin`, `bios9.bin`, `firmware.bin` | `/data/EmuSuNi/system` |
-| Dreamcast | `dc_boot.bin` | `/data/EmuSuNi/system/dc` |
-| Famicom Disk System (required) | `disksys.rom` | `/data/EmuSuNi/system` |
-| Game Boy, Color, Advance | `gb_bios.bin`, `gbc_bios.bin`, `sgb_bios.bin`, `gba_bios.bin` | `/data/EmuSuNi/system` |
+| Arcade: Neo Geo games | `neogeo.zip` | Beside the games (`Roms/arcade`) |
+| NAOMI / NAOMI 2 | `naomi.zip`, `naomi2.zip` | Beside the games (`Roms/naomi`) or `/data/EmuSuNi/system/dc` |
+| Atomiswave | `awbios.zip` | Beside the games (`Roms/atomiswave`) or `/data/EmuSuNi/system/dc` |
+| Famicom Disk System | `disksys.rom` | `/data/EmuSuNi/system` |
 
-The PSP needs no BIOS.
+The other consoles play without one. If you have the real ones, they are used: PlayStation
+(`scph5501.bin` or another, more games work) and Nintendo DS (`bios7.bin`, `bios9.bin`, `firmware.bin`)
+in `/data/EmuSuNi/system`, Dreamcast (`dc_boot.bin`) in `/data/EmuSuNi/system/dc`.
 
 ## Box art
 
@@ -307,7 +319,7 @@ in the in-game menu. Each one can apply to **all games**, to **a console** or to
 
 | Category | Settings |
 |---|---|
-| **Video** | **Quality** (Low, Medium, High, Ultra) · Resolution · N64, PS1 and PSP Resolution · Aspect Ratio · DS Screens · PS1 Widescreen · Picture Size · Letterbox Zoom · **Bezel** (not for the DS, PSP and Dreamcast) · Crop Overscan · Frame Rate Limit · V-Sync · FPS Counter |
+| **Video** | **Quality** (Low, Medium, High, Ultra) · Resolution · N64, PS1 and PSP Resolution · Aspect Ratio · DS Screens · PS1 Widescreen · Picture Size · Letterbox Zoom · **Bezel** · **Tube TV (CRT)** · Crop Overscan · Frame Rate Limit · V-Sync · FPS Counter |
 | **Graphics** | Upscaling Filter · **GPU Upscaler** · Texture Filtering · the N64's anti-aliasing, dither filter, 2D, distant textures and screen effects · the PlayStation's geometry (PGXP), texture filtering, colours and anti-aliasing · the PSP's texture sharpness, texture upscaling and anti-aliasing · NTSC Filter · Scanlines · Hi-Res Blending · Reduce Sprite Flicker · Transparency Effects · **Game Boy Colours** · Screen Colours · LCD Ghosting |
 | **Performance** | PSP Frame Rate (God of War) · Emulated CPU Clock · SuperFX Clock · the N64's graphics sync, CPU cores, picture timing, CPU timing and frame pacing · PS1 Disc Speed · Emulation Speed · Fast Forward · Frame Skip · Performance Graphs |
 | **Emulation** | Region · NES Palette · Turbo Buttons · the N64's CPU, RSP and Controller Pak · Boot Logo (BIOS) · Sunlight (Boktai) · Tilt Sensor · PS1 Controller · PS1 Boot Logo · Allow Opposing Directions · Randomize Memory and more |

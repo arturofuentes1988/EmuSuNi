@@ -43,8 +43,26 @@ set(NDS_CORE_OBJECT "" CACHE FILEPATH "melonDS DS as one object (scripts/build-n
 set(PSP_CORE_OBJECT "" CACHE FILEPATH "PPSSPP as one object (scripts/build-psp-core.sh)")
 # The Dreamcast (Flycast, built by scripts/build-dc-core.sh into one object whose libretro API is
 # flycast_retro_*): in the app (EMUSUNI_DC=1) when scripts/build.sh passes the object
-# (build.sh no-dc leaves it out).
+# (build.sh no-dc leaves it out). Its arcade boards, the NAOMI and the Atomiswave, come with it
+# (src/Naomi.cpp: the core's list of their games, flycast_emusuni_arcade_list).
 set(DC_CORE_OBJECT "" CACHE FILEPATH "Flycast as one object (scripts/build-dc-core.sh)")
+# The SG-1000, Master System, Game Gear and Mega Drive (Genesis Plus GX, built by
+# scripts/build-gpgx-core.sh into one object whose libretro API is gpgx_retro_*): in the app
+# (EMUSUNI_SEGA=1) when scripts/build.sh passes the object (build.sh no-sega leaves them out).
+set(SEGA_CORE_OBJECT "" CACHE FILEPATH "Genesis Plus GX as one object (scripts/build-gpgx-core.sh)")
+# The Arcade (FinalBurn Neo, built by scripts/build-arcade-core.sh into one object whose libretro API
+# is fbneo_retro_*): in the app (EMUSUNI_ARCADE=1) when scripts/build.sh passes the object (build.sh
+# no-arcade leaves it out).
+set(ARCADE_CORE_OBJECT "" CACHE FILEPATH "FinalBurn Neo as one object (scripts/build-arcade-core.sh)")
+# The Nintendo 3DS (Azahar, built by scripts/build-3ds-core.sh into one object whose libretro API is
+# azahar_retro_*): in the app (EMUSUNI_3DS=1) when scripts/build.sh passes the object (build.sh no-3ds
+# leaves it out; since 00.62 it is in by default, experimental: its ~27 MB of code and data are part of
+# the app's image, which the PS4 takes out of the same flexible memory the games use).
+set(THREEDS_CORE_OBJECT "" CACHE FILEPATH "Azahar as one object (scripts/build-3ds-core.sh)")
+# The Sega Saturn's speed test (00.64: YabaSanshiro without a renderer, built by scripts/build-saturn-core.sh into one
+# object whose libretro API is yabasanshiro_retro_*): in the app (EMUSUNI_SATURN=1) only when scripts/build.sh is
+# told with-saturn; even then players see nothing of it without the file /data/EmuSuNi/saturn-test (src/SaturnTest.h).
+set(SATURN_CORE_OBJECT "" CACHE FILEPATH "YabaSanshiro without a renderer as one object (scripts/build-saturn-core.sh)")
 
 # --- The emulator cores -------------------------------------------------------------------------
 # Every core is a libretro core with the same API (retro_init, retro_run...). Several of them in
@@ -88,6 +106,9 @@ target_compile_definitions(snes9x PUBLIC RIGHTSHIFT_IS_SAR __LIBRETRO__ ALLOW_CP
   HAVE_STDINT_H HAVE_STRINGS_H)
 target_compile_options(snes9x PRIVATE -O3 -fno-strict-aliasing -w
   $<$<COMPILE_LANGUAGE:CXX>:-std=gnu++17> -include ${CMAKE_BINARY_DIR}/cores/prefix_snes9x.h)
+# The core options' translations left out (HAVE_NO_LANGEXTRA): the app asks for no language, and each
+# table of them is part of the program image.
+target_compile_definitions(snes9x PRIVATE HAVE_NO_LANGEXTRA)
 
 # --- FCEUmm (NES, Famicom, Famicom Disk System) --------------------------------------------------
 # Its globals (PPU, RAM, X...) would clash with Snes9x's: the core is linked into one object
@@ -116,8 +137,9 @@ set(FCEUMM_SOURCES ${FCEUMM_BOARDS} ${FCEUMM_INPUT}
 add_library(fceumm_raw STATIC ${FCEUMM_SOURCES})
 target_include_directories(fceumm_raw PRIVATE ${FCEUMM_SRC}/drivers/libretro ${FCEUMM_LRC}/include
   ${FCEUMM_SRC} ${FCEUMM_SRC}/input ${FCEUMM_SRC}/boards ${FCEUMM_SRC}/ntsc)
+# (HAVE_NO_LANGEXTRA: the core options' translations left out, as for Snes9x: 41 tables, 3 MB of the image.)
 target_compile_definitions(fceumm_raw PRIVATE __LIBRETRO__ PATH_MAX=1024 FCEU_VERSION_NUMERIC=9900
-  FRONTEND_SUPPORTS_RGB565 HAVE_NTSC_FILTER LSB_FIRST LOCAL_LE=1)
+  FRONTEND_SUPPORTS_RGB565 HAVE_NTSC_FILTER LSB_FIRST LOCAL_LE=1 HAVE_NO_LANGEXTRA)
 target_compile_options(fceumm_raw PRIVATE -O2 -fno-strict-aliasing -w
   -include ${CMAKE_BINARY_DIR}/cores/prefix_fceumm.h)
 find_program(CORE_LD NAMES ld.lld-21 ld.lld REQUIRED)
@@ -168,8 +190,8 @@ add_executable(emusuni
   src/Controls.cpp src/Emulator.cpp src/IngameMenu.cpp src/GameAudio.cpp src/Library.cpp
   src/Cheats.cpp src/CheatDownload.cpp src/Saves.cpp src/Image.cpp src/Log.cpp src/PS4Lang.cpp src/PS4Glyphs.cpp
   src/Net.cpp src/CoverDownload.cpp src/Upscaler.cpp src/Tour.cpp src/Cores.cpp src/Systems.cpp
-  src/SystemKeyboard.cpp src/GpuFilter.cpp
-  port/ps4_jit_stubs.c ${PS4_RUNTIME_SOURCES})
+  src/SystemKeyboard.cpp src/GpuFilter.cpp src/Arcade.cpp src/Naomi.cpp
+  port/ps4_jit_stubs.c port/ps4_diskfree.c ${PS4_RUNTIME_SOURCES})
 add_dependencies(emusuni fceumm_core emusuni_shaders)
 target_include_directories(emusuni PRIVATE src ${CMAKE_BINARY_DIR}/shaders ${OPENORBIS}/usr/include
   ${OPENORBIS}/usr/include/libpng16)
@@ -239,6 +261,44 @@ if(DC_CORE_OBJECT)
   endif()
   target_compile_definitions(emusuni PRIVATE EMUSUNI_DC=1)
   target_link_libraries(emusuni PRIVATE ${DC_CORE_OBJECT})
+endif()
+if(SEGA_CORE_OBJECT)
+  if(NOT EXISTS "${SEGA_CORE_OBJECT}")
+    message(FATAL_ERROR "SEGA_CORE_OBJECT ${SEGA_CORE_OBJECT} doesn't exist (scripts/build-gpgx-core.sh)")
+  endif()
+  target_compile_definitions(emusuni PRIVATE EMUSUNI_SEGA=1)
+  target_link_libraries(emusuni PRIVATE ${SEGA_CORE_OBJECT})
+endif()
+if(ARCADE_CORE_OBJECT)
+  if(NOT EXISTS "${ARCADE_CORE_OBJECT}")
+    message(FATAL_ERROR "ARCADE_CORE_OBJECT ${ARCADE_CORE_OBJECT} doesn't exist (scripts/build-arcade-core.sh)")
+  endif()
+  target_compile_definitions(emusuni PRIVATE EMUSUNI_ARCADE=1)
+  target_link_libraries(emusuni PRIVATE ${ARCADE_CORE_OBJECT})
+endif()
+if(THREEDS_CORE_OBJECT)
+  if(NOT EXISTS "${THREEDS_CORE_OBJECT}")
+    message(FATAL_ERROR "THREEDS_CORE_OBJECT ${THREEDS_CORE_OBJECT} doesn't exist (scripts/build-3ds-core.sh)")
+  endif()
+  # Its recompilers (dynarmic for the ARM11, the PICA vertex shader JIT) make their code memory executable
+  # with port/ps4_n64.c's emusuni_make_executable; each of its threads first calls emusuni_3ds_thread,
+  # which the app defines there too.
+  if(NOT EMUSUNI_N64 AND NOT PS1_CORE_OBJECT AND NOT NDS_CORE_OBJECT AND NOT PSP_CORE_OBJECT AND
+     NOT DC_CORE_OBJECT)
+    target_sources(emusuni PRIVATE port/ps4_n64.c)
+  endif()
+  target_compile_definitions(emusuni PRIVATE EMUSUNI_3DS=1)
+  target_link_libraries(emusuni PRIVATE ${THREEDS_CORE_OBJECT})
+endif()
+if(SATURN_CORE_OBJECT)
+  if(NOT EXISTS "${SATURN_CORE_OBJECT}")
+    message(FATAL_ERROR "SATURN_CORE_OBJECT ${SATURN_CORE_OBJECT} doesn't exist (scripts/build-saturn-core.sh)")
+  endif()
+  # Only the speed test: its screen (src/SaturnTest.cpp) and its measuring (src/SaturnBench.cpp), which also has the
+  # core's calls to the app (emusuni_saturn_thread: its SCSP thread's core and priority; the SCSP's sleep and frame).
+  target_sources(emusuni PRIVATE src/SaturnTest.cpp src/SaturnBench.cpp)
+  target_compile_definitions(emusuni PRIVATE EMUSUNI_SATURN=1)
+  target_link_libraries(emusuni PRIVATE ${SATURN_CORE_OBJECT})
 endif()
 target_link_libraries(emusuni PRIVATE snes9x ${FCEUMM_OBJECT} imgui
   ${OPENORBIS}/usr/lib/libminizip.a ${OPENORBIS}/usr/lib/libpng16.a ${OPENORBIS}/usr/lib/libcurl.a

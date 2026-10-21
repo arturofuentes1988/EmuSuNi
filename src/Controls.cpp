@@ -80,14 +80,17 @@ const std::vector<Binding> PS1_BINDINGS = {
     {"fast_forward", "Fast Forward (hold)", "None", false},
 };
 // The Nintendo DS: its buttons where the SNES pad has them (A right, B bottom, X top, Y left), SELECT
-// on L2 (the touchpad is its touch screen); L3 blows into its microphone, R3 swaps the screens'
-// layout (melonDS DS).
+// on L2 (the touchpad is its touch screen, a trackpad: the finger moves the stylus, a tap or the touchpad's click
+// touches - src/Touchpad.h);
+// L3 blows into its microphone (melonDS DS), R3 swaps the two screens (the app's view,
+// src/Emulator.cpp NdsSwapped).
 const std::vector<Binding> NDS_BINDINGS = {
     {"b", "B", "Cross", false},                  {"a", "A", "Circle", false},
     {"y", "Y", "Square", false},                 {"x", "X", "Triangle", false},
     {"l", "L", "L1", false},                     {"r", "R", "R1", false},
     {"start", "START", "Options", false},        {"select", "SELECT", "L2", false},
     {"l3", "Microphone (blow)", "L3", false},    {"r3", "Swap Screens", "R3", false},
+    {"tap", "Tap the Screen", "Touchpad", false},
     {"dpad", "D-Pad", "D-Pad + Left Stick", true},
     {"fast_forward", "Fast Forward (hold)", "R2", false},
 };
@@ -109,6 +112,94 @@ const std::vector<Binding> DC_BINDINGS = {
     {"dc_x", "X", "Square", false},        {"dc_y", "Y", "Triangle", false},
     {"l2", "L Trigger", "L2", false},      {"r2", "R Trigger", "R2", false},
     {"start", "START", "Options", false},
+    {"dpad", "D-Pad", "D-Pad", true},
+    {"fast_forward", "Fast Forward (hold)", "None", false},
+};
+// The Mega Drive's six-button pad: A, B and C along the bottom (Square, Cross, Circle), X, Y and Z
+// above them (L1, Triangle, R1), MODE on the touchpad. A game for the three-button pad has only A,
+// B, C and START.
+const std::vector<Binding> MD_BINDINGS = {
+    {"md_a", "A", "Square", false},             {"md_b", "B", "Cross", false},
+    {"md_c", "C", "Circle", false},             {"md_x", "X", "L1", false},
+    {"md_y", "Y", "Triangle", false},           {"md_z", "Z", "R1", false},
+    {"start", "START", "Options", false},       {"mode", "MODE", "Touchpad", false},
+    {"dpad", "D-Pad", "D-Pad + Left Stick", true},
+    {"fast_forward", "Fast Forward (hold)", "R2", false},
+};
+// The Master System's and the SG-1000's pad: buttons 1 and 2 (Cross, Circle); the console's PAUSE
+// button on Options.
+const std::vector<Binding> SMS_BINDINGS = {
+    {"button_1", "Button 1", "Cross", false},   {"button_2", "Button 2", "Circle", false},
+    {"start", "PAUSE", "Options", false},
+    {"dpad", "D-Pad", "D-Pad + Left Stick", true},
+    {"fast_forward", "Fast Forward (hold)", "R2", false},
+};
+// The Game Gear: the same buttons 1 and 2, and its START.
+const std::vector<Binding> GG_BINDINGS = {
+    {"button_1", "Button 1", "Cross", false},   {"button_2", "Button 2", "Circle", false},
+    {"start", "START", "Options", false},
+    {"dpad", "D-Pad", "D-Pad + Left Stick", true},
+    {"fast_forward", "Fast Forward (hold)", "R2", false},
+};
+// The Arcade (FinalBurn Neo's "Modern" RetroPad): the DualShock 4's buttons as they are. Buttons 1-4
+// on Cross, Circle, Square, Triangle, 5-8 on R2, R1, L2, L1, 9 and 10 on R3 and L3 (a Neo Geo game's
+// A, B, C, D on Square, Cross, Triangle, Circle, as on its own pad; a six-button fighting game's three
+// punches on Square, Triangle, R1 and its kicks on Cross, Circle, R2), START on Options, the coin slot
+// on the touchpad. No fast forward: every button is a cabinet's.
+const std::vector<Binding> ARCADE_BINDINGS = {
+    {"b", "Button 1", "Cross", false},        {"a", "Button 2", "Circle", false},
+    {"y", "Button 3", "Square", false},       {"x", "Button 4", "Triangle", false},
+    {"r2", "Button 5", "R2", false},          {"r", "Button 6", "R1", false},
+    {"l2", "Button 7", "L2", false},          {"l", "Button 8", "L1", false},
+    {"r3", "Button 9", "R3", false},          {"l3", "Button 10", "L3", false},
+    {"start", "START", "Options", false},     {"select", "COIN", "Touchpad", false},
+    {"dpad", "D-Pad", "D-Pad + Left Stick", true},
+    {"fast_forward", "Fast Forward (hold)", "None", false},
+};
+// The NAOMI (Flycast's arcade board, as its libretro core reads the RetroPad: B, A, Y, X, R, L, R2, L2 are buttons 1
+// to 8, SELECT the coin slot, L3 and R3 the board's TEST and SERVICE buttons): buttons 1 to 4 on Cross, Circle,
+// Square, Triangle, 5 and 6 on R1 and L1, 7 and 8 on R2 and L2 (a driving game's accelerator and brake are those
+// triggers' pressure: src/Emulator.cpp), START on Options, the coin slot on the touchpad. TEST and SERVICE (the
+// operator menu) on no button: the in-game menu presses them (Arcade Button), or the player puts them on one. A
+// light gun game aims with the left stick and reloads with Gun Reload (R1: the gun games use no button 5). No
+// fast forward: every button is a cabinet's.
+const std::vector<Binding> NAOMI_BINDINGS = {
+    {"b", "Button 1", "Cross", false},       {"a", "Button 2", "Circle", false},
+    {"y", "Button 3", "Square", false},      {"x", "Button 4", "Triangle", false},
+    {"r", "Button 5", "R1", false},          {"l", "Button 6", "L1", false},
+    {"r2", "Button 7", "R2", false},         {"l2", "Button 8", "L2", false},
+    {"start", "START", "Options", false},    {"select", "COIN", "Touchpad", false},
+    {"l3", "TEST", "None", false},           {"r3", "SERVICE", "None", false},
+    {"reload", "Gun Reload", "R1", false},
+    {"dpad", "D-Pad", "D-Pad + Left Stick", true},
+    {"fast_forward", "Fast Forward (hold)", "None", false},
+};
+// The Atomiswave: the same, with its five buttons (the core gives L, L2 and R2 no button on this board; a driving
+// game's pedals are the triggers' pressure).
+const std::vector<Binding> ATOMISWAVE_BINDINGS = {
+    {"b", "Button 1", "Cross", false},       {"a", "Button 2", "Circle", false},
+    {"y", "Button 3", "Square", false},      {"x", "Button 4", "Triangle", false},
+    {"r", "Button 5", "R1", false},
+    {"start", "START", "Options", false},    {"select", "COIN", "Touchpad", false},
+    {"l3", "TEST", "None", false},           {"r3", "SERVICE", "None", false},
+    {"reload", "Gun Reload", "R1", false},
+    {"dpad", "D-Pad", "D-Pad + Left Stick", true},
+    {"fast_forward", "Fast Forward (hold)", "None", false},
+};
+// The Nintendo 3DS: its buttons where the SNES pad has them (A right, B bottom, X top, Y left), L and R on
+// L1 and R1, ZL and ZR (the New 3DS's: Old mode has no use for them, but the Circle Pad Pro games read them)
+// on L2 and R2, START on Options, SELECT on L3, the Circle Pad the left stick and the C-stick the right
+// stick (both analog). The touchpad is the touch screen, as the DS's (a trackpad: the finger moves the stylus,
+// a tap or the touchpad's click touches), and R3 swaps the two screens (the core's swap option, src/Emulator.cpp). No
+// HOME: L3 is its button and the core's own screen swap in Azahar, so the app never passes L3 on. No fast
+// forward by default (R2 is ZR): most 3D games run below full speed on the PS4.
+const std::vector<Binding> THREEDS_BINDINGS = {
+    {"b", "B", "Cross", false},            {"a", "A", "Circle", false},
+    {"y", "Y", "Square", false},           {"x", "X", "Triangle", false},
+    {"l", "L", "L1", false},               {"r", "R", "R1", false},
+    {"l2", "ZL", "L2", false},             {"r2", "ZR", "R2", false},
+    {"start", "START", "Options", false},  {"select", "SELECT", "L3", false},
+    {"r3", "Swap Screens", "R3", false},   {"tap", "Tap the Screen", "Touchpad", false},
     {"dpad", "D-Pad", "D-Pad", true},
     {"fast_forward", "Fast Forward (hold)", "None", false},
 };
@@ -134,7 +225,9 @@ const std::vector<Binding> GBA_BINDINGS = {
 // The libretro joypad id each binding key presses (turbo B and A: Y and X for FCEUmm; the N64's
 // buttons as Mupen64Plus-Next reads the RetroPad with its Independent C-button Controls - the
 // alt-map option src/Emulator.cpp sets: A on B, B on Y, Z on L2, L on SELECT, R on R2, the C
-// buttons on X, A, L and R). Two keys on one id (Z) press it with either control.
+// buttons on X, A, L and R; the Sega pads' as Genesis Plus GX reads it: A on Y, B on B, C on A, X on
+// L, Y on X, Z on R, MODE on SELECT, buttons 1 and 2 on B and A). Two keys on one id (Z) press it
+// with either control.
 const std::pair<const char*, int> KEY_IDS[] = {
     {"b", ID_B},       {"a", ID_A},       {"y", ID_Y},         {"x", ID_X},
     {"l", ID_L},       {"r", ID_R},       {"start", ID_START}, {"select", ID_SELECT},
@@ -145,6 +238,9 @@ const std::pair<const char*, int> KEY_IDS[] = {
     {"ps_cross", ID_B}, {"ps_circle", ID_A}, {"ps_square", ID_Y}, {"ps_triangle", ID_X},
     {"l2", ID_L2},     {"r2", ID_R2},     {"l3", ID_L3},       {"r3", ID_R3},
     {"dc_a", ID_B},    {"dc_b", ID_A},    {"dc_x", ID_Y},      {"dc_y", ID_X},
+    {"md_a", ID_Y},    {"md_b", ID_B},    {"md_c", ID_A},      {"md_x", ID_L},
+    {"md_y", ID_X},    {"md_z", ID_R},    {"mode", ID_SELECT},
+    {"button_1", ID_B}, {"button_2", ID_A},
 };
 
 // The N64's normal layout until 00.30 is dropped once: the core read the buttons another way then
@@ -243,6 +339,21 @@ const std::vector<Binding>& Bindings(SystemId system)
     return PSP_BINDINGS;
   case SystemId::DC:
     return DC_BINDINGS;
+  case SystemId::SG1000:
+  case SystemId::SMS:
+    return SMS_BINDINGS;
+  case SystemId::GG:
+    return GG_BINDINGS;
+  case SystemId::MD:
+    return MD_BINDINGS;
+  case SystemId::ARCADE:
+    return ARCADE_BINDINGS;
+  case SystemId::THREEDS:
+    return THREEDS_BINDINGS;
+  case SystemId::NAOMI:
+    return NAOMI_BINDINGS;
+  case SystemId::ATOMISWAVE:
+    return ATOMISWAVE_BINDINGS;
   default:
     return SNES_BINDINGS;
   }
@@ -346,6 +457,31 @@ std::string Describe(const std::string& value)
   return value;
 }
 
+std::string FastForwardButton(const std::string& game_key, SystemId system)
+{
+  for (const Binding& binding : Bindings(system))
+  {
+    if (std::string(binding.key) == "fast_forward")
+      return Describe(Get(binding, game_key, system));
+  }
+  return "None";
+}
+
+std::string FastForwardHelp(const std::string& game_key, SystemId system)
+{
+  const std::string button = FastForwardButton(game_key, system);
+  if (button == "None")
+  {
+    return HasGameProfile(game_key) ?
+               "How fast the game runs while the Fast Forward button is held. No button does it in this game's own "
+               "controls yet: choose one in Controls." :
+               "How fast the game runs while the Fast Forward button is held. No button does it on this console yet: "
+               "choose one in Controls.";
+  }
+  return "Speed while " + (button == "Touchpad" ? std::string("the touchpad") : button) +
+         " is held (change the button in Controls).";
+}
+
 bool IsAtRest(const OrbisPadData& data)
 {
   return (data.buttons & ~0u) == 0 && data.analogButtons.l2 < 40 && data.analogButtons.r2 < 40;
@@ -373,6 +509,10 @@ Layout LayoutFor(const std::string& game_id, SystemId system)
       dpad = value;
     else if (key == "fast_forward")
       layout.fast_forward = MaskOf(value);
+    else if (key == "tap")
+      layout.tap = MaskOf(value);
+    else if (key == "reload")
+      layout.reload = MaskOf(value);
     for (const auto& [name, id] : KEY_IDS)
     {
       if (key == name)
@@ -420,5 +560,37 @@ uint16_t PadButtons(const Layout& layout, const OrbisPadData& data)
       out |= 1u << ID_RIGHT;
   }
   return out;
+}
+
+OrbisPadData Untouched(const OrbisPadData& data)
+{
+  OrbisPadData out = data;
+  out.buttons = 0;
+  out.leftStick.x = out.leftStick.y = 128;
+  out.rightStick.x = out.rightStick.y = 128;
+  out.analogButtons.l2 = out.analogButtons.r2 = 0;
+  out.touch.fingers = 0;
+  return out;
+}
+
+OrbisPadData MenuRelease::Pad(const OrbisPadData& data, bool connected, int* hidden_passes)
+{
+  if (hidden_passes)
+    *hidden_passes = 0;
+  if (!m_waiting)
+    return data;
+  // (A pass without the pad - not read, or the screenshot tour's - neither ends the wait nor counts in it: the
+  // game gets nothing from the pad then anyway.)
+  if (!connected)
+    return Untouched(data);
+  if ((data.buttons & PAD_BUTTONS) == 0)
+  {
+    m_waiting = false;
+    if (hidden_passes)
+      *hidden_passes = m_passes;
+    return data;
+  }
+  m_passes++;
+  return Untouched(data);
 }
 }  // namespace Controls

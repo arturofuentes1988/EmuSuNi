@@ -9,6 +9,7 @@
 
 #include <orbis/Pad.h>
 
+#include "Controls.h"
 #include "Display.h"
 #include "Image.h"
 #include "Log.h"
@@ -74,16 +75,29 @@ void IngameMenu::SetDiscs(int count, int inserted)
 void IngameMenu::Open()
 {
   m_open = true;
+  m_capture = false;
   m_page = Page::Main;
   m_main_selected = 0;
   m_disc = m_disc_in;
   BuildRows();
+  // Closed by the Arcade Button last time: open on it again (the operator menu's SERVICE presses, one after another,
+  // are L3 + R3 and Cross each).
+  if (m_arcade_again)
+  {
+    for (size_t i = 0; i < m_rows.size(); i++)
+    {
+      if (m_rows[i].key == "arcade")
+        m_main_selected = m_selected = static_cast<int>(i);
+    }
+    m_arcade_again = false;
+  }
   LogLine("menu: opened");
 }
 
 void IngameMenu::Close()
 {
   m_open = false;
+  m_capture = false;
   ForgetPictures();
   LogLine("menu: closed");
 }
@@ -127,7 +141,12 @@ void IngameMenu::BuildRows()
       rows.push_back({"Disc", "Disc " + std::to_string(m_disc + 1) + " of " + std::to_string(m_disc_count), false,
                       false, 0, "disc"});
     }
+    // A NAOMI's or Atomiswave's buttons inside the cabinet: TEST (the operator menu) and SERVICE, pressed for a
+    // moment back in the game (Emulator.cpp); none of the DualShock 4's presses them unless the player chose one.
+    if (IsFlycastBoard(m_system))
+      rows.push_back({"Arcade Button", m_arcade_test ? "TEST" : "SERVICE", false, false, 0, "arcade"});
     rows.push_back({"Settings", "", false, false, 0, "settings"});
+    rows.push_back({"Controls", "", false, false, 0, "controls"});
     rows.push_back({"Cheats", std::to_string(m_cheats.Entries().size()), false, false, 0, "cheats"});
     rows.push_back({"Reset Game", "", false, false, 0, "reset"});
     rows.push_back({"Quit Game", "", false, false, 0, "quit"});
@@ -136,6 +155,19 @@ void IngameMenu::BuildRows()
   else if (m_page == Page::Cheats && m_system == SystemId::DC)
   {
     rows.push_back({"The Dreamcast's emulator takes no cheat codes", "", true});
+  }
+  else if (m_page == Page::Cheats && IsFlycastBoard(m_system))
+  {
+    rows.push_back({"The arcade board's emulator takes no cheat codes", "", true});
+  }
+  else if (m_page == Page::Cheats && m_system == SystemId::THREEDS)
+  {
+    rows.push_back({"The Nintendo 3DS emulator takes no cheat codes", "", true});
+  }
+  else if (m_page == Page::Cheats && m_system == SystemId::ARCADE)
+  {
+    // (libretro's cheat collection doesn't fit FinalBurn Neo; its own cheats come in a later version.)
+    rows.push_back({"The arcade emulator's cheats come in a later version", "", true});
   }
   else if (m_page == Page::Cheats)
   {
@@ -194,8 +226,32 @@ void IngameMenu::BuildRows()
         rows.push_back({codes[i].name, "", false, false, m_finder.Picked(i) ? 1 : -1, "pick:" + std::to_string(i)});
     }
   }
+  else if (m_page == Page::Controls)
+  {
+    // This console's buttons, for every game of the console or for this game only (Apply To), as the menu's
+    // Controls: kept in controls.ini (src/Controls.h), the game's layout made again when the menu closes
+    // (Emulator.cpp), the presses that close it kept from the game (Controls::MenuRelease).
+    const bool own = Controls::HasGameProfile(m_game_id);
+    const std::string edit = own ? m_game_id : std::string();
+    rows.push_back({"Apply To", own ? "This Game" : "All Games", false, false, 0, "__ctlscope__"});
+    rows.push_back({GetSystem(m_system).name, "DualShock 4", true});
+    const auto& bindings = Controls::Bindings(m_system);
+    for (size_t i = 0; i < bindings.size(); i++)
+    {
+      const std::string value = Controls::Get(bindings[i], edit, m_system);
+      const bool waiting = m_capture && m_capture_row == static_cast<int>(rows.size());
+      rows.push_back({bindings[i].label,
+                      waiting                  ? std::string("Press a button...") :
+                      bindings[i].stick_group ? value :
+                                                 Controls::Describe(value),
+                      false, waiting, 0, "ctl:" + std::to_string(i)});
+    }
+    rows.push_back({"", "", true});
+    rows.push_back({"Reset to Default", "", false, false, 0, "__ctlreset__"});
+  }
   else
   {
+    Settings::UseConsoleByDefault(m_game_id);  // (This Console unless the player chose otherwise)
     const Settings::Scope scope = Settings::ScopeOf(m_game_id);
     rows.push_back({"Apply To",
                     scope == Settings::Scope::Game      ? "This Game" :
@@ -204,8 +260,15 @@ void IngameMenu::BuildRows()
                     false, false, 0, "__scope__"});
     if (scope == Settings::Scope::Game)
       rows.push_back({"Use for All Games", "", false, false, 0, "__toall__"});
-    if (m_system == SystemId::DC)
-      rows.push_back({"Dreamcast: Low quality only", "", true});  // (Emulator.cpp BuildDcVariables)
+    // One fixed quality level, Standard, for Flycast's consoles (Emulator.cpp BuildDcVariables); the 3DS at its own
+    // resolution only, 1x (Build3dsVariables: no Quality levels since 00.64).
+    if (IsFlycast(m_system))
+      rows.push_back({std::string(GetSystem(m_system).name) + ": Standard quality only", "", true});
+    if (m_system == SystemId::THREEDS)
+    {
+      rows.push_back({"Nintendo 3DS: experimental", "", true});
+      rows.push_back({"3DS: the console's own resolution only", "", true});
+    }
     // The settings of this game's console.
     for (const char* category : Settings::Categories())
     {
@@ -335,6 +398,61 @@ void IngameMenu::Change(int direction)
     m_cheats_changed = true;
     return;
   }
+  if (m_page == Page::Controls)
+  {
+    const std::string edit = Controls::HasGameProfile(m_game_id) ? m_game_id : std::string();
+    if (key == "__ctlscope__")
+    {
+      // All Games (the console's normal layout) <-> This Game (its own, starting as a copy of it).
+      if (edit.empty())
+        Controls::CreateGameProfile(m_game_id, m_system);
+      else
+        Controls::DeleteGameProfile(m_game_id);
+      Toast(edit.empty() ? "Controls for this game only" : "This game uses this console's controls");
+    }
+    else if (key == "__ctlreset__")
+    {
+      if (direction <= 0)
+        return;
+      Controls::ResetToDefault(edit, m_system);
+      Toast("Controls back to the default");
+    }
+    else if (key.rfind("ctl:", 0) == 0)
+    {
+      const auto& bindings = Controls::Bindings(m_system);
+      const size_t index = static_cast<size_t>(std::atoi(key.c_str() + 4));
+      if (index >= bindings.size())
+        return;
+      const Controls::Binding& binding = bindings[index];
+      if (binding.stick_group)
+      {
+        // Which of the DualShock 4's controls move it: the choices, round and round.
+        const auto choices = Controls::StickChoices();
+        const std::string current = Controls::Get(binding, edit, m_system);
+        int at = 0;
+        for (size_t i = 0; i < choices.size(); i++)
+        {
+          if (choices[i] == current)
+            at = static_cast<int>(i);
+        }
+        const int count = static_cast<int>(choices.size());
+        Controls::Set(binding, choices[static_cast<size_t>(((at + direction) % count + count) % count)], edit, m_system);
+      }
+      else if (direction > 0)
+      {
+        // Cross (or Right): the next button pressed, once every button is up (Capture).
+        m_capture = true;
+        m_capture_released = false;
+        m_capture_time = 0.0f;
+        m_capture_row = m_selected;
+      }
+      else
+      {
+        Controls::Set(binding, "None", edit, m_system);  // Left: none
+      }
+    }
+    return;
+  }
   if (key == "__scope__")
   {
     // All Games -> This Console -> This Game (Right), the other way round with Left.
@@ -405,11 +523,17 @@ std::string IngameMenu::RowHelp(const Row& row) const
              T("Left / Right choose another disc, Cross puts it in (as if the console's lid were opened and "
                "closed).");
     }
+    if (row.key == "arcade")
+      return T("Cross presses TEST (the operator menu: coins, difficulty, the game's settings) or SERVICE back in the "
+               "game; the menu opens on this line again. Left / Right: TEST or SERVICE. In the operator menu SERVICE "
+               "goes down a line, TEST chooses it.");
     static const std::pair<const char*, const char*> MAIN[] = {
         {"Resume Game", "Back to the game."},
         {"Save State", "Saves this very moment of the game in the slot (Left / Right choose the slot)."},
         {"Load State", "Goes back to the moment saved in the slot (Left / Right choose the slot)."},
         {"Settings", "Picture, sound and emulation settings, for this game or for all games."},
+        {"Controls", "Which DualShock 4 button does what, for this console's games or only this one: back in the "
+                     "game they apply."},
         {"Cheats", "Turns this game's cheat codes on and off."},
         {"Reset Game", "Like the console's Reset button."},
         {"Quit Game", "Back to your games (the battery save is kept)."},
@@ -444,6 +568,51 @@ std::string IngameMenu::RowHelp(const Row& row) const
       return {};
     return T("Cross chooses this cheat to add, or leaves it out.");
   }
+  if (m_page == Page::Controls)
+  {
+    // (The menu's own texts: src/Menu.cpp DrawSidePanel.)
+    if (m_capture)
+      return PS4Lang::T("Press the DualShock 4 button for " + row.label + "...  (5 s: cancel)");
+    if (row.key == "__ctlscope__")
+      return T("All Games: the normal layout. This Game: its own.");
+    if (row.key == "__ctlreset__")
+      return T("Back to the default layout.");
+    const auto& bindings = Controls::Bindings(m_system);
+    const size_t index = static_cast<size_t>(std::atoi(row.key.c_str() + 4));
+    if (row.key.rfind("ctl:", 0) != 0 || index >= bindings.size())
+      return {};
+    const std::string key = bindings[index].key;
+    if (key == "fast_forward")
+      return T("Cross: press a new button. Left: none. Held, the game runs faster (how fast: Fast Forward in the "
+               "game's settings). A button the console uses too does both.");
+    if (IsFlycastBoard(m_system))
+    {
+      if (key == "l3")
+        return T("Cross: press a new button. Left: none. TEST opens the board's operator menu (coins, difficulty, "
+                 "the game's settings); the Arcade Button of the L3+R3 menu presses it too.");
+      if (key == "r3")
+        return T("Cross: press a new button. Left: none. SERVICE gives a credit; in the operator menu it moves to "
+                 "the next line (TEST chooses it).");
+      if (key == "reload")
+        return T("Cross: press a new button. Left: none. A light gun game's reload (the gun shot off the screen); "
+                 "the left stick aims.");
+      if (bindings[index].stick_group)
+        return T("D-Pad: Left/Right to choose. A game with a wheel, a flight stick or a gun has that on the left "
+                 "stick, not the D-pad (unless Left Stick is chosen).");
+    }
+    if (bindings[index].stick_group)
+      return T("Left / Right: which DualShock 4 controls move it.");
+    if (m_system == SystemId::ARCADE)
+      return T("Cross: press a new button. Left: none. Neo Geo games: A, B, C, D are Buttons 3, 1, 4, 2 (Square, "
+               "Cross, Triangle, Circle). Six-button fighters: punches 3, 4, 6; kicks 1, 2, 5.");
+    if (m_system == SystemId::NAOMI)
+      return T("Cross: press a new button. Left: none. Fighting games: punches 1, 2, 3, kicks 4, 5, 6 (as on a "
+               "cabinet: punches on Square, Triangle, R1, kicks on Cross, Circle, R2).");
+    if (m_system == SystemId::ATOMISWAVE)
+      return T("Cross: press a new button. Left: none. Fighting games: punches 1 and 2, kicks 4 and 5, 3 their "
+               "special move.");
+    return T("Cross: press a new button for it. Left: none. D-Pad: Left/Right to choose.");
+  }
   if (row.key == "__scope__")
     return T("All Games: what you change here applies to every game. This Console: to every game of "
              "this console. This Game: only to this game.");
@@ -454,11 +623,17 @@ std::string IngameMenu::RowHelp(const Row& row) const
   const Settings::Setting* setting = Settings::Find(row.key);
   if (!setting)
     return {};
-  std::string help = T(setting->help);
+  // Fast Forward: the button that does it in this game (its controls or its console's: the Controls page).
+  std::string help = row.key == "fast_forward" ? PS4Lang::T(Controls::FastForwardHelp(m_game_id, m_system)) :
+                                                 T(setting->help);
   if (!setting->live)
     help += " " + T("(Next game start.)");
   const Settings::Choice* choice = Settings::FindChoice(*setting, Settings::Get(row.key, m_game_id));
-  if (choice && choice->help)
+  // Quality: what the level does on this game's console.
+  const std::string level = choice && row.key == "quality" ? Settings::QualityHelp(choice->value, m_system) : "";
+  if (!level.empty())
+    help += "\n" + T(choice->label) + ": " + PS4Lang::T(level);
+  else if (choice && choice->help)
     help += "\n" + T(choice->label) + ": " + T(choice->help);
   return help;
 }
@@ -496,9 +671,15 @@ IngameMenu::Action IngameMenu::Activate()
     }
     return Action::ChangeDisc;
   }
-  if (key == "settings" || key == "cheats")
+  if (key == "arcade")
   {
-    m_page = key == "settings" ? Page::Settings : Page::Cheats;
+    Close();
+    m_arcade_again = true;
+    return Action::ArcadeButton;
+  }
+  if (key == "settings" || key == "cheats" || key == "controls")
+  {
+    m_page = key == "settings" ? Page::Settings : key == "controls" ? Page::Controls : Page::Cheats;
     m_selected = 0;
     return Action::None;
   }
@@ -509,10 +690,48 @@ IngameMenu::Action IngameMenu::Activate()
   return Action::None;
 }
 
+// The Controls page's capture: once every button is up, the first one pressed is the row's new button (5 s
+// without one: nothing changes).
+void IngameMenu::Capture(uint32_t held, float dt)
+{
+  m_capture_time += dt;
+  OrbisPadData data = {};
+  data.buttons = held & Controls::PAD_BUTTONS;
+  if (!m_capture_released)
+  {
+    m_capture_released = Controls::IsAtRest(data);  // (the Cross that asked for it is let go first)
+    return;
+  }
+  const auto& bindings = Controls::Bindings(m_system);
+  const size_t index = m_capture_row >= 0 && m_capture_row < static_cast<int>(m_rows.size()) ?
+                           static_cast<size_t>(std::atoi(m_rows[static_cast<size_t>(m_capture_row)].key.c_str() + 4)) :
+                           bindings.size();
+  if (m_capture_time > 5.0f || index >= bindings.size())
+  {
+    m_capture = false;
+    Toast("No button pressed: nothing changed");
+    BuildRows();
+    return;
+  }
+  const std::string control = Controls::Capture(data);
+  if (control.empty())
+    return;
+  Controls::Set(bindings[index], control, Controls::HasGameProfile(m_game_id) ? m_game_id : std::string(), m_system);
+  m_capture = false;
+  Toast(PS4Lang::T(bindings[index].label) + std::string(": ") + PS4Lang::T(Controls::Describe(control)));
+  BuildRows();
+}
+
 IngameMenu::Action IngameMenu::Poll(uint32_t pressed, uint32_t held, float dt)
 {
   if (!m_open)
     return Action::None;
+  if (m_capture)
+  {
+    // Waiting for a button (the Controls page): every press is that, none the menu's - not L3 + R3, not Circle.
+    Capture(held, dt);
+    return Action::None;
+  }
   // Directions repeat while held.
   uint32_t nav = pressed;
   constexpr uint32_t DIRS = ORBIS_PAD_BUTTON_UP | ORBIS_PAD_BUTTON_DOWN | ORBIS_PAD_BUTTON_LEFT |
@@ -555,6 +774,8 @@ IngameMenu::Action IngameMenu::Poll(uint32_t pressed, uint32_t held, float dt)
         m_slot = (m_slot - 1 + direction + Saves::SLOTS) % Saves::SLOTS + 1;
       else if (key == "disc" && m_disc_count > 1)
         m_disc = (m_disc + direction + m_disc_count) % m_disc_count;
+      else if (key == "arcade")
+        m_arcade_test = !m_arcade_test;
     }
     else
     {
@@ -666,6 +887,8 @@ void IngameMenu::Draw(ImDrawList* dl, float dt)
                            m_page == Page::Cheats   ? "CHEATS" :
                            m_page == Page::CheatSearch ? "FIND CHEATS ONLINE" :
                            m_page == Page::CheatPick   ? "CHOOSE CHEATS" :
+                           m_page == Page::Controls    ? (Controls::HasGameProfile(m_game_id) ? "CONTROLS - THIS GAME" :
+                                                                                               "CONTROLS - ALL GAMES") :
                            Settings::ScopeOf(m_game_id) == Settings::Scope::Game    ? "SETTINGS - THIS GAME" :
                            Settings::ScopeOf(m_game_id) == Settings::Scope::Console ? "SETTINGS - THIS CONSOLE" :
                                                                                        "SETTINGS - ALL GAMES";
@@ -767,11 +990,13 @@ void IngameMenu::Draw(ImDrawList* dl, float dt)
     if (m_page == Page::Main)
     {
       const std::string key = MainKey();
-      hint("Cross", key == "disc" ? "Put In" : "Select");
+      hint("Cross", key == "disc" ? "Put In" : key == "arcade" ? "Press" : "Select");
       if (key == "save" || key == "load")
         hint("D-Pad", "Slot");
       else if (key == "disc")
         hint("D-Pad", "Disc");
+      else if (key == "arcade")
+        hint("D-Pad", "TEST / SERVICE");
       hint("Circle", "Resume");
     }
     else

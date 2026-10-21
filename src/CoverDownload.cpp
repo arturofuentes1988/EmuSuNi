@@ -734,6 +734,21 @@ const std::string* Nearest(const Titles& list, const std::string& stem, const Li
   }
   return best ? Pick(best->names, game) : nullptr;
 }
+
+// A cover put in the console's covers folder by hand: <file name>.png, <title>.png or, for an arcade game,
+// its full name's or its parent's (libretro's thumbnails' names, which the Library lists the same way).
+bool HasOwnCover(const std::string& covers_dir, const Library::Game& game)
+{
+  const std::string prefix = GetSystem(game.system).prefix;
+  if (FileExists(covers_dir + "/" + game.key + ".png") || FileExists(covers_dir + "/" + prefix + game.title + ".png"))
+    return true;
+  for (const std::string& name : game.cover_names)
+  {
+    if (FileExists(covers_dir + "/" + prefix + name + ".png"))
+      return true;
+  }
+  return false;
+}
 }  // namespace
 
 // A list made ready for Closest(): Download()'s index and the titles.
@@ -771,9 +786,7 @@ Result Download(const std::vector<Library::Game>& games, const std::string& cove
   std::vector<const Library::Game*> wanted;
   for (const Library::Game& game : games)
   {
-    const std::string prefix = GetSystem(game.system).prefix;
-    if (FileExists(covers_dir + "/" + game.key + ".png") ||
-        FileExists(covers_dir + "/" + prefix + game.title + ".png"))
+    if (HasOwnCover(covers_dir, game))
       result.already++;
     else
       wanted.push_back(&game);
@@ -804,6 +817,15 @@ Result Download(const std::vector<Library::Game>& games, const std::string& cove
     const int s = static_cast<int>(game.system);
     if (progress)
       progress(i, total, game.title);
+    // The names the picture is looked for by: the game's own (its title when renamed, then its file's),
+    // or an arcade game's romset full name and then its parent's (never the zip's name, "mslug").
+    std::vector<std::string> stems = game.cover_names;
+    if (stems.empty())
+    {
+      stems.push_back(game.custom_title ? game.title : game.id);
+      if (game.custom_title)
+        stems.push_back(game.id);
+    }
     // The box, else the title screen.
     const std::string* name = nullptr;
     const Kind* kind = nullptr;
@@ -824,9 +846,8 @@ Result Download(const std::vector<Library::Game>& games, const std::string& cove
             result.error = error;
         }
       }
-      name = Pick(indexes[s][k]->Find(game.custom_title ? game.title : game.id, &how), game);
-      if (!name && game.custom_title)
-        name = Pick(indexes[s][k]->Find(game.id, &how), game);
+      for (size_t i = 0; i < stems.size() && !name; i++)
+        name = Pick(indexes[s][k]->Find(stems[i], &how), game);
       kind = &KINDS[k];
     }
     // Closest for All: the closest box art, else title screen, when it is sure of it (the doubtful
@@ -838,7 +859,7 @@ Result Download(const std::vector<Library::Game>& games, const std::string& cove
         continue;
       if (!titles[s][k])
         titles[s][k] = std::make_unique<Titles>(ReadTitles(names[s][k]));
-      for (const std::string& stem : {game.custom_title ? game.title : game.id, game.id})
+      for (const std::string& stem : stems)
       {
         bool sure = false;
         const std::string* guess = Nearest(*titles[s][k], stem, game, &sure);
@@ -851,8 +872,6 @@ Result Download(const std::vector<Library::Game>& games, const std::string& cove
         }
         if (guess)
           guesses += (guesses.empty() ? "" : ", ") + *guess;
-        if (!game.custom_title)
-          break;  // the same name twice
       }
     }
     if (!name && !guesses.empty())
@@ -870,7 +889,7 @@ Result Download(const std::vector<Library::Game>& games, const std::string& cove
       Log(game.key + " -> " + *name + " (" + kind->label + ", " + how + ")");
     MakeDirs(covers_dir + "/" + system.prefix);
     const std::string target = covers_dir + "/" + game.key + ".png";
-    if (FileExists(target) || FileExists(covers_dir + "/" + system.prefix + game.title + ".png"))
+    if (HasOwnCover(covers_dir, game))
     {
       result.already++;  // chosen with Find Cover meanwhile: kept
       continue;

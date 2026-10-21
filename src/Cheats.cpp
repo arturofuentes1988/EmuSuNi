@@ -127,16 +127,35 @@ void List::Save() const
 void List::ApplyToCore(const CoreApi& core, SystemId system) const
 {
   // Snes9x copies the code into a 256-byte buffer, FCEUmm into 1024 bytes, Mupen64Plus-Next splits
-  // it into at most 256 parts; the other cores take any length (a PSP cheat can be long).
+  // it into at most 256 parts, Genesis Plus GX keeps 255 characters; the other cores take any length
+  // (a PSP cheat can be long).
+  const bool gpgx = IsGpgx(system);
   const size_t longest = system == SystemId::SNES ? 250 : system == SystemId::NES ? 1000 :
                          system == SystemId::N64  ? 1200 :
+                         gpgx                     ? 255 :
                                                     16000;
+  // Genesis Plus GX has room for 150 codes in all (one entry's several, joined by '+', count each) and
+  // writes past its list after that: an entry that doesn't fit any more is left out.
+  size_t room = 150;
   core.cheat_reset();
   unsigned index = 0;
   for (const Entry& entry : m_entries)
   {
-    if (entry.enabled)
-      core.cheat_set(index++, true, entry.code.substr(0, longest).c_str());
+    if (!entry.enabled)
+      continue;
+    std::string code = entry.code.substr(0, longest);
+    if (gpgx)
+    {
+      // Cut short inside a code: its whole codes only (a part of one could read as another).
+      const size_t plus = code.rfind('+');
+      if (code.size() < entry.code.size() && entry.code[code.size()] != '+' && plus != std::string::npos)
+        code.resize(plus);
+      const size_t codes = 1 + static_cast<size_t>(std::count(code.begin(), code.end(), '+'));
+      if (codes > room)
+        continue;
+      room -= codes;
+    }
+    core.cheat_set(index++, true, code.c_str());
   }
 }
 }  // namespace Cheats

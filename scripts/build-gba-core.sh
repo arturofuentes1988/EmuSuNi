@@ -50,8 +50,11 @@ else
 fi
 
 # The Release flags (CMAKE_C_FLAGS would replace the toolchain's target flags): the core's -O3,
-# the PS4's CPU and the renamed API.
-CFLAGS_CORE="-O3 -DNDEBUG -march=btver2 -include $OUT/prefix_mgba.h"
+# the PS4's CPU, the core options' translations left out (HAVE_NO_LANGEXTRA: 84 tables of the
+# options in other languages, 1.8 MB of the program image; the app doesn't ask for a language and
+# sets the options itself), a section for each function and variable (the app's link drops the
+# unused ones), no unwind tables (it is C: nothing unwinds through it) and the renamed API.
+CFLAGS_CORE="-O3 -DNDEBUG -march=btver2 -DHAVE_NO_LANGEXTRA -ffunction-sections -fdata-sections -fno-unwind-tables -fno-asynchronous-unwind-tables -include $OUT/prefix_mgba.h"
 OPTIONS=(
   -DBUILD_LIBRETRO=ON -DLIBRETRO_STATIC=ON -DSKIP_LIBRARY=ON -DM_CORE_GB=ON -DM_CORE_GBA=ON
   -DBUILD_QT=OFF -DBUILD_SDL=OFF -DBUILD_GL=OFF -DBUILD_GLES2=OFF -DBUILD_GLES3=OFF -DUSE_EPOXY=OFF

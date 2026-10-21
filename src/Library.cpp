@@ -14,7 +14,9 @@
 
 #include <minizip/unzip.h>
 
+#include "Arcade.h"
 #include "Log.h"
+#include "Naomi.h"
 
 namespace Library
 {
@@ -46,20 +48,57 @@ bool IsRomFile(const std::string& name)
   return SystemOfFile(name) != nullptr;
 }
 
-// The console of the first ROM inside a .zip (nullptr: none).
+// The file's extension is one of the console's own.
+bool HasOwnExtension(const System& system, const std::string& name)
+{
+  const std::string lower = Lower(name);
+  const size_t dot = lower.rfind('.');
+  return dot != std::string::npos &&
+         std::find(system.extensions.begin(), system.extensions.end(), lower.substr(dot)) != system.extensions.end();
+}
+
+// The ROM a .zip holds, made its current file; its console (nullptr: none). The first file with one of
+// the console's own extensions (without a console, or none there, any console's): a .md or a .bin -
+// a readme's or a CD track's too - only when there is no other (then the biggest).
+const System* GoToZipRom(unzFile zip, const System* system)
+{
+  const System* found = nullptr;
+  int best = -1;
+  uLong best_size = 0;
+  unz_file_pos at = {};
+  for (int result = unzGoToFirstFile(zip); result == UNZ_OK; result = unzGoToNextFile(zip))
+  {
+    char name[512];
+    unz_file_info info;
+    if (unzGetCurrentFileInfo(zip, &info, name, sizeof(name), nullptr, 0, nullptr, 0) != UNZ_OK)
+      continue;
+    const System* of = SystemOfFile(name);
+    if (!of || info.uncompressed_size == 0 || info.uncompressed_size > MAX_ROM)
+      continue;
+    const bool own = system && HasOwnExtension(*system, name), plain = !HasExtension(name, {".md", ".bin"});
+    const int rank = (own ? 2 : 0) + (plain ? 1 : 0);
+    if (rank > best || (rank == best && !plain && info.uncompressed_size > best_size))
+    {
+      found = own ? system : of;
+      best = rank;
+      best_size = info.uncompressed_size;
+      unzGetFilePos(zip, &at);
+      if (best == (system ? 3 : 1))
+        break;  // none can be better (a zip of many files isn't read to its end)
+    }
+  }
+  if (found)
+    unzGoToFilePos(zip, &at);
+  return found;
+}
+
+// The console of the ROM inside a .zip (nullptr: none).
 const System* SystemOfZip(const std::string& path)
 {
   unzFile zip = unzOpen(path.c_str());
   if (!zip)
     return nullptr;
-  const System* found = nullptr;
-  for (int result = unzGoToFirstFile(zip); result == UNZ_OK && !found; result = unzGoToNextFile(zip))
-  {
-    char name[512];
-    unz_file_info info;
-    if (unzGetCurrentFileInfo(zip, &info, name, sizeof(name), nullptr, 0, nullptr, 0) == UNZ_OK)
-      found = SystemOfFile(name);
-  }
+  const System* found = GoToZipRom(zip, nullptr);
   unzClose(zip);
   return found;
 }
@@ -225,15 +264,6 @@ int BareDiscLabel(const std::string& name)
   return 0;
 }
 
-// The file's extension is one of the console's own.
-bool HasOwnExtension(const System& system, const std::string& name)
-{
-  const std::string lower = Lower(name);
-  const size_t dot = lower.rfind('.');
-  return dot != std::string::npos &&
-         std::find(system.extensions.begin(), system.extensions.end(), lower.substr(dot)) != system.extensions.end();
-}
-
 // A .iso, .chd or .pbp by what is inside it: is it a PSP game (not a PlayStation one)? A UMD image's
 // volume descriptor says "PSP GAME"; a PSP game's CHD is a DVD's (chdman createdvd: metadata "DVD "),
 // a PlayStation one's a CD's; a PlayStation game's PBP (PSN) holds a disc image ("PSISOIMG",
@@ -294,6 +324,30 @@ bool IsPspDisc(const std::string& path)
 bool IsGameOf(const std::filesystem::path& path, const System& system, bool open_zips = true)
 {
   const std::string name = path.filename().string();
+  if (system.id == SystemId::ARCADE)
+  {
+    // A romset: a .zip or .7z named after one of FinalBurn Neo's arcade drivers (mslug.zip), never
+    // opened (the core reads it); its BIOS sets (neogeo.zip) and console games aren't games here.
+    if (!HasExtension(name, {".zip", ".7z"}))
+      return false;
+    const Arcade::Driver* driver = Arcade::Find(path.stem().string());
+    return driver && driver->arcade;
+  }
+  if (IsFlycastBoard(system.id))
+  {
+    // A NAOMI or Atomiswave game: a .zip or .7z named after one of Flycast's sets of that board (mvsc2.zip),
+    // never opened (the core reads it); a BIOS's zip (naomi.zip, awbios.zip) is no set of its list. A NAOMI's
+    // can also be a cartridge image, a .dat or .bin whose header says NAOMI (src/Naomi.h; loose, not zipped).
+    if (system.id == SystemId::NAOMI && Naomi::IsImageName(name))
+    {
+      Naomi::Image image;
+      return Naomi::ReadImage(path.string(), &image);
+    }
+    if (!HasExtension(name, {".zip", ".7z"}))
+      return false;
+    const Naomi::Set* set = Naomi::Find(path.stem().string());
+    return set && Naomi::Plays(system.id, *set);
+  }
   if (HasExtension(name, {".zip"}))
     return !system.by_path && (!open_zips || SystemOfZip(path.string()) == &system);  // no zipped CDs
   const System* of = SystemOfFile(name);
@@ -341,6 +395,66 @@ const std::set<std::string>& GenericNames()
   return GENERIC;
 }
 
+// An arcade game from its driver (src/Arcade.h): the romset's name in lower case is its id (the
+// drive's letters' case doesn't matter, the core's does), the driver's full name its title (a clone's
+// with its parent's), the region what the name says, no tags; its covers by the full name, then the
+// parent's; the zips it may need and hasn't got beside it, in system/fbneo or in system.
+void ArcadeGame(Game* game, const std::string& folder)
+{
+  game->id = Lower(game->id);
+  game->key = GetSystem(SystemId::ARCADE).prefix + game->id;
+  const Arcade::Driver* driver = Arcade::Find(game->id);
+  if (!driver)
+    return;
+  game->title = Arcade::Title(*driver);
+  game->region = Arcade::Region(*driver);
+  game->tags.clear();
+  game->cover_names = {Arcade::CoverName(driver->title)};
+  if (const Arcade::Driver* parent = Arcade::Parent(*driver))
+    game->cover_names.push_back(Arcade::CoverName(parent->title));
+  game->missing = Arcade::Missing(*driver, folder, std::string(App::DATA_DIR) + "/system");
+}
+
+// A NAOMI or Atomiswave game from Flycast's set (src/Naomi.h), as an arcade game: the set's name in lower case is
+// its id, its full name its title (a clone's with its parent's), the region what the name says, no tags; its
+// covers by the full name, then the parent's; what it needs that isn't there (its BIOS's zip, a clone's parent, a
+// GD-ROM game's disc image) in the places the core looks.
+void BoardGame(Game* game, const std::string& folder)
+{
+  // A NAOMI cartridge image (.dat, .bin): its file's name is its id, as a console's ROM's; its title its set's name
+  // when the file's or the header's names one (Naomi::MatchImage), else the file's (or the header's), with the
+  // file's own region and tags; its covers by the file's name (libretro's names for these dumps), then the set's and
+  // its parent's; it needs naomi.zip.
+  if (Naomi::IsImageName(game->path))
+  {
+    Naomi::Image image;
+    Naomi::ReadImage(game->path, &image);
+    const Naomi::Set* set = Naomi::MatchImage(game->title, image);
+    game->cover_names = {Arcade::CoverName(std::filesystem::path(game->path).stem().string())};
+    if (set)
+    {
+      game->cover_names.push_back(Arcade::CoverName(set->title));
+      if (const Naomi::Set* parent = Naomi::Parent(*set))
+        game->cover_names.push_back(Arcade::CoverName(parent->title));
+    }
+    game->title = Naomi::ImageTitle(game->title, image, set);
+    game->missing = Naomi::ImageMissing(folder, std::string(App::DATA_DIR) + "/system");
+    return;
+  }
+  game->id = Lower(game->id);
+  game->key = GetSystem(game->system).prefix + game->id;
+  const Naomi::Set* set = Naomi::Find(game->id);
+  if (!set)
+    return;
+  game->title = Naomi::Title(*set);
+  game->region = Naomi::Region(*set);
+  game->tags.clear();
+  game->cover_names = {Arcade::CoverName(set->title)};
+  if (const Naomi::Set* parent = Naomi::Parent(*set))
+    game->cover_names.push_back(Arcade::CoverName(parent->title));
+  game->missing = Naomi::Missing(*set, folder, std::string(App::DATA_DIR) + "/system");
+}
+
 // The name a file's folder gives it - the folder's, or the game's folder above a folder per disc named
 // only so ("Shenmue/Disc 1/disc.gdi") - and its disc (from the file's name or that folder's; 0: none).
 void FolderName(const std::filesystem::path& folder, int depth, int stem_disc, std::string* owner, int* disc)
@@ -354,9 +468,14 @@ void ScanFolder(const std::filesystem::path& folder, int depth, const System& sy
                 std::vector<Game>* games)
 {
   const size_t first = games->size();
+  // A CD's .cue or .gdi here: its tracks aren't cartridges (below), for a console of .bin files.
+  const bool bin = !system.by_path && HasOwnExtension(system, ".bin");
+  std::vector<std::string> lists;
   std::error_code ec;
-  for (const auto& entry : std::filesystem::directory_iterator(folder, ec))
+  // (Not a range-for: its ++ throws when the drive goes away during the scan; increment(ec) just stops.)
+  for (std::filesystem::directory_iterator it(folder, ec), end; !ec && it != end; it.increment(ec))
   {
+    const std::filesystem::directory_entry& entry = *it;
     const std::string name = entry.path().filename().string();
     if (name.empty() || name[0] == '.' || name == "System Volume Information" ||
         name == "$RECYCLE.BIN")
@@ -370,6 +489,8 @@ void ScanFolder(const std::filesystem::path& folder, int depth, const System& sy
         ScanFolder(entry.path(), depth + 1, system, open_zips, games);
       continue;
     }
+    if (bin && HasExtension(name, {".cue", ".gdi"}))
+      lists.push_back(entry.path().string());
     if (!IsGameOf(entry.path(), system, open_zips))
       continue;
     Game game;
@@ -378,7 +499,8 @@ void ScanFolder(const std::filesystem::path& folder, int depth, const System& sy
     // A plain name in a folder named after the game - "disc.gdi", "EBOOT.PBP", or only the disc's
     // ("CD1.chd") - the folder names it (with the disc).
     const int stem_disc = BareDiscLabel(game.id);
-    if (system.by_path && depth > 0 && (stem_disc > 0 || GenericNames().count(Lower(game.id)) > 0))
+    if (system.by_path && !IsRomsetSystem(system.id) && depth > 0 &&
+        (stem_disc > 0 || GenericNames().count(Lower(game.id)) > 0))
     {
       std::string owner;
       int disc = 0;
@@ -390,10 +512,36 @@ void ScanFolder(const std::filesystem::path& folder, int depth, const System& sy
     std::error_code size_error;
     game.size = entry.file_size(size_error);
     ParseName(game.id, &game.title, &game.region, &game.tags);
+    if (system.id == SystemId::ARCADE)
+      ArcadeGame(&game, folder.string());
+    else if (IsFlycastBoard(system.id))
+      BoardGame(&game, folder.string());
     games->push_back(std::move(game));
   }
+  if (IsRomsetSystem(system.id))
+    return;  // (a romset is one zip: no discs, no tracks)
   if (!system.by_path)
+  {
+    // A .bin is a Mega Drive cartridge's file and a CD's track: the files a .cue or .gdi here names (a
+    // PlayStation or Dreamcast disc's, in a folder the Mega Drive shares) aren't cartridges. In any
+    // letters' case: the USB drive's exFAT finds "GAME.BIN" for a game.bin.
+    std::set<std::string> tracks;
+    for (const std::string& list : lists)
+    {
+      for (const std::string& track : ListedFiles(list))
+        tracks.insert(Lower(track));
+    }
+    if (!tracks.empty())
+    {
+      games->erase(std::remove_if(games->begin() + static_cast<std::ptrdiff_t>(first), games->end(),
+                                  [&tracks](const Game& game) {
+                                    const std::filesystem::path path = std::filesystem::path(game.path).lexically_normal();
+                                    return tracks.count(Lower(path.string())) > 0;
+                                  }),
+                   games->end());
+    }
     return;
+  }
   // A game on several discs: its .m3u lists the discs' files, which aren't games of their own.
   std::set<std::string> discs;
   for (size_t i = first; i < games->size(); i++)
@@ -569,7 +717,7 @@ std::vector<std::string> NamedFiles(const std::vector<std::string>& start)
 
 bool IsRomName(const std::string& name)
 {
-  return IsRomFile(name) || HasExtension(name, {".zip"});
+  return IsRomFile(name) || HasExtension(name, {".zip", ".7z"});
 }
 
 void ParseName(const std::string& stem, std::string* title, std::string* region, std::string* tags)
@@ -715,9 +863,9 @@ std::vector<std::string> GameFiles(const Game& game)
   for (const std::string& folder : folders)
   {
     std::error_code ec;
-    for (const auto& entry : std::filesystem::directory_iterator(folder, ec))
+    for (std::filesystem::directory_iterator it(folder, ec), end; !ec && it != end; it.increment(ec))
     {
-      const std::string path = entry.path().lexically_normal().string();
+      const std::string path = it->path().lexically_normal().string();
       if (HasExtension(path, {".cue", ".gdi", ".m3u"}) && std::find(reach.begin(), reach.end(), path) == reach.end())
         others.push_back(path);
     }
@@ -750,8 +898,9 @@ int CountGames(const std::string& folder, SystemId system)
 {
   int count = 0;
   std::error_code ec;
-  for (const auto& entry : std::filesystem::directory_iterator(folder, ec))
+  for (std::filesystem::directory_iterator it(folder, ec), end; !ec && it != end; it.increment(ec))
   {
+    const std::filesystem::directory_entry& entry = *it;
     std::error_code type_error;
     const System& console = GetSystem(system);
     if (!entry.is_directory(type_error) &&
@@ -762,7 +911,7 @@ int CountGames(const std::string& folder, SystemId system)
   return count;
 }
 
-bool ReadRom(const std::string& path, std::vector<uint8_t>* data, std::string* error)
+bool ReadRom(const std::string& path, SystemId system, std::vector<uint8_t>* data, std::string* error)
 {
   data->clear();
   if (!HasExtension(path, {".zip"}))
@@ -795,29 +944,391 @@ bool ReadRom(const std::string& path, std::vector<uint8_t>* data, std::string* e
     *error = "the .zip can't be opened";
     return false;
   }
+  // (The console's own file: a Game Boy Advance game's .gba, not a README.md beside it - .md is the
+  // Mega Drive's too.)
   bool found = false;
-  for (int result = unzGoToFirstFile(zip); result == UNZ_OK; result = unzGoToNextFile(zip))
+  unz_file_info info;
+  if (GoToZipRom(zip, &GetSystem(system)) &&
+      unzGetCurrentFileInfo(zip, &info, nullptr, 0, nullptr, 0, nullptr, 0) == UNZ_OK &&
+      unzOpenCurrentFile(zip) == UNZ_OK)
   {
-    char name[512];
-    unz_file_info info;
-    if (unzGetCurrentFileInfo(zip, &info, name, sizeof(name), nullptr, 0, nullptr, 0) != UNZ_OK)
-      continue;
-    if (!IsRomFile(name) || info.uncompressed_size == 0 ||
-        info.uncompressed_size > MAX_ROM)
-    {
-      continue;
-    }
-    if (unzOpenCurrentFile(zip) != UNZ_OK)
-      break;
     data->resize(info.uncompressed_size);
     const int read = unzReadCurrentFile(zip, data->data(), static_cast<unsigned>(data->size()));
     unzCloseCurrentFile(zip);
     found = read == static_cast<int>(data->size());
-    break;
   }
   unzClose(zip);
   if (!found)
     *error = "no game in the .zip";
   return found;
+}
+
+// ---- Where the games are found ----
+
+namespace
+{
+// A path tidied up: no "." or "..", no '/' at its end.
+std::string TidyPath(const std::string& path)
+{
+  if (path.empty())
+    return path;
+  std::string out = std::filesystem::path(path).lexically_normal().generic_string();
+  while (out.size() > 1 && out.back() == '/')
+    out.pop_back();
+  return out;
+}
+
+bool IsFolder(const std::string& path)
+{
+  std::error_code ec;
+  return !path.empty() && std::filesystem::is_directory(path, ec);
+}
+
+std::string JoinPath(const std::string& folder, const std::string& name)
+{
+  return folder == "/" ? "/" + name : folder + "/" + name;
+}
+
+// The folders in `folder`: their names, sorted.
+std::vector<std::string> FolderNames(const std::string& folder)
+{
+  std::vector<std::string> names;
+  if (folder.empty())
+    return names;
+  std::error_code ec;
+  for (std::filesystem::directory_iterator it(folder, ec), end; !ec && it != end; it.increment(ec))
+  {
+    std::error_code type_error;
+    if (it->is_directory(type_error))
+      names.push_back(it->path().filename().string());
+  }
+  std::sort(names.begin(), names.end());
+  return names;
+}
+
+// The one of `names` that is `name` in any letters' case (the same name first), else "".
+std::string PickName(const std::vector<std::string>& names, const std::string& name)
+{
+  if (std::find(names.begin(), names.end(), name) != names.end())
+    return name;
+  const std::string lower = Lower(name);
+  for (const std::string& each : names)
+  {
+    if (Lower(each) == lower)
+      return each;
+  }
+  return {};
+}
+
+// A USB drive's top folder at the start of the path ("/usb0", or "/mnt/usb0" outside the sandbox): its
+// length, else 0.
+size_t DriveRootLength(const std::string& path)
+{
+  for (const char* start : {"/usb", "/mnt/usb"})
+  {
+    const size_t length = std::char_traits<char>::length(start);
+    if (path.size() > length && path.compare(0, length, start) == 0 &&
+        std::isdigit(static_cast<unsigned char>(path[length])) && (path.size() == length + 1 || path[length + 1] == '/'))
+      return length + 1;
+  }
+  return 0;
+}
+}  // namespace
+
+std::vector<std::string> UsbDrives(const std::string& root)
+{
+  // (A mount point without a drive is an empty folder: FTP shows /mnt/usb1 so on a PS4 with one stick.)
+  std::vector<std::string> drives;
+  for (int i = 0; i < 8; i++)
+  {
+    const std::string drive = root + "/usb" + std::to_string(i);
+    std::error_code ec;
+    if (IsFolder(drive) && std::filesystem::directory_iterator(drive, ec) != std::filesystem::directory_iterator())
+      drives.push_back(drive);
+  }
+  return drives;
+}
+
+std::string FindEntry(const std::string& folder, const std::string& name)
+{
+  const std::string found = name.empty() ? std::string() : PickName(FolderNames(folder), name);
+  return found.empty() ? std::string() : JoinPath(TidyPath(folder), found);
+}
+
+Places FindPlaces(const std::string& data_dir, const std::vector<std::string>& drives)
+{
+  Places places;
+  places.drives = drives;
+  std::vector<std::string> tops = {data_dir};
+  tops.insert(tops.end(), drives.begin(), drives.end());
+  for (const std::string& top : tops)
+  {
+    // Every Roms folder there in any letters' case, and in each every console's folder in any case: the PS4's
+    // own storage tells case apart ("Roms" and "ROMS", "snes" and "SNES" are two folders each there), a drive's
+    // FAT or exFAT doesn't (one of each; ConsoleFolders keeps one folder once).
+    for (const std::string& roms_name : FolderNames(top))
+    {
+      if (Lower(roms_name) != "roms")
+        continue;
+      const std::string roms = JoinPath(TidyPath(top), roms_name);
+      for (const std::string& name : FolderNames(roms))  // one look at the Roms folder for every console
+      {
+        const std::string lower = Lower(name);
+        for (const System& system : Systems())
+        {
+          if (lower == system.key)
+            places.folders[system.key].push_back(JoinPath(roms, name));
+        }
+      }
+    }
+  }
+  return places;
+}
+
+std::string PathKey(const std::string& path, const std::vector<std::string>& drives)
+{
+  std::string key = TidyPath(path);
+  if (key.compare(0, 8, "/mnt/usb") == 0 && DriveRootLength(key) == 9)
+    key.erase(0, 4);  // "/mnt/usb0/..." is "/usb0/..." in the app
+  const std::string lower = Lower(key);
+  bool drive = DriveRootLength(key) > 0;
+  for (const std::string& each : drives)
+  {
+    const std::string top = Lower(TidyPath(each));
+    if (!top.empty() && (lower == top || lower.compare(0, top.size() + 1, top + "/") == 0))
+      drive = true;
+  }
+  return drive ? lower : key;
+}
+
+std::vector<std::string> ConsoleFolders(const System& system, const std::string& chosen, const Places& places)
+{
+  std::vector<std::string> candidates;
+  if (!chosen.empty())
+    candidates.push_back(TidyPath(chosen));
+  const auto found = places.folders.find(system.key);
+  if (found != places.folders.end())
+  {
+    for (const std::string& folder : found->second)
+      candidates.push_back(TidyPath(folder));
+  }
+  std::vector<std::string> folders, keys;
+  for (const std::string& candidate : candidates)
+  {
+    const std::string key = PathKey(candidate, places.drives);
+    const auto same = std::find(keys.begin(), keys.end(), key);
+    if (same == keys.end())
+    {
+      folders.push_back(candidate);
+      keys.push_back(key);
+      continue;
+    }
+    std::string& kept = folders[static_cast<size_t>(same - keys.begin())];
+    if (!IsFolder(kept) && IsFolder(candidate))
+      kept = candidate;  // "/usb0/Roms/n64" asked for, "/usb0/ROMS/N64" there (a drive that tells case)
+  }
+  return folders;
+}
+
+bool IsRomsFolder(const std::string& folder, const std::string& key, const std::string& data_dir)
+{
+  const std::string path = Lower(TidyPath(folder)), tail = "/roms/" + Lower(key);
+  if (key.empty() || path.size() <= tail.size() || path.compare(path.size() - tail.size(), tail.size(), tail) != 0)
+    return false;
+  const std::string top = path.substr(0, path.size() - tail.size());
+  return top == Lower(TidyPath(data_dir)) || (DriveRootLength(top) > 0 && DriveRootLength(top) == top.size());
+}
+
+Found ScanAll(const std::array<std::string, SYSTEM_COUNT>& chosen, const Places& places)
+{
+  Found found;
+  std::array<std::vector<std::string>, SYSTEM_COUNT> keys;
+  for (const System& system : Systems())
+  {
+    const size_t id = static_cast<size_t>(system.id);
+    found.folders[id] = ConsoleFolders(system, chosen[id], places);
+    for (const std::string& folder : found.folders[id])
+      keys[id].push_back(PathKey(folder, places.drives));
+  }
+  // Another console's folder is this one, or inside it, or around it.
+  auto within = [](const std::string& path, const std::string& folder) {
+    const std::string start = folder == "/" ? folder : folder + "/";
+    return path.size() > start.size() && path.compare(0, start.size(), start) == 0;
+  };
+  auto shared = [&keys, &within](size_t id, const std::string& mine) {
+    for (size_t other = 0; other < keys.size(); other++)
+    {
+      for (const std::string& theirs : keys[other])
+      {
+        if (other != id && (theirs == mine || within(theirs, mine) || within(mine, theirs)))
+          return true;
+      }
+    }
+    return false;
+  };
+  for (const System& system : Systems())
+  {
+    const size_t id = static_cast<size_t>(system.id);
+    std::set<std::string> seen;
+    for (size_t f = 0; f < found.folders[id].size(); f++)
+    {
+      int here = 0;
+      for (Game& game : Scan(found.folders[id][f], system.id, shared(id, keys[id][f])))
+      {
+        if (!seen.insert(PathKey(game.path, places.drives)).second)
+          continue;  // (a folder inside another one of the console's)
+        found.games.push_back(std::move(game));
+        here++;
+      }
+      found.found_in[id].push_back(here);
+      found.counts[id] += here;
+    }
+  }
+  return found;
+}
+
+std::vector<SystemId> ShownConsoles(const std::vector<SystemId>& order, const std::string& mode,
+                                     const std::array<int, SYSTEM_COUNT>& games, const std::string& off)
+{
+  std::set<std::string> hidden;
+  std::string key;
+  for (size_t i = 0; i <= off.size(); i++)
+  {
+    if (i < off.size() && off[i] != ',')
+    {
+      if (off[i] != ' ')
+        key += off[i];
+      continue;
+    }
+    if (!key.empty())
+      hidden.insert(Lower(key));
+    key.clear();
+  }
+  std::vector<SystemId> all, shown;
+  for (const SystemId id : order)
+  {
+    const int index = static_cast<int>(id);
+    if (index < 0 || index >= SYSTEM_COUNT || !HasSystem(id) || std::find(all.begin(), all.end(), id) != all.end())
+      continue;
+    all.push_back(id);
+    const bool on = mode == "games"  ? games[static_cast<size_t>(index)] > 0 :
+                    mode == "chosen" ? hidden.count(GetSystem(id).key) == 0 :
+                                       true;
+    if (on)
+      shown.push_back(id);
+  }
+  return shown.empty() ? all : shown;  // never no tab at all
+}
+
+std::string UsbCoversFolder(const std::vector<std::string>& drives)
+{
+  for (const std::string& drive : drives)
+  {
+    const std::string app = FindEntry(drive, "EmuSuNi");
+    if (!app.empty())
+    {
+      const std::string covers = FindEntry(app, "covers");
+      return covers.empty() ? app + "/covers" : covers;
+    }
+  }
+  for (const std::string& drive : drives)
+  {
+    if (!FindEntry(drive, "Roms").empty())
+      return TidyPath(drive) + "/EmuSuNi/covers";
+  }
+  return drives.empty() ? std::string() : TidyPath(drives.front()) + "/EmuSuNi/covers";
+}
+
+std::vector<std::string> UsbCoversFolders(const std::vector<std::string>& drives)
+{
+  std::vector<std::string> folders;
+  for (const std::string& drive : drives)
+  {
+    const std::string covers = FindEntry(FindEntry(drive, "EmuSuNi"), "covers");
+    if (!covers.empty())
+      folders.push_back(covers);
+  }
+  return folders;
+}
+
+// ---- The consoles' folders, made by the app ----
+
+bool LooksLikePs4Storage(const std::string& drive)
+{
+  const std::string user = FindEntry(drive, "user");
+  if (user.empty())
+    return false;
+  for (const char* name : {"app", "patch", "addcont"})
+  {
+    if (!FindEntry(user, name).empty())
+      return true;
+  }
+  return false;
+}
+
+std::vector<std::string> GameRomsFolders(const std::vector<std::string>& drives)
+{
+  std::vector<std::string> folders;
+  for (const std::string& drive : drives)
+  {
+    const std::string roms = FindEntry(drive, "Roms");  // its own spelling
+    if (!roms.empty() && !LooksLikePs4Storage(drive))
+      folders.push_back(roms);
+  }
+  if (!folders.empty())
+    return folders;
+  // No drive with games yet: the first USB port's, when it is a player's drive.
+  for (const std::string& drive : drives)
+  {
+    const std::string tidy = TidyPath(drive);
+    if (std::filesystem::path(tidy).filename() == "usb0" && !LooksLikePs4Storage(drive))
+      folders.push_back(JoinPath(tidy, "Roms"));
+  }
+  return folders;
+}
+
+FolderMaking MakeConsoleFolders(const std::string& roms)
+{
+  FolderMaking result;
+  result.consoles = static_cast<int>(Systems().size());
+  std::error_code ec;
+  if (!IsFolder(roms))
+  {
+    std::filesystem::create_directory(roms, ec);
+    if (!IsFolder(roms))
+    {
+      result.failed = result.consoles;
+      result.error = ec ? ec.message() : "it can't be made";
+      return result;
+    }
+  }
+  const std::vector<std::string> names = FolderNames(roms);  // ("PSP" is the psp folder: any letters' case)
+  for (const System& system : Systems())
+  {
+    bool there = false;
+    for (const std::string& name : names)
+      there = there || Lower(name) == system.key;
+    if (there)
+    {
+      result.there++;
+      continue;
+    }
+    std::error_code make_error;
+    if (std::filesystem::create_directory(JoinPath(roms, system.key), make_error))
+    {
+      result.made++;
+    }
+    else if (!make_error)
+    {
+      result.there++;  // (made meanwhile)
+    }
+    else
+    {
+      result.failed = result.consoles - result.made - result.there;
+      result.error = make_error.message();
+      break;
+    }
+  }
+  return result;
 }
 }  // namespace Library

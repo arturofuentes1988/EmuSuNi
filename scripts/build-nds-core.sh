@@ -13,11 +13,14 @@
 # becomes melondsds_retro_* and everything else in it private, as for FCEUmm (CMakeLists.txt).
 # The PS4 changes to the sources (applied each time to the files as git has them, checked; all
 # under EMUSUNI_PORT, which the CMake option of that name defines):
-#   - The JIT's code buffer (melonDS's own array in the core's data, so that its code reaches the
-#     core's functions with 32-bit calls): one slice of 16 MiB (upstream: four of 32, one per
-#     console instance; EmuSuNi runs one at a time), made executable through EmuSuNi
-#     (port/ps4_n64.c: emusuni_make_executable, the ways the PS4 allows) instead of mprotect, once.
-#     If that fails the core runs melonDS's interpreter instead of crashing.
+#   - The JIT's code buffer (upstream: melonDS's own array in the core's data, so that its code reaches
+#     the core's functions with 32-bit calls; four slices of 32 MiB, one per console instance): one slice
+#     of 16 MiB (EmuSuNi runs one console at a time), a part of the app's shared JIT arena
+#     (port/ps4_n64.c: emusuni_jit_arena, "nds"; 16 KiB aligned, read/write/execute the ways the PS4
+#     allows, within 2 GiB of the core's code), not an array of the core's own: the PS4 charges the
+#     app's whole static memory from its start, and only one core runs at a time. Taken when a console's
+#     JIT starts, dropped at its end; its protection is never changed (the next core's arena). If the
+#     arena can't be had the core runs melonDS's interpreter instead of crashing.
 #   - No fastmem: it relies on page faults (the app's fault handler is its crash log), an 8 GiB
 #     reservation and a shared memory object (shm_open), which the PS4 doesn't have the normal way.
 #     The emulated RAM comes from the heap; the JIT calls the memory handlers. No SIGSEGV handler.
@@ -48,7 +51,8 @@
 #   - PGO: scripts/nds-core.profdata.xz (see below).
 #   - One copy of the ROM, the cart's (upstream: two while playing, three or four while loading):
 #     the frontend's data is borrowed (not copied) during retro_load_game, then only its header is
-#     kept, and a reset moves the cart to the new console. The app may free its copy once
+#     kept, and a reset moves the cart to the new console (not refused there as an encrypted ROM:
+#     melonDS encrypted its secure area itself for the first boot). The app may free its copy once
 #     retro_load_game returns. Or the ROM from its path (a retro_game_info with a path and no
 #     data): read with stdio straight into the cart's buffer, the only allocation; if it can't be
 #     read, retro_load_game returns false. (need_fullpath stays false: data works as before.)
@@ -68,7 +72,8 @@
 #   build-nds-core.sh <out dir> [clean]
 #   NDS_CORE_HOST=1 build-nds-core.sh <out dir>   the same object for this PC (Linux, clang 21), for
 #                                                 the PC tests: no PS4 checks; the test frontend
-#                                                 provides emusuni_make_executable and
+#                                                 provides the JIT arena (emusuni_jit_arena,
+#                                                 emusuni_jit_arena_generation) and
 #                                                 emusuni_nds_thread
 #   NDS_CORE_PGO=off|generate                     without the profile; instrumented to make one (PC)
 #   NDS_CORE_TIMING_DETAIL=1                      the log's "detail" line too (the PC tests)
@@ -182,11 +187,11 @@ patch(core, 'src/libretro/format.cpp',
       '    return formatter<decltype(flagNames)>::format(flagNames, ctx);\n}\n',
       '    return formatter<decltype(flagNames)>::format(flagNames, ctx);\n}\n#endif\n')
 
-# --- The JIT's code buffer: one 16 MiB slice, executable through EmuSuNi, else the interpreter.
+# --- The JIT's code buffer: one 16 MiB part of the app's JIT arena, else the interpreter.
 patch(melonds, 'src/ARMJIT_Global.h',
       'static constexpr size_t CodeMemorySliceSize = 1024*1024*32;\n',
       '#ifdef EMUSUNI_PORT\n'
-      '// EmuSuNi: 16 MiB (in the PS4 app\'s data, next to the other cores\' buffers); a full buffer is\n'
+      '// EmuSuNi: 16 MiB (a part of the PS4 app\'s JIT arena, which the cores share); a full buffer is\n'
       '// flushed ("near reset"/"far reset" in the log) and filled again.\n'
       'static constexpr size_t CodeMemorySliceSize = 1024*1024*16;\n'
       '#else\n'
@@ -195,7 +200,7 @@ patch(melonds, 'src/ARMJIT_Global.h',
 patch(melonds, 'src/ARMJIT_Global.h',
       'void* AllocateCodeMem();\n',
       '#ifdef EMUSUNI_PORT\n'
-      '// EmuSuNi: whether the code buffer could be made executable (tried once, the first time).\n'
+      '// EmuSuNi: whether the code memory (the app\'s JIT arena\'s) can be had for the console about to be made.\n'
       'bool CodeMemoryExecutable();\n'
       '#endif\n\n'
       'void* AllocateCodeMem();\n')
@@ -204,9 +209,11 @@ patch(melonds, 'src/ARMJIT_Global.cpp',
       '#include <mutex>\n\n'
       '#ifdef EMUSUNI_PORT\n'
       '#include "Platform.h"\n\n'
-      '// EmuSuNi (port/ps4_n64.c): makes [address, address + size) executable the ways the PS4 allows,\n'
-      '// each checked by running a small function there; the way that worked (0-3) or -1.\n'
-      'extern "C" int emusuni_make_executable(void* address, size_t size);\n'
+      '// EmuSuNi (port/ps4_n64.c): a part of the app\'s shared JIT arena (16 KiB aligned, read/write/execute,\n'
+      '// within 2 GiB of the core\'s code), the same one again for the same name until the app gives the arena\n'
+      '// back after the game (filled with HLT; its generation changes then); NULL if it can\'t be had.\n'
+      'extern "C" void* emusuni_jit_arena(size_t size, const char* name);\n'
+      'extern "C" unsigned emusuni_jit_arena_generation(void);\n'
       '#endif\n')
 patch(melonds, 'src/ARMJIT_Global.cpp',
       'static constexpr size_t NumCodeMemSlices = 4;\n',
@@ -217,35 +224,101 @@ patch(melonds, 'src/ARMJIT_Global.cpp',
       'static constexpr size_t NumCodeMemSlices = 4;\n'
       '#endif\n')
 patch(melonds, 'src/ARMJIT_Global.cpp',
+      '// I haven\'t heard of pages larger than 16 KB\nu8 CodeMemory[CodeMemoryAlignedSize + 16*1024];\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '// EmuSuNi: no array of its own (16 MiB of the app\'s static memory, which the PS4 charges from the app\'s\n'
+      '// start): the code memory is the arena\'s part, taken when a console\'s JIT starts (or by\n'
+      '// CodeMemoryExecutable, asked before the console is made) and dropped at its end (the last DeInit);\n'
+      '// taken again in a new session (the generation): nothing of the arena is kept for the next game.\n'
+      '// Without the arena, a heap buffer the compiler\'s setup can write and nothing runs in (the console\n'
+      '// runs the interpreter).\n'
+      'static u8* CodeMemoryPart = nullptr;\n'
+      'static unsigned CodeMemoryGeneration = 0;\n'
+      'static u8* CodeMemoryHeap = nullptr;\n'
+      '#else\n'
+      '// I haven\'t heard of pages larger than 16 KB\nu8 CodeMemory[CodeMemoryAlignedSize + 16*1024];\n'
+      '#endif\n')
+patch(melonds, 'src/ARMJIT_Global.cpp',
+      'u8* GetAlignedCodeMemoryStart()\n{\n'
+      '    return reinterpret_cast<u8*>((reinterpret_cast<intptr_t>(CodeMemory) + (16*1024-1)) & ~static_cast<intptr_t>(16*1024-1));\n'
+      '}\n',
+      'u8* GetAlignedCodeMemoryStart()\n{\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '    return CodeMemoryPart;\n'
+      '#else\n'
+      '    return reinterpret_cast<u8*>((reinterpret_cast<intptr_t>(CodeMemory) + (16*1024-1)) & ~static_cast<intptr_t>(16*1024-1));\n'
+      '#endif\n'
+      '}\n'
+      '#ifdef EMUSUNI_PORT\n\n'
+      '// EmuSuNi: the arena\'s part for this console (globalMutex held).\n'
+      'static u8* TakeCodeMemory()\n'
+      '{\n'
+      '    const unsigned generation = emusuni_jit_arena_generation();\n'
+      '    if (!CodeMemoryPart || CodeMemoryGeneration != generation)\n'
+      '    {\n'
+      '        CodeMemoryPart = static_cast<u8*>(emusuni_jit_arena(CodeMemoryAlignedSize, "nds"));\n'
+      '        CodeMemoryGeneration = generation;\n'
+      '        if (CodeMemoryPart)\n'
+      '            Platform::Log(Platform::LogLevel::Info, "JIT: %zu MiB of executable code memory at %p (the app\'s JIT arena)\\n",\n'
+      '                          CodeMemoryAlignedSize >> 20, (void*)CodeMemoryPart);\n'
+      '        else\n'
+      '            Platform::Log(Platform::LogLevel::Error, "JIT: no executable code memory (the app\'s JIT arena refused)\\n");\n'
+      '    }\n'
+      '    return CodeMemoryPart;\n'
+      '}\n'
+      '#endif\n')
+patch(melonds, 'src/ARMJIT_Global.cpp',
       'int RefCounter = 0;\n',
       '#ifdef EMUSUNI_PORT\n'
       'bool CodeMemoryExecutable()\n'
       '{\n'
-      '    // On its own pages (the PS4\'s are 16 KiB: the array has room to align to them); it stays\n'
-      '    // executable while the app runs (the next game uses it again).\n'
-      '    static int method = -2;\n'
-      '    if (method == -2)\n'
-      '    {\n'
-      '        method = emusuni_make_executable(GetAlignedCodeMemoryStart(), CodeMemoryAlignedSize);\n'
-      '        if (method >= 0)\n'
-      '            Platform::Log(Platform::LogLevel::Info, "JIT: %zu MiB of executable code memory at %p (way %d)\\n",\n'
-      '                          CodeMemoryAlignedSize >> 20, (void*)GetAlignedCodeMemoryStart(), method);\n'
-      '        else\n'
-      '            Platform::Log(Platform::LogLevel::Error, "JIT: the code memory can\'t be made executable\\n");\n'
-      '    }\n'
-      '    return method >= 0;\n'
+      '    std::lock_guard guard(globalMutex);\n'
+      '    return TakeCodeMemory() != nullptr;\n'
       '}\n'
       '#endif\n\n'
       'int RefCounter = 0;\n')
+patch(melonds, 'src/ARMJIT_Global.cpp',
+      '        return &GetAlignedCodeMemoryStart()[slice * CodeMemorySliceSize];\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '        // EmuSuNi: the arena\'s part; without it a heap buffer (nothing runs there: the interpreter does).\n'
+      '        if (TakeCodeMemory())\n'
+      '            return &CodeMemoryPart[slice * CodeMemorySliceSize];\n'
+      '        CodeMemoryHeap = static_cast<u8*>(malloc(CodeMemorySliceSize));\n'
+      '        return CodeMemoryHeap;\n'
+      '#else\n'
+      '        return &GetAlignedCodeMemoryStart()[slice * CodeMemorySliceSize];\n'
+      '#endif\n')
+patch(melonds, 'src/ARMJIT_Global.cpp',
+      '#if !defined(APPLE_AARCH64) && !defined(__NetBSD__) && !defined(__OpenBSD__)\n'
+      '    for (int i = 0; i < NumCodeMemSlices; i++)\n',
+      '#if !defined(APPLE_AARCH64) && !defined(__NetBSD__) && !defined(__OpenBSD__)\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '    if (codeMem != nullptr && codeMem == CodeMemoryHeap)\n'
+      '    {\n'
+      '        // EmuSuNi: the heap buffer of a console without the arena.\n'
+      '        free(CodeMemoryHeap);\n'
+      '        CodeMemoryHeap = nullptr;\n'
+      '        AvailableCodeMemSlices |= 1;\n'
+      '        return;\n'
+      '    }\n'
+      '#endif\n'
+      '    for (int i = 0; i < NumCodeMemSlices; i++)\n')
 patch(melonds, 'src/ARMJIT_Global.cpp',
       '        #else\n'
       '            mprotect(GetAlignedCodeMemoryStart(), CodeMemoryAlignedSize, PROT_EXEC | PROT_READ | PROT_WRITE);\n'
       '        #endif\n',
       '        #elif defined(EMUSUNI_PORT)\n'
-      '            CodeMemoryExecutable();\n'
+      '            TakeCodeMemory(); // EmuSuNi: the arena\'s part (read/write/execute already)\n'
       '        #else\n'
       '            mprotect(GetAlignedCodeMemoryStart(), CodeMemoryAlignedSize, PROT_EXEC | PROT_READ | PROT_WRITE);\n'
       '        #endif\n')
+patch(melonds, 'src/ARMJIT_Global.cpp',
+      '    RefCounter--;\n    if (RefCounter == 0)\n    {\n        ARMJIT_Memory::UnregisterFaultHandler();\n',
+      '    RefCounter--;\n    if (RefCounter == 0)\n    {\n        ARMJIT_Memory::UnregisterFaultHandler();\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '        // EmuSuNi: the console\'s JIT ended: nothing of the arena kept (the next console takes it again).\n'
+      '        CodeMemoryPart = nullptr;\n'
+      '#endif\n')
 patch(melonds, 'src/ARMJIT_x64/ARMJIT_Compiler.cpp',
       '    FarStart = ResetStart + 1024*1024*24;\n',
       '#ifdef EMUSUNI_PORT\n'
@@ -427,9 +500,22 @@ patch(core, 'src/libretro/config/console.cpp',
       '        ndsargs.ndsCart = LoadNdsCart(config, *ndsInfo);\n',
       '#ifdef EMUSUNI_PORT\n'
       '        // EmuSuNi: a reset\'s cart, else the ROM read from the content (only while it loads).\n'
+      '        const bool resetCart = ndsCart != nullptr;\n'
       '        ndsargs.ndsCart = ndsCart ? std::move(ndsCart) : LoadNdsCart(config, *ndsInfo);\n'
       '#else\n'
       '        ndsargs.ndsCart = LoadNdsCart(config, *ndsInfo);\n'
+      '#endif\n')
+# A reset's cart isn't taken for an encrypted ROM: it passed that check when its game loaded, and melonDS has
+# since encrypted its secure area in place (NDSCartSlot::SetCart does, for the boot), which the same BIOS
+# decrypts again. (Without the native BIOS, every reset of a game whose ROM is stored decrypted, most of
+# them, failed: "The loaded ROM is encrypted...", the core asked to stop, and the next frame ran with no
+# console and crashed.)
+patch(core, 'src/libretro/config/console.cpp',
+      '        if (!header.IsHomebrew() && !romDecrypted && !(bios7Loaded && bios9Loaded)) {\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '        if (!header.IsHomebrew() && !romDecrypted && !resetCart && !(bios7Loaded && bios9Loaded)) {\n'
+      '#else\n'
+      '        if (!header.IsHomebrew() && !romDecrypted && !(bios7Loaded && bios9Loaded)) {\n'
       '#endif\n')
 
 # --- The ROM from its path (retro_game_info with a path, no data): read with stdio straight into the
@@ -1495,6 +1581,13 @@ patch(melonds, 'src/GPU.h',
       '#ifdef EMUSUNI_PORT\n'
       '        if (EmuSuNi2DPending && (addr & 0x400)) EmuSuNi2DSyncPending(); // EmuSuNi: B\'s lines drawn first\n'
       '#endif\n')
+# The capture-block flags are read by the constructor's SetRenderer (SyncAllVRAMCaptures) before Reset()
+# zeroes them. In one process the next console gets the last one's memory: flags left by a capture in
+# flight made it call the renderer that doesn't exist yet (New Super Mario Bros. after Mario Kart DS
+# quit mid-race: 00.55 on the PS4, crash.log in GPU::SyncAllVRAMCaptures).
+patch(melonds, 'src/GPU.h',
+      '    u16 VRAMCaptureBlockFlags[16];\n',
+      '    u16 VRAMCaptureBlockFlags[16] {}; // EmuSuNi: zeroed (the constructor\'s SetRenderer reads them)\n')
 for fn in ['void GPU::ResetVRAMCache() noexcept\n{\n', 'void GPU::Reset() noexcept\n{\n', 'void GPU::Stop() noexcept\n{\n',
            'void GPU::DoSavestate(Savestate* file) noexcept\n{\n',
            'void GPU::SetRenderer(std::unique_ptr<Renderer>&& renderer) noexcept\n{\n',
@@ -1865,8 +1958,11 @@ else
 fi
 
 # The Release flags (CMAKE_C_FLAGS would replace the toolchain's target flags): CMake's -O3, the
-# PS4's CPU and the renamed API.
-FLAGS_CORE="-O3 -DNDEBUG -march=btver2 -include $OUT/prefix_melondsds.h"
+# PS4's CPU, a section for each function and variable (the app's link, --gc-sections, drops the ones
+# nothing uses), unwind tables only for the functions that can throw (not the toolchain's
+# -funwind-tables, a frame for every function) and the renamed API. (None of this changes what PGO
+# sees of the code: the profile below still applies.)
+FLAGS_CORE="-O3 -DNDEBUG -march=btver2 -ffunction-sections -fdata-sections -fno-unwind-tables -fno-asynchronous-unwind-tables -include $OUT/prefix_melondsds.h"
 # (On the PC: Jaguar's instructions but AMD's SSE4A, which Intel CPUs don't have.)
 [ "$HOST" = 1 ] && FLAGS_CORE+=" -mno-sse4a"
 # The PC tests' timing of the CPUs, the 3D commands and the events too (the log's "detail" line).
@@ -1988,6 +2084,14 @@ if [ -n "$WEAK" ]; then
 fi
 if llvm-nm-21 --defined-only "$OUT/nds_core.o.new" | awk '{print $NF}' | grep -E '^_Z(nw|na|dl|da)'; then
   echo "melonDS DS: the object defines a C++ operator new/delete of its own"
+  exit 1
+fi
+# No static array of 1 MiB or more: the PS4 charges the app's whole static memory from its start, used or
+# not (the JIT's code memory is a part of the app's JIT arena).
+BIG=$(llvm-nm-21 --print-size --radix=d "$OUT/nds_core.o.new" | awk '($3 == "b" || $3 == "B") && $2 + 0 >= 1048576 {print $4}')
+if [ -n "$BIG" ]; then
+  echo "melonDS DS: the object has static arrays of 1 MiB or more:"
+  echo "$BIG"
   exit 1
 fi
 if [ "$HOST" != 1 ]; then
