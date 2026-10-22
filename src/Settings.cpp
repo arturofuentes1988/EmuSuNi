@@ -709,6 +709,26 @@ const std::vector<Setting> SETTINGS = {
      {{"auto", "Auto", "The DualShock, as the game asks for it (its left stick moves the D-pad in older games)."},
       {"analog", "DualShock (analog)", "The DualShock with its sticks on from the start."}},
      "auto", false, "The PlayStation pad the game sees.", FOR_PS1},
+    // The PSP's stick (issue #8): PPSSPP's dead zone and sensitivity (Emulator.cpp BuildPspVariables), 15% and 100%
+    // as before by default.
+    {"psp_stick_deadzone", "PSP Stick Dead Zone", "Emulation",
+     {{"0", "0%", "No dead zone: the slightest touch moves. A stick that rests a little off centre drifts."},
+      {"5", "5%", "Very small."},
+      {"10", "10%", "Small."},
+      {"15", "15% (default)", "PPSSPP's own."},
+      {"20", "20%", "Larger: for a stick that drifts at rest."},
+      {"25", "25%", "Larger still."},
+      {"30", "30%", "The largest."}},
+     "15", false, "How far the left stick goes before the PSP sees it move.", FOR_PSP},
+    {"psp_stick_sensitivity", "PSP Stick Sensitivity", "Emulation",
+     {{"100", "100% (default)", "The stick all the way out is the PSP's all the way out."},
+      {"110", "110%", "The PSP's full push with the stick 92% of the way out (with a 15% dead zone)."},
+      {"125", "125%", "The PSP's full push with the stick 83% of the way out (with a 15% dead zone)."},
+      {"150", "150%", "The PSP's full push with the stick 72% of the way out (with a 15% dead zone): for games "
+                      "that run only with the stick all the way out."},
+      {"175", "175%", "The PSP's full push with the stick 64% of the way out (with a 15% dead zone)."},
+      {"200", "200%", "The PSP's full push with the stick 58% of the way out (with a 15% dead zone)."}},
+     "100", false, "How far the PSP sees the left stick pushed, for how far it is pushed.", FOR_PSP},
     // The touchpad as the DS's and the 3DS's touch screen (src/Touchpad.h): "click", a trackpad (00.64; the finger put
     // the stylus where it landed until then), or "touch", the screen itself.
     {"nds_touch", "DS Touch Screen", "Emulation",

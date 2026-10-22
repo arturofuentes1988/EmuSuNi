@@ -790,6 +790,23 @@ void BuildNdsVariables(const std::string& g)
 // PPSSPP's options (the PSP): Vulkan on the app's device, the JIT (the IR interpreter if the PS4 won't
 // make its code executable), no fast memory (scripts/build-psp-core.sh), one picture per TV refresh,
 // a PSP-2000 with its memory stick, no network. Every option the core reads is answered.
+// A setting in percent as a core option's fraction: "15" -> "0.15", "125" -> "1.25". `fallback` for a value that
+// is not a whole number from `low` to `high` (a settings.ini written by hand).
+std::string PercentAsFraction(const std::string& percent, int low, int high, int fallback)
+{
+  int value = fallback;
+  if (!percent.empty() && percent.size() <= 3 &&
+      std::all_of(percent.begin(), percent.end(), [](char c) { return std::isdigit(static_cast<unsigned char>(c)); }))
+  {
+    const int parsed = std::atoi(percent.c_str());
+    if (parsed >= low && parsed <= high)
+      value = parsed;
+  }
+  char text[16];
+  std::snprintf(text, sizeof text, "%d.%02d", value / 100, value % 100);
+  return text;
+}
+
 void BuildPspVariables(const std::string& g)
 {
   const std::string p = "ppsspp_";
@@ -865,8 +882,12 @@ void BuildPspVariables(const std::string& g)
   }
   set("language", psp_language);
   set("button_preference", "Cross");
-  set("analog_deadzone", "0.15");
-  set("analog_sensitivity", "1.00");
+  // PSP Stick Dead Zone and Sensitivity (issue #8), in percent: PPSSPP's own (libretro.cpp: the stick's way
+  // past the dead zone over the rest of the range, times the sensitivity, at most all the way out).
+  set("analog_deadzone", PercentAsFraction(Settings::Get("psp_stick_deadzone", g), 0, 30, 15));
+  set("analog_sensitivity", PercentAsFraction(Settings::Get("psp_stick_sensitivity", g), 100, 200, 100));
+  LogF("psp: stick dead zone %s, sensitivity %s", s_variables[p + "analog_deadzone"].c_str(),
+       s_variables[p + "analog_sensitivity"].c_str());
   set("analog_is_circular", "disabled");
   // No network: Wi-Fi off, a fixed MAC address (else the core asks to make one up).
   set("enable_wlan", "disabled");

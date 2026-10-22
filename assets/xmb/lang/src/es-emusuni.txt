@@ -1357,3 +1357,23 @@ VERDICT: Daytona USA {} ms a frame: 20 ms or less: go on to the full Saturn (Zin
 VERDICT: Daytona USA {} ms a frame: between 20 and 30 ms: a Saturn for light games only = VEREDICTO: Daytona USA {} ms por fotograma: entre 20 y 30 ms: una Saturn solo para juegos ligeros
 VERDICT: Daytona USA {} ms a frame: above 30 ms: the Saturn closes = VEREDICTO: Daytona USA {} ms por fotograma: más de 30 ms: la Saturn se cierra
 VERDICT: none (Daytona USA wasn't measured) = VEREDICTO: ninguno (no se midió Daytona USA)
+# --- EmuSuNi: PSP Stick Dead Zone and Sensitivity (issue #8)
+PSP Stick Dead Zone = Zona muerta del stick de la PSP
+How far the left stick goes before the PSP sees it move. = Cuánto se mueve el stick izquierdo antes de que la PSP lo note.
+No dead zone: the slightest touch moves. A stick that rests a little off centre drifts. = Sin zona muerta: el menor toque se mueve. Un stick que en reposo no queda bien centrado se desplaza solo.
+Very small. = Muy pequeña.
+Small. = Pequeña.
+15% (default) = 15% (predeterminado)
+PPSSPP's own. = La de PPSSPP.
+Larger: for a stick that drifts at rest. = Más grande: para un stick que se mueve solo en reposo.
+Larger still. = Aún más grande.
+The largest. = La más grande.
+PSP Stick Sensitivity = Sensibilidad del stick de la PSP
+How far the PSP sees the left stick pushed, for how far it is pushed. = Qué tanto ve la PSP empujado el stick izquierdo, según qué tanto se empuja.
+100% (default) = 100% (predeterminado)
+The stick all the way out is the PSP's all the way out. = El stick hasta el fondo es el stick de la PSP hasta el fondo.
+The PSP's full push with the stick 92% of the way out (with a 15% dead zone). = La PSP lo ve hasta el fondo con el stick al 92% de su recorrido (con zona muerta del 15%).
+The PSP's full push with the stick 83% of the way out (with a 15% dead zone). = La PSP lo ve hasta el fondo con el stick al 83% de su recorrido (con zona muerta del 15%).
+The PSP's full push with the stick 72% of the way out (with a 15% dead zone): for games that run only with the stick all the way out. = La PSP lo ve hasta el fondo con el stick al 72% de su recorrido (con zona muerta del 15%): para juegos en los que solo se corre con el stick hasta el fondo.
+The PSP's full push with the stick 64% of the way out (with a 15% dead zone). = La PSP lo ve hasta el fondo con el stick al 64% de su recorrido (con zona muerta del 15%).
+The PSP's full push with the stick 58% of the way out (with a 15% dead zone). = La PSP lo ve hasta el fondo con el stick al 58% de su recorrido (con zona muerta del 15%).
