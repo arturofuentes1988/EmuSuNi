@@ -364,6 +364,25 @@ std::vector<std::string> Parts(const std::string& title)
   return parts;
 }
 
+// A name after the number of its place in a list: "01 Comix Zone", "02 - Sonic 2", "3. Contra",
+// "04_Mega Man" give "Comix Zone", "Sonic 2", "Contra", "Mega Man". "" when the name starts with
+// no number of 1 to 3 digits followed by a space, ".", "-", "_" or ")" ("1942", "3D Worldrunner").
+std::string WithoutListNumber(const std::string& stem)
+{
+  size_t digits = 0;
+  while (digits < stem.size() && std::isdigit(static_cast<unsigned char>(stem[digits])))
+    digits++;
+  if (digits == 0 || digits > 3)
+    return "";
+  size_t start = digits;
+  while (start < stem.size() &&
+         (stem[start] == ' ' || stem[start] == '.' || stem[start] == '-' || stem[start] == '_' || stem[start] == ')'))
+    start++;
+  if (start == digits || start == stem.size())
+    return "";
+  return stem.substr(start);
+}
+
 // Twice the longest common subsequence over both lengths: 1 for the same text.
 double Similarity(const std::string& a, const std::string& b)
 {
@@ -412,8 +431,27 @@ public:
     }
   }
 
-  // The pictures of the game (its name in every region and revision), and how they were found.
+  // The pictures of the game (its name in every region and revision), and how they were found. A
+  // name numbered for its place in a list ("01 Comix Zone", issue #7) is tried without its number
+  // when the whole name matches nothing ("3 Ninjas Kick Back" keeps its 3).
   std::vector<const std::string*> Find(const std::string& stem, std::string* how) const
+  {
+    std::vector<const std::string*> names = FindTitle(stem, how);
+    if (names.empty())
+    {
+      const std::string rest = WithoutListNumber(stem);
+      if (!rest.empty())
+      {
+        names = FindTitle(rest, how);
+        if (!names.empty())
+          *how += ", without its list number";
+      }
+    }
+    return names;
+  }
+
+private:
+  std::vector<const std::string*> FindTitle(const std::string& stem, std::string* how) const
   {
     const std::string title = TitlePart(stem);
     const std::vector<std::string> words = Words(title);
@@ -513,7 +551,6 @@ public:
     return {};
   }
 
-private:
   struct Entry
   {
     std::vector<std::string> words;
@@ -825,6 +862,13 @@ Result Download(const std::vector<Library::Game>& games, const std::string& cove
       stems.push_back(game.custom_title ? game.title : game.id);
       if (game.custom_title)
         stems.push_back(game.id);
+    }
+    // Closest for All looks for these names too ("01 Comix Zone" as "Comix Zone"); Find() tries them itself.
+    for (size_t i = 0, count = stems.size(); i < count; i++)
+    {
+      const std::string rest = WithoutListNumber(stems[i]);
+      if (!rest.empty())
+        stems.push_back(rest);
     }
     // The box, else the title screen.
     const std::string* name = nullptr;
