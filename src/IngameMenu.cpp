@@ -52,6 +52,7 @@ void IngameMenu::SetGame(const std::string& data_dir, const std::string& game_id
   m_open = false;
   m_appear = 0.0f;
   m_hint_time = 0.0f;
+  m_hotkey = Controls::MenuHotkeyOf(Settings::Get("menu_hotkey"));  // the whole app's (not a game's)
   m_toast.clear();
   m_slot = 1;
   m_cheats.Load(data_dir, game_id);
@@ -276,7 +277,7 @@ void IngameMenu::BuildRows()
       for (const Settings::Setting& setting : Settings::All())
       {
         if (std::string(setting.category) != category || std::string(setting.key) == "language" ||
-            !Settings::AppliesTo(setting, m_system))
+            std::string(setting.key) == "menu_hotkey" || !Settings::AppliesTo(setting, m_system))
           continue;
         if (!header)
           rows.push_back({category, "", true});
@@ -494,7 +495,8 @@ void IngameMenu::Change(int direction)
     {
       for (const Settings::Setting& setting : Settings::All())
       {
-        if (std::string(setting.key) != "language" && Settings::AppliesTo(setting, m_system))
+        if (std::string(setting.key) != "language" && std::string(setting.key) != "menu_hotkey" &&
+            Settings::AppliesTo(setting, m_system))
           Settings::ResetGlobal(setting.key);
       }
       Toast("Settings reset to defaults");
@@ -783,13 +785,12 @@ IngameMenu::Action IngameMenu::Poll(uint32_t pressed, uint32_t held, float dt)
     }
     rebuild = true;
   }
-  constexpr uint32_t COMBO = ORBIS_PAD_BUTTON_L3 | ORBIS_PAD_BUTTON_R3;
   if (pressed & ORBIS_PAD_BUTTON_CROSS)
   {
     action = Activate();
     rebuild = true;
   }
-  else if ((held & COMBO) == COMBO && (pressed & COMBO))
+  else if (Controls::MenuHotkeyPressed(m_hotkey, held, pressed))
   {
     Close();
     return Action::Closed;
@@ -1021,29 +1022,35 @@ void IngameMenu::Draw(ImDrawList* dl, float dt)
     dl->AddText(bold, 32, p, IM_COL32(255, 255, 255, static_cast<int>(255 * fade)), text);
   }
 
-  // "L3 + R3: Menu", from 3 s to 10 s after the game started.
+  // "L3 + R3: Menu" (the hotkey's buttons), from 3 s to 10 s after the game started.
   const float hint_alpha = m_hint_time < 3.0f || m_hint_time > 10.0f ?
                                0.0f :
                                std::min({1.0f, (m_hint_time - 3.0f) / 0.4f, (10.0f - m_hint_time) / 0.6f});
   if (hint_alpha > 0.0f && a < 0.5f && m_toast_time <= 0.0f)
   {
     const char* label = T("Menu");
-    const float ts = 30, gl = PS4Glyphs::Width("L3", 40), gr = PS4Glyphs::Width("R3", 40);
+    const bool two = m_hotkey.second[0] != '\0';
+    const float ts = 30, gl = PS4Glyphs::Width(m_hotkey.first, 40),
+                gr = two ? PS4Glyphs::Width(m_hotkey.second, 40) + 30 : 0.0f;  // (30: the "+")
     const float tw = bold->CalcTextSizeA(ts, FLT_MAX, 0, label).x;
     const float pad = 22, gap = 14;
     const float right = size.x - 60, bottom = size.y - 60, height = 70;
-    const float left = right - pad - tw - gap - gr - 30 - gl - pad;
+    const float left = right - pad - tw - gap - gr - gl - pad;
     const auto alpha = [hint_alpha](int v) { return static_cast<int>(v * hint_alpha); };
     dl->AddRectFilled(ImVec2(left, bottom - height), ImVec2(right, bottom),
                       IM_COL32(26, 12, 52, alpha(215)), 16);
     dl->AddRect(ImVec2(left, bottom - height), ImVec2(right, bottom),
                 IM_COL32(196, 170, 255, alpha(90)), 16, 0, 1.5f);
     float x = left + pad;
-    x += PS4Glyphs::Draw(dl, bold, "L3", x, bottom - height * 0.5f, 40, hint_alpha);
-    dl->AddText(bold, 30, ImVec2(x + 6, bottom - height * 0.5f - 17), IM_COL32(255, 255, 255, alpha(255)),
-                "+");
-    x += 30;
-    x += PS4Glyphs::Draw(dl, bold, "R3", x, bottom - height * 0.5f, 40, hint_alpha) + gap;
+    x += PS4Glyphs::Draw(dl, bold, m_hotkey.first, x, bottom - height * 0.5f, 40, hint_alpha);
+    if (two)
+    {
+      dl->AddText(bold, 30, ImVec2(x + 6, bottom - height * 0.5f - 17), IM_COL32(255, 255, 255, alpha(255)),
+                  "+");
+      x += 30;
+      x += PS4Glyphs::Draw(dl, bold, m_hotkey.second, x, bottom - height * 0.5f, 40, hint_alpha);
+    }
+    x += gap;
     dl->AddText(bold, ts, ImVec2(x, bottom - height * 0.5f - ts * 0.55f),
                 IM_COL32(255, 255, 255, alpha(255)), label);
   }

@@ -16,6 +16,7 @@
 
 #include "CheatDownload.h"
 #include "Cheats.h"
+#include "Controls.h"
 #include "Systems.h"
 
 class Display;
@@ -41,6 +42,8 @@ public:
   void Open();
   void Close();
   bool IsOpen() const { return m_open; }
+  // The buttons that open and close the menu (Settings: menu_hotkey, read by SetGame).
+  const Controls::MenuHotkey& Hotkey() const { return m_hotkey; }
   // DS4 buttons that went down this frame and those held (directions repeat while held).
   Action Poll(uint32_t pressed, uint32_t held, float dt);
   int Slot() const { return m_slot; }
@@ -107,6 +110,7 @@ private:
   std::string m_toast;
   float m_toast_time = 0.0f;
   float m_hint_time = 0.0f;  // since the game started
+  Controls::MenuHotkey m_hotkey = Controls::MenuHotkeyOf("l3r3");
   bool m_settings_changed = false, m_cheats_changed = false;
   // The Controls page's button capture: the row waiting for a press (taken once the pad was at rest; 5 s: none).
   bool m_capture = false, m_capture_released = false;

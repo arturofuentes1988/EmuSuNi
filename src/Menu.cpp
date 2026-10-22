@@ -2964,8 +2964,8 @@ void Menu::Impl::BuildSettingRows()
     {
       if (std::string(setting.category) != category)
         continue;
-      if (!game.empty() && std::string(setting.key) == "language")
-        continue;
+      if (!game.empty() && (std::string(setting.key) == "language" || std::string(setting.key) == "menu_hotkey"))
+        continue;  // the whole app's, not a game's
       if (m_panel.system >= 0 ? !Settings::AppliesTo(setting, static_cast<SystemId>(m_panel.system)) :
                                 !Settings::AppliesToAny(setting))
         continue;

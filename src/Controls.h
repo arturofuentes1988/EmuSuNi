@@ -74,6 +74,21 @@ constexpr uint32_t PAD_BUTTONS = ORBIS_PAD_BUTTON_L3 | ORBIS_PAD_BUTTON_R3 | ORB
 // The pad as nobody touches it: no button, the sticks in the middle, the triggers up, no finger on the
 // touchpad (the motion sensors as they are).
 OrbisPadData Untouched(const OrbisPadData& data);
+// The buttons that open and close the in-game menu (Settings > System > In-Game Menu Hotkey, issue #5): L3 + R3
+// (the default), L1 + R1, L2 + R2 or R3 alone. `first` and `second` are their PS4Glyphs names (`second` "": one).
+struct MenuHotkey
+{
+  uint32_t buttons;
+  const char* first;
+  const char* second;
+};
+// The setting's value ("l3r3", "l1r1", "l2r2", "r3"); any other is L3 + R3.
+MenuHotkey MenuHotkeyOf(const std::string& value);
+// The hotkey this pass: all its buttons held, one of them just pressed.
+inline bool MenuHotkeyPressed(const MenuHotkey& hotkey, uint32_t held, uint32_t pressed)
+{
+  return (held & hotkey.buttons) == hotkey.buttons && (pressed & hotkey.buttons) != 0;
+}
 // After the in-game menu (whatever took the game back: Resume, Circle, L3+R3, a state loaded, Reset, a disc
 // changed; src/Emulator.cpp), player 1's pad reaches the game again only once every button is up: the
 // press that closed the menu - Cross, Circle, or L3+R3 and the sticks pushed with them - isn't the game's.
