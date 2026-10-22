@@ -813,6 +813,15 @@ const std::vector<Setting> SETTINGS = {
       {"128", "128 ms", "The smoothest sound, the most delay."}},
      "64", false,
      "Larger is smoother when a game runs below full speed; smaller has less delay."},
+    // The buttons that open and close the in-game menu (issue #5; Controls::MenuHotkeyOf): the whole app's, not
+    // in a game's settings (Menu.cpp, as Language).
+    {"menu_hotkey", "In-Game Menu Hotkey", "System",
+     {{"l3r3", "L3 + R3", "Both sticks pressed in."},
+      {"l1r1", "L1 + R1", "Both shoulder buttons. The game sees the first one for a moment before the menu opens."},
+      {"l2r2", "L2 + R2", "Both triggers. The game sees the first one for a moment before the menu opens."},
+      {"r3", "R3", "The right stick pressed in, alone. Games that use R3 (the DS's Swap Screens, the "
+                   "PlayStation's DualShock, the Arcade's Button 9) no longer get it."}},
+     "l3r3", false, "The buttons that open and close the in-game menu."},
     {"multitap", "Multitap (3-5 Players)", "System",
      {{"off", "Off", "Two players."}, {"on", "On", "Up to five players with more DualShock 4s."}},
      "off", true, "The Super Multitap in port 2, for Bomberman and other 3-5 player games.", FOR_SNES},

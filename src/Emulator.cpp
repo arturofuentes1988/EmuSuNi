@@ -3645,11 +3645,10 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
     const uint32_t p1_pressed = (pad_held & ~menu_pad_held) | tour.buttons;
     const uint32_t p1_held = pad_held | tour.buttons;
     menu_pad_held = pad_held;
-    constexpr uint32_t COMBO = ORBIS_PAD_BUTTON_L3 | ORBIS_PAD_BUTTON_R3;
 
     if (!menu.IsOpen())
     {
-      if ((p1_held & COMBO) == COMBO && (p1_pressed & COMBO))
+      if (Controls::MenuHotkeyPressed(menu.Hotkey(), p1_held, p1_pressed))
       {
         StopRumble();
         // A disc being changed goes in first (the menu's states and Quit Game see it in).

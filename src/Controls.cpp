@@ -573,6 +573,17 @@ OrbisPadData Untouched(const OrbisPadData& data)
   return out;
 }
 
+MenuHotkey MenuHotkeyOf(const std::string& value)
+{
+  if (value == "l1r1")
+    return {ORBIS_PAD_BUTTON_L1 | ORBIS_PAD_BUTTON_R1, "L1", "R1"};
+  if (value == "l2r2")
+    return {ORBIS_PAD_BUTTON_L2 | ORBIS_PAD_BUTTON_R2, "L2", "R2"};
+  if (value == "r3")
+    return {ORBIS_PAD_BUTTON_R3, "R3", ""};
+  return {ORBIS_PAD_BUTTON_L3 | ORBIS_PAD_BUTTON_R3, "L3", "R3"};
+}
+
 OrbisPadData MenuRelease::Pad(const OrbisPadData& data, bool connected, int* hidden_passes)
 {
   if (hidden_passes)
