@@ -4,7 +4,8 @@
 // github.com/libretro-thumbnails: the "Named_Boxarts" of each console), as Dolphin for PS4 gets
 // GameTDB's: each console's list of pictures once (kept for a week), each game matched by its name
 // (its words in any order, its parts around " - ", close spellings; the region of the file name
-// preferred), saved as covers/<game key>.png (covers/nes/<file name>.png for a NES game). A game
+// preferred; a list's numbering in front of it, "01 Comix Zone", left out when the name itself finds
+// nothing), saved as covers/<console>/<file name>.png (covers/snes/..., covers/nes/...: src/CoverFiles.h). A game
 // without a box gets its title screen ("Named_Titles").
 
 #pragma once
@@ -23,6 +24,11 @@ struct Result
 {
   int downloaded = 0, already = 0, not_found = 0, failed = 0;
   std::string error;
+  // Each game left without a picture and why, in plain words (English, for PS4Lang::T): no picture named like it
+  // (or the closest one wasn't sure), the console's list or the picture couldn't be downloaded (Net::Plain's
+  // reason), or it couldn't be saved. Games Without Cover says it under its list.
+  std::vector<std::pair<std::string, std::string>> why;  // game key, reason
+  std::string reason;  // the first failure's, in the same words (error: curl's own, for the log)
 };
 using Progress = std::function<void(int done, int total, const std::string& title)>;
 // A cover was written (game key, file).
@@ -53,6 +59,14 @@ std::shared_ptr<const Prepared> Prepare(const std::vector<std::string>& names);
 // a game in common, or one name inside the other, or spelt alike. *sure: the same numbers and most
 // of the words; else a guess to look at first. nullptr: none is close enough.
 const std::string* Closest(const Prepared& list, const std::string& name, const Library::Game& game, bool* sure);
+// The picture for a game as Download() finds its cover - its names (the user's own, its file's; an arcade game's full
+// names), their words, parts and close spellings, a list's numbering in front left out, its region preferred -, never
+// a closest guess: nullptr when none is named like it. *how: how it was found (for the log). (00.80: The Bezel
+// Project's bezels, src/BezelProject.h.)
+const std::string* Match(const Prepared& list, const Library::Game& game, std::string* how);
+// What a name is first compared by: its title's words, joined ("Mega Man VII (U) [!]" -> "megaman7"; 00.73's star
+// ratings, src/Ratings.cpp, keep one name of each).
+std::string NameKey(const std::string& name);
 // One picture into a PNG file, made smaller to max_w x max_h when it is bigger.
 bool DownloadPicture(SystemId system, bool title_screen, const std::string& name, const std::string& path,
                      uint32_t max_w, uint32_t max_h, const std::string& ca_file, std::string* error);

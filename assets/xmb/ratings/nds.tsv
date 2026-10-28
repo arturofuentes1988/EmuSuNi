@@ -1,0 +1,4755 @@
+# EmuSuNi star ratings (scripts/make-ratings.py): the Nintendo DS names and each one's game in the LaunchBox
+# Games Database (its id: the app downloads LaunchBox's ratings itself, src/Ratings.h).
+# Names: No-Intro's and Redump's, from libretro-database's metadat (github.com/libretro/libretro-database, CC BY-SA 4.0).
+# Matched with LaunchBox's Metadata.xml of 2026-10-22. This file is under CC BY-SA 4.0.
+# name<TAB>LaunchBox id
+'Chou' Kowai Hanashi DS - Ao no Shou	181097
+'Josei no Hinkaku' Juku DS - Tsuyoku, Yasashiku, Utsukushiku - Bando Mariko Shinsho	182404
+007 - Blood Stone	31971
+007 - Ein Quantum Trost	26999
+007 - Quantum of Solace	26999
+1 contre 100	16397
+1 vs 100	16397
+1-nichi 10-pun de E ga Jouzu ni Kakeru DS	134627
+10 voor Taal	151385
+100 All-Time Favorites	122210
+100 Classic Book Collection	128120
+100 Classic Books	128120
+100 Classic Games	129163
+100 Livres Classiques	128120
+1000 Bornes - Coups-Fourres et Courses Folles!	123958
+1000 Cooking Recipes from Elle a Table	180666
+1001 Crosswords	140432
+1001 Touch Games	123959
+101 Dino Pets	122855
+101 in 1 Explosive Megamix	108698
+101 in 1 Sports Megamix	122856
+11 Card Games	148511
+12	6800
+123 Sesame Street - Cookie's Counting Carnival - The Videogame	148513
+123 Sesame Street - Elmo's A-to-Zoo Adventure - The Videogame	148514
+123 Sesame Street - Ready, Set, Grover! - With Elmo - The Videogame	148516
+1500 DS Spirits - Mahjong V	177110
+1500 DS Spirits - Shougi V	151412
+1500 DS Spirits Vol. 1 - Mahjong	177111
+1500 DS Spirits Vol. 10 - Igo	177102
+1500 DS Spirits Vol. 2 - Shougi	151402
+1500 DS Spirits Vol. 3 - Block Kuzushi	151403
+1500 DS Spirits Vol. 4 - Reversi	151404
+1500 DS Spirits Vol. 5 - Hanafuda	151405
+1500 DS Spirits Vol. 6 - Trump	177101
+1500 DS Spirits Vol. 7 - Chess	151407
+1500 DS Spirits Vol. 8 - Darts	151398
+1500 DS Spirits Vol. 9 - 2-nin Uchi Mahjong	151411
+18 Card Games	21386
+18 Classic Card Games	21386
+1seg Jushin Adapter - DS Television	190993
+2 Game Pack - My Amusement Park + Digging for Dinosaurs	151414
+2 Game Pack! - Monster Trucks Mayhem + ATV - Thunder Ridge Riders	390418
+2 Games in 1 - Jewel Master - Cradle of Egypt + Mahjongg - Ancient Egypt	151406
+2 Games on 1 Card - Monster Trucks Mayhem & ATV - Thunder Ridge Riders	390418
+2 in 1 - Best of Bibi Blocksberg - Neustadt im Hex-Chaos + Das Gestohlene Hexbuch	179972
+2 in 1 - Mahjong + Mahjong Around the World	149335
+2 in 1 - Music for Kids + Englisch Macht Spass - Eine Reise nach London!	150523
+2 in 1 - My Little Baby + My Boyfriend	151409
+2 in 1 - My Pet Hotel + My Vet Practice - In the Country	180247
+2 in 1 - My Pet Hotel 2 + My Vet Practice - In the Country	180250
+2 in 1 - My Pet School + Best Friends - My Horse	179870
+2 in 1 - My Riding Stables + My Riding Stables - Life with Horses	151410
+2 in 1 - My Riding Stables + My Western Horse	180253
+2 in 1 - My Vet Practice + My Pet Hotel 2	151416
+2-Pack - Pinkalicious - It's Party Time! & Silverlicious - Sweet Adventure	128270
+200 Klassische Buecher	151417
+2006 FIFA World Cup - Germany 2006	132260
+3 Game Pack! - Cradle of Rome + Cradle of Athena + Cradle of Egypt	192178
+3 Game Pack! - Uno & Skip-Bo & Uno Free Fall	20899
+3 in 1 - Animals	180359
+3 in 1 - Horses	203548
+3 in 1 - My Horse + My Vet Practice + My Vet Practice in the Country	212983
+3 in 1 - My Riding Stables + My Pet School + My Western Horse	203548
+3 in 1 - My Riding Stables - Life with Horses + My Pet Hotel 2 & + My Pet School	213010
+3 in 1 - My Vet Practice & Riding Star & My Vet Practice in Australia	210047
+3 in 1 - Solitaire, Mahjong & Tangram	149011
+4 Elements	122857
+4 Game Fun Pack - Monopoly + Boggle + Yahtzee + Battleship	219532
+4 Game Pack! - Battleship + Connect Four + Sorry! + Trouble	122983
+4 Game Pack! - Clue + Aggravation + Perfection + Mouse Trap	219533
+4 in 1 - Meine Tierarztpraxis + Meine Tierpension + Mein Gestuet + Mein Pferd	207889
+4 Kyouka Perfect Clear DS	190992
+4 Kyouka Perfect Clear DS - Eigo Onsei Tsuki	465336
+42 All-Time Classics	6709
+5-kyuu kara 1-kyuu Kanzen Taiou Saishin Kako Mondai - Nijishiken Taisaku - Eiken Kanzenban	177112
+5-Nen Kanji Keisan Nigate Hunter DS	190994
+50 Classic Games	127038
+50 Jeux Incontournables	127038
+50 More Classic Games	129605
+7 Wonders - Treasures of Seven	123955
+7 Wonders II	123953
+7 Wonders of the Ancient World	123954
+700 Mannin no Atama o Yoku Suru - Chou Keisan DS - 13000 Mon + Image Keisan	151420
+7th Dragon	20214
+8BallAllstars	140433
+99 no Namida	151377
+A Ressha de Ikou DS	181172
+A-Max Boxing	20904
+A-Max Tennis	20904
+Ab durch die Hecke	150210
+Ace Attorney Investigations - Miles Edgeworth	11045
+AceKard 2	191087
+AceKard 2i	191087
+AceKard R.P.G.	191087
+Actionloop	6834
+Actionloop - Multiplayer	6834
+Active Health with Carol Vorderman	129573
+Actua Pool	12587
+Addy - Do You Speak English	151421
+Addy Junior - Mein Koerper	128288
+Adi l'Entraineur - Mathematiques, Francais 6e & 5e	192179
+Adi l'Entraineur - Mathematiques, Francais CE1-CE2	192180
+Adi l'Entraineur - Mathematiques, Francais CM1-CM2	192194
+Adi l'Entraineur - Objectif Anglais	192181
+Adibou - Je Joue a Lire et a Compter	128190
+Adibou - Je Joue avec les Lettres et les Nombres	128182
+Adibou Aventure - J'Explore le Corps Humain	128288
+Advance Wars - Dark Conflict	5767
+Advance Wars - Days of Ruin	5767
+Advance Wars - Days of Ruin - Exclusive Movie - Battle	20904
+Advance Wars - Days of Ruin - Exclusive Movie - Story	20904
+Advance Wars - Dual Strike	6570
+Adventure Time - Hey Ice King! Why'd You Steal Our Garbage!!	27449
+Adventures of Pinocchio	129369
+Affari Tuoi	210420
+AFL Mascot Manor	129370
+Again - FBI Chou Shinri Sousakan	10670
+Again - Interactive Crime Novel	10670
+Agatha Christie - The ABC Murders	18591
+Age of Empires - Mythologies	11201
+Age of Empires - The Age of Kings	6571
+Aibou DS	177113
+Air Traffic Chaos	19215
+Akachan wa Doko kara Kuru no	21464
+Akagawa Jirou Mystery - Tsuki no Hikari - Shizumeru Kane no Satsujin	189924
+Akagawa Jirou Mystery - Yasoukyoku - Hon ni Manekareta Satsujin	151378
+Akai Ito Destiny DS	151379
+Akai Ito DS	151422
+Akko de Pon! - Ikasama Hourouki	151423
+Akko ni Omakase! - Brain Shock	151380
+Akogare Girls Collection - Lovely Youchien Nikki	151424
+Akogare Girls Collection - Mister Donut DS	151425
+Akogare Girls Collection - Ohanaya-san Monogatari	151426
+Akogare Girls Collection - Pika Pika Nurse Monogatari	190980
+Akogare Girls Collection - Suteki ni Nurse Days	176681
+Akumajou Dracula - Gallery of Labyrinth	6704
+Akumajou Dracula - Sougetsu no Juujika	6702
+Akumajou Dracula - Ubawareta Kokuin	11047
+ALC no 10-punkan Eigo Master - Chuukyuu	151381
+ALC no 10-punkan Eigo Master - Joukyuu	151382
+ALC no 10-punkan Eigo Master - Shokyuu	151383
+Alex Rider - Stormbreaker	121475
+Alice in Wonderland	15176
+Alien Friends	20904
+Aliens - Infestation	11981
+Aliens in the Attic	127051
+All Kamen Rider - Rider Generation	139266
+All Kamen Rider - Rider Generation 2	151428
+All Star Cheer Squad	128167
+All Star Cheerleader	128167
+Allez Raconte	151429
+Allied Ace Pilots	129371
+Alpha and Omega	135361
+Alssongdalssong - Myeonghwatamheom DS	207915
+Altron 3D Action	100013
+Alvin and the Chipmunks	24417
+Alvin and the Chipmunks - Chipwrecked	24413
+Alvin and the Chipmunks - The Squeakquel	23829
+Aly & AJ Adventure, The	128131
+Amazing Adventures - The Forgotten Ruins	14243
+Amazing Spider-Man, The	123252
+America's Next Top Model	189947
+America's Test Kitchen - Let's Get Cooking	177109
+America's Test Kitchen - Let's Get Cooking - Single Recipe Download Version	20904
+American Dragon - Jake Long	122858
+American Dragon - Jake Long - Attack of the Dark Dragon	122858
+American Girl - Julie Finds a Way	16971
+American Girl - Kit Mystery Challenge!	18075
+AMF Bowling Pinbusters!	24412
+Amici	128272
+An M. Night Shyamalan Film - The Last Airbender	95414
+ANA Original - Gotouchi Kentei DS	176682
+Anan Kanshuu - Onna Dikara Kinkyuu Up! DS	151430
+Anata Dake no Private Lesson - DS de Hajimeru Tipness no Yoga	151431
+Anata mo DS de Classic Kiite Mimasenka	151432
+Ancient Spirits - Columbus' Legacy	156005
+Angel Cat Sugar	129372
+Angelique Duet	151433
+Animal Boxing	121476
+Animal Color Cross	20904
+Animal Crossing - City Folk - Moving Van	20904
+Animal Crossing - City Folk - Suitcase	20904
+Animal Crossing - Let's Go to the City - Moving Van	20904
+Animal Crossing - Let's Go to the City - Suitcase	20904
+Animal Crossing - Wild World	6573
+Animal Genius	127056
+Animal Kororo	122860
+Animal Life - Africa	149287
+Animal Life - Australia	149288
+Animal Life - Dinosaurs	149289
+Animal Life - Eurasia	149290
+Animal Life - North America	149291
+Animal Paradise	29814
+Animal Paradise - Wild	122976
+Animal Planet - Emergency Vets	127262
+Animal Planet - Vet Collection	128130
+Animal Planet - Vet Life	122977
+Animal World - Big Cats	149292
+Animal World - Dinosaurs	448462
+Animaniacs - Lights, Camera, Action!	16041
+AniMates!	127831
+Ankh - Curse of the Scarab King	122978
+Ankh - Der Fluch des Skarabaeenkoenigs	122978
+Ankh - La Malediction du Roi Scarabee	122978
+Anky's Ruiterschool	148243
+Anna & die Liebe	152165
+Annie M.G. Schmidt's Pluk van de Petteflet	151435
+Annie no Atelier - Sera-tou no Renkinjutsushi	11206
+Anno - Create a New World	168349
+Anno 1701 - Dawn of Discovery	11202
+Annyeong! Haemtori - Haemtoriwa BanggaBangga Chingudeul	134619
+Anone DS	190979
+Another Code - Futatsu no Kioku	6894
+Another Code - Two Memories	6894
+Another Time, Another Leaf - Kagami no Naka no Tantei	181053
+Anpanman to Asobo - ABC Kyoushitsu	151436
+Anpanman to Asobo - Aiueo Kyoushitsu	151437
+Anpanman to Asobo - Aiueo Kyoushitsu DX	151438
+Anpanman to Touch de Waku Waku Training	189987
+Ant Nation	128133
+Aodon DS - Hanabi no Kiwami & Hanabi no Takumi	151439
+Apassionata	149559
+Apathy - Narugami Gakuen Toshi Densetsu Tantei Kyoku	151442
+Ape Maia, L'	481004
+Apollo Justice - Ace Attorney	11046
+Appare! Shougi Jiisan - Washi to Shoubu ja	151443
+Apprends avec Pokemon A la Conquete du Clavier	123996
+Aprende Con Pokemon - Aventura Entre Las Teclas	123996
+Aqua Panic!	128271
+Aquarium by DS	18025
+Aranuri - Badachingudeulkkwa hamkke Mandeuneun Sesang	151444
+Arashi no Yoru ni	151446
+Arasuji de Kitaeru - Hayamimi no Susume DS	151447
+Arasuji de Oboeru Sokudoku no Susume DS	151448
+Archime DS	12278
+Arctic Tale	127753
+Are You Smarter than a 10 Year Old - The Official Nintendo DS Game	24418
+Are You Smarter than a 5th Grader	24418
+Are You Smarter than a 5th Grader - Back to School	127266
+Are You Smarter than a 5th Grader - Game Time	128255
+Are You Smarter than a 5th Grader - Make the Grade	18009
+Arkanoid DS	6574
+Army Men - Soldiers of Misfortune	9132
+Around the World in 80 Days	129374
+Art Academy	12597
+Art of Murder - FBI Top Secret	16873
+Arthur and the Invisibles - The Game	127832
+Arthur and the Minimoys	127832
+Arthur and the Revenge of Maltazard	129375
+Aruite Wakaru - Seikatsu Rhythm DS	150135
+ASH - Archaic Sealed Heat	17060
+Asoberu Eigo - Word Magic DS	151450
+Asonde Igo ga Sarani Tsuyoku Naru! - Ginsei Igo DS - Chuukyuu Hen	151458
+Asonde Igo ga Tsuyoku Naru! - Ginsei Igo DS	151449
+Asonde Shougi ga Tsuyoku Naru! - Ginsei Shougi DS	151472
+Asphalt - Urban GT	6575
+Asphalt - Urban GT 2	11203
+Assassin's Creed - Altair's Chronicles	11204
+Assassin's Creed II - Discovery	11205
+Asterix & Obelix XXL 2 - Mission Wifix	9747
+Asterix - Brain Trainer	149294
+Asterix - These Romans Are Crazy!	122980
+Asterix at the Olympic Games	122981
+Astro Boy - The Video Game	121477
+Astro Invaders	128256
+Astrology	185578
+Astrology DS - The Stars in Your Hands	179932
+Atama de Do! Kotencotenco	151473
+Atama no Kaiten no Training - Rubik's Cube & Chou Yuumei Puzzle-tachi	151474
+Atari Greatest Hits - Volume 1	95259
+Atari Greatest Hits - Volume 2	31823
+Atarimix - Happy 10 Games	6872
+Atelier Annie - Alchemists of Sera Island	11206
+Atlantic Quest	152104
+Atlantic Quest + Galactic Quest	187908
+Atsumare! Power Pro Kun no DS Koushien	151517
+Atsumete! Kirby	11263
+ATV Quad Frenzy	8550
+ATV Quad Kings	92516
+ATV Wild Ride	127055
+Au Pays des PooYoos - Activites d'Eveil	192183
+Auto Escuela - Aprueba Conmigo	160472
+Autoescuela Trainer	128274
+Avalon Code	6576
+Avatar - Der Herr der Elemente - Die Erde Brennt	127057
+Avatar - The Last Airbender	8549
+Avatar - The Last Airbender - Into the Inferno	14639
+Avatar - The Last Airbender - The Burning Earth	127057
+Avatar - The Legend of Aang	8549
+Avatar - The Legend of Aang - Into the Inferno	14639
+Avatar - The Legend of Aang - The Burning Earth	127057
+Aventures de May, Les - L'Etrange Disparition	14492
+Aventures de T'choupi a l'Ecole, Les	192255
+Awa Tama	16871
+Away - Shuffle Dungeon	15132
+B Team - Metal Cartoon Squad	33825
+B-17 - Fortress in the Sky	31167
+B. Sokal Syberia	134805
+Baby Fashion Star	16840
+Baby Life	128257
+Baby Pals	128258
+Baby Wild Katzen	151565
+Babysitting Mania	128259
+Bachelor, The - The Videogame	142652
+Back at the Barnyard - Barnyard Games	127121
+Back at the Barnyard - Slop Bucket Games	127121
+Backgammon	176889
+Backyard Baseball '09	128260
+Backyard Baseball '10	128357
+Backyard Basketball	127845
+Backyard Football	128261
+Backyard Football '09	128364
+Backyard Hockey	128359
+Backyard Sports - Rookie Rush	128369
+Backyard Sports - Sandlot Sluggers	129467
+Backyardigans, The	128371
+Bae Yong-Joon to Manabu Kankokugo DS	181055
+Bae Yong-Joon to Manabu Kankokugo DS - Date-Hen	190984
+Bae Yong-Joon to Manabu Kankokugo DS - Test-Hen	190986
+Bakugan - Battle Brawlers	21385
+Bakugan - Battle Brawlers - Battle Trainer	24414
+Bakugan - Defenders of the Core	94112
+Bakugan - Rise of the Resistance	24416
+Bakugan Battle Brawlers DS - Defender of the Core	21385
+Bakuman. - Mangaka e no Michi	151651
+Bakushow - Challenge Your Friends!	12278
+Bakusou Dekotora Densetsu Black	151637
+Ballerina	129697
+Balloon Pop	11207
+Balls of Fury	33397
+Band Hero	122984
+Bandz Mania	149043
+Bangai-O Spirits	6577
+Barbie - Dreamhouse Party	128667
+Barbie - Groom and Glam Pups	29363
+Barbie - Jet, Set & Style!	128671
+Barbie and the Three Musketeers	14348
+Barbie as the Island Princess	128262
+Barbie Fashion Show - An Eye for Style	128668
+Barbie Horse Adventures - Riding Camp	128669
+Barbie in the 12 Dancing Princesses	128670
+Barnyard - Verrueckte Bauernhof-Spiele	127121
+Barnyard Blast - Swine of the Night	101121
+Bartender DS	190985
+Batman - Arkham Asylum	212200
+Batman - The Brave and the Bold - The Videogame	19492
+Battle & Get! - Pokemon Typing DS	123996
+Battle of Giants - Dinosaurs	128372
+Battle of Giants - Dragons	30606
+Battle of Giants - Mutant Insects	31826
+Battle Ship	18535
+Battle Spirits Digital Starter	151649
+Battles of Prince of Persia	6578
+Beach de Reach! DS	190987
+Beastly - Frantic Foto	128451
+Beat City	121481
+Beat the Intro	129377
+Beauty Academy	151650
+Beauty Salon	156323
+Bee Game, The	129474
+Bee Movie - Das Game	128450
+Bee Movie - Le Jeu	128450
+Bee Movie Game	128450
+Beetle Junior DS	129574
+Beetle King	129575
+Bejeweled 3	16146
+Bejeweled Twist	20901
+Bella Sara	128672
+Ben 10 - Alien Force	21550
+Ben 10 - Alien Force - Vilgax Attacks	17749
+Ben 10 - Galactic Racing	15307
+Ben 10 - Omniverse	15306
+Ben 10 - Protector of Earth	14921
+Ben 10 - Triple Pack	128673
+Ben 10 - Ultimate Alien - Cosmic Destruction	15310
+Benjamin Bluemchen - Ein Tag im Zoo	152603
+Benoit Sokal Last King of Africa	151654
+Berlitz - My English Coach	192188
+Bermuda Triangle	32771
+Bermuda Triangle - Saving the Coral	32771
+Bescherelle Pratique, Le	192249
+Besser Essen - Leben Leicht Gemacht	152604
+Best Buy Nintendo Zone Beacon	212839
+Best Friends - Hunde & Katzen	154215
+Best Friends - Mijn Honden en Katten	154215
+Best Friends - Mijn Paard	151857
+Best Friends Tonight	129468
+Best of Arcade Games DS	135362
+Best of Board Games DS	31827
+Best of Card Games DS	132197
+Best of Tests DS	128674
+Betty Boop's Double Shift	128675
+Beyblade - Metal Fusion	97366
+Beyblade - Metal Fusion - Cyber Pegasus	97366
+Beyblade - Metal Masters	118342
+Beyblade - Metal Masters - Nightmare Rex	118342
+BFF TV	129468
+Bibi & Tina - Das Grosse Unwetter	207875
+Bibi Blocksberg - Das Gestohlene Hexbuch	207886
+Bibi Blocksberg - Der Verhexte Schloss-Schatz	207887
+Bibi Blocksberg - Grundschule Mathematik - Klasse 1 bis 4	207888
+Bibi Blocksberg - Neustadt im Hex-Chaos	207876
+Bibliothek der Klassischen Buecher	128120
+Biene Maja, Die - Klatschmohnwiese in Gefahr	129474
+Bienvenue Chez les Ch'tis - Le Jeu	179597
+Big Bang Mini	6579
+Big Beach Sports - Face Paint	20904
+Big Brain Academy	6580
+Big Catch - Bass Fishing	132191
+Big Deal, The	129578
+Big League Sports - Summer	128676
+Big Mutha Truckers	127110
+Big Time Rush - Backstage Pass	128678
+Big Word Puzzle Book	129577
+Bigfoot - Collision Course	127105
+Biggest Loser USA, The	128679
+Biggest Loser, The	128679
+Bigs 2, The	128254
+Biker Mice from Mars	128680
+Bikkuriman Daijiten	190988
+Billiard Action	129576
+Biohazard - Deadly Silence	3948
+Bionicle Heroes	20673
+Bisanggu - Exit DS	127135
+Biz Nouryoku DS Series - Miryoku Kaikaku	190989
+Biz Nouryoku DS Series - Wagokoro no Moto	190990
+Biz Taiken DS Series - Kigyoudou - Inshoku	190991
+Black & White - Creatures	20904
+Black Cat - Kuroneko no Concerto	179071
+Black Jack - Hi no Tori Hen	181058
+Black Sigil - Blade of the Exiled	11208
+Blades of Thunder II	127109
+Blazer Drive	181059
+Bleach - Dark Souls	11209
+Bleach - The 3rd Phantom	29194
+Bleach - The Blade of Fate	11210
+Bleach DS - Souten ni Kakeru Unmei	11210
+Bleach DS 2nd - Kokui Hirameku Requiem	11209
+Bleach DS 4th - Flame Bringer	29193
+Blood Bowl	24366
+Blue Dragon - Awakened Shadow	11211
+Blue Dragon - Ikai no Kyojuu	11211
+Blue Dragon Plus	11212
+Blumen & Muster Puzzle - Echter Puzzlespass fuer Unterwegs	179878
+Blur	17617
+Bob Esponja - Atrapados en el Congelador	148257
+Boing! Docomodake DS	6793
+Boku to Sim no Machi - Agent - Nazo no Kaitou kara Hihou o Mamore Daisakusen!	20724
+Boku to Sim no Machi - Kingdom	14926
+Boku to Sim no Machi - Party	20725
+Boku to Sim no Machi - Racing	21286
+Boku to Sim no Machi - Resort ni Genki o Torimodosou!	14925
+Boku wa Koukuu Kanseikan DS - Air Traffic Controller	19215
+Bokujou Monogatari - Colobockle Station	144394
+Bokujou Monogatari - Colobockle Station for Girl	144394
+Bokujou Monogatari - Futago no Mura	14404
+Bokujou Monogatari - Kimi to Sodatsu Shima	15219
+Bokujou Monogatari - KiraKira Taiyou to Nakama-tachi	15218
+Bokujou Monogatari - Youkoso! Kaze no Bazaar e	15221
+Bokura no Taiyou - Django & Sabata	6822
+Bokura no Television Game Kentei - Pikotto! Udedameshi	151655
+Bokura wa Kaseki Horider	6804
+Bolt	15155
+Bolt - Be-Awesome Edition	129469
+Bomberman	20902
+Bomberman 2	20903
+Bomberman Land Touch!	6581
+Bomberman Land Touch! 2	6582
+Bomberman Story DS	31806
+Boogie	128681
+Bookworm	13372
+Boshi Techou DS with 'Akachan Massage'	191008
+Boulder Dash - Rocks!	122985
+Boule & Bill - Vive les Vacances!	151722
+Brain Age - Train Your Brain in Minutes a Day!	6583
+Brain Age - Train Your Brain in Minutes a Day! - Calculation Battle x 30	20904
+Brain Age 2 - More Training in Minutes a Day!	6584
+Brain Age 2 - More Training in Minutes a Day! - Vs. Training	20904
+Brain Assist	27340
+Brain Boost - Beta Wave	27335
+Brain Boost - Gamma Wave	16094
+Brain Buster - Puzzle Pak	20198
+Brain Challenge	18008
+Brain Quest - Grades 3 & 4	127107
+Brain Quest - Grades 5 & 6	127108
+Brain Voyage	127106
+Brainstorm Series - Treasure Chase	13382
+Brainstorm Series - Word Up	142654
+Bratz - 4 Real	31410
+Bratz - Fashion Boutique	128384
+Bratz - Forever Diamondz	127855
+Bratz - Girlz Really Rock	31409
+Bratz - Super Babyz	128684
+Bratz Kidz - Party	128718
+Bratz Kidz - Slumber Party	128718
+Bratz Ponyz	128682
+Bratz Ponyz 2	128683
+Brave	18310
+Brave Story - Boku no Kioku to Negai	182441
+Bravissi-Mots	127111
+Break 'em All	128386
+Breath - Toiki wa Akaneiro	177491
+Brick 'em All DS	128386
+Brickdown - Block Kuzushi no France Kakumei Yaa!	16872
+Brico Utile	129820
+Bridge Training	152164
+Broken Sword - Shadow of the Templars - The Director's Cut	15170
+Brothers in Arms DS	116711
+Bubble Bobble - Double Shot	11213
+Bubble Bobble DS	11214
+Bubble Bobble Revolution	11214
+Bubble Guppies	13807
+Buffy the Vampire Slayer - Sacrifice	129580
+Build-A-Bear Workshop - Ou Se Font les Meilleurs Amis	20199
+Build-A-Bear Workshop - Where Best Friends Are Made	20199
+Build-a-Lot	19216
+Bunnyz	150064
+Burger Bot	128687
+Burger Island	128690
+Burnout Legends	34398
+Business Ryoku Kentei DS	181060
+Bust-A-Move DS	6585
+Busy Scissors	128692
+Byeorui Kirby - Dopang Ildangui Seupgyeok	6815
+Byoutai Seiri DS - Image Dekiru! Shikkan, Shoujou to Care	191033
+C'Est Pas Sorcier - Les Fabuleux Defis de Fred & Jamy	192197
+C.O.P. - The Recruit	11215
+C.O.R.E.	122853
+Cabela's Dangerous Hunts 2011	128691
+Cahier de Vacances pour Adultes	192193
+Cahier de Vacances pour Adultes 2	192196
+Cake Mania	20200
+Cake Mania - Main Street	128721
+Cake Mania 2 - Jill's Next Adventure!	17025
+Cake Mania 3	18024
+Call of Atlantis	129581
+Call of Duty - Black Ops	24729
+Call of Duty - Modern Warfare - Mobilized	95313
+Call of Duty - Modern Warfare 3 - Defiance	31168
+Call of Duty - World at War	31169
+Call of Duty 4 - Modern Warfare	21387
+Calvin Tucker's Redneck - Farm Animal Racing Tournament	140434
+Camp Rock - The Final Jam	128277
+Camp Rock 2	128277
+Camping Mama + Papa	24163
+Camping Mama - Outdoor Adventures	24163
+Candace Kane's Candy Factory	18005
+Captain America - Super Soldier	32772
+Captain Morgane and the Golden Turtle	15346
+Captain Sabertooth and the Trials by Fire	166618
+Captain Tsubasa - Gekitou no Kiseki	32773
+Captain Tsubasa - New Kick Off	32773
+Carcassonne	122986
+Card de Asobu! Hajimete no DS	191049
+Card Game 9	191050
+Card Games - The Classics	129582
+Carl Jiisan no Soratobu Ie	17973
+Carnival Games	13606
+Cars	17000
+Cars - Hook International	128279
+Cars - La Copa Internacional de Mate	128279
+Cars - La Coppa Internazionale di Carl Attrezzi	128279
+Cars - Mater-National Championship	128279
+Cars - Motori Ruggenti	17000
+Cars - Race-O-Rama	17999
+Cars 2	128278
+Carte au Tresor, La - Le Jeu Video Officiel	182442
+Cartoon Network Racing	11216
+Cartridge Construction Kit	6886
+Casper's Scare School - Classroom Capers	131689
+Casper's Scare School - Spooky Sports Day	154535
+Castlevania - Dawn of Sorrow	6702
+Castlevania - Order Of Ecclesia	11047
+Castlevania - Portrait of Ruin	6704
+Castlevania - Portrait of Ruin - Preview Trailer	20904
+Casual Classics	129583
+Casual Mania	128280
+Catan	128750
+Catch! Touch! Yoshi!	6906
+Cate West - The Vanishing Files	13387
+Cats & Dogs - The Revenge of Kitty Galore	129898
+Cats & Dogs - The Revenge of Kitty Galore - The Videogame	129898
+Catz	128436
+Catz 2	132198
+Catz 2 - Daisuki Nyan Nyan Park	132198
+Cavallo & Pony - La Scuola di Equitazione	203539
+Cedric - L'Anniversaire de Chen	182443
+Center Shiken - Eigo Listening - Sokushuu DS	181090
+Cesar Millan's Dog Whisperer	128281
+Chainz Galaxy	168452
+Chajara! Gaeguri Jungsa Keroro - Teullingeurimchatgi Daejakjeon!	179128
+Challenge Me - Brain Puzzles	142725
+Challenge Me - Brain Puzzles 2	129821
+Challenge Me - Math Workout	148172
+Challenge Me - Maths Workout	148172
+Challenge Me - Word Puzzles	148182
+Challenge Me Kids - Brain Games	168482
+Chameleon - To Dye For!	13383
+Championship Pony	128193
+Chaotic - Shadow Warriors	15356
+Chara-Chenko	191051
+Charlotte's Web	129584
+Charm Girls Club - My Fashion Mall	129822
+Charm Girls Club - My Fashion Show	129823
+Charm Girls Club - My Perfect Prom	129824
+Charm Girls Club - Watashi no Fashion Mall	129822
+Charm Girls Club - Watashi no Fashion Show	129823
+Chase, The - Felix Meets Felicity	134240
+Cheer We Go	129585
+Cheetah Girls, The - Passport to Stardom	134242
+Cheetah Girls, The - Pop Star Sensations	128544
+Chess	132254
+Chess for Kids	148174
+Chessmaster - The Art of Learning	128545
+Chevrolet Camaro - Wild Ride	125508
+Chi's Sweet Home - Chi ga Ouchi ni Yatte Kita	191542
+Chibi Maruko-chan DS - Maru-chan no Machi	181093
+Chibi-Robo! - Park Patrol	6705
+Chicken Attack DS	129665
+Chicken Blaster	129471
+Chicken Little - Ace in Action	129586
+Chicken Little - Uchuu Saikyou no Team	129586
+Chicken Shoot	129587
+Chiffres et des Lettres, Des - L'Entrainement Cerebral Maximum!	192202
+Chikyuu no Arukikata DS - France '07-'08	191036
+Chikyuu no Arukikata DS - Hong Kong '07-'08	191041
+Chikyuu no Arukikata DS - Igirisu '07-'08	191042
+Chikyuu no Arukikata DS - New York '07-'08	191044
+Chikyuu no Arukikata DS - Seoul, Busan '07-'08	191045
+Chikyuu no Arukikata DS - Thai '07-'08	191048
+Children of Mana	6706
+Chishiki-ou Series - Train Master	181094
+Cho Geukjangpan Gaeguri Jungsa Keroro the Movie - Cheongongdaemoheom	179077
+Cho Geukjangpan Gaeguri Jungsa Keroro the Movie - Dragon Warriors	179077
+Chocobo to Mahou no Ehon	6801
+Chocobo to Mahou no Ehon - Majo to Shoujo to 5-nin no Yuusha	181096
+Chocoken no Dekitate Sweets Wagon	181095
+Chocoken no Omise - Patissier & Sweets Shop Game	390417
+Chocoken no Sweets Department - Patissier Ikusei Simulation Game	191543
+Chocolatier	14244
+Chokkan Hitofude	24424
+Chotto Aima no Colpile DS	101122
+Chou Gekijouban Keroro Gunsou - Enshuu Da yo! - Zenin Shuugou	179075
+Chou Gekijouban Keroro Gunsou - Gekishin Dragon Warriors de Arimasu!	179077
+Chou Gekijouban Keroro Gunsou 3 - Tenkuu Daibouken de Arimasu!	179074
+Chou Kantan - Boki Nyuumon DS	191055
+Chou Kaseki Monster Battle - Gekitotsu Galaxy	13389
+Chou Meisaku Suiri Adventure DS - Raymond Chandler Gensaku - Saraba Itoshiki Hito yo	191079
+Chou Nekketsu Koukou Kunio-kun - Dodgeball-bu	94011
+Chou Shittou Caduceus	6896
+Chou Soujuu Mecha MG	171095
+Chou!! Nep League DS	181098
+Choyeolhyeolgogyo Kunio-gun Pigubu	94011
+Christiane Stengers Gedaechtnis-Coach	179873
+Christmas Carol, A	32721
+Chronicles of Mystery - Curse of the Ancient Temple	129862
+Chronicles of Mystery - The Secret Tree of Life	129825
+Chronicles of Narnia, The - Prince Caspian	30484
+Chronicles of Narnia, The - The Lion, the Witch and the Wardrobe	19818
+Chrono Trigger	6707
+Chronos Twin	30602
+Chrysler Classic Racing	129588
+Chubaw Desu yo! - Kyoshou Recipe Shuu	191054
+Chuck E. Cheese's Gameroom	142909
+Chuck E. Cheese's Party Games	134319
+Chuck E. Cheese's Playhouse	142911
+Chuldong! Rescue Force DS	186491
+Chungjeon! Hanguginui Sangsingnyeok DS	207132
+Chuugaku Eitango Target 1800 DS	184833
+Chuugaku Junbi - 5 Kyouka Kanpeki DS	191827
+Chuukana Janshi Tenho Painyan Remix	181099
+Ciao Dream Touch! - Happy Anniversary	191087
+Cid to Chocobo no Fushigi na Dungeon - Toki Wasure no Meikyuu DS+	176572
+Cinnamoroll - Cinnamon Ball - Kurukuru Sweets Paradise	191092
+Cinnamoroll - Ohanashi Shiyo! - Kirakira de Kore Cafe	191094
+City Life DS	129589
+Clash King V201	149044
+Classic Action - Devilish	99386
+Classic Games - The Premium Selection	127038
+Classic Word Games	127111
+Claymore - Gingan no Majo	179078
+Clever Kids - Creepy Crawlies	143253
+Clever Kids - Dino Land	132199
+Clever Kids - Farmyard Fun	143268
+Clever Kids - Pirates	143267
+Clever Kids - Pony World	128546
+Clever! - Das Spiel, das Wissen Schafft	152166
+Clique, The - Diss and Make Up	140435
+Clique, The - Queen Teen	140435
+Cloudy with a Chance of Meatballs	15362
+Cloudy with a Chance of Meatballs 2	148183
+Club Penguin - Cuerpo de Pinguinos de Elite	17989
+Club Penguin - Elite Penguin Force	17989
+Club Penguin - EPF - Herbert's Revenge	129840
+Club Penguin - Force d'Elite	17989
+Clubhouse Games	6709
+Clueless Fashion	212231
+CNAE Aprende con Nosotros - Driver's Ed	129617
+Cocina Conmigo! - Que Preparamos Hoy	6863
+Cocoro no Cocoron	191080
+Cocoto - Kart Racer	19217
+Cocoto Racers	19217
+Code de la Route - Edition 2008	20696
+Code de la Route - Edition Deluxe	203575
+Code de la Route DS	192204
+Code de la Route, Le	192250
+Code de la Route, Le - Moto et BSR	192251
+Code Geass - Hangyaku no Lelouch	132960
+Code Geass - Hangyaku no Lelouch R2 - Banjou no Geass Gekijou	179079
+Code Lyoko	15212
+Code Lyoko - Fall of X.A.N.A.	15213
+Colin McRae - DiRT 2	15426
+Color Cross	15030
+Colour Cross	15030
+Combat of Giants - Dinosaurs	128372
+Combat of Giants - Dragons	30606
+Combat of Giants - Mutant Insects	31826
+Combo Pack - Madagascar 3 - Europe's Most Wanted + Croods, The - Prehistoric Party!	192307
+Command and Destroy	127113
+Commando - Steel Disaster	6710
+Contact	13830
+Contra - Dual Spirits	11217
+Contra 4	11217
+Conveni DS, The - Otona no Keieiryoku Training	191052
+Cookie & Cream	13912
+Cookie Shop - Crea la Tienda de tus Suenos	129591
+Cookie Shop - Create Your Dream Shop	129591
+Cooking Guide - Can't Decide What to Eat	6863
+Cooking Mama	9111
+Cooking Mama 2	9112
+Cooking Mama 2 - Cook Off	20904
+Cooking Mama 2 - Dinner with Friends	9112
+Cooking Mama 2 - Dinner with Friends - Cook Off	20904
+Cooking Mama 3	20898
+Cooking Mama 3 - Multiplayer	20904
+Cooking Mama 3 - Shop & Chop	20898
+Cooking Mama 3 - Shop & Chop - Multiplayer	20904
+Cooking Mama World - Combo Pack - Volume 1	455512
+Cooking Mama World - Hobbies & Fun	20547
+Cooking Mama World - Outdoor Adventures	24163
+Coraline	25564
+Cornelsen Trainer - Englisch - Klasse 5 + 6	209581
+Cornelsen Trainer - Englisch - Klasse 7 + 8	205723
+Cornelsen Trainer - Mathe - Klasse 5	179890
+Cornelsen Trainer - Mathe - Klasse 5 + 6	179891
+Cornelsen Trainer - Mathe - Klasse 6	179880
+Coropata	141543
+Corvette Evolution GT	129590
+Corvette Evolution GT - Multiplayer	129590
+Cory in the House	121959
+Cosmetick Paradise - Kirei no Mahou	181175
+Cosmetick Paradise - Make no Kiseki	134116
+Cosmetick Paradise - Princess Life	191090
+Cosmopolitan - Total Relooking	192206
+Cosmos Chaos	148175
+Countdown - The Game	162377
+Cradle of Rome	168219
+Cradle of Rome 2	29313
+Craft Mama	20547
+Craft Mama - Multiplayer	20904
+Crafting Mama	20547
+Crafting Mama - Multiplayer	20904
+Crash - Mind over Mutant	13952
+Crash Bandicoot Festival	6711
+Crash Boom Bang!	6711
+Crash Landed	466694
+Crash of the Titans	11218
+Crayola Treasure Adventures	95256
+Crayon Shin-chan - Arashi o Yobu Cinemaland Kachinko Gachinko Daikatsugeki!	181238
+Crayon Shin-chan - Arashi o Yobu Nendororoon Daihenshin!	185934
+Crayon Shin-chan - Obaka Dainin Den - Susume! Kasukabe Ninja Tai!	180837
+Crayon Shin-chan - Shock Gahn! - Densetsu o Yobu Omake Daiketsusen!!	181176
+Crayon Shin-chan DS - Arashi o Yobu Nutte Crayoon Daisakusen!	160331
+Crazy Chicken - Star Karts	148200
+Crazy Chicken Adventure - The Pharaoh's Treasure	148184
+Crazy Chicken Carnival	148528
+Crazy Chicken Jump'n Run - Atlantis Quest	148186
+Crazy Circus	129592
+Crazy Frog Collectables - Art School	152167
+Crazy Frog Racer	132200
+Crazy Machines	179994
+Crazy Machines 2	19218
+Crazy Pig	128535
+Crazy School Games	129593
+Crime Lab - Body of Evidence	16873
+Crime Scene	129594
+Crimson Room	129061
+Croket! DS - Tenkuu no Yuusha-tachi	192146
+Croods, The - Prehistoric Party!	148201
+Cross Treasures	148146
+Crossword de Manabou! Chiri - Rekishi	191056
+Crossword DS + Sekai 1-shuu Cross	191473
+CrossworDS	12038
+Crosswords - Cruciverba Italiani	151523
+Crosswords DS	12038
+Cruciverba per DS	192230
+Cruise Line Tycoon	24367
+Crystal Mines	129666
+CSI - Crime Scene Investigation - Dark Motives	15130
+CSI - Crime Scene Investigation - Deadly Intent - The Hidden Cases	15131
+CSI - Crime Scene Investigation - Unsolved!	15129
+Cuisine Party	192210
+Culdcept DS	95407
+Curling DS	129595
+Custom Battler Bomberman	20903
+Custom Beat Battle - Draglade	15125
+Custom Beat Battle - Draglade 2	191081
+Custom Mahjong	191082
+Custom Robo Arena	18789
+CycloDS Evolution	6886
+D.Gray-Man - Innocence no Shito-tachi	174150
+DaGeDar	19126
+Daigassou! Band-Brothers	192038
+Daigassou! Band-Brothers DX	27293
+Daikoukai Jidai IV - Rota Nova	191475
+Daisenryaku DS - Great Strategy	191476
+Daito Giken Koushiki Pachi-Slot Simulator Hihouden - Ossu! Banchou - Yoshimune DS	192147
+Dance Floor	24368
+Dance! - It's Your Stage	179892
+Dancing on Ice	129667
+Dancing with the Stars - We Dance!	129598
+Daniel X - The Ultimate Power	134318
+Danny Phantom - Urban Jungle	134320
+Danshaku	6853
+Daredemo Kantan! - Jo Chihun no Tsumego	191820
+Daredemo Kantan! - Watanabe Akira no Tsumeshougi	191821
+Dark Spire, The	16557
+Das weiss doch jedes Kind!	190308
+Data Max	6886
+Date ni Gametsui Wake ja Nee! - Dungeon Maker Girls Type	181179
+Datenshi no Amai Yuuwaku x Kaikan Phrase	181180
+Dawn of Discovery	168349
+Dawn of Heroes	13332
+Days of Memories	179082
+Days of Memories 2	179083
+Days of Memories 3	179084
+de Blob 2	9072
+Dead'n'Furious	6893
+Deal or No Deal	129597
+Deal or No Deal - Der Banker Schlaegt Zurueck	129596
+Deal or No Deal - Special Edition	148206
+Deal or No Deal - The Banker Is Back!	129596
+Deal or No Deal - The Official Nintendo DS Game	210420
+Dear Girl - Stories - Hibiki - Hibiki Tokkun Daisakusen!	181181
+Death Jr. and the Science Fair of Doom	34448
+Death Note - Kira Game	90350
+Death Note - L o Tsugu Mono	151723
+Deca Sporta - DS de Sports '10' Shumoku!	129599
+Deca Sports DS	129599
+Deco Tendances	192214
+Deep Aquarium - Kiseki no Shinkai	180838
+Deep Labyrinth	13966
+Deep Sea Aquarium by DS	180838
+Deer Drive	14916
+Defendin' DePenguin	134321
+Deine Eigene Modenschau	149105
+Deine Reitschule	148243
+Dekiru Otoko no Mote Life - Hiru no Mote Kouza Hen	191477
+Dekiru Otoko no Mote Life - Yoru no Mote Jissen Hen	191478
+Dekita yo! Mama. - Mitsugo no Kuma-san - Onnanoko	187685
+Dekita yo! Mama. - Mitsugo no Kuma-san - Otokonoko	181205
+Dekita yo! Mama. - Wannyan Club - Onnanoko	187685
+Dekita yo! Mama. - Wannyan Club - Otokonoko	179911
+Deltora Quest - Nanatsu no Houseki	24369
+Dementium - The Ward	6789
+Dementium II	11219
+Dengeki Gakuen RPG - Cross of Venus	181283
+Dengeki Gakuen RPG - Cross of Venus Special	181285
+Denjirou Sensei no Fushigi na Jikkenshitsu	191095
+Densetsu no Stafy - Taiketsu! Dile Kaizoku Dan	6889
+Densetsu no Stafy 4	24038
+Densetsu no Starfy - Taiketsu! Dile Kaizoku Dan - Minigame Multiplayer	20904
+Densetsu no Starfy - Taiketsu! Dile Kaizoku Dan - Multiplayer	20904
+Derby Stallion DS	180840
+Desktop Tower Defense	129600
+Despicable Me - Minion Mayhem	121890
+Despicable Me - The Game - Minion Mayhem	121890
+Destiny Links	181286
+Deutgo Sseugo Chinhaejineun - DS Yeongeo Sammaegyeong	20838
+Deutgo Sseugo Chinhaejineun - DS Yeongeo Sammaegyeong - Dictation Sprint	20904
+Deutgo Sseugo Chinhaejineun - DS Yeongeo Sammaegyeong - Vs. Vocabulary	20904
+Deutsch 1.-4. Klasse - Fit fuers Gymnasium	213022
+Deutsch 1.-4. Klasse 2012	209582
+Deviens Miss France	192222
+Devil Survivor 2	11414
+Devilish	99386
+Devilish - Ball Bounder	99386
+Di-Gata Defenders	121574
+Diabolik - The Original Sin	148536
+Diamond Trust of London	148213
+Diary Girl	129601
+Diddl in the Cheesecakeland - Diddl en Diddland	179877
+Diddl Puzzle - Echter Puzzlespass fuer Unterwegs	179893
+Diddy Kong Racing DS	6790
+Diercke - Das Geographie-Quiz	209584
+Diercke - Junior-Quiz Geographie	209585
+Dig Dug - Digging Strike	6791
+Digging for Dinosaurs	148214
+Digimon Championship	121608
+Digimon Story	14212
+Digimon Story - Lost Evolution	181287
+Digimon Story - Moonlight	14214
+Digimon Story - Sunburst	14213
+Digimon Story - Super Xros Wars - Blue	191306
+Digimon Story - Super Xros Wars - Red	191307
+Digimon World - Dawn	14213
+Digimon World - Dusk	14214
+Digimon World Championship	121608
+Digimon World DS	14212
+Diner Dash	18142
+Diner Dash - Flo on the Go	18207
+Diner Dash - Sizzle & Serve	18142
+Dino King Battle - Taiko kara no Hyouryuusha	191491
+Dino Master - Dig, Discover, Duel	91915
+Dino Pets - The Virtual Pet Game	122855
+Dinosaur King	121624
+DiRT 2	15426
+Discovery Kids - Dolphin Discovery	129602
+Discovery Kids - Kitten Corner	131893
+Discovery Kids - Parrot Pals	148223
+Discovery Kids - Pony Paradise	148224
+Discovery Kids - Puppy Playtime	148225
+Discovery Kids - Snake Safari	148215
+Discovery Kids - Spider Quest	148222
+Disgaea DS	13333
+Disney Big Hero 6 - Battle in the Bay	153851
+Disney Friends	129603
+Disney Frozen - Olaf's Quest	24754
+Disney Planes	148229
+Disney Princess - Enchanting Storybooks	18474
+Disney Princess - Magical Jewels	14349
+Disney Princess - Mahou no Jewel	14349
+Disney Toy Box	134241
+Disney Up	134241
+Diva Girls - Diva Dancers	148545
+Diva Girls - Divas on Ice	148231
+Diva Girls - Making the Music	96096
+Diva Girls - Princess on Ice 2	148231
+DJ Star	148232
+DK - Jungle Climber	6792
+Doctor Who - Evacuation Earth	25761
+Dodge Racing - Charger vs Challenger	134322
+Dogz	18004
+Dogz 2	134249
+Dokapon Journey	15175
+Dokapon Journey! - Nakayoku Kenka Shite	15175
+Doki Doki Majo Shinpan Duo	178051
+Doki Doki Majo Shinpan!	178052
+Doki Majo Plus	179085
+Dokodemo Pilates	135476
+Dokodemo Raku Raku! - DS Kakeibo	191309
+Dokodemo Yoga	135474
+Dokonjou Shougakusei Bon Biita - Hadaka no Choujou Ketsusen!! - Biita vs Dokuro Dei!	181293
+Dolphin Island	132182
+Dolphin Island - Underwater Adventures	150059
+Dolphin Trainer	129604
+Don Bluth Presents - Dragon's Lair	25762
+Don King Boxing	127115
+Dondake Sports 101	122856
+Donkey Kong - Jungle Climber	6792
+Donkey Xote	168453
+Doodle Hex	152170
+Doodle Jump Journey	148234
+Dora & Friends' - Fantastic Flight	13808
+Dora & Friends' - Pet Shelter	148233
+Dora & Kai-Lan's Pet Shelter	148233
+Dora Puppy	148235
+Dora the Explorer - Dora Puppy	148235
+Dora the Explorer - Dora Saves the Mermaids	128548
+Dora the Explorer - Dora Saves the Snow Princess	134617
+Dora's Big Birthday Adventure	134616
+Dora's Cooking Club	121891
+Dorabase - Doraemon Super Baseball Gaiden - Dramatic Stadium	191096
+Dorabase 2 - Nettou Ultra Stadium	181294
+Doraemon - Nobita no Kyouryuu 2006 DS	191097
+Doraemon - Nobita no Shin Makai Daibouken DS	191098
+Doraemon - Nobita to Midori no Kyojinden DS	191099
+Double Pack - Cradle of Rome + Cradle of Egypt	179894
+Double Sequence - The Q-Virus Invasion	134323
+Dowajwo! Rhythm Hero	6797
+Dr Kawashima's Brain Training - How Old Is Your Brain	6583
+Dr Reiner Knizia's Brainbenders	127106
+Dr. Jekyll & Mr. Hyde - Enigmes & Objets Caches	150381
+Dr. Seuss - How the Grinch Stole Christmas!	132220
+Dr. Slump Arale-chan	179087
+Drachenspass mit Hexe Lilli	179881
+Drachenzaehmen Leicht Gemacht	15665
+Draglade	15125
+Dragon Ball - Origins	29493
+Dragon Ball - Origins 2	31880
+Dragon Ball DS	29493
+Dragon Ball DS 2 - Totsugeki! Red Ribbon Gun	31880
+Dragon Ball Kai - Saiyajin Raishuu	19299
+Dragon Ball Kai - Ultimate Butou Den	27822
+Dragon Ball Z - Attack of the Saiyans	19299
+Dragon Ball Z - Bukuu Ressen	19300
+Dragon Ball Z - Goku Densetsu	27574
+Dragon Ball Z - Harukanaru Densetsu	27574
+Dragon Ball Z - Harukanaru Gokuu Densetsu	27574
+Dragon Ball Z - Supersonic Warriors 2	19300
+Dragon Booster	132213
+Dragon Dance	180839
+Dragon Hunters	164492
+Dragon Master	179879
+Dragon Quest - The Chapters of the Chosen	6794
+Dragon Quest - The Hand of the Heavenly Bride	6795
+Dragon Quest Heroes - Rocket Slime	11042
+Dragon Quest IV - Chapters of the Chosen	6794
+Dragon Quest IV - Michibikareshi Mono-tachi	6794
+Dragon Quest IX - Hoshizora no Mamoribito	11043
+Dragon Quest IX - Sentinels of the Starry Skies	11043
+Dragon Quest Monsters - Joker	14368
+Dragon Quest Monsters - Joker 2	14274
+Dragon Quest Monsters - Joker 2 - Monster Haishin Data - Shinigami Slidark	20904
+Dragon Quest Monsters - Joker 2 - Professional	187337
+Dragon Quest V - Hand of the Heavenly Bride	6795
+Dragon Quest V - Tenkuu no Hanayome	6795
+Dragon Quest VI - Maboroshi no Daichi	11044
+Dragon Quest VI - Realms of Revelation	11044
+Dragon Quest VI - Realms of Reverie	11044
+Dragon Tamer - Sound Spirit	191479
+Dragon Zakura DS	191100
+Dragonology	127118
+Drake & Josh - Talent Showdown	129606
+Drama Queens	129607
+Dramatic Dungeon - Sakura Taisen - Kimi Aru ga Tame	179431
+Drawn to Life	17231
+Drawn to Life - Collection	97239
+Drawn to Life - Edicion Bob Esponja	15211
+Drawn to Life - Kamisama no Marionette	17231
+Drawn to Life - SpongeBob SquarePants Edition	15211
+Drawn to Life - The Next Chapter	27336
+Dream Chronicles	14245
+Dream Day - Wedding Destinations	17972
+Dream Pinball 3D	129608
+Dreamer Series - Babysitter	129610
+Dreamer Series - Horse Trainer	148243
+Dreamer Series - Pop Star	129611
+Dreamer Series - Puppy Trainer	129612
+Dreamer Series - Shop Owner	129613
+Dreamer Series - Teacher	129614
+Dreamer Series - Top Model	129615
+Dreamer Series - Zoo Keeper	129616
+DreamWorks 2-in-1 Party Pack	148244
+Drei Fragezeichen, Die - Das Geheimnis der Geisterinsel	152169
+Driver Dan's Story Train	168454
+Driver License Trainer Espana	213048
+Driver License Trainer Italia	213027
+Drivers Ed Portable	129617
+Driving Theory Training	129618
+Drone Tactics	11220
+Dropcast	128263
+DS Bimoji Training	132918
+DS Bungaku Zenshuu	128120
+DS Chueogui Donghwa - Touch RO Puzzle	127994
+DS de Yomu Series - Tezuka Osamu - Hi no Tori - Daiikkan	191101
+DS de Yomu Series - Tezuka Osamu - Hi no Tori - Dainikan	417885
+DS de Yomu Series - Tezuka Osamu - Hi no Tori - Daisankan	417865
+DS Dengeki Bunko - Allison	191492
+DS Dengeki Bunko - Inukami! feat. Animation	191493
+DS Dengeki Bunko - Iriya no Sora, UFO no Natsu	181211
+DS Dengeki Bunko - Iriya no Sora, UFO no Natsu II	181206
+DS Dengeki Bunko ADV - Baccano!	181212
+DS GoStop	207240
+DS Kageyama Method - Dennou Hanpuku - Chiri Rekishi Koumin Maru x Maru Shakaika	191830
+DS Kageyama Method Dennou Hanpuku - Masu x Masu Hyaku Masu Keisan	191828
+DS Kageyama Method Dennou Hanpuku - Masu x Masu Hyaku Masu Keisan - Study Together	20904
+DS Kageyama Method Dennou Hanpuku - Masu x Masu Pre-Hyaku Masu Keisan - Hyaku Masu no Mae ni Kore Da yo!	191828
+DS Motte Tabi ni Deyo - Kyoto	181213
+DS Nishimura Kyotaro Suspense 2 Shin Tantei Series - Kanazawa, Hakodate, Gokkan no Kyoukoku - Fukushuu no Kage	181229
+DS Nishimura Kyotaro Suspense Shin Tantei Series - Kyoto, Atami, Zekkai no Kotou - Satsui no Wana	191822
+DS Paint	20904
+DS Puzzler - Nanpure Fan & Oekaki Logic	142725
+DS Puzzler - Nanpure Fan & Oekaki Logic - Wi-Fi Taiou	191920
+DS Rakubiki Jiten	191102
+DS Teku Teku Nikki - Walking & Diet Diary	191922
+DS Yamamura Misa Suspense - Maiko Kogiku, Kisha Catherine, Sougiya Ishihara Akiko - Koto ni Mau Hana Sanrin - Kyoto Satsujin Jiken File	191510
+DS Yukemuri Suspense Series - Free Writer Tachibana Maki - Touyako, Nanatsu no Yu, Okuyu no Sato - Shuzai Techou	191831
+DS-PICO Series - Sanrio no Party e Ikou! - Oryouri, Oshare, Okaimono	149143
+DS-Pico Series - Sanrio Puroland - Waku Waku Okaimono - Suteki na Oheya o Tsukuri Masho	191832
+DSTTi	129632
+DSvision - Starter Kit	191508
+DTM Race Driver 3 - Create & Race	134232
+Ducati Moto	128264
+Duden - Einfach Klasse in Deutsch - 1. und 2. Klasse	209599
+Duden - Einfach Klasse in Deutsch - 3. und 4. Klasse	213030
+Duden - Einfach Klasse in Mathematik - 1. und 2. Klasse	213032
+Duden - Einfach Klasse in Mathematik - 3. und 4. Klasse	213031
+Duel Love - Koisuru Otome wa Shouri no Megami	191494
+Duke Nukem - Critical Mass	123964
+Dun-Dam - Dungeons & Dam	181295
+Dungeon Explorer	134324
+Dungeon Explorer - Jashin no Ryouiki	134324
+Dungeon Explorer - Warriors of Ancient Arts	134324
+Dungeon Maker	15124
+Dungeon Maker - Mahou no Shovel to Chiisana Yuusha	15124
+Dungeon of Windaria	149748
+Dungeon Raiders	13380
+Dynasty Warriors DS - Fighter's Battle	123999
+E=M6 Defi Cerebral	192223
+EA Create - Snap	20904
+EA Playground	24161
+EA Playground 2	24161
+Easy Learning - Discover Our World	151715
+Easy Piano	24372
+Easy Piano - Learn, Play & Compose	24372
+Eco-Creatures - Save the Forest	127138
+Ecolis	127138
+Ecolis - Aoi Umi to Ugoku Shima	127138
+Ecolis - Save the Forest	127138
+Ed's Farm	128537
+Ed, Edd n Eddy - Scam of the Century	127333
+Edamoto Naomi no Shiawase Kitchen - Kakushi Aji wa Anata ga Kimete ne	31817
+EDGE	6886
+Edo Bunka Rekishi Kentei DS	181303
+Edogawa Ranpo no Kaijin Nijuu Mensou DS	181309
+Egg Monster Hero	191170
+Eggheads	168455
+Egokoro Kyoushitsu DS	209553
+Eibun Tadoku DS - Sekai no Bungaku Senshuu	181310
+Eibun Tadoku DS - Sekai no Meisaku Douwa	181349
+Eigo de Asobou - Mummy Talk DS	191480
+Eigo de Tabisuru - Little Charo	181351
+Eigo ga Nigate na Otona no DS Training - Eigo Zuke	20838
+Eigo ga Nigate na Otona no DS Training - Eigo Zuke - Dictation Sprint	20904
+Eigo ga Nigate na Otona no DS Training - Eigo Zuke - Vs. Vocabulary	20904
+Eigo ga Nigate na Otona no DS Training - Motto Eigo Zuke	168471
+Eigo o Taberu Fushigi na Ikimono - Marsh	191105
+Eigyoudou, The	181376
+Eijukugo Target 1000 DS	191108
+Eiken DS	191109
+Eiken DS Training	191110
+Eiken Kakomondai Shuuroku - Eiken DS 2 Deluxe	191111
+Eiken-ou - 2-kyuu Hen	191112
+Eiken-ou - 3-kyuu Hen	191114
+Eiken-ou - 4-kyuu Hen	191115
+Eiken-ou - Jun-2-kyuu Hen	191113
+Eikoh Seminar Koushiki DS Kyouzai - Chuugaku Eitango - Eitan Zamurai DS	181377
+Eikoh Seminar Koushiki DS Kyouzai - Koukou Eitango - Eitan Zamurai DS	181379
+Eikoh Seminar Koushiki DS Kyouzai - Shougakkou Eigo - Eitan Zamurai DS	181380
+Eindeloos Backgammon	176889
+Eindeloos Games Top 10	213033
+Eindeloos Mahjong	152015
+Eindeloos Mahjong 2 - Een Reis om de Wereld	213034
+Eindeloos Patience	184674
+Einer Gegen 100	16397
+Eitango Target 1900 DS	191116
+Eiyuu Senki - Laevatein	11254
+Elebits - Kai to Zero no Fushigi na Tabi	15034
+Elebits - Kaiwa Zeroui Sinbihan Yeohaeng	15034
+Elebits - The Adventures of Kai and Zero	15034
+Electroplankton	6908
+Eledees - The Adventures of Kai and Zero	15034
+Element Girls	129643
+Element Girls - Love, Fashion & Friends	168480
+Element Girls - Style Your Life!	417853
+Element Hunters	180886
+Elemental Monster - Itsu Hashira Gami no Nazo	191498
+Elements of Destruction	6796
+Elf Bowling 1 & 2	129619
+Elite Beat Agents	6797
+Elite Forces - Unit 77	129620
+Ellen Whitaker's Horse Life	149148
+Elminage - Yami no Miko to Kamigami no Yubiwa - DS Remix	181381
+Elminage II - Sousei no Megami to Unmei no Daichi - DS Remix	181385
+Elvenland	152171
+Emergency	148245
+Emergency 2012	209588
+Emergency DS	148245
+Emergency Kids	209589
+Emergency Room - Real Life Rescues	129621
+Emergency! - Disaster Rescue Squad	148245
+Emily - My Animal Shelter	150134
+Emily - My Dog Paradise	129612
+Emily Archer - The Curse of King Tut's Tomb	219399
+Emily the Strange - Strangerous	12517
+Emma at the Farm	129622
+Emma in the Mountains	129623
+Enchanted	129624
+Enchanted Folk and the School of Wizardry	15032
+Ener-G - Dance Squad	148250
+Ener-G - Gym Rockets	148251
+Ener-G - Horse Riders	143557
+Englisch Buddy	179900
+Englisch Entdecken Mit Ben & Bella	207232
+English Buddy	179900
+English Training - Have Fun Improving Your Skills	20838
+English Training - Have Fun Improving Your Skills - Dictation Sprint	20904
+English Training - Have Fun Improving Your Skills - Vs. Vocabulary	20904
+Enpitsu de Oku no Hosomichi DS	191438
+Entraineur Cerebral, L' - Kids	203537
+Entraineur Cerebral, L' - Logique	212982
+Entraineur Cerebral, L' - Perception	149802
+EQ Trainer DS - Dekiru Otona no Communication Jutsu	191437
+Equestrian Training	168458
+Equitation - Galops 1 a 4	168458
+Equitation - Galops 1 a 7	203509
+Era Glaciale 3, L' - L'Alba dei Dinosauri	15671
+Era Glaciale 4, L' - Continenti alla Deriva - Giochi Polari	13199
+Eragon	129625
+Escape the Museum	95722
+Essential Sudoku DS	128538
+Estpolis - The Lands Cursed by the Gods	11329
+Etrian Odyssey	11221
+Etrian Odyssey II - Heroes of Lagaard	6798
+Etrian Odyssey III - The Drowned City	11222
+Everything's Rosie	168459
+Evolution GT	129590
+Exit DS	127135
+Expeditie Robinson	100033
+Eyeshield 21 - Max Devil Power!	179090
+EZ-Flash V	6799
+EZ-Flash Vi	100013
+F-24 - Stealth Fighter	125509
+Fab 5 Soccer	129626
+FabStyle	191439
+Fabulous Finds	129627
+Facening de Hyoujou Yutaka ni Inshou Up - Otona no DS Kao Training	29816
+Fairyland - Melody Magic	155446
+Fall fuer TKKG, Ein - Detektiv Gesucht!	213041
+Famicom Wars DS	6570
+Family Feud - 2010 Edition	27334
+Family Fortunes	168460
+Family Park Tycoon	151122
+Famous - The Road to Glory!	152282
+Fancy Nancy - Tea Party Time!	129628
+Fantastic Four - Rise of the Silver Surfer	127496
+Fantasy Aquarium by DS	149126
+Farm Frenzy - Animal Country	149127
+Farm Frenzy 3	168481
+Farm Life - Manage Your Own Farm	18476
+Farmtopia	129629
+Fashion Designer - High Fashion	149128
+Fashion Designer - Style Icon	150498
+Fashion Dogz	150061
+Fashion Studio - Paris Collection	129630
+Fashion Tycoon	156322
+Fashion Week Jr. - Designer	149128
+Fast Food Panic	129631
+Fee Lili-Rose 2, La - Mon Monde Merveilleux	155412
+Fee Lili-Rose, La - La Magie des Fees	219712
+Feel the Magic - XY-XX	6799
+Feji	15226
+Ferrari Challenge - Trofeo Pirelli	15535
+Ferrari Challenge - Trofeo Pirelli - European Series	15535
+FIFA 06	132214
+FIFA 07	135357
+FIFA 08	135260
+FIFA 09	15551
+FIFA 10	135358
+FIFA 11	15558
+FIFA Soccer 06	132214
+FIFA Soccer 07	135357
+FIFA Soccer 08	135260
+FIFA Soccer 09	15551
+FIFA Soccer 10	135358
+FIFA Soccer 11	15558
+FIFA Street 2	134620
+FIFA Street 3	15562
+Fifi and the Flowertots	148508
+Fifi and the Flowertots - Fifi's Garden Party	148507
+Fighting Fantasy - The Warlock of Firetop Mountain	15174
+Figure Princess - Dugeundugeun Skating - Geum-medaleul Noryeora!	184192
+Figure Skating - Eunban wiui Yojeong	134113
+Final Fantasy - The 4 Heroes of Light	11050
+Final Fantasy Crystal Chronicles - Echoes of Time	11048
+Final Fantasy Crystal Chronicles - Ring of Fates	11049
+Final Fantasy Fables - Chocobo Tales	6801
+Final Fantasy Fables - Chocobo Tales - Bonus Content	20904
+Final Fantasy III	2850
+Final Fantasy IV	6909
+Final Fantasy Tactics A2 - Fuuketsu no Grimoire	6802
+Final Fantasy Tactics A2 - Grimoire of the Rift	6802
+Final Fantasy XII - Revenant Wings	6800
+Finde die Unterschiede - Foto Frenzy	149129
+Findet Nemo - Flucht in den Ozean	176832
+Finding Nemo - Escape to the Big Blue	176832
+Finding Nemo - Escape to the Big Blue - Special Edition	16776
+Finding Nemo - Touch de Nemo	176832
+Fire Emblem - Shadow Dragon	6803
+Fire Emblem - Shin Ankoku Ryuu to Hikari no Ken	6803
+Fire Emblem - Shin Monshou no Nazo - Hikari to Kage no Eiyuu	16988
+Fireman Sam	148510
+Fireman Sam - Action Stations	148509
+Fish Tycoon	129632
+Fishdom	129633
+Fit for Fun - Der Interaktive Ernaehrungscoach	467532
+Fix It	152205
+Fizz	152204
+Flash Focus - Vision Training in Minutes a Day	16876
+Flipper Critters	17024
+Flips 6 Book Pack - Cathy Cassidy	168443
+Flips 6 Book Pack - Enid Blyton - Faraway Tree Stories	168444
+Flips 6 Book Pack - Eoin Colfer - Artemis Fowl	168445
+Flips 6 Book Pack - Mr Gum by Andy Stanton	168446
+Flips 6 Book Pack - Rick Riordan - Percy Jackson	168447
+Flips 8 Book Pack - Enid Blyton - The Adventure Series	168448
+Flips 8 Book Pack - Too Ghoul for School	168449
+Florist Shop	17026
+Flower, Sun and Rain - Murder and Mystery in Paradise	15214
+Fluch der Osterinsel, Der	213043
+Flunkerne - Paa Maanen	192225
+Flushed Away	21541
+Football Academy - Build and Prove Your Football Knowledge	152211
+Football Director DS	30604
+Ford Racing 3	129634
+Fort Boyard - Casse-tetes & Enigmes	192227
+Fort Boyard - Le Jeu	192228
+Fossil Fighters	6804
+Fossil Fighters Champions	14537
+Fossil League - Dino Tournament Championship	129635
+Foster's Home for Imaginary Friends - Imagination Invaders	128551
+Foto Frenzy - Spot the Difference	149129
+Franklin's Great Adventures	99397
+Franzis Gedaechtnis Trainer	14492
+Franzoesisch Buddy	192229
+Freddi Fish - ABC under the Sea	149130
+Freddie Flintoff's Power Play Cricket	168461
+Freedom Wings	19219
+Fresh PreCure! - Asobi Collection	181394
+Freshly-Picked - Tingle's Rosy Rupeeland	18058
+Fritz	15513
+Fritz Chess	15513
+Frogger - Helmet Chaos	18029
+Frogman Show D.S., The - Datte, Shouganai Janai.	191350
+From the Abyss	13968
+Front Mission	11249
+Front Mission 1st	11249
+Front Mission 2089 - Border of Madness	107333
+Fruits Mura no Doubutsu-tachi 2 - Osora no Fruits Land	181467
+Fuehrerschein Coach 2008	128274
+Fuehrerschein-Trainer	213048
+Fujimori Midori no Let's Tarot - Anata mo Kyou kara Uranaishi	191243
+Fukoumori - Molily no Unhappy Project	191441
+Fullmetal Alchemist - Dual Sympathy	19301
+Fullmetal Alchemist - Trading Card Game	14357
+Fushigi no Dungeon - Fuurai no Shiren 4 - Kami no Hitomi to Akuma no Heso	174241
+Fushigi no Dungeon - Fuurai no Shiren 5 - Fortune Tower to Unmei no Dice	181486
+Fushigi no Dungeon - Fuurai no Shiren DS	11417
+Fushigi no Dungeon - Fuurai no Shiren DS 2 - Sabaku no Majou	174245
+Fushigi Yuugi DS	181489
+Futari wa PreCure Max Heart - Danzen! DS de PreCure - Chikara o Awasete Dai-battle!!	191443
+Futari wa PreCure Splash Star - Panpaka Game de Zekkouchou!	191444
+futureU - The Prep Game for SAT	149131
+Fuuun! Dairoujou	191357
+Fuyu no Sonata DS	191118
+G-Force	15596
+G.G Series Collection+	127136
+G.I. Joe - The Rise of Cobra	129636
+Gabu Gabu Planet	27292
+Gachapin Challenge DS	191320
+Gachapin Nikki DS	191319
+Gaitame Baibai Trainer - Kabutore FX	182598
+Gakken - Chuugokugo Zanmai DS	191360
+Gakken - Thai-Go Indonesia-Go Zanmai DS	191503
+Gakken Chuugokugo Zanmai DS - Kiki & Kaki Training	191362
+Gakken DS - Otona no Gakushuu - Kindaichi Sensei no Nihongo Lesson	191501
+Gakken DS - Shin TOEIC Test Kanzen Kouryaku	191502
+Gakken Eigo Zanmai DS	181518
+Gakken Europe 4-kakokugo Zanmai DS	191358
+Gakken Hangeul Zanmai DS	184734
+Gakken Hangeul Zanmai DS - Kiki & Kaki Training	191359
+Gakken Mainichi no Drill DS - Mezase! Miracle Shougaku 1 Nensei	181598
+Gakken Shin TOEIC Test - Kanzen Kouryaku 2	191506
+Gakken Youten Rank Jun Series - Kagaku DS	191505
+Gakken Youten Rank Jun Series - Nihon no Rekishi DS	191504
+Gakkou no Kaidan DS	191153
+Gakkou no Kowai Uwasa - Hanako-san ga Kita!! - Minna no Hanako-san	191154
+Gakuen Alice - Waku Waku Happy Friends	191500
+Galactic Taz Ball	129637
+Galactik Football	134635
+Galaxy Racers	129638
+Galileo	191242
+Galileo Mystery - Die Krone des Midas	213049
+Game & Watch Collection	21232
+Game & Watch Collection 2	16819
+Game Center CX - Arino no Chousenjou	6873
+Game Center CX - Arino no Chousenjou 2	27191
+Game de Demashita! Powerpuff Girls Z	27827
+Gamebook DS - Aquarian Age - Perpetual Period	191514
+Games Around the World	129639
+Ganbare Goemon - TokaiDouchuu Ooedo Tengurigaeshi no Maki	121378
+Ganbaru Watashi no Kakei Diary	191445
+Gang del Bosco, La	150210
+Gardening Guide - How to Get Green Fingers	152202
+Gardening Mama	18043
+Gardening Mama - Multiplayer	20904
+Gardenscapes	152201
+Garfield - A Tail of Two Kitties	129640
+Garfield 2	129640
+Garfield Gets Real	8938
+Garfield's Fun Fest	129641
+Garfield's Nightmare	129642
+Gauntlet	151084
+Gegege no Kitarou - Youkai Daigekisen	180193
+Geheimnis von Dragonville, Das - May's Mystery	14492
+Gekifu Bakegyamon - Ayakashi Fighting	180892
+Gekikara Nanpure 2500 Mon	191509
+Gekitou! Custom Robo	18789
+Gem Quest - 4 Elements	122857
+Gendai Daisenryaku DS - Isshoku Sokuhatsu, Gunji Balance Houkai	181787
+General Knowledge for Dummies	180054
+Generator Rex - Agent of Providence	8933
+Genio de las Palabras, El	148196
+Genmu no Tou to Tsurugi no Okite	16557
+Gensou Suikoden - Tierkreis	11426
+GEO Puzzle - Wunder Natur - Echter Puzzlespass fuer Unterwegs	152200
+Geojisui Yunmugok	179158
+GEOlino PowerQuiz - Wissen fuer Kinder	213051
+Geomaster	152199
+Geometry Wars - Galaxies	6805
+Geometry Wars - Retro Evolved	20904
+George of the Jungle	134326
+George of the Jungle and the Search for the Secret	134326
+Germany's Next Topmodel - Das Offizielle Spiel zur Show	150571
+Germany's Next Topmodel - Das Offizielle Spiel zur Staffel 2009	31814
+Germany's Next Topmodel - Das Offizielle Spiel zur Staffel 2010	213054
+Germany's Next Topmodel - Das offizielle Spiel zur Staffel 2011!	213055
+Gesundheits Coach, Der - Wohlfuehlen Jeden Tag	213057
+Geuryeora, Touch! - Naega Mandeuneun Sesang	17231
+Geuryeora, Touch! - SpongeBob Nemobaji	15211
+Ghost Trick	13203
+Ghost Trick - Phantom Detective	13203
+Ghostbusters - The Video Game	19220
+Giana Sisters DS	6806
+Gijeogui 100-kan Gyesanbeop	131665
+Gijutsu Hyouronsha Kanshuu - Kihonjouhou Gijutsusha DS	191119
+Gina-Lisa Powershopping	213059
+Ginga Tetsudou 999 DS	179091
+Gintama - Gintama Quest - Gin-san ga Tenshoku shitari Sekai o Sukuttari	181788
+Gintama - Gintoki vs Hijikata! - Kabukichou Gintama Daisoudatsusen!!	181790
+Gintama DS - Yorozuya Daisoudou	181789
+Girl Time - Everything You Need for a Hip, Happening Life!	129643
+Girls Life - Fashion Addict	149181
+Girls Life - Jewellery Style	148247
+Girls Life - Makeover	149006
+Girls Only	129644
+Glory Days - Yuugeki no Hero	128540
+Glory Days 2	128540
+Glory of Heracles	11250
+Go West! - A Lucky Luke Adventure	128541
+Go! Go! Cosmo Cops!	30974
+Go, Diego, Go! - Great Dinosaur Rescue	134327
+Go, Diego, Go! - Safari Rescue	128552
+Godzilla Unleashed - Double Smash	6807
+Gogo's Crazy Bones	149135
+Gokujou!! Mecha Mote Iinchou - Girls 'Mote Kawa' Box	181793
+Gokujou!! Mecha Mote Iinchou - MM My Best Friend!	191321
+Golden Compass, The	8557
+Golden Compass, The - The Official Videogame	8557
+Golden Nugget Casino DS	129645
+Golden Sun - Dark Dawn	11251
+Goldene Amulett des Pharao, Das	152320
+GoldenEye - Au Service du Mal	6808
+GoldenEye - Dark Agent DS	6808
+GoldenEye - Rogue Agent	6808
+GoldenEye 007	11252
+Golgo 13 - File G13 o Oe	179126
+Goosebumps HorrorLand	129646
+GoPets - Vacation Island!	129647
+Gormiti - The Lords of Nature!	129648
+Gouma Reifu Den Izuna	13969
+Gouma Reifu Den Izuna Ni	13970
+Gourmet Chef - Cook Your Way to Fame	129649
+Grand Galop	152195
+Grand Theft Auto - Chinatown Wars	11056
+Grease - The Official Video Game	149136
+Green Lantern - Rise of the Manhunters	127953
+Greg Hastings' Tournament Paintball Max'd	132215
+Gremlins - Gizmo	149137
+Grey's Anatomy - The Video Game	129650
+Grid	17617
+Griff Wild	20904
+GripsKids - Deutsch	152054
+GripsKids - Mathematik	152055
+GripsKids - Sachkunde	213061
+Groovy Chick - My Fashion World	152193
+Grosse Tagesschau Quiz, Das	213062
+Grundschule 1.-4. Klasse - Fit fuers Gymnasium 2013	209583
+Guida in Cucina, La - Che Si Mangia Oggi	6863
+Guild DS, The	152198
+Guilty Gear - Dust Strikers	19221
+Guinness World Records - The Videogame	14641
+Guitar Hero - On Tour	6809
+Guitar Hero - On Tour - Decades	6810
+Guitar Hero - On Tour - Modern Hits	6811
+Guitar Rock Tour	129651
+Gummy Bears - Mini Golf	8792
+Gunpey DS - Music x Puzzle	21233
+Guru Guru	129652
+Guruguru Nagetto	129652
+Gyakkyou Burai Kaiji - Death or Survival	191212
+Gyakuten Kenji	11045
+Gyakuten Kenji 2	20861
+Gyakuten Saiban - Yomigaeru Gyakuten	6865
+Gyakuten Saiban 2	6866
+Gyakuten Saiban 3	6867
+Gyakuten Saiban 4	11046
+Gyakuten Saiban Jiten	179092
+Gyouretsu no Dekiru - Houritsu Soudanjo	181797
+Habu Yoshiharu Shougi de Kitaeru - Ketsudanryoku DS	181799
+Hachi-One Diver DS	181800
+Hagane no Renkinjutsushi - Dual Sympathy	19301
+Hajime no Ippo - The Fighting! DS	134731
+Hakoniwa Seikatsu - Hitsuji Mura DS	15058
+Hakuouki - Yuugiroku DS	191365
+Hakuouki - Zuisouroku DS	191367
+Hakuouki DS	181801
+Hamekomi Lucky Puzzle DS	6858
+Hamster to Kurasou	132216
+Hamsterz 2	132216
+Hamsterz Life	18790
+Hana Deka Club - Animal Paradise	29814
+Hana to Taiyou to Ame to - Owaranai Rakuen	15214
+Hana Yori Dango - Koi Seyo Otome!	181802
+Hands On! Tangrams	134328
+Haneru no Tobira DS - Tanshuku Tetsudou no Yoru	191286
+Hannah Montana	17054
+Hannah Montana - Music Jam	132217
+Hannah Montana - The Movie	149139
+Hanshin Tigers DS	191057
+Hapi Hapi Clover	181804
+Happily Ever After - Volume 1	149140
+Happily Ever After - Volume 2	149141
+Happy Bakery	152192
+Happy Cooking	129653
+Happy Cooking - Touch Pen de Tanoshiku Oryouri	129653
+Happy Feet	115790
+Happy Feet 2	15651
+Happy Feet Two	15651
+Happy Hippo's World Tour	132311
+Happy My Sweets	181990
+Happy Party with Hello Kitty & Friends!	149143
+Happy Star Band	96096
+Happy Star Band - Jeongungmin Audition Baendeupyeon	96096
+Hardy Boys, The - Treasure on the Tracks	92554
+Harlem Globetrotters - World Tour	31170
+Harobots Action!!	182002
+Harry Potter and the Deathly Hallows - Part 1	15656
+Harry Potter and the Deathly Hallows - Part 2	123985
+Harry Potter and the Goblet of Fire	124068
+Harry Potter and the Half-Blood Prince	23541
+Harry Potter and the Order of the Phoenix	31689
+Harry Potter to Fushichou no Kishidan	31689
+Harry Potter to Honoo no Goblet	124068
+Harry Potter to Nazo no Prince	23541
+Harry Potter und der Halbblut-Prinz	23541
+Harry Potterwa Honhyeorwangja	23541
+Harvest Fishing	15229
+Harvest Moon - Frantic Farming	15222
+Harvest Moon - The Tale of Two Towns	14404
+Harvest Moon DS	144394
+Harvest Moon DS - Grand Bazaar	15221
+Harvest Moon DS - Island of Happiness	15219
+Harvest Moon DS - Sunshine Islands	15218
+Harvest Moon DS - The Tale of Two Towns	14404
+Harvest Moon DS Cute	144396
+Hasbro Family Game Night	15524
+Haus Anubis, Das - Das Geheimnis des Osiris	184735
+Haus Anubis, Das - Im Bann der Isis	213076
+Have Fun with Crosswords	192230
+Hayarigami 2 DS - Toshi Densetsu Kaii Jiken	182003
+Hayarigami DS - Toshi Densetsu Kaii Jiken	182004
+Hayate no Gotoku! - Boku ga Romeo de Romeo ga Boku de	182039
+Hayate no Gotoku! - Ojousama Produce Daisakusen - Boku Iro ni Somare! - Oyashiki Hen	182040
+HeartCatch PreCure! - Oshare Collection	182041
+Heathcliff! - Frantic Foto	149142
+Heavy Armor Brigade	129654
+Heisa Byoutou - Dementium	6789
+Heisei Kyouiku Iinkai DS	191351
+Heisei Kyouiku Iinkai DS - Zenkoku Touitsu Moshi Special	191352
+Hell's Kitchen - The Game	122630
+Hello Baby!	129655
+Hello Kitty - Big City Dreams	134329
+Hello Kitty - Birthday Adventures	121889
+Hello Kitty - Daily	134618
+Hello Kitty - Party	149143
+Hello Kitty no Oshare Party - Sanrio Character Zukan DS	191354
+Hello Kitty no Paku Paku & Logic	191355
+Hello, Pocoyo!	129656
+Henry Hatsworth in the Puzzling Adventure	14131
+Heracles - Battle with the Gods	128665
+Heracles no Eikou - Tamashii no Shoumei	11250
+Herbie - Rescue Rally	132218
+Hero's Saga - Laevatein Tactics	11254
+Heroes of Hellas 2 - Olympia	152191
+Heroes of Mana	11253
+Hi Hi Puffy AmiYumi - The Genie & the Amp	122281
+Hi! Hamtaro - Ham-Ham Challenge	134619
+Hidamari Sketch - Dokodemo Sugoroku x 365	182042
+Hidden Expedition - Titanic	152190
+Hidden Mysteries - Buckingham Palace	149145
+Hidden Mysteries - Buckingham Palace - Auf den Spuren der Royals	149145
+Hidden Mysteries - Buckingham Palace - Secrets of Kings and Queens	149145
+Hidden Mysteries - Salem Secrets	149144
+Hidden Mysteries - Salem Secrets - Witch Trials of 1692	149144
+Hidden Mysteries - Titanic	135479
+Hidden Mysteries - Titanic - Secrets of the Fateful Voyage	135479
+Hidden Mysteries - Vampire Secrets	149146
+Hidden Object Show	152162
+Hidden Objects - Mystery Stories	16875
+Hidden Objects - The Big Journey	16875
+High School Musical - Makin' the Cut!	16842
+High School Musical 2 - Work This Out!	129657
+High School Musical 3 - Senior Year	16841
+Higurashi no Naku Koro ni Kizuna I	182046
+Higurashi no Naku Koro ni Kizuna II - Dainikan - Sou	182044
+Higurashi no Naku Koro ni Kizuna III - Daisankan - Rasen	182043
+Higurashi no Naku Koro ni Kizuna IV - Daiyonkan - Kizuna	182045
+Hiiro no Kakera DS	182047
+Hiite Utaeru DS Guitar 'M-06'	18843
+Hijouguchi - Exit DS	127135
+Hikari no 4 Senshi - Final Fantasy Gaiden	11050
+Hippatte!! Puzzle Bobble	6585
+Hiraki Kazuo Sensei	186101
+Hirameki Action - Chibikko Wagyan no Ooki na Bouken	182048
+Hirameki Puzzle - Maxwell no Fushigi na Note	11412
+Hiromichi Oniisan no Oyako Taisou Navi - Oyako no Skin-Ship & Tairyoku Zukuri	191614
+Hissatsu Kung Fu - Kanji Dragon	191613
+Hisshou Pachinko Pachi-Slot Kouryaku Series DS Vol. 1 - Shinseiki Evangelion - Magokoro o, Kimi ni	191997
+Hisshou Pachinko Pachi-Slot Kouryaku Series DS Vol. 2 - CR Shinseiki Evangelion - Shito, Futatabi	191998
+Hisshou Pachinko Pachi-Slot Kouryaku Series DS Vol. 3 - Shinseiki Evangelion - Yakusoku no Toki	191999
+Hisshou Pachinko Pachi-Slot Kouryaku Series DS Vol. 4 - CR Shinseiki Evangelion - Saigo no Shisha	182049
+Hisshou Pachinko Pachi-Slot Kouryaku Series DS Vol. 5 - Shinseiki Evangelion - Tamashii no Kiseki	192000
+Histoire de France pour les Nuls, L'	192259
+History - Great Empires - Rome	135480
+HMH Vokabeltrainer - Englisch	192274
+Hokkaido Hatsu! 'Dosanko Wide' ga DS ni Narimashita. - Hoshizawa Sachiko no Temanashi Raku Raku Gohan	182050
+Hokuto no Ken - Hokuto Shinken Denshousha no Michi	179093
+Hollands Supermodel - Win de Strijd op de Catwalk!	150571
+Holly Hobbie & Friends	129658
+Hollywood Files - Deadly Intrigues	152161
+Homie Rollerz	134621
+Honda ATV Fever	149147
+Honeycomb Beat	130045
+Hop	152160
+Hop - The Movie	152160
+Horrible Histories - Ruthless Romans	152159
+Horrid Henry - Missions of Mischief	152158
+Horrid Henry's Horrid Adventure	152157
+Horse & Foal - My Riding Stables	168462
+Horse Life	130046
+Horse Life - Adventures	149148
+Horse Life 3	152156
+Horseland	152155
+Horsez	104651
+Hoshi no Kirby - Sanjou! Dorotche Dan	6815
+Hoshi no Kirby Ultra Super Deluxe	11264
+Hoshigami	11255
+Hoshigami - Ruining Blue Earth - Remix	11255
+Hoshizora Navi	182061
+Hoshizora no Comic Garden	182062
+Hospital Giant	152154
+Hot Wheels - Battle Force 5	123965
+Hot Wheels - Beat That!	123962
+Hot Wheels - Track Attack	29362
+Hotel Deluxe	184737
+Hotel Deluxe - Greif nach den Sternen	184737
+Hotel Dusk - Room 215	6812
+Hotel Duskui Bimil	6812
+Hotel for Dogs	130047
+Hotel Giant DS	31090
+Hotel Transylvania	13887
+Hottarake no Shima - Kanata to Nijiiro no Kagami	182063
+Houkago Mystery Club - 26 no Tobira	150281
+House M.D. - The Official Game	152153
+How to Pass Your Driving Test	152151
+How to Train Your Dragon	15665
+Hudson x GReeeeN - Live! DeeeeS!	182065
+Hugo - Den forsvundne Kaempe	192231
+Hugo - Kampen om Krystalkortet	192232
+Hugo - Magic in the Trollwoods	152150
+Hugo - Trollakademin 1 - Den Forsvunna Jatten	192231
+Hugo - Trollakademin 2 - Jakten pa Kristallkartan	192232
+Hugo - Zauberei im Trollwald	152150
+Huis Anubis, Het - De Donkere Strijd	213076
+Huis Anubis, Het - Het Geheim van Osiris	184735
+Humans, The - Meet the Ancestors!	134243
+Hurry Up Hedgehog!	130048
+Hwansangsuhojeon - Tierkreis	11426
+I Am an... Air Traffic Controller by DS	19215
+I Did It Mum! - Boy	132262
+I Did It Mum! - Doll's House	152149
+I Did It Mum! - Girl	132315
+I Did It Mum! - Picture Book	152148
+I Did It Mum! - Spelling	179909
+I Did It Mum! 2 - Boy	179911
+I Did It Mum! 2 - Girl	187685
+I Heart Geeks	149165
+I Love Babies	149166
+I Love Beauty - Hollywood Makeover	134622
+I Love Dogs - My Cute Puppies	149167
+I Love Horses	130051
+I Love Puppies	149167
+I Spy - Castle	149169
+I Spy - Fun House	17567
+I Spy - Game Pack	149168
+I Spy - Universe	17568
+I'm a Celebrity - Get Me Out of Here!	152163
+i-Cheat Games	129469
+iCarly	130053
+iCarly - Groovy Foodie!	149171
+iCarly 2 - iJoin the Click!	130054
+Ice Age - Dawn of the Dinosaurs	15671
+Ice Age 2	130052
+Ice Age 2 - The Meltdown	130052
+Ice Age 3 - Dawn of the Dinosaurs	15671
+Ice Age 4 - Continental Drift - Arctic Games	13199
+Ichido wa Yon de Okitai - Nihon Bungaku 100-sen	190981
+Ico Soccer	152124
+Idaten Jump DS - Moero! Flame Kaiser	191237
+Idol Janshi Suchie-Pai III Remix	182064
+Idolm@ster, The - Dearly Stars	133224
+Igor - The Game	95721
+Ikamono Tantei - Ikatan	191235
+IL-2 Sturmovik - Birds of Prey	19222
+Illu-Logi VOW	191233
+Illumislight - Hikari no Puzzle	15123
+Illust Logic DS + Colorful Logic	127155
+Imagine - Animal Doctor	149176
+Imagine - Animal Doctor Care Center	149174
+Imagine - Artist	134119
+Imagine - Babies	16843
+Imagine - Baby Club	149177
+Imagine - Babysitters	149177
+Imagine - Babyz	16843
+Imagine - Babyz Fashion	16840
+Imagine - Ballet Dancer	149178
+Imagine - Ballet Star	149178
+Imagine - Beauty Stylist	149188
+Imagine - Boutique Owner	149179
+Imagine - Champion Rider (Europe) (En,Fr,De,Es,It) (NDSi Enhanced)	167681
+Imagine - Champion Rider (Europe) (En,Fr,De,Es,It,Nl,Sv,No,Da)	143557
+Imagine - Cheerleader	134118
+Imagine - Detective	128646
+Imagine - Detective Adventures	128646
+Imagine - Doctor	149180
+Imagine - Dream Resort	18000
+Imagine - Dream Weddings	149191
+Imagine - Family Doctor	149180
+Imagine - Fashion Designer	18023
+Imagine - Fashion Designer - New York	18007
+Imagine - Fashion Designer - World Tour	149181
+Imagine - Fashion Model	18007
+Imagine - Fashion Paradise	149172
+Imagine - Fashion Stylist	149172
+Imagine - Figure Skater	134113
+Imagine - Girl Band	18001
+Imagine - Gymnast	149182
+Imagine - Happy Cooking	31817
+Imagine - Ice Champions	134114
+Imagine - Interior Designer	134115
+Imagine - Journalist	31818
+Imagine - Makeup Artist	134116
+Imagine - Master Chef	31817
+Imagine - Modern Dancer	148250
+Imagine - Movie Star	134117
+Imagine - Music Fest	149183
+Imagine - My Boutique	149179
+Imagine - My Restaurant	129649
+Imagine - Party Planner	149186
+Imagine - Pet Vet	149176
+Imagine - Reporter	31818
+Imagine - Rescue Vet	149174
+Imagine - Resort Owner	18000
+Imagine - Rock Star	18001
+Imagine - Salon Stylist	149188
+Imagine - Soccer Captain	149189
+Imagine - Sweet 16	31816
+Imagine - Teacher	16972
+Imagine - Teacher - Class Trip	149190
+Imagine - Teacher - School Trip	149190
+Imagine - Wedding Designer	149191
+Imagine - Wildlife Keeper	149173
+Imagine - Zookeeper	149173
+Imasugu Tsukaeru Mamechishiki - Quiz Zatsugaku-ou DS	185026
+Imi made Wakaru - Otona no Jukugo Renshuu - Kadokawa Ruigo Shin Jiten kara 5-man Mon	182281
+Impara con Pokemon - Avventura Tra i Tasti	123996
+Impossible Mission	5690
+Inazuma Eleven	11256
+Inazuma Eleven 2 - Blizzard	11257
+Inazuma Eleven 2 - Bufera di Neve	11257
+Inazuma Eleven 2 - Eissturm	11257
+Inazuma Eleven 2 - Feuersturm	27782
+Inazuma Eleven 2 - Firestorm	27782
+Inazuma Eleven 2 - Kyoui no Shinryakusha - Blizzard	11257
+Inazuma Eleven 2 - Kyoui no Shinryakusha - Fire	27782
+Inazuma Eleven 2 - Tempesta di Fuoco	27782
+Inazuma Eleven 2 - Tempete de Feu	27782
+Inazuma Eleven 2 - Tempete de Glace	11257
+Inazuma Eleven 2 - Tormenta de Fuego	27782
+Inazuma Eleven 2 - Ventisca Eterna	11257
+Inazuma Eleven 3 - Sekai e no Chousen!! - Bomber	134695
+Inazuma Eleven 3 - Sekai e no Chousen!! - Spark	179095
+Inazuma Eleven 3 - Sekai e no Chousen!! - The Ogre	179096
+Incollables CE1-CE2, Les	143455
+Incollables CM1-CM2, Les	143456
+Incollables CP, Les	192256
+Incredible Hulk, The	130055
+Incredibles, The - Rise of the Underminer	21455
+Indiana Jones and the Staff of Kings	19223
+Indianapolis 500 Legends	130056
+Indoor Sports Club	148218
+Indosik Dunoe Suhak	213079
+Infinite Space	11258
+Inkheart	130057
+Insecticide	130058
+Intellivision Lives!	15171
+Interactive Storybook DS - Series 1	127270
+Interactive Storybook DS - Series 2	132224
+Interactive Storybook DS - Series 3	132225
+Internado, El - Laguna Negra	152128
+International Athletics	148194
+Intervilles - Fais Gagner Ta Ville! - Le Jeu Officiel	192233
+Inu Gaisha	182329
+Inugamike no Ichizoku	182330
+InuYasha - Secret of the Divine Jewel	13856
+Ippan Zaidan Houjin Nihon Kanji Shuujukudo Kentei Kikou Kounin - Kanjukuken DS	191363
+Iron Chef America - Supreme Cuisine	95255
+Iron Feather	182331
+Iron Man	15685
+Iron Man 2	7932
+Iron Man 2 - The Video Game	7932
+Irozuki Tingle no Koi no Balloon Trip	417888
+Isanghan Naraui Princess	15122
+Ishin no Arashi - Shippuu Ryouma Den	182335
+Isola dei Famosi, L'	100033
+It Lives!	20904
+It's Tehodoki! Hannya Shingyou Nyuumon	191448
+Itadaki Street DS - Dragon Quest Super Mario	143229
+Item Getter - Bokura no Kagaku to Mahou no Kankei	182336
+Itouke no Urawaza DS	182337
+Itsudemo Dokodemo - Onita Atsushi no Seiji Quiz DS	191232
+Itsudemo Dokodemo Dekiru Igo - AI Igo DS	191326
+Itsudemo Dokodemo Dekiru Shougi - AI Shougi DS	191327
+Itsumo no Shokuzai de Dekichau Suteki na Sweets to Gochisou.	191481
+Itsuwari no Rondo	14064
+Ivy the Kiwi	11259
+Ivy the Kiwi - Tsuta ga Michibiku Monogatari.	11259
+Izuna - Legend of the Unemployed Ninja	13969
+Izuna - The Legend of the Ninja	13969
+Izuna 2 - The Unemployed Ninja Returns	13970
+J'Apprends l'Anglais CP-CM1	203513
+J4G - A Girl's World	152123
+Jackass - The Game DS	33676
+Jacqueline Wilson's Tracy Beaker - The Game	152127
+Jagged Alliance	130059
+Jaka Jaka Music! M09	182338
+Jake Hunter - Detective Chronicles	93745
+Jake Hunter Detective Story - Memories of the Past	14836
+Jake Power - Firefighter	130060
+Jake Power - Fireman	130060
+Jake Power - Handyman	130061
+Jam Sessions - Sing & Play Guitar	18843
+Jam Sessions 2	130063
+Jam with the Band	27293
+Jambo! Safari - Animal Rescue	130064
+James Cameron's Avatar - The Game	15294
+James Patterson Women's Murder Club - Games of Passion	29311
+James Pond - Codename Robocod	11260
+Jan Sangoku Musou	191244
+Jane's Hotel	130065
+Je Decouvre les Echecs	151716
+Jelly Belly - Ballistic Beans!	18021
+Jenga - World Tour	130066
+Jeoldaepiryo - Yeongsugeo 1000 DS	191108
+Jeoldaeuwi - Yeongdaneo 1900 DS	213081
+Jeongukmin Model Audition Superstar DS	184520
+Jeopardy!	13882
+Jet Impulse	179433
+Jetix Puzzle Buzzle	152108
+Jewel Adventures	152107
+Jewel Land	152171
+Jewel Legends - Tree of Life	152106
+Jewel Link - Arctic Quest	152105
+Jewel Link - Atlantic Quest	152104
+Jewel Link - Galactic Quest	152103
+Jewel Link - Legends of Atlantis	168467
+Jewel Link - Safari Quest	152102
+Jewel Link Chronicles - Legend of Athena	14247
+Jewel Link Double Pack	187908
+Jewel Link Mysteries - Mountains of Madness	149192
+Jewel Master - Atlantis	168467
+Jewel Master - Cradle of Athena	14247
+Jewel Master - Cradle of Egypt	14242
+Jewel Master - Cradle of Egypt 2	149193
+Jewel Master - Cradle of Persia	149194
+Jewel Master - Cradle of Rome	168219
+Jewel Master - Cradle of Rome 2	29313
+Jewel Master - Egypt	14242
+Jewel Master Collection	130067
+Jewel Match	130068
+Jewel Match 2	152085
+Jewel Match 3	152084
+Jewel Quest - Expeditions	107043
+Jewel Quest - Mysteries	14248
+Jewel Quest - Mysteries - 2 Tolle Wimmelbild-Abenteuer	152081
+Jewel Quest - Mysteries - Curse of the Emerald Tear	197535
+Jewel Quest - Solitaire	141176
+Jewel Quest - Solitaire - 3 Tolle Solitaire-Spiele	149195
+Jewel Quest - Solitaire - Solitaire with a Twist!	141176
+Jewel Quest - Solitaire Trio	149195
+Jewel Quest 5 - The Sleepless Star	168468
+Jewel Quest IV - Heritage	152083
+Jewel Quest Mysteries 2 - Trail of the Midnight Heart	152081
+Jewel Time Deluxe	149196
+Jewelpet - Kawaii Mahou no Fantasy	182398
+Jewelpet - Mahou no Oheya de Issho ni Asobou!	182399
+Jewels of the Ages	149197
+Jewels of the Tropical Lost Island	17053
+Jigapix - Love is	152080
+Jigapix - Pets	152069
+Jigapix - Wild World	152068
+Jigapix - Wonderful World	152067
+Jigoku Shoujo - Akekazura	182401
+Jiji Tsuushin Shuppan-Kyoku Kyouryoku - Katei no Igaku - DS de Kitaeru Shokuzai Kenkou Training	191615
+Jillian Michaels Fitness Ultimatum 2010	8995
+Jin Samguk Mussang DS - Fighter's Battle	123999
+Jinsei Game	182402
+Jinsei Game DS	191148
+Jinsei Game Q - DS Heisei no Dekigoto	191149
+Jinsei Game Q - DS Shouwa no Dekigoto	191150
+Jishin DS 72-jikan	182403
+Jissen Pachi-Slot Hisshouhou! DS - Aladdin II Evolution	191709
+Jissen Pachi-Slot Hisshouhou! DS - Hokuto no Ken	191710
+Jissen Pachi-Slot Hisshouhou! DS - Hokuto no Ken SE	191711
+Jjangguneun Monmallyeo - Buriburi - Tteogip Maeul Daemoheom!	180837
+Jjangguneun Monmallyeo - Cinemaland Chalkak Chalkak Daesodong!	181238
+Jjangguneun Monmallyeo - Mallangmallang Gomuchalheuk Daebyeonsin!	185934
+Jjangguneun Monmallyeo - Won Peulleoseu Won! - Shock Seong Land Daegyeoljeon!!	181176
+Jjangguneun Monmallyeo DS - Alssongdalssong Crayon Daejakjeon!	160331
+Joan Jade and the Gates of Xibalba	152066
+John Deere - Harvest in the Heartland	18476
+Johnny Bravo in the Hukka-Mega-Mighty-Ultra-Extreme Date-O-Rama!	134625
+Johnny Test	149198
+Jojo's Fashion Show	149199
+Jojo's Fashion Show - Design in a Dash!	149199
+Jonas	130069
+Josefiina Alkupolku - Englannin Kieli - Mysteeri Lontoossa	192236
+Josefiina Alkupolku - Matematiikka - Sumua Lukukylan ylla	192237
+Josefiina Alkupolku - Seikkailumaa - Unelmien peili	192238
+Josefin Skolhjaelp - Matematik - Dimma oever Sifferkoeping	192237
+Josefin Skolhjalp - Engelska - Mystery in London	192236
+Josefin Skolhjalp och Dromspegeln	213143
+Josefine - Magi i Eventyrland	212242
+Josefine og Droemmespeilet	192238
+Josefine Skolehjelp - Engelsk - Mystery in London	192236
+Josefine Skolehjelp - Matematikk - Taake i Tallheimen	192237
+Joshikousei Nigeru! - Shinrei Puzzle Gakuen	191671
+Journey to the Center of the Earth	130070
+Juiced 2 - Hot Import Nights	134623
+Jumble Madness	130071
+Jump Super Stars	27192
+Jump Ultimate Stars	21145
+JumpStart - Deep Sea Escape	153871
+JumpStart - Legend of Lost Island	153872
+Jungle School	152065
+Junior Brain Trainer	152062
+Junior Brain Trainer - Math Edition	152063
+Junior Brain Trainer - Maths Edition	152063
+Junior Brain Trainer 2	152064
+Junior Classic Books	149200
+Junior Classic Books & Fairytales	149200
+Junior Island Adventure	149213
+Junior Mystery Quest	152061
+Junior Mystery Stories	152061
+Junior Wort-Quiz, Das	148196
+Just Sing	152058
+Just Sing! - Vol. 2	152060
+Just Sing! - Vol. 3	152059
+Justice League Heroes	132226
+Juushinden - Ultimate Beast Battlers	191833
+K-1 World GP - Zettai Ouja Ikusei Keikaku	191673
+K3 en de Vrolijke Noten	213083
+K3 en het IJsprinsesje	213090
+Kabu Trader Shun	182483
+Kabushiki Baibai Trainer - Kabutore!	194753
+Kachou Shima Kosaku DS - Dekiru Otoko no Love & Success	190982
+Kage no Densetsu - The Legend of Kage 2	6817
+Kageyama Hideo no Hanpuku Ondoku - DS Eigo - Shougaku Eigo Hisshuu Drill	182485
+Kageyama Hideo no IQ Teacher DS - Kangaeru Chikara to Oboeru Chikara	191675
+Kaibou Seirigaku DS - Touch de Hirogaru! Jintai no Kouzou to Kinou	191629
+Kaidan Restaurant - Ura Menu 100-sen	182486
+Kaidan Restaurant - Zoku! Shin Menu 100-sen	191630
+Kaigo Navi DS	191449
+Kaite Oboeru - Doragana	182489
+Kaitou Rousseau	191604
+Kaitou Wario the Seven	19234
+Kaizoku Sentai Gokaiger - Atsumete Henshin! 35 Sentai!	191631
+Kakikomi Shiki - 'Hannya Shingyou' Renshuuchou DS	191834
+Kakko Yoku Narou - Kaku-chan Shiki - Kintore Navi	191632
+Kakuromaniacs	152057
+Kalle Kunskap - 4-7 Aar	134235
+Kalle Kunskap Matematik 4-8 ar	192239
+Kameleon	13383
+Kamen Rider - Dragon Knight	135478
+Kamen Rider Battle - GanbaRide - Card Battle Taisen	182496
+Kanbayashi Shiki Nouryoku Kaihatsu Hou - Unou Kids DS	191634
+Kangaeru Chikara o Gun Gun Nobasu! - DS Youji no Noutore	182511
+Kanji no Wataridori	182584
+Kankyou Jidai no Koushiki Kentei - Eco Kentei DS - Tokyo Shoukou Kaigisho Kanshuu	191332
+Kanshuu - Shuukan Pro Wrestling - Pro Wrestling Kentei DS	185001
+Kanshuu Nihon Joushiki Ryoku Kentei Kyoukai - Imasara Hito ni wa Kikenai - Otona no Joushiki Ryoku Training DS	184905
+Kantan! Tanoshii! - Okashi Navi DS	191246
+Karada Support Kenkyuujo - Tounyoubyou Hen	191331
+Karada, Yorokobu Shokuji & Exercise - Kenkou Kentei	191328
+Karasawa Shunichi no Zettai ni Ukeru!! - Zatsugakuen DS	191605
+Kaseki Chou Shinka - Spectrobes	6881
+Katei de Dekiru! Chomeijin Yuumei Ryourinin no Original Recipe - Shokusai Roman	191606
+Katekyoo Hitman Reborn! DS - Fate of Heat II - Unmei no Futari	183272
+Katekyoo Hitman Reborn! DS - Fate of Heat III - Yuki no Shugosha Raishuu!	182586
+Katekyoo Hitman Reborn! DS - Flame Rumble - Kaien Ring Soudatsusen!	182589
+Katekyoo Hitman Reborn! DS - Flame Rumble Hyper - Moeyo Mirai	182588
+Katekyoo Hitman Reborn! DS - Ore ga Boss! - Saikyou Family Taisen	182591
+Katekyoo Hitman Reborn! DS - Shinuki Max! Vongola Carnival!!	182587
+Katekyoo Hitman Reborn! DS - Vongola Shiki - Taisen Battle Sugoroku	182592
+Kawa no Nushi Tsuri - Komorebi no Tani, Seseragi no Uta	15229
+Kawaii Koinu DS	18004
+Kawaii Koinu DS 2	182593
+Kawaii Koneko DS 2	182596
+Kayou Generation, The	182599
+Kazoku Minna de - Nihon Shiatsu Shikai Kanshuu - Raku Raku Shiatsu Navi	191635
+Keiji J.B. Harold no Jikenbo - Murder Club	140128
+Keltis - Das Spiel von Reiner Knizia	190369
+Kemeko Deluxe! DS - Yome to Meka to Otoko to Onna	179098
+Kenkou Ouen Recipe 1000 - DS Kondate Zenshuu	191088
+Kenshuui Tendo Dokuta	182602
+Kenshuui Tendo Dokuta 2 - Inochi no Tenbin	20134
+Kero Kero 7	191550
+Keroro Gunsou - Enshuu Da yo! - Zenin Shuugou Part 2	179099
+Keroro RPG - Kishi to Musha to Densetsu no Kaizoku	179100
+Ketsui Death Label - Kizuna Jigoku-tachi	176579
+Kid Paddle - Blorks Invasion	132227
+Kid Paddle - Lost in the Game	192240
+Kidou Gekidan Haro Ichiza - Gundam Mahjong +Z - Sarani Dekiru You ni Natta Na!	191608
+Kidou Gekidan Haro Ichiza - Gundam Mahjong DS - Oyaji ni mo Agarareta Koto nai no ni!	191607
+Kidou Senshi Gundam 00	182604
+Kids DS - Dekita yo! Mama. - Onnanoko	132315
+Kids DS - Dekita yo! Mama. - Otokonoko	132262
+Kids Learn & Play - Pets & Vets Bundle	151416
+Kids Learn - 2Think - A+ Edition	152056
+Kids Learn - 2Think - A+ Edition - Multiplayer	203537
+Kids Learn - Math - A+ Edition	152055
+Kids Learn - Math and Spelling Bundle	192242
+Kids Learn - Spelling and Grammar - A+ Edition	152054
+Kids Learn Music - A+ Edition	24166
+Kiite Hajimeru - Eigo Kaiwa Training - Kikitore	191229
+Kikansha Thomas - DS de Hajimeru Chiiku Gakushuu	191224
+Kikansha Thomas - DS de Hajimeru Kokugo Sansuu Eigo	191228
+Kiku! Kaku! Kotoba o Fuyasu! - Hajimete no Eigo Training - Eitore	191546
+Kilari - Deviens une Star	182605
+Kilari - Na-san, Mon Meilleur Ami	168478
+Kim Possible - Global Gemini	27826
+Kim Possible - Kimmunicator	6813
+Kimi ni Todoke - Tsutaeru Kimochi	191544
+Kimi no Tame Nara Shineru	6799
+Kimi no Yuusha	176577
+Kimochi yosa Rensa Puzzle - Trion Cube	20891
+Kimokawa-E!	191334
+Kindaichi Shounen no Jikenbo - Akuma no Satsujin Koukai	191335
+King of Clubs	20904
+Kingdom Hearts - 358-2 Days	11261
+Kingdom Hearts - Re-coded	11262
+Kira Kira Pop Princess	98008
+Kirakira Rhythm Collection	129585
+Kirarin Revolution - Atsumete Change! - Cool Kira Coord	182922
+Kirarin Revolution - Kirakira Idol Audition	188272
+Kirarin Revolution - Mezase Idol Queen	182605
+Kirarin Revolution - Minna de Odorou Furi Furi Debut!	188284
+Kirarin Revolution - Naa-san to Issho	168478
+Kirarin Revolution - Tsukutte Misechao! - Kime Kira Stage	188281
+Kirby - Canvas Curse	6814
+Kirby - Mouse Attack	6815
+Kirby - Power Paintbrush	6814
+Kirby - Squeak Squad	6815
+Kirby Mass Attack	11263
+Kirby Super Star Ultra	11264
+Kirby Ultra Super Deluxe	11264
+Kirei Zukin Seikatsu	182923
+Kirei Zukin Seikatsu 2	191223
+Kirihara Shoten Forest - Eigo@DS	182924
+Kirihara Shoten Kanshuu - Daigakusei Ryoku Kentei DS	182925
+Kirikou et les Betes Sauvages	152052
+Kiwami Birei Aquarium - Sekai no Sakana to Iruka Kujira-tachi	184129
+Knights in the Nightmare	11265
+Knobel- und Denkspiele	149912
+Knobel- und Denkspiele 2	149915
+Knock 'Em Downs - World's Fair	152051
+Know How - Spielend um die Ecke denken	152050
+Know How 2	13382
+Kobun Kanbun DS	184131
+Kochira Katsushika Ku Kameari Kouen Mae Hashutsujo - Kateba Tengoku! Makereba Jigoku! - Ryoutsu-ryuu Ikkakusenkin Daisakusen!	179101
+Kochkurs - Was Wollen Wir Heute Kochen	6863
+Kodai Ouja Kyouryuu King - 7-tsu no Kakera	121624
+Kodawari Saihai Simulation - Ochanoma Pro Yakyuu DS	192001
+Kodawari Saihai Simulation - Ochanoma Pro Yakyuu DS - 2010 Nendo Ban	184132
+Kodomo no Tame no Yomi Kikase - Ehon de Asobou 1-kan	191247
+Kodomo no Tame no Yomi Kikase - Ehon de Asobou 2-kan	191271
+Kodomo no Tame no Yomi Kikase - Ehon de Asobou 4-kan	191273
+Kodomo no Tame no Yomi Kikase - Ehon de Asobou 5-kan	191274
+Koe de Asobou - HeartCatch PreCure!	184171
+Koh-Lanta	100033
+Koh-Lanta - Survie dans la Jungle!	152163
+Koinu de Kururin	191276
+Koisuru Purin! - Koi wa Daibouken! Dr. Kanmi no Yabou!	184172
+Kokoro ga Mezameru - Otoko-tachi no Nurie DS - Tamiya Box Art	150208
+Kokoro ga Uruou - Birei Aquarium DS - Kujira, Iruka, Penguin	149126
+Kokoro ga Uruou - Birei Aquarium DS - Tetra, Guppy, Angelfish	18025
+Kokoro ni Shimiru - Mouhitsu de Kaku - Aida Mitsuo DS	191450
+Kokoro o Yasumeru - Otona no Nurie DS	150206
+Kokoro o Yasumeru - Otona no Nurie DS 2	150209
+Kolonisten van Catan, De	128750
+Koma Neko DS	191451
+Konami Arcade Classics	6816
+Konami Arcade Collection	6816
+Konami Classics Series - Arcade Hits	6816
+Konchuu Wars	11220
+Konductra	134626
+Konnichiwa Akachan	128258
+Konzentration und Aufmerksamkeit 1.-4. Klasse	213254
+Kore de Haji o Kakanai - Ashita Tsukaeru DS Business Manner	191169
+Korg DS-10 Synthesizer	13137
+Korg M01 Music Workstation	152049
+Kotoba no Puzzle - Mojipittan DS	191221
+Kou Rate Ura Mahjong Retsuden - Mukoubuchi - Goburei, Last Desu ne	191587
+Kou-chan no Shiawase! Kantan! Oryouri Recipe	184173
+Kouchuu Kakutou - Mushi-1 Grand-Prix	191835
+Kouchuu Ouja Mushi King - Greatest Champion e no Michi DS	191837
+Kouchuu Ouja Mushi King Super Collection	191836
+Kouenji Joshi Soccer 2 - Koi wa Nebagiba Kouenji	191640
+Koukou Juken Eitango Get Through 1900 - Eitan Zamurai DS	191337
+Kousoku Card Battle - Card Hero	191588
+Kreuzwortraetsel DS - Welt Edition	419938
+Kumatanchi	191589
+Kung Fu Panda	149554
+Kung Fu Panda - Legendary Warriors	17570
+Kung Fu Panda 2	8314
+Kung Zhu	17569
+Kunio-kun no Chou Nekketsu! - Daiundoukai	93746
+Kunio-kun no Chou Nekketsu! - Soccer League Plus - World Hyper Cup Hen	27193
+Kunitori Zunou Battle - Nobunaga no Yabou	191590
+Kurayami no Hate de Kimi o Matsu	184177
+Kurikuri DS - Otasuke Island	13912
+Kuroshitsuji - Phantom & Ghost	184176
+KuruKuru Chameleon DS	13383
+KuruKuru Princess - Figure de KiraKira Koori no Angel	134113
+KuruKuru Princess - Tokimeki Figure - Mezase! Vancouver	184192
+KuruKuru Princess - Yume no White Quartet	134114
+Kuruma de DS	191839
+Kurupoto - Atama ni Piritto Supplement Puzzle	15168
+Kurupoto - Cool Cool Stars	15168
+Kururin Doughnut - Okashi na Recipe	191593
+Kurutore eCDP	194647
+Kuukan Zukei - Hirameki Training - Kuutore	191594
+Kyokugen Dasshutsu - 9-jikan, 9-nin, 9 no Tobira	11185
+Kyou kara DS - Calorie Navi	191120
+Kyouryuu Ikusei Battle RPG - Kyouryuu Monster	191841
+Kyouryuu Ouja Ketteisen - Kyouryuu Grand Prix	129635
+Kyouryuu Taisen Dino Champ - Saikyou DNA Hakkutsu Daisakusen	91915
+Kyuukyuu Kyuumei Caduceus 2	11053
+L - The Prologue to Death Note - Rasen no Trap	184196
+L.O.L.	12278
+Labyrinth	438992
+Lalaloopsy	151513
+Lalaloopsy - Carnival of Friends	151514
+Lanfeust of Troy	152048
+Langenscheidt VokabelStar Englisch fuer Einsteiger	152009
+Lapin Malin - J'Apprends a Lire et a Ecrire	192248
+Lara Croft Tomb Raider - Legend	99948
+Last Window - Mayonaka no Yakusoku	14516
+Last Window - The Secret of Cape West	14516
+Layton Gyosuwa Angmaui Sangja	10495
+Layton Gyosuwa Isanghan Maeul	6869
+Layton Kyouju to Akuma no Hako	10495
+Layton Kyouju to Akuma no Hako - Friendly Ban	10495
+Layton Kyouju to Fushigi na Machi	6869
+Layton Kyouju to Fushigi na Machi - Friendly Ban	6869
+Layton Kyouju to Majin no Fue	10664
+Layton Kyouju to Saigo no Jikan Ryokou	10665
+Learn Chess	151716
+Learn Geography	151715
+Learn Math	151714
+Learn Science	213061
+Learn to Play Chess with Fritz & Chesster	151712
+Learn with Pokemon - Typing Adventure	123996
+Learning Maths	151714
+Learning To Spell	179909
+Lecons de Cuisine - Qu'Allons-Nous Manger Aujourd'hui	6863
+Left Brain, Right Brain - Use Both Hands, Train Both Sides	152017
+Left Brain, Right Brain 2	135477
+Left or Right - Ambidextrous Challenge	152017
+Legacy of Ys - Books I & II	11266
+Legend of Kage 2, The	6817
+Legend of Kay	124058
+Legend of Spyro, The - A New Beginning	124041
+Legend of Spyro, The - Dawn of the Dragon	124069
+Legend of Spyro, The - The Eternal Night	18089
+Legend of the Guardians - The Owls of Ga'Hoole	15755
+Legend of Zelda - Spirit Tracks, The - Multiplayer	20904
+Legend of Zelda, The - Phantom Hourglass	2245
+Legend of Zelda, The - Phantom Hourglass - Exclusive Movie 1	20904
+Legend of Zelda, The - Phantom Hourglass - Exclusive Movie 2	20904
+Legend of Zelda, The - Spirit Tracks	6818
+Legend of Zelda, The - Twilight Princess - Preview Trailer	142971
+Legendary Starfy, The	6889
+Legendary Starfy, The - Minigames	20904
+LEGO Batman - The Videogame	13180
+LEGO Batman 2 - DC Super Heroes	121637
+LEGO Battles	16406
+LEGO Battles - Ninjago	19127
+LEGO Friends	149595
+LEGO Harry Potter - Years 1-4	19224
+LEGO Harry Potter - Years 5-7	8250
+LEGO Indiana Jones - The Original Adventures	14539
+LEGO Indiana Jones 2 - The Adventure Continues	14638
+LEGO Legends of Chima - Laval's Journey	149594
+LEGO Marvel Super Heroes - L'Univers en Peril	123966
+LEGO Marvel Super Heroes - Universe in Peril	123966
+LEGO Ninjago - The Videogame	19127
+LEGO Pirates of the Caribbean - The Video Game	16184
+LEGO Racers - The Video Game	17617
+LEGO Rock Band	14567
+LEGO Star Wars - The Complete Saga	17965
+LEGO Star Wars II - The Original Trilogy	20904
+LEGO Star Wars III - The Clone Wars	16884
+LEGO The Lord of the Rings	24316
+Lernen mit Pokemon - Tasten-Abenteuer	123996
+Lernerfolg Grundschule - Deutsch - Der Rechtschreibtrainer	212987
+Lernerfolg Grundschule - Deutsch - Klasse 1+2	212986
+Lernerfolg Grundschule - Deutsch - Klasse 1-4	152006
+Lernerfolg Grundschule - Deutsch - Klasse 3+4	212985
+Lernerfolg Grundschule - Englisch	203513
+Lernerfolg Grundschule - Englisch - Der Vokabeltrainer	189348
+Lernerfolg Grundschule - Englisch - Klasse 1-4	212988
+Lernerfolg Grundschule - Konzentration - Der Aufmerksamkeitstrainer	152007
+Lernerfolg Grundschule - Mathematik	151714
+Lernerfolg Grundschule - Mathematik Intensiv - Klasse 1-4	189347
+Lernerfolg Grundschule - Musik - Little Amadeus	213095
+Lernerfolg Vorschule - Capt'n Sharky	212989
+Lernerfolg Vorschule - Prinzessin Lillifee	212990
+Let's Draw!	134627
+Let's Pilates!	135476
+Let's Play Ballerina	129697
+Let's Play Fashion Designer	151860
+Let's Play Firemen	34099
+Let's Play Flight Attendant	135475
+Let's Play Garden	151859
+Let's Play Journalists	151858
+Let's Play Mums	129610
+Let's Play Pet Hospitals	151856
+Let's Play Schools	129614
+Let's Play Shops	129613
+Let's Ride - Friends Forever	151857
+Let's Yoga!	135474
+Let's! Mangaka DS Style	191482
+Lettriq - Evaluez Votre QI Lettrique	192258
+Lewis to Mirai Dorobou - Wilbur no Kiken na Jikan Ryokou	135463
+Licca-chan DS - Motto! Onnanoko Lesson - Oshare, Oshigoto, Otetsudai Daisuki!	153917
+Licca-chan DS - Onnanoko Lesson - Oshare mo Oshigoto mo Omakase!	135459
+LifeSigns - Hospital Affairs	20134
+LifeSigns - Surgical Unit	20134
+LilPri DS - Hime Chen! Apple Pink	184201
+Lina no Atelier - Strahl no Renkinjutsushi	184202
+Linda Hyde - Vampire Mansion	151717
+Line Rider - Freestyle	6819
+Line Rider 2 - Unbound	6819
+Lingo met Lucille Werner	213105
+Lingo voor Kinderen	213106
+Lionel Trains - On Track	31558
+Lise no Atelier - O'ldor no Renkinjutsushi	184203
+Little Bears	151510
+Little Charley Bear - Toybox of Fun	152016
+Little League World Series Baseball - Double Play	135473
+Little League World Series Baseball 2008	135471
+Little League World Series Baseball 2009	135472
+Little Mermaid - Ariel no Umi no Takaramono	19304
+Little Mermaid, The - Ariel's Undersea Adventure	19304
+Little Red Riding Hood's Zombie BBQ	6820
+Little Wingels	213107
+Littlest Pet Shop - Beach Friends	135470
+Littlest Pet Shop - City Friends	135469
+Littlest Pet Shop - Country Friends	135468
+Littlest Pet Shop - Garden	149605
+Littlest Pet Shop - Jungle	104652
+Littlest Pet Shop - Spring	135467
+Littlest Pet Shop - Winter	149596
+Littlest Pet Shop 3 - Biggest Stars - Blue Team	151110
+Littlest Pet Shop 3 - Biggest Stars - Pink Team	22480
+Littlest Pet Shop 3 - Biggest Stars - Purple Team	151109
+Live Battle Card - Live On DS	184204
+Live-On Card Live-R DS	184204
+Livly Garden	184205
+Lock's Quest	11267
+Lock's Quest - Shinmai Archineer no Hyakunichi Sensou	11267
+Lode Runner	171422
+Logic Cubes	151505
+Logic Island	151506
+Logic Machines	14929
+Lola & Virginia	151507
+Londonian Gothics - Meikyuu no Lolita	184224
+Long Vacation - Iruka to Watashi	129602
+LonQ! Highland in DS - Puu Puu Seijin Arawaru!! Shukketsu Dai-service! Onara no Saiten SP	191341
+Looney Tunes - Cartoon Concerto	127480
+Looney Tunes - Cartoon Conductor	127480
+Looney Tunes - Duck Amuck	34449
+Lord of the Rings, The - Aragorn's Quest	14271
+Lord of the Rings, The - Conquest	125510
+Lost Identities	151508
+Lost in Blue	6821
+Lost in Blue 2	11268
+Lost in Blue 3	11269
+Lost Treasures of Alexandria, The	151767
+LostMagic	12838
+Love Cat Life	13505
+Love Love Hamster	18790
+Love Plus	33579
+Lovely Lisa	135459
+Lovely Lisa and Friends	153917
+Loving Life with Hello Kitty & Friends	151709
+Lucky Luke - The Daltons	151364
+Lucky Star - Moe Drill	184225
+Lufia - Curse of the Sinistrals	11329
+Luminous Arc	11330
+Luminous Arc 2	11331
+Luminous Arc 2 - Will	11331
+Luminous Arc 3 - Eyes	155612
+Lunar - Dragon Song	11332
+Lunar - Genesis	11332
+Lunar Knights	6822
+Lunnis	189810
+Lupin Sansei - Shijou Saidai no Zunousen	166143
+Lux-Pain	6823
+Luxor - Pharaoh's Challenge	29492
+Lyra no Bouken - Ougon no Rashinban	8557
+M&M's - Adventure	149608
+M&M's - Break 'em	118343
+M&M's - Kart Racing	19128
+M3DS Simply & R4DS	6886
+Mabeop Cheonjamun DS	447540
+Mabeop Cheonjamun DS 2 - Choehuui Hanja Mabeop	207242
+MaBoShi - The Three Shape Arcade	20904
+Maboshi's Arcade	20904
+Machi He Ikouyo - Doubutsu no Mori - Moving Van	20904
+Machi He Ikouyo - Doubutsu no Mori - Suitcase	20904
+Machi no Pet-ya-san DS - 200 Piki Wan-chan Daishuugou	149921
+Madagascar	115791
+Madagascar - Escape 2 Africa	15811
+Madagascar 2	15811
+Madagascar 3	15803
+Madagascar 3 - Europe's Most Wanted	15803
+Madagascar Kartz	15806
+Madden NFL 06	135460
+Madden NFL 07	15817
+Madden NFL 08	15824
+Madden NFL 09	29839
+Madden NFL 2005	18366
+Made in Ore	6904
+Maeh Jongg DS	213108
+Maeilmaeil - DS Dunoe Training	6583
+Maeilmaeil Deoukdeo! - DS Dunoe Training	6584
+MAER Heaven - Kaldea no Akuma	191641
+Maestro! - Jump in Music	101123
+Mage Knight - Destiny's Soldier	11333
+Magic Cheongkeuwa Mabeobui Seong	213112
+Magic Encyclopedia 3 - Illusions	151512
+Magic Encyclopedia II - Moonlight	151511
+Magic Made Fun - Perform Tricks That Will Amaze Your Friends!	6839
+Magic Roundabout, The	151123
+Magic School Bus, The - Oceans	125511
+Magic Taizen	6839
+Magical Michael Pang	151363
+Magical Starsign	6833
+Magical Unicorn, The	149106
+Magical Vacation - Itsutsu no Hoshi ga Narabu Toki	6833
+Magical Zhu Zhu Princess - Carriages and Castles	152004
+Magician's Quest - Mysterious Times	15032
+MagicQ DS	213115
+Magische Labyrinth, Das	213117
+Magnetica	6834
+Magnetica - Multiplayer	6834
+Mah Jong Quest - Expeditions	135466
+Mah-Jong 300	151117
+Mahjong	152015
+Mahjong - Eine Reise um die Welt	152014
+Mahjong Haou DS - Dan-Kyuu Battle	184284
+Mahjong Haou DS Special	191642
+Mahjong Journey - Quest for Tikal	151348
+Mahjong Mysteries - Ancient Athena	151347
+Mahjong Mysteries - Ancient Egypt	151509
+Mahjong Navi DS	184286
+Mahjong Taikai	191596
+Mahjongg - Ancient Egypt	151509
+Mahjongg - Ancient Mayas	151348
+Mahjongg DS	151118
+Mahjongg Mysteries - Ancient Egypt	151509
+Mahou ni Kakerarete	129624
+Mainichi ga Tanoshii! - Ayanokouji Kimimaro no Happy Techou	191644
+Mainichi Kokorobics - Kaiun Kenkyuuka Utsukita Mahiro Kanshuu - DS Uranai Happiness 2008	191693
+Mainichi Shinbun Soukan 135 Shuunen Project - Mainichi Shinbun 1000 Dai News	191694
+Mainichi Shinbunsha Kyouryoku - Saikyou no Kanji Drill 5-man Mon	191695
+Mainichi Suteki! - Hello Kitty no Life Kit	134618
+Mais Ou Se Cache Carmen Sandiego - Mystere au Bout du Monde	152013
+Maja	481004
+Maji de Manabu - LEC de Ukaru - DS Gyouseishoshi	191616
+Maji de Manabu - LEC de Ukaru - DS Hisho Kentei 2-kyuu - 3-kyuu	191676
+Maji de Manabu - LEC de Ukaru - DS Kikenbutsu Toriatsukaisha Otsushu 4 Rui	191678
+Maji de Manabu - LEC de Ukaru - DS Koumuin Shiken - Suuteki Shori	191680
+Maji de Manabu - LEC de Ukaru - DS Nisshou Boki 3-kyuu	191681
+Maji de Manabu - LEC de Ukaru - DS Takuchi Tatemono Torihiki Shuninsha - 2011 Nen & 2012 Nendo Ban	191687
+Majime ni Fumajime - Kaiketsu Zorori - Kyoufu no Takarabako	191689
+Majin Tantei Nougami Neuro - Neuro to Yako no Bishoku Zanmai - Suiri Tsuki - Gourmet & Mystery	191692
+Majo ni Naru.	13973
+Major DS - Dream Baseball	191280
+Major League Baseball 2K10	15837
+Major League Baseball 2K11	15846
+Major League Baseball 2K12	15850
+Major League Baseball 2K7	15854
+Major League Baseball 2K8 - Fantasy All-Stars	34445
+Major League Baseball 2K9 - Fantasy All-Stars	151119
+Makai Senki Disgaea - Makai no Ouji to Akai Tsuki	13333
+Make 10 - A Journey of Numbers	152012
+Make-up & Style	213118
+Make-up Paradise	134116
+Makeup Princess 2 - Princess Life	191090
+Malediction de Toutankhamon, La - Enigmes & Objets Caches	219399
+Mallangmallang Dunoegyosil	6580
+Mama's Combo Pack - Volume 1	187906
+Mama's Combo Pack - Volume 2	112575
+Mamegoma - Honobono Nikki	191597
+Mamegoma 2 - Uchi no Ko ga Ichiban!	191598
+Mamegoma 3 - Kawaii ga Ippai!	184295
+Manepa 1000 Mannin no FX Training	191211
+Manepa 1000-Mannin no FX Training - Leverage Kisei Taiouban	191216
+Manga-ka Debut Monogatari DS - Akogare! Manga-ka Ikusei Game	184296
+Manic Monkey Mayhem	20904
+Manjyeora - Made in Wario	6903
+MapleStory DS	19302
+March of the Penguins	132234
+Margot's Bepuzzled!	151124
+Margot's Word Brain	135465
+Marie & Gali no Let's Science	184299
+Marie-Antoinette and the American War of Independence - Episode 1 - The Brotherhood of the Wolf	151072
+Marie-Antoinette and the Disciples of Loki	151071
+Mario & Luigi - Bowser's Inside Story	438
+Mario & Luigi - Partners in Time	6835
+Mario & Luigi RPG - Siganui Partner	6835
+Mario & Luigi RPG 2x2	6835
+Mario & Luigi RPG 3 - Kupa Momsok Daemoheom	438
+Mario & Luigi RPG 3!!!	438
+Mario & Sonic at Beijing Olympic	11334
+Mario & Sonic at the Olympic Games	11334
+Mario & Sonic at the Olympic Winter Games	11335
+Mario & Sonic at Vancouver Olympic	11335
+Mario Basket 3 on 3	6836
+Mario Hoops 3 on 3	6836
+Mario Kart DS	6837
+Mario Party DS	2401
+Mario Slam Basketball	6836
+Mario vs. Donkey Kong - Mini-Land Mayhem!	11336
+Mario vs. Donkey Kong - Totsugeki! Mini-Land	11336
+Mario vs. Donkey Kong 2 - March of the Minis	6838
+Mario vs. Donkey Kong 2 - MiniMini Daikoushin!	6838
+Mariowa Sonic - Beijing Olympic	11334
+Mariowa Sonic - Vancouver Donggye-olympic	11335
+Marker Man Adventures	24961
+Marl Oukoku no Ningyou Hime - Tenshi ga Kanaderu Ai no Uta	11400
+Maru Goukaku - Shikaku Dasshu! 2011-Nendohan Financial Planning Ginou Kentei Shiken 2-Kyuu, 3-Kyuu	192095
+Maru Goukaku - Shikaku Dasshu! 2011-Nendohan Gyousei Shoshi Shiken	191930
+Maru Goukaku - Shikaku Dasshu! 2011-Nendohan Jouhou Security Specialist Shiken - Network Specialist Shiken	191929
+Maru Goukaku - Shikaku Dasshu! 2011-Nendohan Takken Shiken	191927
+Maru Goukaku - Shikaku Dasshu! Care Manager Shiken	191924
+Maru Goukaku - Shikaku Dasshu! Chuushoukigyou Shindanshi Shiken	191925
+Maru Goukaku - Shikaku Dasshu! Financial Planning Ginou Kentei Shiken 2-kyuu, 3-kyuu	191932
+Maru Goukaku - Shikaku Dasshu! Gyousei Shoshi Shiken	184338
+Maru Goukaku - Shikaku Dasshu! Hanbaishi Kentei Shiken 2-kyuu, 3-kyuu	191934
+Maru Goukaku - Shikaku Dasshu! IT Passport Shiken, Kihon Jouhou Gijutsusha Shiken, Ouyou Jouhou Gijutsusha Shiken	191937
+Maru Goukaku - Shikaku Dasshu! Kaigo Fukushishi Shiken	191939
+Maru Goukaku - Shikaku Dasshu! Shakai Fukushishi Shiken	191940
+Maru Goukaku - Shikaku Dasshu! Sharoushi Shiken	191941
+Maru Goukaku - Shikaku Dasshu! Shouken Gaimuin Ni-Shu Shiken	191942
+Maru Goukaku - Shikaku Dasshu! Special IT Passport Shiken, Kihon Jouhou Gijutsusha Shiken, Ouyou Jouhou Gijutsusha Shiken	191943
+Maru Goukaku - Shikaku Dasshu! Special Kaigo Fukushishi Shiken	191944
+Maru Goukaku - Shikaku Dasshu! Special Shakai Fukushishi Shiken	191945
+Maru Goukaku - Shikaku Dasshu! Special Sharoushi Shiken	191946
+Maru Goukaku - Shikaku Dasshu! Special Takken Shiken	191947
+Maru Goukaku - Shikaku Dasshu! TAC Koumuin Shiken - Kokka II Tane	191948
+Maru Kaite Don Don Oboeru - Kyoui no Tsugawa Shiki Kanji Kiokujutsu	184264
+Maru Kaite Don Don Oboeru - Kyoui no Tsugawa Shiki Kanji Kiokujutsu - Kiso Gakushuu Hen	184195
+Maruhan Pachinko & Pachi-Slot Hisshou Guide Kyouryoku - The Pachinko Hall	191599
+Marvel - Ultimate Alliance 2	14917
+Marvel Nemesis - Rise of the Imperfects	8722
+Marvel Super Hero Squad	16408
+Marvel Super Hero Squad - The Infinity Gauntlet	135464
+Marvel Trading Card Game	31557
+Mary King's Riding School	128193
+Master All Classics	122210
+Master Jin Jin's IQ Challenge	151708
+Master of Illusion	6839
+Master of the Monster Lair	15124
+Match 3 Madness	151069
+Matching Maker DS	191188
+Matchstick	151068
+Matchstick Puzzle by DS	151068
+Math Blaster in the Prime Adventure	18358
+Math Play	151067
+Mathe Buddy - 5. Klasse	192261
+Mathe Buddy - 6. Klasse	192262
+Mathematik 1.-4. Klasse - Fit fuers Gymnasium	213226
+Mathematik 1.-4. Klasse 2012	213225
+Mathematik und Deutsch - 1.-4. Klasse - 2014	213024
+Mathematik und Deutsch 1.-4. Klasse 2013	213227
+Maths Made Simple	151066
+Maths Play - Have Fun with Numbers!	151067
+Matsuda Tadanori Onsen Kyouju Kanshuu - Zenkoku Dokodemo Onsen Techou	191281
+Maus DS	150515
+Mawashite Koron	438992
+Mawashite Tsunageru Touch Panic	191452
+Mawasundaa!!	128166
+Max & the Magic Marker	151065
+Max Media Launcher	6886
+Max Media Player	6886
+May's Mysteries - The Secret of Dragonville	14492
+May's Mystery - Forbidden Memories	14492
+Maya	481004
+Mazes of Fate DS	15127
+Me de Unou o Kitaeru - DS Sokudoku Junior	191282
+Me de Unou o Kitaeru - DS Sokudoku Jutsu	184506
+Mechanic Master	6840
+Mechanic Master 2	21746
+MechAssault - Phantom War	20674
+Medarot DS - Kabuto Ver.	165713
+Medarot DS - Kuwagata Ver.	165722
+Meet the Robinsons	135463
+Mega Man Battle Network 5 - Double Team DS	20672
+Mega Man Star Force - Dragon	6841
+Mega Man Star Force - Leo	6842
+Mega Man Star Force - Pegasus	6843
+Mega Man Star Force 2 - Battle Card - KngGrndeur	20904
+Mega Man Star Force 2 - Battle Card - Le Mu	20904
+Mega Man Star Force 2 - Brother - 1stMegaMan	20904
+Mega Man Star Force 2 - Brother - L. M. Shin	20904
+Mega Man Star Force 2 - Zerker x Ninja	14499
+Mega Man Star Force 2 - Zerker x Saurian	14501
+Mega Man Star Force 3 - Black Ace	14498
+Mega Man Star Force 3 - Red Joker	14500
+Mega Man Zero Collection	14057
+Mega Man ZX	6844
+Mega Man ZX - Advent	6845
+Megami Ibunroku - Devil Survivor	11413
+Megamind - The Blue Defender	130044
+Mein Beautyhotel fuer Tiere	150460
+Mein Eigener Tierbaby-Zoo	129616
+Mein Koch-Coach - Gesund und Lecker Kochen	179923
+Mein Wortschatz-Coach - Englisch Lernen	160475
+Mein Wortschatz-Coach - Verbessere Dein Ausdrucksvermoegen	150414
+Meine Tierarztpraxis	150196
+Meine Tierarztpraxis - Einsatz auf dem Land	154216
+Meine Tierarztpraxis - SOS am Ozean	150201
+Meine Tierarztpraxis in Australien	150198
+Meine Tierpension	150200
+Meine Tierpension - Tapsige Tierbabys	150197
+Meine Tierpension 2	150200
+Meitantei Conan & Kindaichi Shounen no Jikenbo - Meguriau Futari no Meitantei	115708
+Meitantei Conan - Aoki Houseki no Rondo	179119
+Meitantei Conan - Kako Kara no Zensou Kyoku	179120
+Meitantei Conan - Kieta Hakase to Machigai Sagashi no Tou	179121
+Meitantei Conan - Tantei Ryoku Trainer	179122
+Mensch Aergere Dich Nicht - Das Beliebte Original	152437
+Mensetsu no Tatsujin - Tenshoku Hen	191167
+Mes Amis Disney	129603
+Metal Beyblade - Cyber Pegasis	97366
+Metal Beyblade 2 - Big Bang Bladers	118342
+Metal Fight Beyblade - Baku Shin Susanoo Shuurai!	191600
+Metal Fight Beyblade - Bakutan! Cyber Pegasis	97366
+Metal Fight Beyblade - Choujou Kessen! - Big Bang Bladers	118342
+Metal Max 2 - Reloaded	179124
+Metal Max 3	156126
+Metal Saga - Hagane no Kisetsu	179127
+Metal Slug 7	9378
+Metcha! Taiko no Tatsujin DS - 7-tsu no Shima no Daibouken	142319
+Meteos	6846
+Meteos - Disney Magic	6847
+Meteos - Vs. Anasaze	20904
+Meteos - Vs. Firen	20904
+Meteos - Vs. Geolyte	20904
+Meteos - Vs. Oleana	20904
+Methode Boscher - La Journee des Tout Petits	192263
+Metroid Prime - Hunters	6848
+Metroid Prime Pinball	6849
+Metropolis Crime$	151063
+Mezase! 100 Giri Golf DS	123960
+Mezase! Koushien	191207
+Mezase! Shoujo Manga Ka!! Ciao Manga School	184341
+Mezase! Zenkoku Taikai!! - Let's! Brass!! - Brass Band Renshuu Soft	186204
+Mezase!! Tsuri Master DS	184340
+Mi Escuela de Equitacion	148243
+Mi Experto en Aleman - Mejora Tu Vocabulario Aleman	189975
+Mi Experto en Cocina - Comida Saludable	179923
+Mi Experto en Frances - Mejora Tu Vocabulario Frances	14181
+Mi Experto en Ingles - Mejora Tu Vocabulario Ingles	160475
+Mi Experto en Vocabulario	150414
+Miami Crisis	17033
+Miami Law	17033
+Miami Nights - Singles in the City	135461
+Michael Jackson - The Experience	15091
+Micro Machines V4	11382
+Midnight Mysteries - Gaensehaut Wimmelbild-Abenteuer mit Edgar Allan Poe	151062
+Midnight Mysteries - The Edgar Allan Poe Conspiracy	151062
+Midnight Play! Pack	130043
+Miffy's World	151061
+Might & Magic - Clash of Heroes	11383
+Migungui Gunju	13968
+Mijn Dierenpension	150200
+Mijn Dierenpension 2	150200
+Mijn Dierenpraktijk	150196
+Mijn Droomjob - Verpleegster	192247
+Military History - Commander - Europe at War	151059
+Mimi de Unou o Kitaeru - DS Chou-nouryoku	191746
+Mimi's Party Fun!	151058
+Minagara Oreru DS Origami	191747
+Mind Quiz - Your Brain Coach	128000
+Mind Your Language - Apprends le Francais!	152011
+Mind Your Language - Aprende Espanol!	152010
+Mind Your Language - Learn English!	30600
+Mind Your Language - Learn Japanese!	150632
+Mind Your Language - Lern Deutsch!	150631
+Mind. Body. Soul. - Blend-It	150630
+Mind. Body. Soul. - Nutrition Matters	150629
+Mind. Body. Soul. - Spellbound 2	150628
+MinDStorm - Train Your Brain	151708
+MinDStorm 2	155429
+Mini Golf Resort	213136
+Mini Ninjas	32676
+Mini RC Rally	127999
+Mini Yonku DS	184344
+Minna de Asobou - Shanghai DS 2	185904
+Minna de Dokusho DS - Genji Monogatari + Chottodake Bungaku	191748
+Minna de Dokusho DS - Keetai Shousetsu Desuuu	191755
+Minna de Dokusho DS - Naruhodo! Tanoshii Seikatsu no Urawaza Kakushiwaza	184346
+Minna de Dokusho DS - Torimonochou - Hanshichi & Umon & Ango & Agojuurou & Hatamoto Taikutsu Otoko	192148
+Minna de Flash Anzan DS	184347
+Minna de Taikan Dokusho DS - Choo Kowaai! - Gakkou no Kaidan	192094
+Minna de Wai Wai - Cocoto Kart	19217
+Minna no Conveni	184359
+Minna no Doubutsuen	184360
+Minna no DS Seminar - Kanpeki Eitango Ryoku	191843
+Minna no DS Seminar - Kanpeki Kanji Ryoku	191844
+Minna no DS Seminar - Kantan Ongaku Ryoku - Kiso kara Hajimeru Gakufu Nyuumon	150509
+Minna no Mahjong DS	191845
+Minna no Oekakiya-san	191846
+Minna no Suizokukan	184361
+Minna to Kimi no Piramekino!	191847
+Minute to Win It	33403
+Mio Coach di Cucina, Il - Prepara Cibi Sani e Gustosi	179923
+Mio Coach, Il - Arricchisco il Mio Inglese	160475
+Mio Coach, Il - Arricchisco il Mio Vocabolario	150414
+Mirakuru! Mimika DS	184362
+Miru Chikara o Jissen de Kitaeru - DS Medikara Training	16876
+Miss Spider's Sunny Patch Friends - Harvest Time Hop and Fly	127997
+Mission Runway	150571
+Mister Slime	150570
+Mitame Kara Yomigaeru - Otona no Kikonashi Training	191483
+Miteha Ikenai	191484
+Mitsukete! Keroro Gunsou - Machigai Sagashi Daisakusen de Arimasu!	179128
+Mizuiro Blood	191849
+MLB Power Pros 2008	31173
+Moe Sta - Moeru Toudai Eigojuku	183959
+Moero! Nekketsu Rhythm Damashii - Osu! Tatakae! Ouendan 2	115617
+Moetan DS	183960
+Mogitate Tingle no Barairo Rupee Land	18058
+Mokjjangiyagi - Colobockle Station	144394
+Mokjjangiyagi - Colobockle Station for Girl	144396
+Mokjjangiyagi - Neowa hamkke Jaraneun Seom	15219
+Momo Waliou Zhizao	6903
+Momo Yaoxi - Yun Zhong Manbu	6906
+Momotarou Dentetsu - 20 Shuunen	184364
+Momotarou Dentetsu - World	184777
+Momotarou Dentetsu DS - Tokyo & Japan	184778
+Mon Coach Personnel - J'Ameliore Mon Anglais	192264
+Mon Coach Personnel - J'Ameliore Mon Espagnol	14180
+Mon Coach Personnel - J'Enrichis Mon Vocabulaire	150414
+Mon Coach Personnel - Mes Recettes Plaisir et Ligne	179923
+Mon Premier Bescherelle	192268
+Mondai na Nihongo	190858
+Monkey Madness - Island Escape	150569
+Monmallineun 3-gongjuwa Hamkkehaneun - Geurimyeonsang Yeongdaneo Amgibeop	213137
+Monopoly	15916
+Monster Band	150568
+Monster Bomber	127996
+Monster Farm DS 2 - Yomigaeru! Master Breeder Densetsu	15167
+Monster Frenzy	135444
+Monster High - 13 Wishes	150567
+Monster High - Ghoul Spirit	150566
+Monster House	8778
+Monster Jam	135447
+Monster Jam - Path of Destruction	135442
+Monster Jam - Urban Assault	135445
+Monster Lab	135438
+Monster Mayhem - Build and Battle	135439
+Monster Puzzle	127994
+Monster Racers	123973
+Monster Rancher DS	15167
+Monster Tale	13853
+Monster Trucks DS	33064
+Monsters vs Aliens	3140
+Moomin-dani no Okurimono	179436
+Moon	21234
+Moorhuhn - Jewel of Darkness	150560
+Moorhuhn - Star Karts	148200
+Moorhuhn Adventure - The Pharaoh's Treasure	148184
+Moorhuhn Jump'n Run - Atlantis	148186
+More Brain Training from Dr Kawashima - How Old Is Your Brain	6584
+More TouchMaster	11054
+Morinaga Takurou Kanshuu - Okane no Shin Joushiki DS Training	190848
+Moshi Monsters - Katsuma Unleashed	150558
+Moshi Monsters - Moshlings Theme Park	150556
+Moshimo! Kinen Surunara...	184403
+Moshimo! Saibanin ni Erabaretara...	184404
+Moto Racer DS	11384
+Mots Croises	419938
+Mots Croises 2	192270
+Motto Hayaku! Seikaku ni! - Kazu Sense, Keisanryoku Up Training - Suutore	191850
+Motto Me de Unou o Kitaeru - DS Sokudoku Jutsu	184406
+Motto TOEIC Test DS Training	190860
+Moyashimon DS - Tales of Agriculture	184482
+Moyeora! Kirby	11263
+Mr Bean	150513
+Mr. Driller - Drill Spirits	17382
+Mr. Incredible - Kyouteki Underminer Toujou	21455
+Mr. Slime Jr.	150570
+MTV Fan Attack	150512
+Mugen Kouro	11258
+Mugen no Frontier - Super Robot Taisen OG Saga	11428
+Mugen no Frontier Exceed - Super Robot Taisen OG Saga	191610
+Mummy, The - Tomb of the Dragon Emperor	127125
+Murder in Venice	15215
+Murder on the Titanic	150511
+Mushi - Machi no Konchuu Monogatari	191851
+Mushishi - Ame Furu Sato	184485
+Mushroom Men - Rise of the Fungi	30485
+Music - Music for Everyone	150509
+Music for Kids	24166
+Music Monstars - The Ultimate Music Machine	150568
+Music Star - I Wanna Be a Popstar	129611
+MX vs ATV Reflex	15932
+MX vs. ATV Extreme Limite	6851
+MX vs. ATV Untamed	6851
+My Amusement Park	150508
+My Animal Centre - Baby Animals	150507
+My Animal Centre in Africa	132789
+My Animal Centre in Australia	150131
+My Baby - Boy	13780
+My Baby - First Steps	150505
+My Baby - Girl	136044
+My Baby 2 - Boy & Girl	150505
+My Baby 3 & Friends	150506
+My Best Friends - Cats & Dogs	154215
+My Boyfriend	135443
+My Boyfriend - Der Sommer Meines Lebens	135443
+My Boyfriend - Verliebt in einen Star	213138
+My Chinese Coach - Learn a New Language	14179
+My Chinese Coach - Learn to Speak Chinese	14179
+My Cooking Coach - Prepare Healthy Recipes	179923
+My Dangerous Pet - Snake	148215
+My Dangerous Pet - Spider	148222
+My Dog Coach - Understand Your Dog with Cesar Millan	128281
+My Dogs Paradise	129612
+My DoItAll	136043
+My Dress-Up	135437
+My English Coach	150500
+My English Coach para Hispanoparlantes - Ingles a Tu Alcance!	150500
+My Farm Around the World	150499
+My Fashion Studio	150498
+My First Dollhouse	152149
+My French Coach - Learn a New Language	14181
+My French Coach - Level 1 - Learn to Speak French	14181
+My French Coach - Level 2 - Improve Your French	150464
+My Friends	150463
+My Frogger - Toy Trials	20905
+My Happy Kitchen	129653
+My Health Coach - Manage Your Weight	179924
+My Health Coach - Stop Smoking with Allen Carr	150432
+My Healthy Cooking Coach - Easy Way to Cook Healthy	179923
+My Hero - Doctor	135435
+My Hero - Firefighter	34099
+My Horse & Me	135436
+My Horse & Me - Riding for Gold	150462
+My Horse & Me 2	150462
+My Horse Club	150461
+My Japanese Coach - Learn a New Language	13604
+My Japanese Coach - Learn to Speak Japanese	13604
+My Little Baby	150457
+My Little Flufties	127831
+My Little Pony - Pinkie Pie's Party	104653
+My Make-Up	135432
+My Melody Angel Book - Denshi Techou & Enjoy Game	191852
+My Own Pet Shelter	150134
+My Paris Fashion House	129630
+My Pet Beauty Salon	150460
+My Pet Dolphin 2	129602
+My Pet Hotel 2	132802
+My Pet Kitten	131893
+My Pet Parrot	148223
+My Pet Pony	148224
+My Pet Puppy	148225
+My Pet Shop	135434
+My Pet Zoo Vet	130340
+My Puppy Shop	149921
+My Reading Tutor	150456
+My SAT Coach with The Princeton Review - Crack the SAT	136041
+My Secret Diary	22481
+My Secret World by Imagine	135450
+My Spanish Coach - Learn a New Language	14180
+My Spanish Coach - Level 1	14180
+My Spanish Coach - Level 2 - Improve Your Spanish	150458
+My Stop Smoking Coach with Allen Carr Easyway - Quit for Good	150432
+My Vet Practice - In Australia	150198
+My Vet Practice - In the Country	154216
+My Virtual Tutor - Reading - 1st Grade to 2nd Grade	150417
+My Virtual Tutor - Reading - K to 1st Grade	150416
+My Virtual Tutor - Reading - Pre-K to Kindergarten	150415
+My Weight Loss Coach - Improve Your Health	179924
+My Word Coach - Develop Your Vocabulary	150414
+My Word Coach - Develop Your Vocabulary - Multiplayer	20904
+My Word Coach - Improve Your Vocabulary	150414
+My Word Coach - Improving Your Vocabulary - Multiplayer	20904
+My Word Coach - Verbeter Je Woordenschat	150414
+My Word Coach Junior - Woordjes Leren	148196
+My World, My Way	12536
+MySims	14925
+MySims - Agents	20724
+MySims - Kingdom	14926
+MySims - Party	20725
+MySims - Racing	21286
+MySims - Simdeurui Wangguk	14926
+MySims - SkyHeroes	15941
+MySims SkyHeroes - Multiplayer	20904
+MySims SkyHeroes DS - Multiplayer	20904
+Myst	127189
+Mysterious Adventures in the Caribbean	150359
+Mysterious Case of Dr. Jekyll & Mr. Hyde, The	150381
+Mystery Case Files - MillionHeir	6852
+Mystery Case Files - Prime Suspects	150358
+Mystery Case Files - Ravenhearst	150357
+Mystery Detective	12541
+Mystery Detective II	19305
+Mystery Dungeon - Shiren the Wanderer	11417
+Mystery Mansion	150281
+Mystery P.I. - Portrait of a Thief	13703
+Mystery Quest - Curse of the Ancient Spirits	156005
+Mystery Stories	16875
+Mystery Stories - Curse of the Ancient Spirits	156005
+Mystery Stories - Mountains of Madness	149192
+Mystery Tales - Time Travel	150355
+Mystery Tales 2 - The Spirit Mask	150356
+N+	19225
+Nacho Libre	24165
+Nadia - Megafun Land	194372
+Nadia's World	179132
+Nakamura Akira Kanshuu - India Shiki Keisan Drill DS	191754
+Nakamura Sumiko Tettei Shidou - Shin TOEIC Test 1-nichi 1-pun DS Lesson - 1-shuukan Shuuchuu Program Tsuki	192273
+Nakayoshi All-Stars - Mezase Gakuen Idol	184494
+Nakayoshi Kids no Oshigoto Theme Park - Oshigoto Taiken Game	191761
+Naked Brothers Band, The - The Video Game	150379
+Namanui Collection - Girls Style	20897
+Namco Museum DS	20726
+NANA - Live Staff Daiboshuu! Shoshinsha Kangei	191342
+Nanami no Oshiete Eibunpou DS - Kiso kara Manabu Step Up Gakushuu	191750
+Nanami no Oshiete English DS - Mezase TOEIC Master	191751
+Nanashi no Geemu	123980
+Nanashi no Geemu Me	31236
+Nancy Drew - The Deadly Secret of Olde World Park	20727
+Nancy Drew - The Hidden Staircase	135446
+Nancy Drew - The Model Mysteries	135448
+Nancy Drew - The Mystery of the Clue Bender Society	135449
+Nanda's Island	150372
+Nandoku Kanji DS - Nandoku, Yoji Jukugo, Koji Kotowaza	191753
+Nangoku Sodachi DS	184496
+Nanostray	6853
+Nanostray 2	6854
+Napoleon Dynamite - The Game	6855
+Naraba's World - Labyrinth of Light	150351
+Naraba's World - The Mysterious Palace	150350
+Narnia Koku Monogatari Dai-1 Shou - Lion to Majo	19818
+Narnia Koku Monogatari Dai-2 Shou - Caspian Ouji no Tsunobue	30484
+Naruto - Choegangninja Daegyeoljip DS	139080
+Naruto - Ninja Council - European Version	14874
+Naruto - Ninja Council 2 - European Version	150349
+Naruto - Ninja Council 3	14874
+Naruto - Ninja Destiny	6856
+Naruto - Ninja Destiny - European Version	6856
+Naruto - Ninja Destiny II - European Version	30946
+Naruto - Path of the Ninja	6857
+Naruto - Path of the Ninja 2	11385
+Naruto - Saikyou Ninja Daikesshuu 3 for DS	150349
+Naruto - Saikyou Ninja Daikesshuu 4 DS	14874
+Naruto - Shinobi Retsuden	6856
+Naruto Jilpungjeon - Choegangninja Daegyeoljip 2 - Gyeokttol!! Naruto vs Sasuke	139080
+Naruto Jilpungjeon - Daenantu! Geurimja Bunsinsul	179133
+Naruto Jilpungjeon - Insuljeongae! Cha-Crash!!	134169
+Naruto RPG 2 - Chidori vs Rasengan	166818
+Naruto RPG 3 - Reijuu vs Konoha Shoutai	11385
+Naruto Shippuden - Naruto vs Sasuke	139080
+Naruto Shippuden - Ninja Council 3 - European Version	30944
+Naruto Shippuden - Ninja Council 4	30944
+Naruto Shippuden - Ninja Destiny 2	30946
+Naruto Shippuden - Shinobi Rumble!!	134169
+Naruto Shippuu Den - Dairansen! Kagebunshin Emaki	179133
+Naruto Shippuu Den - Ninjutsu Zenkai! Chaclash!!	134169
+Naruto Shippuu Den - Saikyou Ninja Daikesshuu - Gekitotsu!! Naruto vs Sasuke	139080
+Naruto Shippuu Den - Saikyou Ninja Daikesshuu 5 - Kessen! 'Akatsuki'	30944
+Naruto Shippuu Den - Shinobi Retsuden II	30946
+Naruto Shippuu Den - Shinobi Retsuden III	30945
+Natalie Brooks - Mystery at Hillcrest High	150348
+Natalie Brooks - The Treasures of the Lost Kingdom	150346
+Nathan Anglais - Methode Pratique	192274
+Nathan Entrainement 6e	192275
+Nathan Entrainement CE1	192308
+Nathan Entrainement CE2	192309
+Nathan Entrainement CM1	192310
+Nathan Entrainement CM2	192276
+National Geographic - Panda	150345
+Nazonazo & Quiz - Ittou Nyuukon Q Mate!	191855
+Nazotte Oboeru - Otona no Kanji Renshuu	184832
+Nazotte Oboeru - Otona no Kanji Renshuu - Kaiteiban	184499
+Nazotte Oboeru - Otona no Kanji Renshuu - Kanzen Ban	191752
+Need for Speed - Most Wanted	99412
+Need for Speed - Nitro	21144
+Need for Speed - ProStreet	16029
+Need for Speed - Undercover	21747
+Need for Speed - Underground 2	134643
+Need for Speed Carbon - Own the City	135451
+Negima! - Chou Mahora Taisen - Kattoiin, Keiyaku Shikkou Dechaimasuu	179135
+Negima! - Chou Mahora Taisen Two - Checkiin, Zenin Shuugou! - Yappari Onsen Kichaimashitaa	179134
+Neighbours from Hell	150344
+Neko Neko Bakery DS	184500
+Neopets Puzzle Adventure	135452
+Nep League DS	181165
+Nervous Brickdown	16872
+Net Ghost Pipopa - Pipopa x DS@Daibouken!!!	184508
+Nettou! Powerful Koushien	184513
+Neves	6858
+New Carnival - Funfair Games	150343
+New Carnival Games	150343
+New Chaoji Maliou Xiongdi	6859
+New Chuugaku Eitango Target 1800 DS	184517
+New Eitango Target 1900 DS	190861
+New Horizon - English Course 1	191645
+New Horizon - English Course 1 DS	191646
+New Horizon - English Course 2	191647
+New Horizon - English Course 2 DS	191648
+New Horizon - English Course 3	191649
+New Horizon - English Course 3 DS	191650
+New International Hyper Sports DS	11386
+New International Track & Field	11386
+New Rainbow Islands	27834
+New Shikakui Atama o Maruku Suru. DS - Kanzen Seiha Ketteiban	191651
+New Super Mario Bros.	6859
+New Touch Party Game	155411
+New Unou Kids DS	184519
+New York Times Crosswords, The	16771
+New York Times Crosswords, The - Multiplayer	20904
+New Zealand Story DS	34346
+New Zealand Story Revolution	34346
+Ni Hao, Kai-Lan - New Year's Celebration	135455
+Ni no Kuni - Shikkoku no Madoushi	32669
+Nickelodeon Dora and Friends' - Fantastic Flight	13808
+Nickelodeon Team - Umizoomi	177562
+Nickelodeon Team Umizoomi and Dora's Fantastic Flight	13808
+Nicktoons - Android Invasion	466694
+Nicktoons - Attack of the Toybots	19124
+Nicktoons - Battle for Volcano Island	150288
+Nicktoons - Battle for Volcano Island - Multiplayer	20904
+Nicktoons MLB	95257
+Nicktoons Unite!	150289
+Nicola Kanshuu - Model Oshare Audition	184520
+Night at the Museum - Battle of the Smithsonian - The Video Game	150287
+Night at the Museum 2 - The Video Game	150287
+Nihon Curling Kyoukai Kounin - Minna no DS Curling	129595
+Nihon Keizai Shinbunsha Kanshuu - Shiranai Mama dewa Son wo Suru - 'Mono ya Okane no Shikumi' DS	184521
+Nihon Pro Mahjong Kishikai Kanshuu - Pro ni Naru Mahjong DS	191652
+Nihongo Bunshou Nouryoku Kentei Kyoukai Kyouryoku - Tadashii Nihongo DS	191653
+Nihongo de Asobo DS	191654
+Nihongo Kentei Iinkai Kounin - Nihongo Kentei DS	191655
+Nihonshi DS	184523
+Nine Hours, Nine Persons, Nine Doors	11185
+Ninja Captains	150286
+Ninja Gaiden - Dragon Sword	50
+Ninja Reflex	135453
+Ninjatown	14607
+Nintama Rantarou - Gakunen Taikousen Puzzle! no Dan	184525
+Nintama Rantarou - Nintama no Tame no Ninjutsu Training	191656
+Nintendo DS Title Recommendation Program	20904
+Nintendo Presents - Crossword Collection	12038
+Nintendo Presents - Style Boutique	20897
+Nintendo Touch Golf - Birdie Challenge	12841
+Nintendo Zone Wireless Distribution Box DS Card	212839
+Nintendogs - Best Friends	6860
+Nintendogs - Chihuahua & Chingudeul	13828
+Nintendogs - Chihuahua & Friends	13828
+Nintendogs - Dachshund & Chingudeul	13761
+Nintendogs - Dachshund & Friends	13761
+Nintendogs - Dalmatian & Friends	14923
+Nintendogs - Lab & Friends	24160
+Nintendogs - Labrador & Chingudeul	24160
+Nintendogs - Labrador & Friends	24160
+Nintendogs - Miniature Dachshund & Friends	13761
+Nintendogs - Shiba & Friends	24160
+Nippon Shuzan Renmei Kanshuu - Itsudemo Soroban DS	184531
+Nippon Suugaku Kentei Kyoukai Kounin - Suken DS - Otona ga Tokenai! Kodomo no Sansuu	191657
+Nobunaga no Yabou DS	191344
+Nobunaga no Yabou DS 2	191345
+Nodame Cantabile	184831
+Nodame Cantabile - Tanoshii Ongaku no Jikan Desu	184548
+Noddy in Toyland	150285
+Nolleooseyo Dongmurui Sup	6573
+Nora to Toki no Koubou - Kiri no Mori no Majo	191658
+Norimono Oukoku DS - You! Unten Shichainayo!	191659
+Nos Voisins, les Hommes	150210
+Nostalgeo no Kaze	11387
+Nostalgia	11387
+Nounai Kakusei Honeycomb Beat	130045
+Nounenrei - Nou Stress Kei Atama Scan	128000
+Nouvelles Aventures de T'choupi et Ses Amis, Les	192257
+Nova Usagi no Game de Ryuugaku! DS	191660
+NRL Mascot Mania	150284
+Nursery Mania	135454
+Obunsha Deru-jun - Chiri DS	184551
+Obunsha Deru-jun - Kokugo DS	191860
+Obunsha Deru-jun - Koumin DS	191861
+Obunsha Deru-jun - Rekishi DS	191898
+Obunsha Deru-jun - Rika DS	184552
+Obunsha Deru-jun - Sansuu DS	191862
+Ochaken no Daibouken - Honwaka Yumemiru Sekai Ryokou	191863
+Ochaken no Daibouken 2 - Yume Ippai no Omocha Bako	184553
+Ochaken no Heya DS	184835
+Ochaken no Heya DS 2	184554
+Ochaken no Heya DS 3	184555
+Odoru Daisousa-sen - The Game - Sensuikan ni Sennyuu Seyo!	184557
+Oekaki Puzzle Battle! - Yuusha Ou GaoGaiGar Hen	179136
+Ogwangui Darin DS	213141
+Oha Star 645 - Musshees no Fushigi na Nouen - Yoshimoto Geinin to Tomodachi Net	191864
+Ohimesama Debut	15122
+Oide yo Doubutsu no Mori	6573
+Ojaru-Maru DS - Ojaru to Okeiko Aiueo	191612
+OK! - First for Celebrity News - Puzzle Stars	184558
+Okada Toshio no Itsumademo Debu to Omounayo - DS de Recording Diet	184559
+Okaeri! Chibi-Robo! - Happy Rich Oosouji!	18146
+Okamiden	11388
+Okamiden - Chiisaki Taiyou	11388
+Oktoberfest - The Official Game	150282
+Oli Octopus	20904
+OMG 26 - Our Mini Games	150281
+Once upon a time... - Ugly Duckling	20904
+One Piece - Gear Spirit	19226
+One Piece - Gigant Battle!	19227
+One Piece Gigant Battle 2 - Shin Sekai	19228
+Onegai My Melody - Yume no Kuni no Daibouken	191859
+Onsei Kanjou Sokuteiki - Kokoro Scan	191868
+Ontama - Onpu-tou Hen	134252
+Ontamarama	134252
+Ookami to Koushinryou - Boku to Holo no Ichinen	179137
+Ookami to Koushinryou - Umi o Wataru Kaze	179138
+Ookiku Furikabutte - Honto no Ace ni Nareru kamo	191869
+Open Season	104654
+Operation - Vietnam	19229
+Orcs & Elves	6861
+Ore ga Omae o Mamoru	184562
+Ore no Sentouki	19219
+Orient Quest	150213
+Original Frisbee Disc Sports - Ultimate & Golf	24167
+Original Rummikub, The - Brings People Together	150212
+Original Story from Fairy Tail - Gekitotsu! Kardia Daiseidou	179139
+Orla Froesnapper	213142
+Osawari Tantei - Ozawa Rina	12541
+Osawari Tantei - Ozawa Rina - Season 2 1-2 - Rina wa Mita! Iya, Mite nai.	19305
+Oscar der Ballonfahrer - Tierische Abenteuer	150211
+Oshaberi Oumu	148223
+Oshare Majo Love and Berry - DS Collection	191871
+Oshare na Koinu DS	150061
+Oshare Princess - Oshare ni Koishite	191522
+Oshare Princess - Oshare ni Koishite 2	191523
+Oshiri Kajiri Mushi no Rhythm Lesson DS - Kawai Ongaku Kyoushitsu Kanshuu	191525
+Osiris	20904
+Osu! Tatakae! Ouendan	6797
+Othello de Othello DS	184564
+Oto o Tsunagou! Gunpey-Rebirth	21233
+Otogi Juushi Akazukin	191786
+Otome-teki Koi Kakumei - Love Revo!! DS	184565
+Otona no DS Golf	12841
+Otona no DS Mystery - Izumi Jiken File	184566
+Otona no Onna Ryoku Kentei	191166
+Otona Ryoku Kentei	191122
+Otoshi Deka - Keiji-san, Watashi ga Yarimashita	177494
+Ougon no Taiyou - Shikkoku Naru Yoake	11251
+Oui-Oui - Grande Fete au Pays des Jouets	192278
+Oui-Oui et le Grand Carnaval des Jouets	192277
+Our House	134251
+Ouran Koukou Host Club DS	184909
+Over the Hedge	150210
+Over the Hedge - Beesten bij de Buren	150210
+Over the Hedge - Hammy Goes Nuts!	134250
+Overlord Minions	15169
+Oyako de Asoberu DS Ehon - Ukkari Penelope	191123
+Paard & Pony - Mijn Paardenstal	168462
+Pac'n Ball	132179
+Pac'n Roll	132179
+Pac-Man World 3	20908
+Pac-Pix	27290
+Paint by DS	150206
+Paint by DS - Classic Masterpieces	150209
+Paint by DS - Military Vehicles	150208
+Panda-san Nikki	150345
+Panel de Pon DS	17619
+Panel de Pon DS - Multiplayer	20904
+Panpaka Panya-san	152192
+Panzer Tactics DS	6862
+Partouche Poker Tour - Poker Texas Hold'em No Limit	149962
+Party Carnival	150205
+Pass the Pigs - Let the Good Swines Roll!	150204
+Pass Your Driving Theory Test	150202
+Pass Your Driving Theory Test - 2010 Edition	150203
+Passcard 3	6886
+Passeport du CE1 au CE2	192280
+Passeport du CE2 au CM1	192281
+Passeport du CM1 au CM2	192282
+Passeport du CM2 a la 6eme	192283
+Passeport du CP au CE1	192284
+Patto Tokeru! - India Suugaku Drill DS - Jiman Shitaku Naru Anzan Hou	191455
+Paweo Reinjeo Kaeptin Poseu - Byeonsin! 35 Jeondae!	191631
+Pawly Pets - My Pet Hotel	150200
+Pawly Pets - My Vet Practice	150196
+Paws & Claws - Best Friends - Dogs & Cats	154215
+Paws & Claws - Marine Rescue	150201
+Paws & Claws - Pampered Pets	150199
+Paws & Claws - Pampered Pets 2	166049
+Paws & Claws - Pet Resort	150200
+Paws & Claws - Pet Vet	150196
+Paws & Claws - Pet Vet - Australian Adventures	150198
+Paws & Claws - Pet Vet 2	154216
+Paws & Claws - Regal Resort	150197
+PDC World Championship Darts	30430
+PDC World Championship Darts - The Official Video Game	30430
+Peggle Dual Shot	17618
+Pekin Express - La Route de l'Himalaya	192285
+Pen1 Grand Prix - Penguin no Mondai Special	184964
+Penguin no Mondai - Saikyou Penguin Densetsu!	184965
+Penguin no Mondai - The World	184967
+Penguin no Mondai X - Tenkuu no 7 Senshi	184969
+Penguins of Madagascar, The	169135
+Penguins of Madagascar, The - Dr. Blowhole Returns Again!	121903
+Peppa Pig - Fun and Games	150144
+Peppa Pig - The Game	150143
+Peppa Pig - Theme Park Fun	150142
+Percy Jackson & the Lightning Thief	150141
+Percy Jackson and the Olympians - The Lightning Thief	150141
+Perdition	20904
+Perfect Kanji Keisan Master DS	191126
+Personal Fitness for Men	150140
+Personal Fitness for Women	150136
+Personal Trainer - Cooking	6863
+Personal Trainer - Math	131665
+Personal Trainer - Math - Study Together	20904
+Personal Trainer - Walking	150135
+Personal Trainer DS for Men	150140
+Personal Trainer DS for Women	150136
+Personal Yoga Training - Learn in 15 Minutes a Day	149123
+Pet Adoption Center	150134
+Pet Alien	17044
+Pet Alien - An Intergalactic Puzzlepalooza	17044
+Pet Pals - Animal Doctor	150133
+Pet Pals - New Leash on Life	150132
+Pet Shop Monogatari DS	135434
+Pet Shop Monogatari DS 2	184970
+Pet Vet - Down Under	150131
+Peter Jackson's King Kong - The Official Game of the Movie	6864
+Peter Pan's Playground	150130
+Petit Eva - Evangelion@Game	188916
+Petit Fute - Travel and Play	192286
+Petz - Bunnyz	150064
+Petz - Bunnyz Bunch	150066
+Petz - Catz - Koneko to Issho ni Tanoshiku Asobou	150063
+Petz - Catz 2	132198
+Petz - Catz Clan	150063
+Petz - Catz Playground	150062
+Petz - Dog Superstar	16845
+Petz - Dogz - Koinu to Issho ni Tanoshiku Asobou	150060
+Petz - Dogz 2	134249
+Petz - Dogz Fashion	150061
+Petz - Dogz Pack	150060
+Petz - Dogz Talent Show	16845
+Petz - Dolphinz Encounter	150059
+Petz - Fantasy	155410
+Petz - Fashion Stars	150127
+Petz - Hamster Superstar	150026
+Petz - Hamsterz Life 2	132216
+Petz - Hamsterz Superstars	150026
+Petz - Horseshoe Ranch	150025
+Petz - Horsez - Kouma to Issho ni Tanoshiku Asobou	150025
+Petz - Horsez 2	128116
+Petz - Horsez Family	167681
+Petz - Monkeyz - Osaru to Issho ni Tanoshiku Asobou	150023
+Petz - Monkeyz House	150023
+Petz - My Baby Panda	150345
+Petz - My Horse Family	150025
+Petz - My Kitten Family	150063
+Petz - My Monkey Family	150023
+Petz - My Puppy Family	150060
+Petz - Nursery	16844
+Petz - Nursery 2	150022
+Petz - Playschool	150022
+Petz - Pony Beauty Pageant	150021
+Petz - Pony Club	150021
+Petz - Puppyz & Kittenz	150020
+Petz - Wild Animals - Dolphinz	132182
+Petz - Wild Animals - Tigerz	150019
+Petz Fantasy - Moonlight Magic	150129
+Petz Fantasy - Sunshine Magic	150128
+Petz Fashion - Dogz & Catz	150127
+Petz Rescue - Endangered Paradise	150069
+Petz Rescue - Ocean Patrol	150068
+Petz Rescue - Wildlife Vet	150067
+Pferd & Pony - Best Friends - Mein Pferd	151857
+Pferd & Pony - Die Reitakademie	203539
+Pferd & Pony - Die Reitakademie - Das Entscheidende Turnier	149114
+Pferd & Pony - Mein Gestuet	168462
+Pferd & Pony - Mein Gestuet - Ein Leben fuer die Pferde	150015
+Pferd & Pony - Mein Westernpferd	148962
+Pferdefreunde Puzzle - Echter Puzzlespass fuer Unterwegs	150013
+Phantasy Star 0	11389
+Phineas and Ferb	16407
+Phineas and Ferb - 2 Disney Games	150011
+Phineas and Ferb - Across the 2nd Dimension	121904
+Phineas and Ferb - Quest for Cool Stuff	150009
+Phineas and Ferb - Ride Again	121913
+Phoenix Wright - Ace Attorney	6865
+Phoenix Wright - Ace Attorney - Justice for All	6866
+Phoenix Wright - Ace Attorney - Trials and Tribulations	6867
+Phonics de Minitsuku Eigo	191127
+Photo Phantasy	149980
+Pic Pic	11390
+Pic Pic - Toku to E ni Naru 3-tsu no Puzzle	11390
+Picross 3D	11391
+Picross DS	11392
+Pictionary	149979
+Picto Image DS	149978
+PictoImage	149978
+PictoImage - Sketch and Guess on Your DS!	149978
+Picture Puzzle Collection	149976
+Pig Tails	20904
+Pillow Pets	24164
+Pimp My Ride - Street Racing	134248
+Pinball Deluxe	149975
+Ping Pals	34397
+Ping Pals - Multiplayer	34397
+Pingu no Waku Waku Carnival!	191165
+Pinkalicious - It's Party Time!	171684
+Pinky Street - Kirakira Music Hour	98008
+Pinky Street - Kirakira Music Hour - Sinnaneun Dance Battle	98008
+Pinky Street - Kirakira Music Night	149952
+Pipe Mania	11393
+Pippa Funnell	104651
+Pippa Funnell 2 - Farm Adventures	128116
+Pippi Longstocking	149974
+Pirates	15234
+Pirates - Boarding!	15234
+Pirates - Duels on the High Seas	149973
+Pirates of the Caribbean - At World's End	16179
+Pirates of the Caribbean - Dead Man's Chest	21955
+Piraty Karibskogo Morja - Na Kraju Sveta	16179
+Pixeline - Magi i Pixieland	212242
+Pixeline - Skole-hjaelp - Engelsk - Goes to London	192236
+Pixeline - Skole-hjaelp - Matematik - Taager over Talstrup	192237
+Pixeline og Droemmespejlet	213143
+Planet 51 - The Game	16197
+Planet 51 - The Game - Multiplayer	16197
+Planet Puzzle League	17619
+Planet Puzzle League - Multiplayer	20904
+Planet Rescue - Animal Emergency	150067
+Planet Rescue - Endangered Island	150069
+Planet Rescue - Ocean Patrol	150068
+Plants vs. Zombies	11394
+Platinum Sudoku	18002
+Play Gardens	151859
+Plop en de Pinguin	213144
+Plus Belle la Vie - Le Secret du Dr Livia	192288
+Plus Belle la Vie 2 - Le Mysterieux Passe de Vincent	192287
+Plushees	14833
+Pocket Monsters - Black	2370
+Pocket Monsters - Black 2	13556
+Pocket Monsters - Diamond	1539
+Pocket Monsters - HeartGold	2368
+Pocket Monsters - Pearl	2366
+Pocket Monsters - Platinum	2367
+Pocket Monsters - SoulSilver	2369
+Pocket Monsters - White	2371
+Pocket Monsters - White 2	13557
+Pocket Monsters DP - Dialga	1539
+Pocket Monsters DP - Palkia	2366
+Pocket Monsters Pt - Giratina	2367
+Pocket Scenario Series - Harukanaru Toki no Naka de - Mai Hitoyo	192034
+Pocoyo Racing	149971
+Pogo Island	13413
+Point Blank DS	6868
+Pokemon - Black Version	2370
+Pokemon - Black Version + Pokemon - White Version	20904
+Pokemon - Black Version 2	13556
+Pokemon - Diamant-Edition	1539
+Pokemon - Diamond Version	1539
+Pokemon - Edicion Blanca	2371
+Pokemon - Edicion Blanca 2	13557
+Pokemon - Edicion Diamante	1539
+Pokemon - Edicion Negra	2370
+Pokemon - Edicion Negra 2	13556
+Pokemon - Edicion Oro HeartGold	2368
+Pokemon - Edicion Perla	2366
+Pokemon - Edicion Plata SoulSilver	2369
+Pokemon - Edicion Platino	2367
+Pokemon - Goldene Edition HeartGold	2368
+Pokemon - HeartGold Version	2368
+Pokemon - HeartGold Version + Pokemon - SoulSilver Version	20904
+Pokemon - Pearl Version	2366
+Pokemon - Perl-Edition	2366
+Pokemon - Platin-Edition	2367
+Pokemon - Platinum Version	2367
+Pokemon - Schwarze Edition	2370
+Pokemon - Schwarze Edition 2	13556
+Pokemon - Silberne Edition SoulSilver	2369
+Pokemon - SoulSilver Version	2369
+Pokemon - Version Argent SoulSilver	2369
+Pokemon - Version Blanche	2371
+Pokemon - Version Blanche 2	13557
+Pokemon - Version Diamant	1539
+Pokemon - Version Noire	2370
+Pokemon - Version Noire 2	13556
+Pokemon - Version Or HeartGold	2368
+Pokemon - Version Perle	2366
+Pokemon - Version Platine	2367
+Pokemon - Versione Argento SoulSilver	2369
+Pokemon - Versione Bianca	2371
+Pokemon - Versione Bianca 2	13557
+Pokemon - Versione Diamante	1539
+Pokemon - Versione Nera	2370
+Pokemon - Versione Nera 2	13556
+Pokemon - Versione Oro HeartGold	2368
+Pokemon - Versione Perla	2366
+Pokemon - Versione Platino	2367
+Pokemon - Weisse Edition	2371
+Pokemon - Weisse Edition 2	13557
+Pokemon - White Version	2371
+Pokemon - White Version 2	13557
+Pokemon Battle Revolution	20904
+Pokemon Bulgasaui Dungeon - Eodumui Tamheomdae	2375
+Pokemon Bulgasaui Dungeon - Parang Gujodae	2373
+Pokemon Bulgasaui Dungeon - Siganui Tamheomdae	2374
+Pokemon Card Game - Asobikata DS	124235
+Pokemon Conquest	11395
+Pokemon Dash	29195
+Pokemon Fushigi no Dungeon - Ao no Kyuujotai	2373
+Pokemon Fushigi no Dungeon - Sora no Tankentai	21454
+Pokemon Fushigi no Dungeon - Toki no Tankentai	2374
+Pokemon Fushigi no Dungeon - Yami no Tankentai	2375
+Pokemon Link!	20894
+Pokemon Mystery Dungeon - Blue Rescue Team	2373
+Pokemon Mystery Dungeon - Explorers of Darkness	2375
+Pokemon Mystery Dungeon - Explorers of Sky	21454
+Pokemon Mystery Dungeon - Explorers of Time	2374
+Pokemon Mystery Dungeon - Explorers of Time + Pokemon Mystery Dungeon - Explorers of Darkness	20904
+Pokemon Plus Nobunaga no Yabou	11395
+Pokemon Ranger	13455
+Pokemon Ranger - Batonnage	12501
+Pokemon Ranger - Guardian Signs	19129
+Pokemon Ranger - Hikari no Kiseki	19129
+Pokemon Ranger - Shadows of Almia	12501
+Pokemon Toroje	20894
+Pokemon Trose	20894
+Pokemon Trozei!	20894
+Poker Training	149962
+PokerDome Poker Master - No Limit Texas Hold'em Poker	149962
+Polar Bowler	17042
+Polar Rampage	149961
+Polarium	24424
+PONS Englisch - Vokabel Buddy	179900
+PONS Franzoesisch - Vokabel Buddy	192229
+Pony Friends	149959
+Pony Friends 2	149960
+Pony Life	149958
+Pony Luv	149954
+Pool	140433
+Pop Cutie! - Street Fashion Simulation	149953
+Pop Town	149952
+Poptropica Adventures	149951
+Populous DS	14860
+Pororon! Docomodake DS	6793
+Postcode Loterij Een tegen 100	184662
+Postman Pat	149949
+Postman Pat - Special Delivery Service	149950
+PostPet DS - Yumemiru Momo to Fushigi no Pen	184975
+Poupeegirl DS	184989
+Power Play Pool	149948
+Power Pocket Koushien	184990
+Power Pro Kun Pocket 10	191130
+Power Pro Kun Pocket 11	184993
+Power Pro Kun Pocket 12	184912
+Power Pro Kun Pocket 13	184995
+Power Pro Kun Pocket 14	191131
+Power Pro Kun Pocket 8	191128
+Power Pro Kun Pocket 9	191129
+Power Rangers - Samurai	29310
+Power Rangers - Super Legends	134247
+Power Rangers Go-Busters	191559
+Powerbike	149947
+Powerful Pro-yagu Begins	191129
+Powerplay Tennis	149946
+PowerQuiz - Allgemeinbildung	213158
+PowerQuiz - Die Sport-Edition	213159
+Powershot Pinball Constructor	149945
+Practise English!	168471
+Prendre ou a Laisser, A - Le Jeu Officiel	129597
+Press Your Luck - 2010 Edition	100010
+Prey the Stars	27292
+Prey the Stars - Gabu Gabu Planet	27292
+Price Is Right, The	24162
+Price Is Right, The - 2010 Edition	149955
+Prince of Persia - The Fallen King	19230
+Prince of Persia - The Forgotten Sands	91808
+Princess and the Frog, The	149956
+Princess and the Frog, The - Taste of New Orleans Edition	149956
+Princess Angel - Baeguiui Cheonsa	176681
+Princess Bakery	181990
+Princess Ballerina - Yumemiru 4-nin no Prima Donna	149178
+Princess Debut	15122
+Princess Debut - The Royal Ball	15122
+Princess in Love	149944
+Princess Isabella - A Witch's Curse	149943
+Princess Lillifee - My Wonderful World	155412
+Princess Maker 4 - Special Edition	185000
+Princess Melody	155446
+Princess Natasha - Student, Secret Agent, Princess	134246
+Princess on Ice	149941
+Prinses Lillifee	219712
+Prinzessin Lillifee - Feenzauber	219712
+Prinzessin Lillifee - Meine Liebsten Freunde	149939
+Prinzessin Lillifee - Meine Wunderbare Welt	155412
+Prinzessin Lillifee Puzzle - Echter Puzzlespass fuer Unterwegs	149940
+Prism - Light the Way	15123
+Pro Evolution Soccer 2008	16211
+Pro Evolution Soccer 6	135407
+Pro Yakyuu Famista DS	185020
+Pro Yakyuu Famista DS 2009	185002
+Pro Yakyuu Famista DS 2010	185003
+Pro Yakyuu Team o Tsukurou!	185021
+Pro Yakyuu Team o Tsukurou! 2	185004
+Prof di Parole, Il	148196
+Profesor Layton y el Futuro Perdido, El	10665
+Profesor Layton y la Caja de Pandora, El	10495
+Profesor Layton y la Llamada del Espectro, El	10664
+Professeur Layton et l'Appel du Spectre	10664
+Professeur Layton et la Boite de Pandore	10495
+Professeur Layton et le Destin Perdu	10665
+Professional Fisherman's Tour - Northern Hemisphere	132191
+Professor Brainium's Games	129696
+Professor Brainmaniac	129696
+Professor Heinz Wolff's Gravity	27344
+Professor Kageyama's Maths Training - The Hundred Cell Calculation Method	131665
+Professor Kageyama's Maths Training - The Hundred Cell Calculation Method - Study Together	20904
+Professor Layton and Pandora's Box	10495
+Professor Layton and the Curious Village	6869
+Professor Layton and the Diabolical Box	10495
+Professor Layton and the Last Specter	10664
+Professor Layton and the Lost Future	10665
+Professor Layton and the Spectre's Call	10664
+Professor Layton and the Unwound Future	10665
+Professor Layton e il Futuro Perduto, Il	10665
+Professor Layton e il Richiamo dello Spettro, Il	10664
+Professor Layton e lo Scrigno di Pandora, Il	10495
+Professor Layton en de Doos van Pandora	10495
+Professor Layton en de Melodie van het Spook	10664
+Professor Layton en de Verloren Toekomst	10665
+Professor Layton und der Ruf des Phantoms	10664
+Professor Layton und die Schatulle der Pandora	10495
+Professor Layton und die Verlorene Zukunft	10665
+Professor's Brain Trainer, The - Logic	27335
+Professor's Brain Trainer, The - Memory	16094
+Project Rub	6799
+Prova del Cuoco, La	192210
+Pucca - Power Up	149923
+Puchi Puchi Virus	21262
+Puffins - Island Adventure	149922
+Puppy Luv - Spa and Resort	134245
+Puppy Palace	149921
+Purr Pals	13505
+Pururun! Shizuku-chan Aha - DS Drill Kokugo	185007
+Pururun! Shizuku-chan Aha - DS Drill Sansuu	185006
+Puss in Boots	127122
+Puyo Pop Fever	6870
+Puyo Puyo 7	123974
+Puyo Puyo Fever	6870
+Puyo Puyo Fever 2	27828
+Puyo Puyo! - Puyopuyo 15th Anniversary	27829
+Puyo Puyo!! - Puyopuyo 20th Anniversary	139848
+Puzzle Bobble DS	191171
+Puzzle Bobble Galaxy	20893
+Puzzle Chronicles	14241
+Puzzle City	149920
+Puzzle de Harvest Moon	15223
+Puzzle Expedition	149919
+Puzzle Kingdoms	13698
+Puzzle League DS	17619
+Puzzle League DS - Multiplayer	20904
+Puzzle Quest - Challenge of the Warlords	17621
+Puzzle Quest - Galactrix	27830
+Puzzle Quest 2	27831
+Puzzle Series - Jigsaw Puzzle - Koneko Mekuri Hen	191911
+Puzzle Series - Jigsaw Puzzle - Oden-kun	191912
+Puzzle Series - Jigsaw Puzzle - Oden-kun 2	128196
+Puzzle Series Vol. 1 - Jigsaw Puzzle	191178
+Puzzle Series Vol. 11 - Nurikabe	191906
+Puzzle Series Vol. 12 - Bijutsukan	149918
+Puzzle Series Vol. 2 - Crossword	191890
+Puzzle Series Vol. 3 - Sudoku	160221
+Puzzle Series Vol. 5 - Slither Link	130629
+Puzzle Time	149917
+Puzzler Brain Games	149916
+Puzzler Collection	6871
+Puzzler World	149912
+Puzzler World 2	149915
+Puzzler World 2011	149915
+Quest Braintainment	213173
+Quest Trio, The	14246
+Quest Trio, The - Jewels, Cards and Tiles	14246
+Questions pour un Champion - Le Jeu Officiel - Edition Speciale 20 Ans	192289
+Quick Yoga Training - Learn in Minutes a Day	149123
+QuickSpot	134234
+Quiz Kirameki Star Road	191457
+Quiz Magic Academy DS	164676
+Quiz Magic Academy DS - Futatsu no Jikuuseki	185025
+Quiz no Tabi - Tetsudou Ryojou Hen	186210
+Quiz Taxi	213176
+Quiz! Hexagon II	185027
+Quiz! Nihongo-ou	191132
+Raa Raa the Noisy Lion	149911
+Rabbids Go Home	17040
+Rabbids Go Home - A Comedy Adventure	17040
+Rabbids Party - TV Party	16690
+Race Driver - Create & Race	134232
+Race Driver - Grid	17617
+Radiant Historia	11396
+Rafa Nadal Tennis	128183
+Ragnarok DS	11397
+Ragnarok Online DS	11397
+Rain Drops	134233
+Rainbow Islands Revolution	27834
+Raku Raku Shindenzu Training DS	191459
+Ram Racing	149120
+Rango	16268
+Rapala Pro Bass Fishing	16273
+Ratatouille	31204
+Ratatouille - Food Frenzy	134112
+Raw Numbers	20904
+Rayman - Raving Rabbids	2935
+Rayman - Raving Rabbids - TV Party	16690
+Rayman - Raving Rabbids 2	11399
+Rayman - Yeopgitokki - TV Party	16690
+Rayman DS	11398
+Reader Rabbit - Kindergarten	134235
+Reader Rabbit - Math 4-8 yrs	192239
+Ready Steady Cook - The Game	192210
+Real Adventures - Pet Vet	150133
+Real Crimes - Jack the Ripper	149907
+Real Crimes - The Unicorn Killer	149906
+Real Football 2008	149119
+Real Football 2009	149118
+Real Soccer 2008	149119
+Real Soccer 2009	149118
+Real Stories - Amoureux pour la Vie	135443
+Real Stories - Babies	135454
+Real Stories - Best Friends - Mon Poulain, Mon Cheval	151857
+Real Stories - Cheval Academy	203539
+Real Stories - Fashion Shop	155409
+Real Stories - Mijn Babycreche	135454
+Real Stories - Mission Equitation	150461
+Real Stories - Mon Hotel de Reve	184737
+Real Stories - Passion 4 Fashion	155409
+Real Stories - Veterinaire	203524
+Real Stories - Veterinaire - Mission Australie	150198
+Real Time Conflict - Shogun Empires	128210
+Really Really! - ReaRea DS	185029
+Rec Room Games	149116
+Recettes de Cuisine avec Cyril Lignac	192311
+Red Bull BC One	134244
+Red Stone DS - Akaki Ishi ni Michibikareshi Mono-tachi	179140
+Rekishi Adventure - Quiz Sangokushi Tsuu DS	185031
+Rekishi Gunzou Presents - Monoshiri Bakumatsu Ou	191133
+Rekishi Gunzou Presents - Monoshiri Sangokushi	185055
+Rekishi Gunzou Presents - Monoshiri Sengoku Ou	191164
+Rekishi Nouryoku Kentei Kyoukai Kounin - Yamakawa Shuppansha Kanshuu - Rekiken DS - Nihonshi, Sekaishi	213009
+Relaxation Puzzle Game - Nemurenai Yoru to Puzzle no Hi ni wa....	20198
+Remindelight	191163
+Remy no Oishii Restaurant	31204
+Resident Evil - Deadly Silence	3948
+Restaurant Tycoon	149904
+Retro Arcade Toppers	149903
+Retro Atari Classics	6872
+Retro Game Challenge	6873
+Reversal Challenge	134236
+Rhapsody - A Musical Adventure	11400
+Rhythm 'n Notes	149115
+Rhythm 'n Notes - Improve Your Music Skills	149115
+Rhythm de Cooking - Sweets Party e Youkoso	185057
+Rhythm de Run Run Run	191134
+Rhythm Heaven	12481
+Rhythm Paradise	12481
+Rhythm Sesang	12481
+Rhythm Tengoku Gold	12481
+Ridge Racer DS	6874
+Riding Academy 2	149114
+Riding Star 3	128171
+Rijexamen Training - Code de la Route	20696
+Rilakkuma Rhythm - Mattari Kibun de Dararan Ran	185058
+Ringling Bros. and Barnum & Bailey - Circus Friends - Asian Elephants	149122
+Ringling Bros. and Barnum & Bailey - It's My Circus - Elephant Friend	149122
+Rio	148179
+Rittai Picross	11391
+River City - Soccer Hooligans	27193
+River City - Super Sports Challenge	93746
+River King - Mystic Valley	15229
+Riz-Zoawd	15128
+Road to Vegas	149902
+Roary the Racing Car	149901
+Robbie Konijn - Leer Lezen en Schrijven	192248
+Robocalypse	126876
+Robots	34632
+Rock Band 3	127154
+Rock Blast	18003
+Rock Revolution	16369
+Rockin' Pretty	96096
+Rockman EXE - Operate Shooting Star	155611
+Rockman EXE 5 DS - Twin Leaders	20672
+Rockman Zero Collection	14057
+Rockman ZX	6844
+Rockman ZX - Advent	6845
+Rollercoaster Park	151122
+Rollin' Rascals	122860
+Rondo of Swords	14064
+Roogoo Attack!	134238
+Rooms - Fushigi na Ugoku Heya	15166
+Rooms - The Main Building	15166
+Rosario to Vampire - Tanabata no Miss Youkai Gakuen	132916
+Rub Rabbits!, The	21464
+Rubik's Puzzle World	149113
+Rubik's World	149113
+Rudolph - The Red-Nosed Reindeer	24743
+Rule of Speed	20904
+Runaway - A Twist of Fate	11404
+Runaway - The Dream of the Turtle	11405
+Rune Factory - A Fantasy Harvest Moon	11407
+Rune Factory - Shin Bokujou Monogatari	11407
+Rune Factory - Sinmokjjangiyagi	11407
+Rune Factory 2	11409
+Rune Factory 2 - A Fantasy Harvest Moon	11409
+Rune Factory 3	11410
+Rune Factory 3 - A Fantasy Harvest Moon	11410
+Russel Grant's Astrology	179932
+Ryoukiki Exercise - Riron no Migite to Kansei no Hidarite	191527
+Ryuusei no Rockman - Dragon	6841
+Ryuusei no Rockman - Leo	6842
+Ryuusei no Rockman - Pegasus	6843
+Ryuusei no Rockman 2 - Berserk x Dinosaur	14501
+Ryuusei no Rockman 2 - Berserk x Shinobi	14499
+Ryuusei no Rockman 3 - Black Ace	14498
+Ryuusei no Rockman 3 - Red Joker	14500
+Saeki Chizu Shiki Yumemihada - Dream Skincare	191186
+Safari Adventures - Africa	149110
+Safecracker - The Ultimate Puzzle Adventure	10623
+Safecracker - The Ultimate Puzzle Challenge!	10623
+SaGa 2 - Hihou Densetsu - Goddess of Destiny	92923
+SaGa 3 - Jikuu no Hasha - Shadow or Light	92924
+Saibanin Suiri Game - Yuuzai x Muzai	186899
+Saihai no Yukue	191135
+Saikin Koi Shiteru	185424
+Saikyou Toudai Shougi DS	191294
+Sailor Moon - La Luna Splende	168441
+Saitou Takashi no DS de Yomu - Sanshoku Ballpen Meisaku Juku	191662
+Saiyuuki Kinkaku Ginkaku no Inbou	183694
+Saka Tsuku DS - Touch and Direct	185425
+Sakasete! Chibi-Robo!	6705
+Sakura Note - Ima ni Tsunagaru Mirai	185427
+Sakusaku Jinkou Kokyuu Care Training DS	191763
+Sally's Salon	149109
+Salon Superstar	156323
+Sam Power - Firefighter	130060
+Sam Power - Handyman	130061
+Samantha Oups! - Le Jeu	192312
+Samantha Swift and the Hidden Roses of Athena	24190
+Samgukji DS 2	191767
+San-X Character Sagashi Land	191769
+Sands of Destruction	11411
+Sangokushi DS	185428
+Sangokushi DS 2	191767
+Sangokushi DS 3	185429
+Sangokushi Taisen DS	191764
+Sangokushi Taisen Ten	191765
+Sankei Sports Kanshuu - Keiba Ryoku Nintei Shiken - Baken DS	185430
+Sansuu Olympic Iinkai Kouan - Suuji de Kitaeru Nouryoku Training - Algo & Trinca	192092
+Sansuu Puzzle de Migaku - Gakken Otona no Shikou Sense	191766
+Sansuu Puzzle Game - Equal Card DS	151067
+Santa Claus is Comin' to Town	149108
+Sarah - Die Hueterin des Einhorns	149106
+Sarah - Keeper of the Unicorn	149106
+Sarainneun Yeongeoro Ganghaejineun Siljeon! - DS Yeongeo Sammaegyeong	20838
+Saru Saru DS	185432
+Satisfashion - Rock the Runway	149105
+Sawaru Made in Wario	6903
+SBI Group Kanshuu - Hajimeyou! Shisan Unyou DS	185433
+SBK - Snowboard Kids	6878
+Scene It Twilight	24742
+Schaakmat!	132254
+Schach	132254
+Schach & Matt	151716
+Schach Attacke	148174
+Schatz der Delfine, Der	149899
+Science Papa	149104
+Scooby-Doo! - First Frights	32674
+Scooby-Doo! - Qui Regarde Qui	92325
+Scooby-Doo! - Unmasked	99416
+Scooby-Doo! - Wer Schaut Wem Zu	92325
+Scooby-Doo! - Who's Watching Who	92325
+Scooby-Doo! and the Spooky Swamp	149898
+Scotland Yard - Hunting Mister X	149000
+Scrabble - Crossword Game	14862
+Scrabble Interactive - 2007 Edition	149897
+Scrabble Interactive - 2009 Edition	149896
+Scribblenauts	11412
+Scribblenauts Collection	149101
+Scripps Spelling Bee	149100
+Scurge - Hive	6875
+SD Gundam G Generation - Cross Drive	185434
+SD Gundam G Generation DS	185435
+SD Gundam Sangoku Den - Brave Battle Warriors - Shin Militia Taisen	185439
+Sea Monsters - A Prehistoric Adventure	149099
+Sea Park Tycoon	149098
+Secret Files - Tunguska	17041
+Secret Files 2 - Puritas Cordis	26989
+Secret Flirts - Make Everyone Fall For You!	149895
+Secret Saturdays, The - Beasts of the 5th Sun	149804
+Secret Saturdays, The - Beasts of the 5th Sun - Character Unlock	20904
+Secrets of the Titanic 1912-2012	149894
+SEGA Casino	13460
+SEGA Presents - Touch Darts	128185
+SEGA Superstars Tennis	9607
+Seiken Densetsu - Heroes of Mana	11253
+Seiken Densetsu DS - Children of Mana	6706
+Seitokai no Ichizon - DS Suru Seitokai	185440
+Sekai no Gohan - Shaberu! DS Oryouri Navi	6863
+Sekai no Hate made ItteQ! - Chinjuu Hunter Imoto no Daibouken	185442
+Sekai no Shougi	191617
+Sekai wa Atashi de Mawatteru	12536
+Sekaiju no Meikyuu	11221
+Sekaiju no Meikyuu II - Shoou no Seihai	6798
+Sekaiju no Meikyuu III - Seikai no Raihousha	11222
+Sekaishi DS	185854
+Sengoku Spirits - Gunshi Den	185899
+Sengoku Spirits - Moushou Den	185900
+Sengoku Spirits - Shukun Den	185901
+Sesame Street - Elmo's Musical Monsterpiece	148515
+Sesame Street - Ready, Set, Grover!	148516
+Settlement Colossus	149893
+Settlers, The	19231
+Shaberu! DS Oryouri Navi - Marugoto Teikoku Hotel	191618
+Shakugan no Shana DS	179141
+Shamu's Deep Sea Adventures	134239
+Shane Watson's Power Play Cricket 2011	168461
+Shantae	466694
+Shaun the Sheep	149060
+Shaun the Sheep - Off His Head	149892
+Shaun White Snowboarding	149059
+Shawn Johnson Gymnastics	149058
+Shenyou Maliou DS	6886
+Shepherd's Crossing 2 DS	15058
+Sherlock Holmes - The Mystery of the Mummy	18659
+Sherlock Holmes and the Mystery of Osborne House	18658
+Sherlock Holmes DS - The Mystery of the Mummy	18659
+Sherlock Holmes DS and the Mystery of Osborne House	18658
+Shibou Nenshou Keikaku - Yasetore!! DS	186074
+Shichida Shiki Training - Unou Tanren Unotan DS - Shun Kan Shoubu! Kiokuryoku	27335
+Shichida Shiki Training - Unou Tanren Unotan DS - Shun Kan Shoubu! Shuuchuuryoku	16094
+Shichidasik Unoedallyeon - Super Brain	191883
+Shikakui Atama o Maruku Suru. DS - Joushiki, Nanmon no Shou	191663
+Shikakui Atama o Maruku Suru. DS - Kanji no Shou	191664
+Shikakui Atama o Maruku Suru. DS - Keisan no Shou	191666
+Shin 'Noukyou' Iku	191921
+Shin chan - Aventuras de Cine!	181238
+Shin chan contra los Plastas!	185934
+Shin chan e i Colori Magici!	160331
+Shin chan Flipa en Colores!	160331
+Shin Hisui no Shizuku - Hiiro no Kakera 2 DS	191667
+Shin Lucky Star Moe Drill - Tabidachi	186072
+Shin Maru Goukaku - Shikaku Dasshu! IT Passport Shiken, Kihon Jouhou Gijutsusha Shiken, Ouyou Jouhou Gijutsusha Shiken	184337
+Shin Megami Tensei - Devil Survivor	11413
+Shin Megami Tensei - Devil Survivor 2	11414
+Shin Megami Tensei - Strange Journey	11416
+Shin Sangoku Musou DS - Fighter's Battle	123999
+Shin Sengoku Tenka Touitsu - Gunyuu-tachi no Souran	186073
+Shining Force Feather	11052
+Shining Stars - Super Starcade	149046
+Shinreigari - Ghost Hound DS	186075
+Shinri Kenkyuuka Yuki Yu Kanshuu - Mainichi Kokorobics - DS Therapy	191919
+Shinseiki Evangelion - Ayanami Ikusei Keikaku DS with Asuka Hokan Keikaku	101393
+Shion no Ou - The Flowers of Hard Blood	191771
+Shoho kara Hajimeru - Otona no Eitango Renshuu	191772
+Shokugyou Taiken Adventure - 13-sai no Hello Work DS	169548
+Shorts	149045
+Shougi World Champion - Gekisashi DS	191620
+Shoukou Shindan Training DS	191773
+Shounen Kininden Tsumuji	186076
+Shounen Sunday & Shounen Magazine - White Comic	179142
+Showtime Championship Boxing	132150
+Shrek - E Vissero Felici e Contenti	16533
+Shrek - Forever After	16533
+Shrek - Oger und Dresel	128209
+Shrek - Ogres & Dronkeys	128209
+Shrek - Ogres et Dranons	128209
+Shrek - Ogritos y Drasnos	128209
+Shrek - Orchetti e Ciuchini	128209
+Shrek - Smash n' Crash Racing	135456
+Shrek - Super Slam	134110
+Shrek de Derde	123278
+Shrek der Dritte	123278
+Shrek le Troisieme	123278
+Shrek Tercero	123278
+Shrek Terzo	123278
+Shrek the Third	123278
+Shrek's Carnival Craze - Party Games	134111
+Shugo Chara! - 3-tsu no Tamago to Koisuru Joker	191876
+Shugo Chara! - Amu no Nijiiro Chara Change	191875
+Shugo Chara! - Nori Nori! CharanaRhythm	186077
+Shunkan Puzz Loop	6834
+Shuwa no Mori	186078
+Sid Meier's Civilization Revolution	6876
+Sideswiped	149044
+Sight Training - Enjoy Exercising and Relaxing Your Eyes	16876
+Sightseeing Puzzle - Echter Puzzlespass fuer Unterwegs	149891
+Sigma Harmonics	186079
+Silke - Pixelines Lillesoester - Hoensefoedder og Guleroedder	213255
+Silke - Pixelines Lillesoester - Syng, Leg og Laer	213256
+Silverlicious	149831
+SimAnimals	29813
+SimAnimals - Africa	8957
+SimCity - Creator	11418
+SimCity DS	149025
+SimCity DS - The Ultimate City Simulator	149025
+SimCity DS 2 - Kodai kara Mirai e Tsuzuku Machi	11418
+Simple DS Series Vol. 1 - The Mahjong	191949
+Simple DS Series Vol. 10 - The Dokodemo Kanji Quiz	191956
+Simple DS Series Vol. 12 - The Party Unou Quiz	191958
+Simple DS Series Vol. 13 - Ijoukishou o Tsuppashire - The Arashi no Drift Rally	19232
+Simple DS Series Vol. 14 - The Jidousha Kyoushuujo DS	191960
+Simple DS Series Vol. 16 - The Sagasou Fushigi na Konchuu no Mori	191962
+Simple DS Series Vol. 17 - The Nezumi no Action Game - Mouse Town Roddy to Rita no Daibouken	21541
+Simple DS Series Vol. 18 - The Soukou Kihei Gun Ground	191963
+Simple DS Series Vol. 19 - Yareba Dekiru! - The Micro Step Gijutsu de Oboeru Eitango	191964
+Simple DS Series Vol. 2 - The Billiard	129576
+Simple DS Series Vol. 23 - The Puzzle Quest - Agaria no Kishi	17621
+Simple DS Series Vol. 24 - The Sensha	191970
+Simple DS Series Vol. 29 - The Sports Daishuugou - Yakyuu, Tennis, Volleyball, Futsal, Golf	189814
+Simple DS Series Vol. 3 - The Mushitori Oukoku - Shinshu Hakken! Nokogiri Kabuto!	129575
+Simple DS Series Vol. 30 - The Table Game - Mahjong, Igo, Shougi, Card, Hanafuda, Reversi, Gomoku Narabe	191977
+Simple DS Series Vol. 32 - The Zombie Crisis	191978
+Simple DS Series Vol. 33 - The Crossword & Kanji Puzzle	191979
+Simple DS Series Vol. 35 - The Genshijin	191981
+Simple DS Series Vol. 36 - ALC de Mi ni Tsuku! TOEIC Test - Bunpou Tokkun Hen	191982
+Simple DS Series Vol. 37 - ALC de Mi ni Tsuku! TOEIC Test - Listening Kyouka Hen	191983
+Simple DS Series Vol. 38 - ALC de Manabu! TOEIC Test - Hajimete Hen	191985
+Simple DS Series Vol. 39 - The Shouboutai	191986
+Simple DS Series Vol. 4 - The Block Kuzushi	128386
+Simple DS Series Vol. 40 - The Gekai	191987
+Simple DS Series Vol. 44 - The Gal Mahjong	191992
+Simple DS Series Vol. 45 - The Misshitsu kara no Dasshutsu 2	191993
+Simple DS Series Vol. 46 - The Hikyou Tankentai - Choujou Special 'Kyoui! Jinrui Mitou no Sekai Kakuchi ni Nazo no Mikakunin Seibutsu wa Sonzai Shita!!'	191994
+Simple DS Series Vol. 47 - The Suiri - Shinshou 2009	191995
+Simple DS Series Vol. 48 - The Saibanin - 1-tsu no Shinjitsu, 6-tsu no Kotae	191996
+Simple DS Series Vol. 5 - The Trump	191950
+Simple DS Series Vol. 6 - The Party Game	150205
+Simple DS Series Vol. 7 - The Illust Puzzle & Suuji Puzzle	128538
+Simple DS Series Vol. 9 - Atama ga Yokunaru - The Me no Training	191955
+Simple Wii Series Vol. 3 - The Casino Party	20904
+Simpson, I - Il Videogioco	16546
+Simpson, Les - Le Jeu	16546
+Simpson, Los - El Videojuego	16546
+Simpsons Game, The	16546
+Simpsons, Die - Das Spiel	16546
+Sims 2, The	127127
+Sims 2, The - Apartment Pets	95314
+Sims 2, The - Castaway	13456
+Sims 2, The - Hachamecha Hotel Life	127127
+Sims 2, The - Pet Wannyan Life	127126
+Sims 2, The - Pets	127126
+Sims 2, The - Survival	13456
+Sims 3, The	16549
+Six Flags Fun Park	149024
+Skate It	30682
+Slide Adventure - Mag Kid	191191
+Slime Morimori Dragon Quest 2 - Daisensha to Shippo Dan	11042
+Slingo Quest	13702
+Sloane to MacHale no Nazo no Story	186082
+Sloane to MacHale no Nazo no Story 2	186081
+Smart Boy's Gameroom	132262
+Smart Boy's Gameroom 2	149022
+Smart Boy's Toys Club	179911
+Smart Boy's Winter Wonderland	149021
+Smart Girl's Magical Book Club	149020
+Smart Girl's Party Game	149016
+Smart Girl's Playhouse	132315
+Smart Girl's Playhouse 2	187685
+Smart Girl's Playhouse Party	149017
+Smart Girl's Winter Wonderland	149019
+Smart Kid's Gameclub	149015
+Smart Kid's Mega Game Mix	149014
+Smart Kid's Party Fun Pak	149013
+SmileyWorld - Island Challenge	149012
+Smurfs 2, The	18114
+Smurfs, The	127128
+SNK vs. Capcom - Card Fighters DS	27195
+Snood 2 - On Vacation	148264
+Snoopy no Aiken DS - Shitte Okitai Inu no Koto, Inu no Nouryoku, Anata no Shitsuke	179146
+Snoopy to Issho ni DS Eigo Lesson	179147
+Snowboard Kids Party	6878
+So Blonde - Back to the Island	149845
+Sofie - Josefines Lillesoester - Hoensefoetter og Guleroetter	213255
+Sofie - Josefines Lillesoester - Syng, Lek og Laer	213256
+Sokoban DS	149844
+Solatorobo - Red the Hunter	13135
+Solatorobo - Sorekara Coda e	13135
+Solitaire	184674
+Solitaire DS	132794
+Solitaire Mahjong - Ancient China Adventure	149843
+Solitaire Overload	132794
+Solitaire Overload Plus	149011
+Soma Bringer	11419
+Sommelier DS	191137
+Sonic & SEGA All-Stars Racing	16656
+Sonic Chronicles - The Dark Brotherhood	9609
+Sonic Chronicles - Yami Jigen kara no Shinryakusha	9609
+Sonic Classic Collection	18931
+Sonic Colors	11420
+Sonic Colours	11420
+Sonic Rush	6879
+Sonic Rush Adventure	11421
+Sonny with a Chance	134241
+Sonshi no Heihou DS	186083
+Sonyeojeok Yeonae Hyeongmyeong - Love Revo!! DS	184565
+Sora no Otoshimono Forte - Dreamy Season	179148
+Sorcerer's Apprentice, The	32019
+Soreike! Anpanman - Baikinman no Daisakusen	189986
+Soroban DS	184834
+Soroeru Puzzle Douwa Oukoku	127994
+Soukoku no Kusabi - Hiiro no Kakera 3 DS	191346
+Soul Bubbles	16871
+Soul Eater - Medusa no Inbou	179149
+Souseiki Gadget Robo	186086
+Space Bust-A-Move	20893
+Space Camp	148262
+Space Chimps	148261
+Space Invaders DS	31171
+Space Invaders Extreme	6880
+Space Invaders Extreme 2	17622
+Space Invaders Revolution	31171
+Space Puzzle Bobble	20893
+Spanish Buddy	203526
+Spanish for Everyone!	148260
+Spectral Force - Genesis	11422
+Spectrobes	6881
+Spectrobes - Beyond the Portals	13389
+Speed Racer	30975
+Speed Racer - The Videogame	30975
+Spellbound	148259
+Spelling Challenges and More!	148259
+Spider-Man - Allie ou Ennemi	22131
+Spider-Man - Amici o Nemici	22131
+Spider-Man - Amigo o Enemigo	22131
+Spider-Man - Bataille pour New York	123253
+Spider-Man - Battle for New York	123253
+Spider-Man - Edge of Time	21967
+Spider-Man - Freund oder Feind	22131
+Spider-Man - Friend or Foe	22131
+Spider-Man - Shattered Dimensions	13839
+Spider-Man - Web of Shadows	6882
+Spider-Man 2	21965
+Spider-Man 3	21966
+Spiderwick Chronicles, The	14832
+Spiegel Online - Die Wissenstrainer-Serie - Karriere Coach	213196
+Spielend Mathe Lernen	213198
+Spitfire Heroes - Tales of the Royal Air Force	148258
+SpongeBob - SpongeBob's Truth or Square	148257
+SpongeBob and Friends - Battle for Volcano Island	150288
+SpongeBob SquarePants - Creature from the Krusty Krab	20909
+SpongeBob SquarePants - Fists of Foam	466694
+SpongeBob SquarePants - Frantic Fry Cook	148256
+SpongeBob SquarePants - Plankton's Robotic Revenge	147952
+SpongeBob SquarePants - SpongeBob to Nakama-tachi	150288
+SpongeBob SquarePants - SpongeBob to Nakama-tachi - Toybot no Kougeki	19124
+SpongeBob SquarePants - The Yellow Avenger	126240
+SpongeBob SquarePants and Friends Unite!	150289
+SpongeBob SquarePants Featuring Nicktoons - Globs of Doom	135457
+SpongeBob to Atlantis, Ikitain Desu	124867
+SpongeBob und Seine Freunde - Angriff der Spielzeugroboter	19124
+SpongeBob vs the Big One - Beach Party Cook-Off	148256
+SpongeBob Yori Daesodong	148256
+SpongeBob's Atlantis SquarePantis	124867
+SpongeBob's Boating Bash	149010
+SpongeBob's Surf & Skate - Roadtrip	121914
+SpongeBob's Truth or Square	148257
+SpongeBobgwa Chingudeul	135457
+SpongeBobui Atlantis	124867
+Spooky Story	199508
+Spore - Kimi ga Tsukuru Hero	14835
+Spore Creatures	11423
+Spore Hero Arena	14835
+Sports Island DS	129599
+Sprung - A Game Where Everyone Scores	6883
+Sprung - The Dating Game	6883
+Spy Kids - All the Time in the World	149008
+Spyro - Shadow Legacy	29150
+Squeeballs Party	148255
+Squinkies - Surprise Inside	149007
+Squinkies - Surprize Inside	149007
+Squinkies 2 - Adventure Mall Surprize!	24744
+Squishy Tank	148254
+Star Fox Command	11424
+Star Life	150067
+Star Trek - Tactical Assault	6884
+Star Wars - Battlefront - Elite Squadron	97669
+Star Wars - Episode III - Revenge of the Sith	6885
+Star Wars - Episode III - Sith no Fukushuu	6885
+Star Wars - Lethal Alliance	31174
+Star Wars - The Clone Wars - Jedi Alliance	23186
+Star Wars - The Clone Wars - Republic Heroes	24419
+Star Wars - The Force Unleashed	24415
+Star Wars - The Force Unleashed II	25892
+Starz	15168
+Steal Princess	11425
+Steal Princess - Touzoku Koujo	11425
+Steel Horizon	148253
+Sternentaenzer - Das Geheimnisvolle Pferd	149838
+Steve Soresi no Business Eikaiwa Pera Pera DS Training	186091
+Steve Soresi no Eikaiwa Pera Pera DS Training	186093
+Stitch Jam	19130
+Stitch! DS - Ohana to Rhythm de Daibouken	19130
+Story of Noah's Ark, The	149002
+Stratego - Next Edition	149837
+Strawberry Shortcake - The Four Seasons Cake	148248
+Street Football	149836
+Street Football II	192894
+Strike Witches - Soukuu no Dengekisen - Shin Taichou Funtou Suru!	179151
+Strike Witches 2 - Iyasu, Naosu, Punipuni Suru	179150
+Style Book - Cinnamoroll	191698
+Style Book - Fushigi Boshi no Futago Hime Gyu!	191700
+Style Book - Junior City	191288
+Style Lab - Fashion Design	149005
+Style Lab - Jewelry Design	148247
+Style Lab - Makeover	149006
+Style Savvy	20897
+Subarashiki Kono Sekai - It's a Wonderful World	6890
+Subbuteo	149835
+Successfully Learning English	203513
+Successfully Learning English - Year 2+3	149834
+Successfully Learning English - Year 4+5	149833
+Successfully Learning Mathematics (Europe) (En,Fr,De,Es,It,Ru)	151714
+Successfully Learning Mathematics (Europe) (En,Fr,De,Es,It,Ru,Tr) (Rev 1)	151714
+Successfully Learning Mathematics (Europe) (En,Fr,De,Es,It,Tr)	189347
+Successfully Learning Mathematics - Year 2+3	149832
+Successfully Learning Mathematics - Year 4+5	149821
+Sudoku Ball Detective	148246
+Sudoku DS - Nikoli no 'Sudoku' Ketteiban	191289
+Sudoku Gridmaster	160221
+Sudoku Mania - Enhance Your Critical Thinking Skills!	132184
+Sudoku Master	160221
+Sudokumaniacs	132184
+Sudokuro	132185
+Sudokuro - Sudoku & Kakuro Games	132185
+Sueddeutsche Zeitung Wissen - Mehr Kreuzwortraetsel	199422
+Sugar Bunnies DS - Yume no Sweets Koubou	186096
+Suguroku DS	418171
+Suikoden - Tierkreis	11426
+Suisui Physical Assessment Training DS	191706
+Suite Life of Zack & Cody, The - Circle of Spies	18026
+Suite Life of Zack & Cody, The - Tipton Trouble	21269
+Suite PreCure - Melody Collection	191707
+Sukashikashipanman DS - 'Shokotan' Koto Nakagawa Shoko Produce	191185
+Sumeoinneun Nunui Him - DS Allyeok Training	16876
+Sumeun Sojireul Kkaeuneun - Geurimgyosil	12597
+Summon Night	143354
+Summon Night - Twin Age	11427
+Summon Night 2	143351
+Summon Night Twin Age - Seirei-tachi no Koe	11427
+Summon Night X - Tears Crown	143350
+Sun, The - Crossword Challenge	419938
+Sunday x Magazine - Nettou! Dream Nine	183050
+Sunrise Anime Zuke - Boku no Joushiki, Kimi no Hijoushiki - Vol. 1	186205
+Super Auto Salon - Custom Car Contest	178043
+Super Black Bass - Dynamic Shot	132186
+Super Black Bass - Kitahankyuu o Tsuru	132191
+Super Black Bass Fishing	132186
+Super Collapse! 3	148240
+Super Dodgeball Brawlers	94011
+Super Fahrschule	213200
+Super Fruit Fall	148239
+Super Fun Chess	149817
+Super Kaseki Horider	14537
+Super Key	6886
+Super Mario 64 DS	6886
+Super Monkey Ball - Touch & Roll	20910
+Super Monkey Ball DS	20910
+Super Princess Peach	6887
+Super Robot Taisen K	133240
+Super Robot Taisen L	183961
+Super Robot Taisen OG Saga - Endless Frontier	11428
+Super Robot Taisen OG Saga - Masou Kishin - The Lord of Elemental	179152
+Super Robot Taisen W	183962
+Super Scribblenauts	11051
+Super Speed Machines	19232
+Super Star Kartz	15451
+Super Yoshi no Tamago	20904
+SuperCard DSTWO	129632
+Supervivientes	100033
+Surf's Up	104655
+Survival Kids - Chiisana Shima no Ookina Himitsu!	11269
+Survival Kids - Lost in Blue	6821
+Survival Kids - Lost in Blue 2	11268
+Survivor	100033
+Sushi Academy	17993
+Sushi Go-Round	148238
+Suugaku Master DS	186229
+Suujin Taisen	191348
+Suzuki Super-Bikes II - Riding Challenge	149004
+Suzumiya Haruhi no Chokuretsu	179153
+Sweet 16	31816
+Syberia	134805
+T.A.C. Heroes - Big Red One	149003
+Tabaluga - Gruenland in Gefahr	192314
+Tabi no Yubisashi Kaiwachou DS - DS Series 1 - Thai	191296
+Tabi no Yubisashi Kaiwachou DS - DS Series 4 - America	191300
+Tabi no Yubisashi Kaiwachou DS - DS Series 5 - Duits	191301
+Table Game Spirits 2	191303
+Table Game Spirits Victory	186233
+Tactical Guild	191304
+Tacticslayer - Retainer Guard Senki	186236
+Tago Akira no Atama no Taisou - Dai-1-shuu - Nazotoki Sekai Isshuu Ryokou	186239
+Tago Akira no Atama no Taisou - Dai-2-shuu - Ginga Oudan Nazotoki Adventure	186243
+Tago Akira no Atama no Taisou - Dai-3-shuu - Fushigi no Kuni no Nazotoki Otogibanashi	186245
+Tago Akira no Atama no Taisou - Dai-4-shuu - Time Machine no Nazotoki Daibouken	186246
+Taiko no Tatsujin DS - Dororon! Yookai Daikessen!!	142323
+Taiko no Tatsujin DS - Touch de Dokodon!	142318
+Taitsu-kun - Joushi ga Okori-nikui Sawayaka Manners	191528
+Tak - Mojo Mistake	95258
+Tak - The Great Juju Challenge	100013
+Takahashi Shoten Kanshuu - Saihinshutsu! SPI Perfect Mondaishuu DS	191817
+Takahashi Shoten Kanshuu - Saihinshutsu! SPI Perfect Mondaishuu DS - 2010 Nendo Ban	186251
+Takahashi Shoten Kanshuu - Saihinshutsu! SPI Perfect Mondaishuu DS - 2011 Nendo Ban	185204
+Takahashi Shoten Kanshuu - Saihinshutsu! SPI Perfect Mondaishuu DS 2012 Nendoban	191787
+Take a Break's Puzzle Bonanza	149813
+Take a Break's Puzzle Master	149812
+Takeout! DS Series 1 - Tetsudou Data File	185211
+Takeout! DS Series 2 - Nippon no Yachou Daizukan	185224
+Tale of Despereaux, The	148237
+Tales of Hearts - Anime Movie Edition	32837
+Tales of Hearts - CG Movie Edition	32837
+Tales of Innocence	11429
+Tales of the Tempest	16987
+Tales to Enjoy! - Little Red Riding Hood	149811
+Tales to Enjoy! - The Ugly Duckling	155056
+Tamagotch no Appare! Niji-Venture	191877
+Tamagotch no Pichi Pichi Omisetchi	185422
+Tamagotch no Puchi Puchi Omisetchi	20892
+Tamagotch no Puchi Puchi Omisetchi - Gohiiki Ni	148236
+Tamagotch no Puchi Puchi Omisetchi - Mina Sankyuu!	135458
+Tamagotchi Connection - Corner Shop	20892
+Tamagotchi Connection - Corner Shop 2	148236
+Tamagotchi Connection - Corner Shop 3	135458
+Tamagotchi Connexion - Corner Shop	20892
+Tamagotchi Connexion - Corner Shop 2	148236
+Tamagotchi Connexion - Corner Shop 3	135458
+Tangled	22482
+Tangram Mania	149808
+Tank Battles	14920
+Tank Beat	14920
+Tank Beat 2 - Gekitotsu! Duits-gun vs. Rengougun	129654
+Tank Beat 2 - Gyeokdol! Jeoncha Daejeon	129654
+Tanoshii Youchien - Kotoba to Asobo!	191349
+Tantei Jinguuji Saburou DS - Fuserareta Shinjitsu	186252
+Tantei Jinguuji Saburou DS - Inishie no Kioku	93745
+Tao - Mamono no Tou to Mahou no Tamago	27196
+Tao's Adventure - Curse of the Demon Seal	27196
+Tashiten - Tashite 10 ni Suru Monogatari	152012
+Taun-eulo - Nolleogayo Dongmul-ui Sup - Moving Van	20904
+Taun-eulo - Nolleogayo Dongmul-ui Sup - Suitcase	20904
+Team Batista no Eikou - Shinjitsu o Tsumugu 4-tsu no Karte	186386
+Tecktonik - World Tour	148566
+Tecmo Bowl - Kickoff	9237
+Teenage Mutant Ninja Turtles - Arcade Attack	27197
+Teenage Mutant Ninja Turtles 3 - Mutant Nightmare	14491
+Teenage Zombies - Invasion of the Alien Brain Thingys	14849
+Tekipaki Kyuukyuu Kyuuhen Training DS	191529
+Tele 7 Jeux Inedits - Echecs	149817
+Tele 7 Jeux Inedits - Professeur Brainmaniac	129696
+Tele 7 Jeux Inedits - Texas Hold 'em Poker Pack	31560
+Tele 7 Jeux Inedits - WordJong	13371
+Telly Addicts	149341
+Tenchu - Dark Secret	27198
+Tenchu - Dark Shadow	27198
+Tengai Makyou II - Manji Maru	140127
+Tengen Toppa Gurren Lagann	179158
+Tennis Elbow	149805
+Tennis Masters	149946
+Tennis no Ouji-sama - Doubles no Ouji-sama - Boys, Be Glorious!	191788
+Tennis no Ouji-sama - Doubles no Ouji-sama - Girls, Be Gracious!	186389
+Tennis no Ouji-sama - Driving Smash! - Side Genius	184998
+Tennis no Ouji-sama - Driving Smash! - Side King	184999
+Tennis no Ouji-sama - Gyutto! Dokidoki Survival - Umi to Yama no Love Passion	191789
+Tennis no Ouji-sama - Motto Gakuensai no Ouji-sama - More Sweet Edition	186390
+Tennis no Ouji-sama 2005 - Crystal Drive	186450
+Tenohira Gakushuu - Chikyuu no Narabe Kata	191200
+Tenohira Gakushuu - Kikutan DS Advanced	191530
+Tenohira Gakushuu - Kikutan DS Basic	446760
+Tenohira Gakushuu - Zettai Onkan Training DS	149115
+Tetris DS	6888
+Tetris Party Deluxe	20911
+Tetris Party Premium	20911
+Tetsudou Musume DS - Terminal Memory	191142
+Texas Hold 'em Poker DS	31559
+Texas Hold 'em Poker Pack	31560
+th!nk - Logic Trainer	16874
+th!nk - Logic Trainer - KIDS!	203537
+That's QT	149953
+That's So Raven - Psychic on the Scene	132188
+Theme Park	15217
+Theme Park DS	15217
+Theresia..	13962
+Theresia.. - Dear Emile	13962
+theta	191143
+Think - Kids - Speel Je Slim!	203537
+Think - Kids - Training fuer den Kopf - Spiel Dich Schlau!	203537
+Think - Train Je Brein - Logica Trainer	16874
+Think - Train Your Brain - Logic Trainer	16874
+Think - Train Your Senses	149802
+Think - Training fuer den Kopf - Fit fuer den Job!	213201
+Think - Training fuer den Kopf - Kids - Ist Doch Logisch!	16874
+Think - Training fuer den Kopf - Logik Trainer - Think Again	212982
+Think Again	212982
+thinkSMART - Chess for Kids	148174
+thinkSMART - Labyrinth	149001
+thinkSMART - Power UP your brain!	16874
+thinkSMART - Power UP your brain! - Kids 8+	148230
+thinkSMART Games - Scotland Yard - Hunting Mister X	149000
+Thomas & Friends - Hero of the Rails	149800
+Thor - God of Thunder	19233
+Thrillville - Off the Rails	104656
+ThunderCats	32838
+Tierbabys - Meine Grosse Tierpension	134245
+Tierbabys Puzzle - Echter Puzzlespass fuer Unterwegs	149801
+Tierliebe Gross Geschrieben	150133
+Tiger Woods PGA Tour	127750
+Tiger Woods PGA Tour 08	132192
+Tigerz	150019
+Tigre, El - The Adventures of Manny Rivera	148228
+Tim Stockdale's Riding Star	128171
+Time Ace	132189
+Time Hollow	11430
+Time Hollow - Ubawareta Kako o Motomete	11430
+Times, The - Crossword Challenge	149839
+Timmy Time	126359
+TINCan! Escape	148998
+Tingle no Balloon Fight DS	30064
+Tinker Bell	15226
+Tinker Bell and the Great Fairy Rescue	15228
+Tinker Bell and the Lost Treasure	15227
+Tinker Bell to Tsuki no Ishi	15227
+Tinker Bell to Yousei no Ie	15228
+Tintenherz	130057
+Titanic Mystery	148562
+Titeuf - Le Film	179160
+TMNT	12488
+TMNT - Teenage Mutant Ninja Turtles	12488
+TNA Wrestling Impact! - Cross the Line	24318
+To-Fu Collection	148526
+Tobidase! Kagaku-kun - Chikyuu Daitanken! Nazo no Chinkai Seibutsu ni Idome!	191531
+TOEIC Test - Koushiki DS Training	186396
+TOEIC Test DS Training	190864
+TOEIC Test Eitango - Speed Master DS	190862
+TOEIC Test Super Coach@DS	186394
+Tokimeki Memorial Girl's Side - 1st Love Plus	148524
+Tokimeki Memorial Girl's Side - 2nd Season	148525
+Tokimeki Memorial Girl's Side - 3rd Story	33580
+Tokumei Sentai Go Busters	191559
+Tokutei! Metabo Juku	186397
+Tokuten Ryoku Gakushuu DS - Chuu 1 5 Kyouka Pack	192002
+Tokuten Ryoku Gakushuu DS - Chuu 1 Eigo	192149
+Tokuten Ryoku Gakushuu DS - Chuu 1 Eisuukoku Pack	186398
+Tokuten Ryoku Gakushuu DS - Chuu 1 Kokugo	192003
+Tokuten Ryoku Gakushuu DS - Chuu 1 Rika	192004
+Tokuten Ryoku Gakushuu DS - Chuu 1 Rika - Chuu 2 Rika - Chuu 3 Rika - Chuugaku Chiri	192005
+Tokuten Ryoku Gakushuu DS - Chuu 1 Suugaku	186399
+Tokuten Ryoku Gakushuu DS - Chuu 2 5 Kyouka Pack	192006
+Tokuten Ryoku Gakushuu DS - Chuu 2 Eigo	192007
+Tokuten Ryoku Gakushuu DS - Chuu 2 Eisuukoku Pack	186466
+Tokuten Ryoku Gakushuu DS - Chuu 2 Kokugo	186468
+Tokuten Ryoku Gakushuu DS - Chuu 2 Rika	192009
+Tokuten Ryoku Gakushuu DS - Chuu 2 Suugaku	192014
+Tokuten Ryoku Gakushuu DS - Chuu 3 5 Kyouka Pack	192015
+Tokuten Ryoku Gakushuu DS - Chuu 3 Eigo	192016
+Tokuten Ryoku Gakushuu DS - Chuu 3 Eisuukoku Koumin Pack	192018
+Tokuten Ryoku Gakushuu DS - Chuu 3 Kokugo	186458
+Tokuten Ryoku Gakushuu DS - Chuu 3 Rika	192019
+Tokuten Ryoku Gakushuu DS - Chuu 3 Suugaku	186459
+Tokuten Ryoku Gakushuu DS - Chuugaku Chireki Rika Pack	192020
+Tokuten Ryoku Gakushuu DS - Chuugaku Chiri	186460
+Tokuten Ryoku Gakushuu DS - Chuugaku Jitsugi 4 Kyouka	192022
+Tokuten Ryoku Gakushuu DS - Chuugaku Junbi Tokubetsuhen Shougakkou 4 Kyouka Youten Matome - Chuugaku eigo Sakidori	192024
+Tokuten Ryoku Gakushuu DS - Chuugaku Koumin	192026
+Tokuten Ryoku Gakushuu DS - Chuugaku Rekishi	186464
+Tokuten Ryoku Gakushuu DS - Chuugaku Rika 1 Bunya	186465
+Tokuten Ryoku Gakushuu DS - Chuugaku Rika 2 Bunya	192027
+Tokuten Ryoku Gakushuu DS - Koukou Juken 5 Kyouka Pack	186467
+Tokuten Ryoku Gakushuu DS - Koukou Juken Eigo	192028
+Tokuten Ryoku Gakushuu DS - Koukou Juken Kokugo	192029
+Tokuten Ryoku Gakushuu DS - Koukou Juken Rika	192030
+Tokuten Ryoku Gakushuu DS - Koukou Juken Shakai	192031
+Tokuten Ryoku Gakushuu DS - Koukou Juken Suugaku	192032
+Tokuten Ryoku Gakushuu DS - Shougakkou Youten Matome	192033
+Tokyo Beat Down	13948
+Tokyo Friend Park II - DS de Kitaeru Undou Nouryoku	191489
+Tokyo Majin Gakuen - Kenpuuchou	186469
+Tokyo Twilight Busters - Kindan no Ikenie Teito Jigokuhen	186470
+Tom and Jerry Tales	19131
+Tom Clancy's EndWar	135886
+Tom Clancy's Splinter Cell - Chaos Theory	135885
+Tom Clancy's Splinter Cell - Conviction	213015
+Tomb Raider - Underworld	30973
+Tomica Hero Rescue Force DS	186491
+Tomodachi Collection	174148
+Tomodachi Tsukurou! - Mahou no Koukan Nikki	186546
+Tongari Boushi to Mahou no 365-nichi	15032
+Tongari Boushi to Mahou no Omise	186547
+Tongari Boushi to Oshare na Mahou Tsukai	191534
+Tony Hawk's American Sk8land	6891
+Tony Hawk's Downhill Jam	29409
+Tony Hawk's Motion	100064
+Tony Hawk's Proving Ground	25261
+Toobo	15126
+Toon-Doku - Sudoku with Pictures!	132190
+Tootuff - Megafun Land	148523
+Tootuff - Mission Nadia	128198
+Top Gun	124015
+Top Model	189947
+Top Model Academy	31814
+Top Spin 2	142086
+Top Spin 3	11431
+Top Trumps - Doctor Who	168476
+Top Trumps - Dogs & Dinosaurs	128239
+Top Trumps - Horror & Predators	128196
+Top Trumps - NBA All Stars	148521
+Tornado	148227
+Tossa no Keisan Shunkan Kaitou - Keisan DS Training	191791
+Totally Spies! - My Secret Diary	148519
+Totally Spies! 2 - Undercover	132193
+Totally Spies! 3 - Secret Agents	132196
+Tottoko Hamutaro Haai! - Ham-chans no Ham Ham Challenge! Atsumare Haai!	134619
+Touch 'N' Play Collection	148520
+Touch Comic Adventure - Garaku Tale	192039
+Touch Darts	128185
+Touch de Ni Hao - Hitsudan-kun	191775
+Touch de Rakushou! Pachi-Slot Sengen - Rio de Carnival	179165
+Touch de Taikyaku! - Yawaraka Sensha	148254
+Touch de Tanoshimu Hyakunin Isshu - DS Shigureden	191776
+Touch Detective	12541
+Touch Detective 2 1-2	19305
+Touch Detective II	19305
+Touch Dictionary	213208
+Touch Game Party	155411
+Touch Mechanic	148221
+Touch the Dead	6893
+Touch! Bomberman Land	6581
+Touch! Bomberman Land - Star Bomber no Miracle World	6582
+Touch! Kirby	6814
+TouchMaster	6892
+TouchMaster - Connect	148517
+TouchMaster 2	11054
+TouchMaster 3	11055
+TouchMaster 4 - Connect	148517
+Toudai Shougi - Meijinsen Doujou DS	191777
+Toudou Ryuunosuke Tantei Nikki - Kohakuiro no Yuigon - Seiyou Karuta Renzoku Satsujin Jiken	186550
+Touhai Densetsu Akagi DS - Yami ni Mai Orita Tensai	191778
+Touhoku Daigaku Mirai Kagaku Gijutsu Kyoudou Kenkyuu Center - Kawashima Ryuuta Kyouju Kanshuu - Motto Nou o Kitaeru Otona no DS Training	6584
+Touhoku Daigaku Mirai Kagaku Gijutsu Kyoudou Kenkyuu Center - Kawashima Ryuuta Kyouju Kanshuu - Nou o Kitaeru Otona no DS Training	6583
+Tout pour Reussir CE1	203544
+Tout pour Reussir CE2	203545
+Tout pour Reussir CM1	203546
+Tout pour Reussir CM2	203547
+Tout pour Reussir CP	203554
+Tout Savoir 3e - L'Essentiel du Programme	203566
+Tout Savoir 4e - L'Essentiel du Programme	203555
+Tout Savoir 5e - L'Essentiel du Programme	203556
+Tout Savoir 6e - L'Essentiel du Programme	203553
+Tout Savoir CE1 - L'Essentiel du Programme	203557
+Tout Savoir CE2 - L'Essentiel du Programme	203552
+Tout Savoir CM1 - L'Essentiel du Programme	203558
+Tout Savoir CM2 - L'Essentiel du Programme	203559
+Tout Savoir CP - L'Essentiel du Programme	203560
+Tout Savoir Maternelle Grande Section - L'Essentiel du Programme	203561
+Tower DS, The	190983
+Toy Golf Extreme	20904
+Toy Shop	148220
+Toy Shop Tycoon	148220
+Toy Story 3	33506
+Toy Story 3 - To The Rescue! Edition	33506
+Tozasareta Byoutou - Dementium II	11219
+Trace Memory	6894
+TrackMania DS	11432
+TrackMania Turbo	11433
+Transformers - Autobots	6895
+Transformers - Dark of the Moon - Autobots	139852
+Transformers - Dark of the Moon - Decepticons	139853
+Transformers - Decepticons	139854
+Transformers - Decepticons + Transformers - Autobots	20904
+Transformers - Kampf um Cybertron - Autobots	139863
+Transformers - Kampf um Cybertron - Deceptions	24151
+Transformers - Revenge of the Fallen - Autobots Version	139855
+Transformers - Revenge of the Fallen - Decepticons Version	139856
+Transformers - Ultimate Autobots Edition	148997
+Transformers - War for Cybertron - Autobots	139863
+Transformers - War for Cybertron - Decepticons	24151
+Transformers Animated - The Game	24618
+Transformers Prime	16082
+Transformers Prime - The Game	16082
+Trash Pack, The	22138
+Trauma Center - Under the Knife	6896
+Trauma Center - Under the Knife 2	11053
+Travel Coach - Europe 1	154050
+Travel Coach - Europe 2	154049
+Travel Coach - Europe 3	154048
+Travel Games for Dummies	148219
+Treasure Gaust - Gaust Diver - Crimson Red	191779
+Treasure Gaust - Gaust Diver - Deep Blue	191780
+Treasure Master	154054
+Treasure Report - Kikai Jikake no Isan	191818
+Treasure World	104657
+Treasures of Montezuma, The	17043
+Trioncube	20891
+TRON - Evolution	127144
+Tropical Lost Island	135402
+Tropix! ...Your Island Getaway	148216
+True Swing Golf	12841
+Tsubasa Chronicle	186559
+Tsubasa Chronicle Vol. 2	186560
+Tsuji Gakuen Tsuji Cooking Kanshuu - Koharu no DS Uchigohan. - Shokuji Balance Guide Tsuki	191819
+Tsukibito	186561
+Tsumiki - Block Drop Mania	97697
+Tsumiki - The Infernal Tower	97697
+Tsunagete! Pipe Mania	11393
+Tsunde Tsumikiss	97697
+Tsuzuke Rarenai Otona no Tame no Metabo Dasshutsu Training	191795
+Turbo - Super Stunt Squad	148226
+Turn It Around	128166
+Tus Amigos de Disney	129603
+TV Anime Fairy Tail - Gekitou! Madoushi Kessen	30109
+Twilight Syndrome - Kinjirareta Toshi Densetsu	191782
+U-Can - Penji Training DS	191781
+Uchi no 3 Shimai DS	186562
+Uchi no 3 Shimai DS 2 - 3 Shimai no Odekake Daisakusen	186631
+Ukkari o Nakusou Bunshou Yomi Training - Yomitore	191203
+Ultimate Band	9115
+Ultimate Card Games	14637
+Ultimate Game Room	148218
+Ultimate Mortal Kombat	6897
+Ultimate Spider-Man	22132
+Umezawa Yukari no Yasashii Igo	191783
+Umihara Kawase Shun - Second Edition Kanzen Ban	130630
+Umiuru to Sudoku Shiyo! - Nikoli Gensen 7 Dai Puzzle 555 Mon	181251
+Undercover - Dual Motives	132255
+Underground Pool	12587
+Underwater Attack	148212
+Underwater Puzzle - Echter Puzzlespass fuer Unterwegs	185009
+Unknown Soldier - Mokuba no Houkou	191535
+Uno 52	13860
+Unoe Sangkwae Tongkwae - Teullin Geurim Jeonjip	134234
+Unou Ikusei - IQ Breeder - Pet to Nakayoku IQ Lesson	186632
+Unou Kaiten - Match Bou Puzzle DS	151068
+Unou no Tatsujin - GunBulleTrainer	6868
+Unou no Tatsujin - Hirameki Kosodate My Angel	191881
+Unou no Tatsujin - Soukai! Machigai Museum	134234
+Unou no Tatsujin - Soukai! Machigai Museum 2	191882
+Unou Nouryoku Check Machine - Touch de Unoo! DS	27340
+Unou Tanren Unotan DS - Shichida Shiki Otona no Shun Kan Training	191883
+Unou Tanren Unotan DS - Shichida Shiki Otona no Sokudoku Training	191884
+Unsolved Crimes	148211
+Up	17973
+Uranai Demo Shite Miyouka DS	191797
+Urbz, The - Sims in the City	6898
+Urusei Yatsura - Endless Summer	179172
+USA Today - Crossword Challenge	419938
+USA Today - Puzzle Craze	148209
+Utsukushii Nihongo no Kakikata Hanashikata DS	191536
+Utsukushiku Narou - Duke Saraie no Kenkou Walking Navi	191183
+Uwasa no Midori-kun!! - Natsuiro Striker	191538
+Uwasa no Midori-kun!! 2 - Futari no Midori!	191539
+V8 Supercars Australia 3 - Create & Race	134232
+Valentines Day	154046
+Valkyrie Profile - Covenant of the Plume	11434
+Valkyrie Profile - Toga o Seou Mono	11434
+Vampire Knight DS	186635
+Vampire Legends - Power of Three	148208
+Vampire Moon - The Mystery of the Hidden Sun	148996
+Vecinos Invasores	150210
+Vegas Casino	132256
+Vegas Casino High 5!	132256
+Veronica Poker	149962
+Vicky the Viking - Part 2	154045
+Victorious - Hollywood Arts Debut	29312
+Victorious - Taking the Lead	148964
+Vie d'Emma, La - Infirmiere de Choc	192247
+Vie d'Emma, La - Super Star	129611
+Viewtiful Joe - Double Trouble!	6899
+Viewtiful Joe - Scratch!	6899
+VIP News	168479
+VIPs - Very Important Pets	154041
+Virtual Piano	20904
+Virtual Villagers - A New Home	148204
+Virtual Villagers - Erschaffe dein Paradies!	148204
+Visual Logic Training	154034
+Vita di Emma, La - Professione Infermiera	192247
+VitaminY - Super Supplement Minigames with B6 & T6	191541
+Viva Pinata - Pocket Paradise	6900
+Voca Mania - Ameliore Ton Vocabulaire en T'Amusant!	148196
+VocabStar English Advanced	152018
+Wacky Races - Crash & Dash	131310
+Wagamama Fashion - Girls Mode	20897
+Wakabayashi Fumie no DS Kabu Lesson	191144
+Waku Waku DS 1 Nensei	186636
+Walk with Me!	150135
+WALL-E	6901
+Wan Nyan Doubutsu Byouin	191802
+Wantame Music Channel - Dokodemo Style	186637
+Wantame Uranai Channel	191801
+Wappy Dog	131309
+Warhammer 40,000 - Squad Command	109512
+Wario - Master of Disguise	19234
+WarioWare - D.I.Y.	6904
+WarioWare - Do It Yourself	6904
+WarioWare - Touched!	6903
+Warning - Code de la Route	192290
+Was Ist Was - Abenteuer Erde	154039
+Was Ist Was - Versunkene Schaetze - Das Abenteuerspiel	154036
+Watashi no Happy Manner Book	191799
+Watashi no Pony	149959
+Watashi no Rilakkuma	191798
+Water Horse, The - Legend of the Deep	131308
+Wedding Dash	18208
+Wedding Planner - Dream Weddings Guaranteed	154033
+Western Riding Academy	148962
+Whac-A-Mole	131307
+What's Cooking - Jamie Oliver	131306
+Wheel of Fortune	13883
+Where the Wild Things Are	131305
+Where's Waldo - The Fantastic Journey	131304
+Whitaker Family Presents, The - Horse Life	130046
+Who Wants to Be a Millionaire	24420
+Who Wants to Be a Millionaire - 1st Edition	164495
+Who Wants to Be a Millionaire - 2nd Edition	164496
+Wi-Fi Taiou - Gensen Table Game DS	191885
+Wi-Fi Taiou - Morita Shougi DS	191886
+Wi-Fi Taiou - Sekai no Daredemo Asobi Taizen	6709
+Wi-Fi Taiou - Yakuman DS	179167
+Wickey de Viking	154042
+Wickie und die Starken Maenner	154042
+Wiffle Ball	14834
+Willi Wills Wissen - Notruf - Retter im Einsatz	213213
+Willkommen in der Steinzeit - Ueberleben Ist Alles!	154003
+Willy Vandersteen Suske en Wiske - De Texas Rakkers	180048
+Windy x Windam	131302
+Wine no Hajimekata DS	191145
+Winnetoons - Die Legende vom Schatz im Silbersee	180046
+Winnie the Pooh - Kuma no Puu-san - 100 Acre no Mori no Cooking Book	191305
+Winning Eleven - Pro Evolution Soccer 2007	135407
+Winter in Blue Mountain	153990
+Winter Sports 2 - The Next Challenge	131301
+Winter Sports 2009 - The Next Challenge	131301
+Winter's Tail - How One Little Dolphin Learned to Swim Again	148203
+Winx Club - Believix in You!	153999
+Winx Club - Magical Fairy Party	148961
+Winx Club - Mission Enchantix	148202
+Winx Club - Quest for the Codex	130355
+Winx Club - Rockstars	153995
+Winx Club - Saving Alfea	171685
+Winx Club - Secret Diary 2009	129601
+Winx Club - Your Magic Universe	153994
+Wipeout - The Game	19132
+Wipeout 2	127670
+WireWay	15165
+Wish Room - Tenshi no Kioku	6812
+Witch Tale - Minarai Majo to 7-nin no Hime	11435
+Witch's Tale, A	11435
+Witch's Wish	13973
+Witches & Vampires - Ghost Pirates of Ashburry	148208
+Witches & Vampires - The Secrets of Ashburry	19306
+Wizard of Oz, The - Beyond the Yellow Brick Road	15128
+Wizardry - Boukyaku no Isan	186639
+Wizardry - Inochi no Kusabi	186640
+Wizardry Asterisk - Hiiro no Fuuin	191471
+Wizards of Waverly Place	16970
+Wizards of Waverly Place - Spellbound	130354
+WiZmans World	186641
+Wo auf der Welt Ist Carmen Sandiego - Das Geheimnis am Ende der Welt	152013
+Wonder Pets! - Save the Animals!	130353
+Wonder World - Amusement Park	130352
+Woodleys, The - Summer Sports	153993
+Word Academy	148196
+Wordfish	148196
+WordJong	13371
+Wordmaster	130351
+World Championship Games - A Track & Field Event	148194
+World Championship Poker - Deluxe Series	130350
+World Championship Spelling	150628
+World Championship Sports - Summer	128676
+World Cup of Pool	148195
+World Destruction - Michibikareshi Ishi	11411
+World Ends with You, The	6890
+World of Zoo	17431
+World Series of Poker 2008 - The Official Video Game - Battle for the Bracelets	132257
+World Snooker Championship - Season 2007-08	127752
+World Soccer - Winning Eleven DS	135407
+World Soccer - Winning Eleven DS - Goal x Goal!	16211
+Worms - Open Warfare	11436
+Worms - Open Warfare 2	11437
+Wreck-It Ralph	22136
+WWE SmackDown dae Raw 2008 Featuring ECW	6877
+WWE SmackDown dae Raw 2009 Featuring ECW	30599
+WWE SmackDown vs Raw 2008 Featuring ECW	6877
+WWE SmackDown vs Raw 2009 Featuring ECW	30599
+WWE SmackDown vs Raw 2010 Featuring ECW	24317
+X-Men - Destiny	21389
+X-Men - The Official Game	123260
+X-Men Origins - Wolverine	130347
+Xenosaga I & II	131812
+XG Blast!	130349
+Xia-Xia	148959
+Xiaolin Showdown	130348
+Yajuu Deka - Tokyo Douji Tahatsu Terror o Chinatsu Seyo!	13948
+Yakitate!! Japan - Game Ichigou - Choujou Kessen!! Pantasic Grand Prix!	177695
+Yakuman DS	33581
+Yamaha Supercross	130346
+Yamakawa Shuppansha Kanshuu - Shousetsu Sekaishi B - Shin Sougou Training Plus	191825
+Yamakawa Shuppansha Kanshuu - Shousetsu Sekaishi B - Sougou Training	191826
+Yamanote-sen Meimei 100 Shuunen Kinen - Densha de Go! - Tokubetsu Hen - Fukkatsu! Shouwa no Yamanote-sen	179171
+Yangsonui Darin	152017
+Yard Sale Hidden Treasures - Sunnyville	130345
+Yatterman DS - Bikkuri Dokkiri Daisakusen da Koron	179437
+Yawaraka Atama Juku	6580
+Yeoksa Simulation - Samgukji DS	185428
+Yes! PreCure 5	191804
+Yes! PreCure 5 Go Go! - Zenin Shuu-Go! Dream Festival	191805
+Yeti Quest - Crazy Penguins	152105
+Yggdra Unison - Seiken Buyuuden	155735
+Yogi Bear	31815
+Yogi Bear - The Video Game	31815
+Yokojiku de Manabu Sekai no Rekishi - Yoko Gaku DS	191470
+Yokoyama Mitsuteru Sangokushi - Dai-1-kan - Touen no Chikai	181644
+Yokoyama Mitsuteru Sangokushi - Dai-5-kan - Suishi no Hyou	181785
+Yomesou de Yomenai Kanji DS	191146
+Yoshi Island DS	6905
+Yoshi Touch & Go	6906
+Yoshi's Island DS	6905
+You Don't Know Jack	127119
+Youda Farmer	153988
+Youda Legend - The Curse of the Amsterdam Diamond	153989
+Youda Legend - The Golden Bird of Paradise	153987
+Youda Safari	153985
+Yozemi no Center Shoujun Series - Eigo Hen	186831
+Ys II DS	191807
+Ys Strategy	90926
+Yu Yu Hakusho DS - Ankoku Bujutsukai Hen	186897
+Yu-Gi-Oh! - Nightmare Troubadour	26230
+Yu-Gi-Oh! - World Championship 2007	26231
+Yu-Gi-Oh! - World Championship 2008	20675
+Yu-Gi-Oh! 5D's - Stardust Accelerator - World Championship 2009	26228
+Yu-Gi-Oh! 5D's - World Championship 2010 - Reverse of Arcadia	26229
+Yu-Gi-Oh! 5D's - World Championship 2011 - Over the Nexus	22137
+Yu-Gi-Oh! Duel Monsters - Nightmare Troubadour	26230
+Yu-Gi-Oh! Duel Monsters - World Championship 2007	26231
+Yu-Gi-Oh! Duel Monsters - World Championship 2008	20675
+Yu-Gi-Oh! Duel Monsters GX - Card Almanac	176576
+Yu-Gi-Oh! Duel Monsters GX - Spirit Summoner	14902
+Yu-Gi-Oh! GX - Card Almanac	176576
+Yu-Gi-Oh! GX - Spirit Caller	14902
+Yukkuri Tanoshimu - Otona no Jigsaw Puzzle DS - Sekai no Meiga 1 - Renaissance, Baroque no Kyoshou	191809
+Yukkuri Tanoshimu - Otona no Jigsaw Puzzle DS - Sekai no Meiga 2 - Inshou-ha, Kouki Inshou-ha no Kyoshou	191810
+Yumeiro Patissiere - My Sweets Cooking	186896
+Yummy Yummy Cooking Jam	150067
+Zaidan Houjin Nihon Kanji Nouryoku Kentei Kyoukai Kounin - Kanken DS 2 + Jouyou Kanji Jiten	182585
+Zaidan Houjin Nihon Kanji Nouryoku Kentei Kyoukai Kounin - Kanken DS 3 Deluxe	186927
+Zaidan Houjin Nihon Kanji Nouryoku Kentei Kyoukai Koushiki Soft - 200 Mannin no Kanken - Tokoton Kanji Nou	186925
+Zaidan Houjin Nihon Kanji Nouryoku Kentei Kyoukai Koushiki Soft - 250 Mannin no Kanken - Shin Tokoton Kanji Nou - 47,000 + Jouyou Kanji Jiten, Yoji Jukugo Jiten	191888
+Zaidan Houjin Nihon Kanji Nouryoku Kentei Kyoukai Koushiki Soft - 250 Mannin no Kanken Premium - Zenkyuu Zen-Kanji Kanzen Seiha	191889
+Zarah - Das Schloss des Gwoor	153986
+Zekkyou Senshi Sakebrain	191815
+Zelda no Densetsu - Daichi no Kiteki	6818
+Zelda no Densetsu - Mugen no Sunadokei	2245
+Zeldaui Jeonseol - Monghwanui Moraesigye	2245
+Zendoku	130344
+Zenmai Zamurai	191808
+Zennou Series Vol. 01 - Akiyama Jin Kyouju Kanshuu - Zennou JinJin	151708
+Zennou Series Vol. 02 - Sakurai Susumu Sensei Kanshuu - India Shiki Keisan Zennou Drill	191813
+Zennou Series Vol. 03 - Akiyama Jin Kyouju Kanshuu - Zennou JinJin 2	155429
+Zenses - Ocean	130343
+Zenses - Rainforest	14870
+Zenses - Zen Garden	148942
+Zero kara Hajimeru - Otona no 5 Kakokugo Nyuumon - Ei, Futsu, Doku, I, Sei	186928
+Zero kara Kantan Chuugokugo DS	186929
+Zero kara Kantan Kankokugo DS	186930
+Zettai Karen Children DS - Dai-4 no Children	191812
+Zettai Onkan Otodamaster	186931
+Zettai Zetsumei Dangerous Jiisan DS - Dangerous Sensation	191811
+Zhigan Yi Bi	24424
+Zhu Zhu Pets	148199
+Zhu Zhu Pets - Quest for Zhu	130342
+ZhuZhu Pets 2 Featuring The Wild Bunch	104658
+ZhuZhu Pets Featuring The Wild Bunch	104658
+ZhuZhu Princess	152004
+Zoey 101 - Field Trip Fiasco	16846
+Zoids Battle Colosseum	191462
+Zoids Dash	191461
+Zoids Saga DS - Legend of Arcadia	123981
+Zombie Daisuki	191147
+Zombie Shiki - Eigo Ryoku Sosei Jutsu - English of the Dead	166027
+Zombiez Seeker	129571
+Zoo Hospital	127751
+Zoo Keeper	6907
+Zoo Quest - Puzzle Fun!	130341
+Zoo Tycoon 2	117451
+Zoo Tycoon 2 DS	117451
+Zoo Tycoon DS	19824
+Zoo Tycoon DS - Doubutsuen o Tsukurou!	19824
+Zoo Vet - Endangered Animals	130340
+Zoobles! Spring to Life!	148198
+Zorro - Quest for Justice	130339
+Zubo	15126
+Zuma's Revenge	129570
+Zunou ni Asekaku Game Series! Vol. 1 - Cool 104 Joker & Setline	191463
+Zunou Nouryoku Koujou Machine - Touch de Zunoo DS	191469

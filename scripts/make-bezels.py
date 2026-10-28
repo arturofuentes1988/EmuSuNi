@@ -37,6 +37,11 @@
 #   assets/xmb/bezels/dc-console.png     white, the round lid, the orange light, the four coloured buttons
 #   assets/xmb/bezels/naomi-console.png  a white cabinet with gold trim (the NAOMI)
 #   assets/xmb/bezels/atomiswave-console.png  a black cabinet with green lights and a cartridge
+#   assets/xmb/bezels/saturn-console.png the Saturn (00.69): charcoal, the round lid, 32-BIT, the D-pad, X Y Z A B C
+#   assets/xmb/bezels/pce-console.png    the PC Engine (00.82): white, the expansion port, a card in its slot, 16-BIT,
+#                                        the pad's D-pad, SELECT and RUN, II and I with their turbo switches
+#   (00.80 to 00.82 also had the Sega CD's, the 32X's, the PC Engine CD's, the Neo Geo Pockets' and the WonderSwans':
+#   gone in 00.83 with those consoles.)
 #   assets/xmb/bezels/nds-console[-wide|-tall|-169].png  the DS in white, a window for each DS Screens view
 #   assets/xmb/bezels/3ds-console[-wide|-tall|-169].png  the 3DS in aqua blue, a window for each 3DS Screens view
 # and six frames for every console, each with a 4:3, a 16:9 (-169), a wide (-wide: two screens side by side) and
@@ -1459,6 +1464,129 @@ def atomiswave_console():
                                   (240, 240, 240)))
 
 
+def saturn_console():
+    """The Saturn (00.69): charcoal black, its round lid in each side, 32-BIT; the pad's round D-pad and START left,
+    POWER; its six buttons right - X Y Z small and A B C big, its two rows turned up the side - with L and R above."""
+    image = side_panels((50, 50, 56), (12, 12, 15))
+    gloss(image, 0, X0, 42)
+    gloss(image, X1, W, 42)
+    for cx in (LEFT, RIGHT):
+        # The round lid: a dark disc in a lighter ring, a smaller ring and the dip in its middle.
+        soft_shadow(image, (cx - 96 * S, 250 * S + 6 * S, cx + 96 * S, 442 * S + 6 * S), 96 * S, 8 * S)
+        draw = ImageDraw.Draw(image)
+        draw.ellipse((cx - 96 * S, 250 * S, cx + 96 * S, 442 * S), fill=(34, 34, 40, 255), outline=(92, 92, 104, 255),
+                     width=4 * S)
+        draw.ellipse((cx - 60 * S, 286 * S, cx + 60 * S, 406 * S), outline=(58, 58, 66, 255), width=2 * S)
+        draw.ellipse((cx - 14 * S, 332 * S, cx + 14 * S, 360 * S), fill=(24, 24, 28, 255))
+    cut_window(image)
+    window_edges(image, (22, 22, 26, 255), (70, 126, 224, 255))
+    vertical_text(image, "32-BIT", (LEFT, 130 * S), 34 * S, (150, 178, 236, 235), spacing=0.3)
+    vertical_text(image, "32-BIT", (RIGHT, 130 * S), 34 * S, (150, 178, 236, 235), angle=-90, spacing=0.3)
+    # The round D-pad on its disc, START, the power light.
+    soft_shadow(image, (LEFT - 74 * S, 586 * S + 6 * S, LEFT + 74 * S, 734 * S + 6 * S), 74 * S, 8 * S)
+    ImageDraw.Draw(image).ellipse((LEFT - 74 * S, 586 * S, LEFT + 74 * S, 734 * S), fill=(44, 44, 50, 255))
+    dpad(image, (LEFT, 660 * S), 116 * S, (78, 78, 88, 255), (56, 56, 64, 255))
+    pill(image, (LEFT, 800 * S), (64 * S, 22 * S), (72, 72, 82), angle=0)
+    centred_text(ImageDraw.Draw(image), "START", (LEFT, 832 * S), 14 * S, (180, 180, 192, 255))
+    led(image, (LEFT, 930 * S), (70, 200, 90), "POWER", (170, 170, 182, 255))
+    # L and R, then X Y Z (small, the pad's upper row) beside A B C (big).
+    for x, label in ((RIGHT - 46 * S, "L"), (RIGHT + 46 * S, "R")):
+        pill(image, (x, 540 * S), (70 * S, 24 * S), (62, 62, 70), angle=0)
+        centred_text(ImageDraw.Draw(image), label, (x, 540 * S), 14 * S, (200, 200, 210, 255))
+    for i, (small, big) in enumerate((("X", "A"), ("Y", "B"), ("Z", "C"))):
+        y = (650 + i * 110) * S
+        button(image, (RIGHT - 46 * S, y - 26 * S), 26 * S, (58, 58, 66, 255), small)
+        button(image, (RIGHT + 40 * S, y), 34 * S, (58, 58, 66, 255), big)
+    return image
+
+
+# --- 00.82: the PC Engine ------------------------------------------------------------------------------------------
+
+PCE_ORANGE = (234, 98, 34)
+
+
+def card_in_slot(image, centre, label):
+    """A game card standing in its slot (the PC Engine's), seen from above: the slot, the silver card and its label,
+    the ribs it is held by."""
+    cx, cy = centre
+    draw = ImageDraw.Draw(image)
+    draw.rounded_rectangle((cx - 86 * S, cy - 12 * S, cx + 86 * S, cy + 16 * S), radius=8 * S, fill=(34, 34, 40, 255))
+    soft_shadow(image, (cx - 66 * S, cy - 118 * S + 8 * S, cx + 66 * S, cy + 4 * S), 8 * S, 8 * S, 140)
+    draw = ImageDraw.Draw(image)
+    draw.rounded_rectangle((cx - 66 * S, cy - 118 * S, cx + 66 * S, cy + 4 * S), radius=8 * S, fill=(214, 216, 222, 255),
+                           outline=(164, 166, 176, 255), width=2 * S)
+    draw.rounded_rectangle((cx - 54 * S, cy - 106 * S, cx + 54 * S, cy - 40 * S), radius=5 * S, fill=label + (255,))
+    for k in range(3):
+        draw.rectangle((cx - 42 * S, cy - (94 - k * 18) * S, cx + (24 - k * 14) * S, cy - (89 - k * 18) * S),
+                       fill=(255, 255, 255, 210))
+    for k in range(4):
+        y = cy - (30 - k * 7) * S
+        draw.rectangle((cx - 54 * S, y, cx + 54 * S, y + 2 * S), fill=(176, 178, 188, 255))
+
+
+def expansion_port(image, centre, width):
+    """The PC Engine's expansion port along its back: a dark ribbed block, the connector's slot, its gold contacts."""
+    cx, cy = centre
+    w = width // 2
+    soft_shadow(image, (cx - w, cy - 56 * S + 6 * S, cx + w, cy + 56 * S + 6 * S), 12 * S, 8 * S, 120)
+    draw = ImageDraw.Draw(image)
+    draw.rounded_rectangle((cx - w, cy - 56 * S, cx + w, cy + 56 * S), radius=12 * S, fill=(48, 48, 54, 255))
+    for k in range(5):
+        y = cy - (44 - k * 8) * S
+        draw.rectangle((cx - w + 14 * S, y, cx + w - 14 * S, y + 3 * S), fill=(68, 68, 76, 255))
+    draw.rounded_rectangle((cx - w + 16 * S, cy + 4 * S, cx + w - 16 * S, cy + 40 * S), radius=5 * S, fill=(14, 14, 16, 255))
+    for x in range(cx - w + 26 * S, cx + w - 26 * S, 8 * S):
+        draw.rectangle((x, cy + 12 * S, x + 3 * S, cy + 32 * S), fill=(204, 168, 86, 255))
+
+
+def slide_switch(image, centre, position):
+    """A small three-way slide switch (a pad's turbo), its knob at position 0, 1 or 2 (top to bottom)."""
+    cx, cy = centre
+    draw = ImageDraw.Draw(image)
+    draw.rounded_rectangle((cx - 9 * S, cy - 26 * S, cx + 9 * S, cy + 26 * S), radius=9 * S, fill=(30, 30, 34, 255))
+    ky = cy + (position - 1) * 15 * S
+    draw.rounded_rectangle((cx - 13 * S, ky - 9 * S, cx + 13 * S, ky + 9 * S), radius=5 * S, fill=(126, 128, 138, 255))
+    draw.rectangle((cx - 8 * S, ky - S, cx + 8 * S, ky + S), fill=(86, 88, 96, 255))
+
+
+def pce_pad(image, ink, disc, start_y=800):
+    """The PC Engine's pad on the side panels: the D-pad on its disc, SELECT and RUN, the power light left; II and I
+    with their turbo switches right."""
+    soft_shadow(image, (LEFT - 74 * S, 586 * S + 6 * S, LEFT + 74 * S, 734 * S + 6 * S), 74 * S, 8 * S)
+    ImageDraw.Draw(image).ellipse((LEFT - 74 * S, 586 * S, LEFT + 74 * S, 734 * S), fill=disc)
+    dpad(image, (LEFT, 660 * S), 116 * S, (34, 34, 38, 255), (20, 20, 24, 255))
+    for x, label in ((LEFT - 46 * S, "SELECT"), (LEFT + 46 * S, "RUN")):
+        pill(image, (x, start_y * S), (58 * S, 20 * S), (40, 40, 46), angle=0)
+        centred_text(ImageDraw.Draw(image), label, (x, (start_y + 30) * S), 12 * S, ink)
+    led(image, (LEFT, (start_y + 130) * S), (236, 50, 40), "POWER", ink)
+    for i, (label, turbo) in enumerate((("II", 0), ("I", 2))):
+        x = RIGHT + (i * 2 - 1) * 46 * S
+        slide_switch(image, (x, 560 * S), turbo)
+        button(image, (x, 670 * S), 36 * S, (40, 40, 46, 255))
+        centred_text(ImageDraw.Draw(image), label, (x, 738 * S), 24 * S, ink)
+
+
+def pce_console():
+    """The PC Engine (00.82): its white, the dark expansion port at its back, a game card in its slot, 16-BIT in grey,
+    an orange line by the picture, vents; the pad's D-pad, SELECT and RUN, II and I with their turbo switches."""
+    image = side_panels((248, 248, 250), (206, 208, 214))
+    gloss(image, 0, X0, 50)
+    gloss(image, X1, W, 50)
+    draw = ImageDraw.Draw(image)
+    for x0, x1 in ((40 * S, 200 * S), (1720 * S, 1880 * S)):
+        for i in range(5):
+            y = (1000 + i * 13) * S
+            draw.rounded_rectangle((x0, y, x1, y + 5 * S), radius=2 * S, fill=(176, 178, 188, 255))
+    cut_window(image)
+    window_edges(image, (58, 58, 66, 255), PCE_ORANGE + (255,))
+    card_in_slot(image, (LEFT, 450 * S), (228, 96, 40))
+    expansion_port(image, (RIGHT, 400 * S), 176 * S)
+    vertical_text(image, "16-BIT", (LEFT, 150 * S), 36 * S, (130, 132, 146, 255), spacing=0.3)
+    vertical_text(image, "16-BIT", (RIGHT, 150 * S), 36 * S, (130, 132, 146, 255), angle=-90, spacing=0.3)
+    pce_pad(image, (100, 102, 116, 255), (226, 228, 234, 255))
+    return image
+
+
 # The DS's and the 3DS's windows for each way their screens are shown (Emulator.cpp BezelShape): one screen (4:3),
 # side by side (the DS's 8:3, the 3DS's 3:1), one above the other (the DS's 2:3, the 3DS's 5:6), the big top screen
 # or the 3DS's top screen alone (16:9, the picture made smaller).
@@ -1625,7 +1753,8 @@ BEZELS = {
     "tv-169": tv_wide,
     "sg1000-console": sg1000_console, "sms-console": sms_console, "gg-console": gg_console, "md-console": md_console,
     "psp-console": psp_console, "dc-console": dc_console, "naomi-console": naomi_console,
-    "atomiswave-console": atomiswave_console,
+    "atomiswave-console": atomiswave_console, "saturn-console": saturn_console,
+    "pce-console": pce_console,
     **{"nds-console" + shape: (lambda shape=shape: nds_console(shape)) for shape in NDS_WINDOWS},
     **{"3ds-console" + shape: (lambda shape=shape: ds3_console(shape)) for shape in DS3_WINDOWS},
 }

@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cctype>
 #include <chrono>
 #include <cmath>
@@ -12,6 +13,7 @@
 #include <cstdlib>
 #include <condition_variable>
 #include <cstring>
+#include <deque>
 #include <filesystem>
 #include <functional>
 #include <map>
@@ -27,11 +29,17 @@
 
 #include <libretro.h>
 
+#include "Achievements.h"
+#include "AchievementsSnes.h"
+#include "AchievementsUi.h"
 #include "Arcade.h"
+#include "BezelProject.h"
 #include "Cheats.h"
 #include "Controls.h"
 #include "Display.h"
+#include "DualScreens.h"
 #include "GameAudio.h"
+#include "GameDb.h"
 #include "GpuFilter.h"
 #include "Image.h"
 #include "IngameMenu.h"
@@ -41,8 +49,12 @@
 #include "Naomi.h"
 #include "Pacing.h"
 #include "PS4Lang.h"
+#ifdef EMUSUNI_SATURN
+#include "SaturnTest.h"
+#endif
 #include "Saves.h"
 #include "Settings.h"
+#include "StartGuard.h"
 #include "Systems.h"
 #include "Touchpad.h"
 #include "Tour.h"
@@ -62,6 +74,11 @@ extern "C" int emusuni_n64_fixed_cores;
 // port/ps4_n64.c: Flycast's threads left where the PS4 puts them, at the priority they start with (the file
 // /data/EmuSuNi/dc-threads-free), else placed by emusuni_dc_thread.
 extern "C" int emusuni_dc_threads_free;
+// scripts/build-dc-core.sh: the console's frame count of the last picture Flycast presented.
+extern "C" unsigned long long flycast_emusuni_vblanks(void);
+// scripts/build-dc-core.sh (00.69): the console's frames a second the app runs it at (0: no limit), which the
+// emulation keeps to while no picture holds it back (a loading screen, a board's BIOS).
+extern "C" void flycast_emusuni_pace(double fps);
 #endif
 #if defined(EMUSUNI_N64) || defined(EMUSUNI_PS1) || defined(EMUSUNI_NDS) || defined(EMUSUNI_PSP) || \
     defined(EMUSUNI_DC) || defined(EMUSUNI_3DS)
@@ -187,19 +204,31 @@ std::array<uint16_t, MAX_PLAYERS> s_buttons{};  // the console's buttons per inp
 retro_game_info_ext s_info_ext = {};
 std::string s_info_path, s_info_dir, s_info_name, s_info_extension;
 std::string s_message;  // the core's newest message (SET_MESSAGE), shown by the in-game menu
+// (00.81) What SwanStation's log says as a PlayStation game loads (CoreLog): the disc image couldn't be opened (its
+// reason; the core then starts the BIOS without a disc: a black screen), a LibCrypt-protected disc without its .sbi
+// (started anyway: scripts/build-ps1-core.sh).
+std::string s_ps1_disc_error;
+bool s_ps1_libcrypt = false;
 double s_game_fps = 60.0988;
 // A core that draws with Vulkan itself (ParaLLEl-RDP for the N64): libretro's Vulkan interface
 // over the display's device; the image it hands over for the frame (set_image).
 Display* s_display = nullptr;
 retro_hw_render_callback s_hw_render = {};
 bool s_hw_vulkan = false;
-// The DS's screens as shown (DS Screens; R3 swaps to the other view): the core gives them side by
-// side (or one above the other); the Big Top Screen is placed here, on the GPU (DrawPicture).
-std::string s_nds_chosen;
-bool s_nds_swap = false, s_nds_r3 = false;
-// The 3DS (Azahar): R3 swaps its two screens (the core's own swap option); its resolution (1x) and New 3DS Mode count
-// as the game started (Azahar reads them once; 0 and -1 until Build3dsVariables sets them).
-bool s_3ds_swap = false, s_3ds_r3 = false;
+// The DS's and the 3DS's two screens (00.80, src/DualScreens.h): each core gives them side by side, always the same
+// picture, and the app places them as the screens' settings say (DrawScreens). R3 swaps them for as long as the game
+// runs (s_r3_swap: Swap Screens the other way; read by the drawing, which is the DS's own thread: atomic), until those
+// settings change in the in-game menu (s_screens_seen). Until 00.79 the DS's halves were swapped as the picture came
+// in and the 3DS's core swapped its own.
+std::atomic<bool> s_r3_swap{false};
+bool s_nds_r3 = false;
+std::string s_screens_seen;
+// The 3DS (Azahar): its resolution (1x) and New 3DS Mode count as the game started (Azahar reads them once; 0 and -1
+// until Build3dsVariables sets them).
+bool s_3ds_r3 = false;
+// How long R3 has been held, and was at the pass before (the DS's and the 3DS's swap when the in-game menu opens with
+// R3 held: the swap is a shorter press, made as R3 is let go; 00.68).
+float s_r3_held = 0.0f, s_r3_was = 0.0f;
 int s_3ds_scale = 0, s_3ds_new = -1;
 // The left stick's furthest push since the last speed line (the log: the PSP's stick, 00.40).
 int s_stick_max = 0;
@@ -217,6 +246,9 @@ bool s_psp_at_start = false;
 std::string s_gpgx_region;
 // The Dreamcast's SH4 clock (MHz) as the game started (Dreamcast CPU Clock: next game start, BuildDcVariables).
 std::string s_dc_clock;
+// Its picture's size and texture sharpness as the game started (Quality, Dreamcast Resolution and Texture Sharpness,
+// 00.68: next game start too, BuildDcVariables).
+std::string s_dc_resolution, s_dc_anisotropy;
 // A Dreamcast game's threads left to the PS4 - any core, the priority they start with - while the file
 // /data/EmuSuNi/dc-threads-free exists (an A/B for the PS4: Resonance places none): retro_run's (the
 // renderer), the drawing beside it and Flycast's own (port/ps4_n64.c). Else the app places them.
@@ -247,6 +279,11 @@ void NoteGeometry(const retro_game_geometry& geometry)
 // PSP Frame Rate Auto: God of War at 30 FPS (PPSSPP's hack) once its core couldn't keep up, until the
 // game ends.
 bool s_psp_30fps_auto = false;
+// The PSP core's count of vblanks, given at the end of each run by its private environment call (00.81,
+// scripts/build-psp-core.sh): the pacing pays for those a run covered (PspFrames).
+constexpr unsigned EMUSUNI_ENVIRONMENT_PSP_VBLANKS = 0x20000 | 0x5053;
+unsigned long long s_psp_vblanks = 0;
+bool s_psp_vblanks_known = false;
 bool s_shutdown = false;  // the core asked to stop (RETRO_ENVIRONMENT_SHUTDOWN)
 // Flycast's HLE BIOS said "Reboot to BIOS" (a game went back to the BIOS, which it can't show): Run()
 // starts the console again; its RETRO_ENVIRONMENT_SHUTDOWN then isn't the game's end, but says the
@@ -296,31 +333,95 @@ void StopRumble()
 // The Game Boy game's cartridge header: made for the Game Boy Color (0x143), with Super Game Boy
 // features (0x146).
 bool s_gb_color_game = false, s_gb_sgb_game = false;
-// The N64 cartridge's name in its header ("GOLDENEYE"): N64 CPU Timing's Auto.
-std::string s_n64_name;
+// The N64 cartridge's name in its header ("GOLDENEYE"): N64 CPU Timing's Auto. Its game code (two letters, the same
+// for every region and revision: "CU" is Cruis'n USA): the games that need N64 Graphics Sync Accurate.
+std::string s_n64_name, s_n64_code;
+// (00.81) Its header's two CRCs (0x10, 0x14): the core's game list (mupen64plus.ini) knows it by them too, and the
+// app's corrections to that list (GameDb::FindN64Correction).
+uint32_t s_n64_crc1 = 0, s_n64_crc2 = 0;
 
-// The name in an N64 ROM's header (0x20, 20 characters), whatever the file's byte order (.z64 as the
-// cartridge, .v64 with its bytes swapped in pairs, .n64 in fours).
-std::string N64Name(const std::vector<uint8_t>& rom)
+// An N64 ROM's header (0x40 bytes) in the cartridge's byte order, whatever the file's (.z64 as the cartridge, .v64
+// with its bytes swapped in pairs, .n64 in fours); zeros for a file too short.
+std::array<uint8_t, 0x40> N64Header(const std::vector<uint8_t>& rom)
 {
-  if (rom.size() < 0x40)
-    return {};
-  uint8_t header[0x40];
-  std::memcpy(header, rom.data(), sizeof(header));
+  std::array<uint8_t, 0x40> header{};
+  if (rom.size() < header.size())
+    return header;
+  std::memcpy(header.data(), rom.data(), header.size());
   if (header[0] == 0x37 && header[1] == 0x80)
   {
-    for (size_t i = 0; i < sizeof(header); i += 2)
+    for (size_t i = 0; i < header.size(); i += 2)
       std::swap(header[i], header[i + 1]);
   }
   else if (header[0] == 0x40 && header[1] == 0x12)
   {
-    for (size_t i = 0; i < sizeof(header); i += 4)
+    for (size_t i = 0; i < header.size(); i += 4)
     {
       std::swap(header[i], header[i + 3]);
       std::swap(header[i + 1], header[i + 2]);
     }
   }
-  std::string name(reinterpret_cast<const char*>(header + 0x20), 20);
+  return header;
+}
+
+// The header's CRC at `offset` (0x10 or 0x14, big-endian).
+uint32_t N64Crc(const std::vector<uint8_t>& rom, size_t offset)
+{
+  const std::array<uint8_t, 0x40> header = N64Header(rom);
+  return (uint32_t(header[offset]) << 24) | (uint32_t(header[offset + 1]) << 16) | (uint32_t(header[offset + 2]) << 8) |
+         uint32_t(header[offset + 3]);
+}
+
+// The game code in an N64 ROM's header (0x3C, two letters or digits: "CU"), else "".
+std::string N64Code(const std::vector<uint8_t>& rom)
+{
+  const std::array<uint8_t, 0x40> header = N64Header(rom);
+  std::string code(reinterpret_cast<const char*>(header.data() + 0x3C), 2);
+  for (const char c : code)
+  {
+    if (!std::isalnum(static_cast<unsigned char>(c)))
+      return {};
+  }
+  return code;
+}
+
+// N64 Graphics Sync Fast lets ParaLLEl-RDP draw beside the N64: the RDP's "done" interrupt comes at once, before the
+// GPU has drawn, and what it drew reaches the N64's memory a frame later (the PS4's RDRAM is a copy on the GPU: no
+// VK_EXT_external_memory_host). A game whose own code reads its pictures back or writes where the RDP drew then waits
+// for ever or loses what it wrote: Cruis'n USA stays black after its Controller Pak notice (its transitions shatter
+// the picture its CPU reads back), Resident Evil 2 after its language screen (GitHub issue #1; both on the PC with the
+// app's options: black with Fast, playing with Accurate). These games play Accurate whatever the setting says.
+// 00.72 (a tester's report on v00.21): Resident Evil 2 black after the Expansion Pak and Nintendo 64 screens - the
+// American cartridge is NREE, the European NREP ("RE" both: 00.68 covers them), the Japanese Biohazard 2 NB5J (added);
+// Ogre Battle 64 (NOBE, NOBJ) with its 2D backgrounds broken, misplaced or swapped "at random": pictures its RSP decodes
+// into the N64's memory (its JPEG task) where the RDP drew a frame before, which the GPU's late copy of that frame then
+// overwrites - a race that Accurate closes (no cartridge of it on the PC to try).
+struct N64AccurateTitle
+{
+  const char *code, *name, *why;
+};
+const N64AccurateTitle* N64AccurateGame(const std::string& code)
+{
+  static const N64AccurateTitle GAMES[] = {
+      {"CU", "Cruis'n USA", "with Fast it stays on a black screen: its effects read the picture back"},
+      {"RE", "Resident Evil 2", "with Fast it stays on a black screen: its effects read the picture back"},
+      {"B5", "Biohazard 2", "with Fast it stays on a black screen: its effects read the picture back"},
+      {"OB", "Ogre Battle 64",
+       "with Fast its 2D backgrounds break: the GPU's late copy of a frame overwrites the pictures decoded there"},
+  };
+  for (const N64AccurateTitle& game : GAMES)
+  {
+    if (code == game.code)
+      return &game;
+  }
+  return nullptr;
+}
+
+// The name in an N64 ROM's header (0x20, 20 characters).
+std::string N64Name(const std::vector<uint8_t>& rom)
+{
+  const std::array<uint8_t, 0x40> header = N64Header(rom);
+  std::string name(reinterpret_cast<const char*>(header.data() + 0x20), 20);
   while (!name.empty() && (name.back() == ' ' || name.back() == '\0'))
     name.pop_back();
   return name;
@@ -444,10 +545,10 @@ double s_scale_ms = 0.0;  // time spent making pictures bigger (for the log)
 int s_scale_frames = 0;
 std::string s_scale_name;
 GameAudio* s_audio = nullptr;
+// The core's sample rate: the sound is always resampled from it (its pitch). A game below full speed (one frame a
+// pass) sends less sound than is played: GameAudio stretches it at the same pitch. (00.39 to 00.65 resampled it from
+// the rate times the game's speed: a game at 75% sounded 5 semitones deep.)
 double s_sample_rate = 32040.0;
-// The game's speed while its core can't keep up (one frame a pass, below 100%): the sound is played
-// that much slower, not with gaps.
-double s_audio_speed = 1.0;
 
 void CoreLog(enum retro_log_level level, const char* format, ...)
 {
@@ -462,6 +563,22 @@ void CoreLog(enum retro_log_level level, const char* format, ...)
   while (length > 0 && (line[length - 1] == '\n' || line[length - 1] == '\r'))
     line[--length] = 0;
   LogF("%s: %s", s_core->name, line);
+  // (00.81) SwanStation's words for a disc it couldn't open and for a LibCrypt disc without its .sbi (Run tells the
+  // player). Its line: "[System] Failed to load CD image '<path>': <reason>. Booting BIOS with no disc."
+  if (s_system == SystemId::PS1)
+  {
+    if (const char* failed = std::strstr(line, "Failed to load CD image '"))
+    {
+      const char* reason = std::strstr(failed, "': ");
+      std::string text = reason ? reason + 3 : "";
+      const size_t tail = text.rfind(". Booting BIOS with no disc.");
+      if (tail != std::string::npos)
+        text.erase(tail);
+      s_ps1_disc_error = text.empty() ? "?" : text;
+    }
+    if (std::strstr(line, "EmuSuNi: LibCrypt-protected disc"))
+      s_ps1_libcrypt = true;
+  }
 }
 
 // The menus' settings as Snes9x's options.
@@ -520,6 +637,29 @@ void BuildNesVariables(const std::string& g)
   s_variables["fceumm_game_genie"] = "disabled";
 }
 
+// N64 CPU Timing as the core's CountPerOp option, and where it comes from (empty: the core's game list). Light is 3
+// counts per instruction (the core's list, mupen64plus.ini, uses it for 25 games); Auto is 3 for GoldenEye 007 (it
+// then draws about 23 frames a second instead of 33 - the console: about 20 - with about a third less RSP and RDP
+// work per second), else the list's own; Normal the list's own (2 for most games: "0" lets the core take it). Since
+// 00.81 "the list's own" includes the app's corrections from the list's newer upstream copy (GameDb).
+std::string N64CountPerOp(const std::string& g, std::string* source)
+{
+  const std::string timing = Settings::Get("n64_cpu_timing", g);
+  if (timing == "light" || (timing == "auto" && s_n64_name == "GOLDENEYE"))
+  {
+    *source = timing == "light" ? "EmuSuNi: N64 CPU Timing Light" : "EmuSuNi: N64 CPU Timing Auto, GoldenEye 007";
+    return "3";
+  }
+  const GameDb::N64Correction* correction = GameDb::FindN64Correction(s_n64_crc1, s_n64_crc2);
+  if (correction && std::strcmp(correction->option, "CountPerOp") == 0)
+  {
+    *source = correction->source;
+    return correction->value;
+  }
+  source->clear();
+  return "0";
+}
+
 // Mupen64Plus-Next's options: drawn by ParaLLEl-RDP (Vulkan), the recompilers when the PS4 lets
 // their code run, else the interpreters.
 void BuildN64Variables(const std::string& g)
@@ -533,8 +673,10 @@ void BuildN64Variables(const std::string& g)
   s_variables[prefix + "rsp-plugin"] = !s_rsp_jit_ok ? "cxd4" : rsp == "hle" ? "hle" : rsp == "parallel" ? "parallel" : "cxd4";
   const std::string resolution = Settings::Get("n64_resolution", g);
   s_variables[prefix + "parallel-rdp-upscaling"] = resolution == "4" ? "4x" : resolution == "2" ? "2x" : "1x";
-  // Asynchronous: the GPU draws while the N64 runs on (the CPU doesn't wait for each picture).
-  s_variables[prefix + "parallel-rdp-synchronous"] = Settings::Get("n64_sync", g) == "accurate" ? "True" : "False";
+  // Asynchronous: the GPU draws while the N64 runs on (the CPU doesn't wait for each picture); the games that need
+  // Accurate play with it whatever the setting (N64AccurateGame).
+  const bool accurate = Settings::Get("n64_sync", g) == "accurate" || N64AccurateGame(s_n64_code) != nullptr;
+  s_variables[prefix + "parallel-rdp-synchronous"] = accurate ? "True" : "False";
   // The picture (ParaLLEl-RDP): the video chip's filters and the upscaling quirks are read again every
   // frame; Screen Effects at the next start.
   const bool aa = Settings::Get("n64_aa", g) != "off";
@@ -547,12 +689,9 @@ void BuildN64Variables(const std::string& g)
       Settings::Get("n64_fb_effects", g) == "smooth" ? "True" : "False";
   s_variables[prefix + "aspect"] = "4:3";
   s_variables[prefix + "Framerate"] = "Original";
-  // N64 CPU Timing: Light is 3 counts per instruction (the core's game list uses it for 25 games),
-  // Normal the list's own (2 for the others). GoldenEye then draws about 23 frames a second instead
-  // of 33 (the console: about 20), with about a third less RSP and RDP work per second.
-  const std::string timing = Settings::Get("n64_cpu_timing", g);
-  const bool light = timing == "light" || (timing == "auto" && s_n64_name == "GOLDENEYE");
-  s_variables[prefix + "CountPerOp"] = light ? "3" : "0";
+  // N64 CPU Timing (N64CountPerOp).
+  std::string count_source;
+  s_variables[prefix + "CountPerOp"] = N64CountPerOp(g, &count_source);
   s_variables[prefix + "virefresh"] = "Auto";
   s_variables[prefix + "pak1"] = Settings::Get("n64_pak", g);
   for (const char* pak : {"pak2", "pak3", "pak4"})
@@ -653,38 +792,73 @@ void BuildPs1Variables(const std::string& g)
   s_variables[p + "Controller1_AnalogDPadInDigitalMode"] = "true";
 }
 
-// "side", "big", "stack" or "single": DS Screens.
-std::string NdsView()
+// The game's picture is two screens: the DS's or the 3DS's.
+bool TwoScreens()
 {
-  return s_nds_chosen;
+  return s_system == SystemId::NDS || s_system == SystemId::THREEDS;
 }
 
-// The DS's two screens trade places (R3, Swap Screens): the halves of the core's picture (side by
-// side, or one above the other) are swapped as it comes in (VideoRefresh), so every view shows the
-// touch screen where the top one was: Big Screen the touch screen big, One Screen the touch screen
-// alone. The core's own picture stays as it is: the touchpad still touches the touch screen.
-bool NdsSwapped(unsigned w, unsigned h)
+// The screens' settings for the game (the same on both consoles, each its own values: Settings.cpp
+// EMUSUNI_SCREEN_SETTINGS), with R3's swap.
+DualScreens::Options ScreenOptions(const std::string& game)
 {
-  return s_system == SystemId::NDS && s_nds_swap && ((w == 512 && h == 192) || (w == 256 && h == 384));
+  const std::string p = s_system == SystemId::THREEDS ? "3ds_" : "nds_";
+  DualScreens::Options options;
+  options.layout = Settings::Get(p + "layout", game);
+  options.swapped = (Settings::Get(p + "swap", game) == "on") != s_r3_swap.load(std::memory_order_relaxed);
+  options.small_size = std::clamp(Settings::GetInt(p + "small_size", game), 2, 4);
+  options.small_position = Settings::Get(p + "small_position", game);
+  options.gap = Settings::Get(p + "gap", game);
+  return options;
 }
 
-// The Big Screen is drawn now (from the core's side-by-side picture: the left half big).
-bool NdsBig()
+// The two screens as they are shown now: their places in the picture (in the console's pixels: the DS's 256x192 each,
+// the 3DS's 400x240 and 320x240), and where each one is in the core's picture, in its pixels (0: the top screen, 1:
+// the touch screen). False: not a picture of two screens (the start's, another size): it is drawn as it is.
+struct Screens
 {
-  return s_system == SystemId::NDS && s_frame_w == 512 && s_frame_h == 192 && NdsView() == "big";
+  DualScreens::Layout layout;
+  DualScreens::Rect source[2];
+};
+
+bool CurrentScreens(const std::string& game, Screens* screens)
+{
+  const bool threeds = s_system == SystemId::THREEDS;
+  if (!TwoScreens() || !DualScreens::InCorePicture(threeds, s_frame_w, s_frame_h, s_3ds_scale, screens->source))
+    return false;
+  screens->layout = DualScreens::Arrange(ScreenOptions(game), threeds ? 400.0f : 256.0f, threeds ? 240.0f : 192.0f,
+                                         threeds ? 320.0f : 256.0f, threeds ? 240.0f : 192.0f);
+  return true;
 }
 
-// One Screen is drawn now: the side-by-side picture's left half alone (the top screen, or the touch
-// screen swapped in).
-bool NdsSingle()
+// The screens' settings as one text: a change of them in the in-game menu undoes R3's swap (the screens as the menu
+// shows them).
+std::string ScreensSeen(const std::string& game)
 {
-  return s_system == SystemId::NDS && s_frame_w == 512 && s_frame_h == 192 && NdsView() == "single";
+  const std::string p = s_system == SystemId::THREEDS ? "3ds_" : "nds_";
+  return Settings::Get(p + "layout", game) + "/" + Settings::Get(p + "swap", game);
+}
+
+// The screens as they are placed, in the log: at a game's start, and when their settings change in the in-game menu.
+void LogScreens(const std::string& game, const char* when)
+{
+  if (!TwoScreens())
+    return;
+  const bool threeds = s_system == SystemId::THREEDS;
+  const DualScreens::Options options = ScreenOptions(game);
+  const DualScreens::Layout layout = DualScreens::Arrange(options, threeds ? 400.0f : 256.0f, threeds ? 240.0f : 192.0f,
+                                                          threeds ? 320.0f : 256.0f, threeds ? 240.0f : 192.0f);
+  LogF("screens (%s): %s, %s first%s, small screen 1/%d %s, gap %s: a picture of %.0fx%.0f of the console's pixels "
+       "(the core gives both screens side by side, the touch screen always at the same place)",
+       when, options.layout.c_str(), options.swapped ? "the touch screen" : "the top screen",
+       s_r3_swap.load() ? " (R3)" : "", options.small_size, options.small_position.c_str(), options.gap.c_str(),
+       layout.width, layout.height);
 }
 
 // melonDS DS's options: every one of its 78 is answered (an unanswered one doesn't get the default
 // it declares). The JIT, the threaded 3D (its thread on core 3, port/ps4_n64.c), the built-in BIOS
 // and firmware unless all three of the DS's own are in the system folder, the touchpad as the touch
-// screen, the screens side by side or one above the other (the app makes the other views), no Wi-Fi.
+// screen, the screens side by side (the app places them), no Wi-Fi.
 void BuildNdsVariables(const std::string& g)
 {
   const std::string p = "melonds_";
@@ -710,17 +884,13 @@ void BuildNdsVariables(const std::string& g)
   set("jit_literal_optimisations", "enabled");
   set("jit_fast_memory", "disabled");
   set("threaded_renderer", "enabled");
-  // DS Screens: the core gives the screens side by side, or one above the other; the app shows them
-  // (Big Screen and One Screen made on the GPU from the side-by-side picture: melonDS DS scaling it
-  // on the CPU cost ~3.6 ms a frame on the PS4) and R3 swaps the two screens (NdsSwapped).
-  const std::string chosen = Settings::Get("nds_layout", g);
-  if (chosen != s_nds_chosen)
-  {
-    s_nds_chosen = chosen;
-    s_nds_swap = false;
-  }
+  // The screens: side by side, always (512x192, the touch screen on the right): the app places them as the screens'
+  // settings say, and R3 swaps them there (DrawScreens, src/DualScreens.h), so the touchpad's place on the touch
+  // screen never changes. (Until 00.79 the core gave them one above the other for that view; its own big screen,
+  // scaled on the CPU, cost ~3.6 ms a frame on the PS4: the app's are the GPU's.) The other layouts and the gap are
+  // the core's options, answered.
   set("number_of_screen_layouts", "1");
-  set("screen_layout1", NdsView() == "stack" ? "top-bottom" : "left-right");
+  set("screen_layout1", "left-right");
   set("screen_layout2", "left-right");
   const char* rest[] = {"largescreen-top", "largescreen-bottom", "hybrid-top", "hybrid-bottom", "top", "bottom"};
   for (int i = 3; i <= 8; i++)
@@ -844,7 +1014,9 @@ void BuildPspVariables(const std::string& g)
   // core.sh): half the emulation and GPU work, the game's speed unchanged.
   const std::string rate = Settings::Get("psp_frame_rate", g);
   set("emusuni_30fps", rate == "30" || (rate == "auto" && s_psp_30fps_auto) ? "enabled" : "disabled");
-  // Frame Skip: the core's own (it leaves out the GPU's work, not the game's).
+  // Frame Skip: the core's own (it leaves out the GPU's work, not the game's). With it on, a run lasts until the PSP's
+  // next picture (upstream's frame skip turns its frame duplication off); the core counts the vblanks and the pacing
+  // pays for them (00.81: PspFrames - until then a game at 30 FPS ran at twice its speed with Frame Skip).
   const std::string skip = Settings::Get("frameskip", g);
   set("frameskip", skip == "1" || skip == "2" ? skip : skip == "auto" ? "1" : "disabled");
   set("frameskiptype", "Number of frames");
@@ -865,8 +1037,20 @@ void BuildPspVariables(const std::string& g)
   }
   set("language", psp_language);
   set("button_preference", "Cross");
-  set("analog_deadzone", "0.15");
-  set("analog_sensitivity", "1.00");
+  // The left stick's dead zone and scale (00.68, GitHub issue #8: PSP Stick Dead Zone and Sensitivity, per game; the
+  // core's own values, 0.15 and 1.00 until 00.68).
+  auto one_of = [](const std::string& value, std::initializer_list<const char*> known, const char* fallback) {
+    for (const char* each : known)
+    {
+      if (value == each)
+        return value;
+    }
+    return std::string(fallback);
+  };
+  set("analog_deadzone", one_of(Settings::Get("psp_deadzone", g), {"0.0", "0.05", "0.10", "0.15", "0.20", "0.25", "0.30"},
+                                "0.15"));
+  set("analog_sensitivity",
+      one_of(Settings::Get("psp_sensitivity", g), {"1.00", "1.10", "1.20", "1.30", "1.40", "1.50"}, "1.00"));
   set("analog_is_circular", "disabled");
   // No network: Wi-Fi off, a fixed MAC address (else the core asks to make one up).
   set("enable_wlan", "disabled");
@@ -919,13 +1103,25 @@ void BuildDcVariables(const std::string& g)
   set("enable_dsp", Settings::GetOn("dc_dsp", g) ? "enabled" : "disabled");
   set("threaded_rendering", "enabled");
   set("delay_frame_swapping", "enabled");
+  // A game at 30 FPS (Jet Set Radio, all of it) or Frame Skip: each run of the core is one picture, 2 to 4 of the
+  // console's frames. The pacing counts them itself (Run: DcFrames, the core's count of the frames between its
+  // pictures), so Flycast's own detection stays off: in 00.67 it paced such a game, but Flycast turns it off with
+  // Frame Skip Auto, and Jet Set Radio ran at up to twice its speed again on the owner's PS4.
   set("detect_vsync_swap_interval", "disabled");
-  // The Dreamcast plays at Low whatever the Quality - 640x480, 4x texture sharpness, transparency per
-  // triangle, no GPU filter (GpuMode) - its settings hidden (Settings.cpp): on the PS4 the higher levels
-  // slowed the games to a crawl (Crazy Taxi at 3x: 0.6 pictures a second, 00.52) and per-pixel sorting
-  // drew wrong colours (00.49).
-  set("internal_resolution", "640x480");
-  set("anisotropic_filtering", "4");
+  // The picture: Quality's levels (00.68; from 00.53 to 00.67 the Dreamcast played at Low only) - 1x, 2x, 3x (Dreamcast
+  // Resolution) and Texture Sharpness 4x, 8x, 8x, 16x; transparency per triangle at every level (per pixel drew wrong
+  // colours on the PS4, 00.49), the GPU Upscaler's steps since 00.69 (GpuMode). As the game started: Flycast makes its
+  // renderer again for a new size (Crazy Taxi changed to 3x in the game: 0.6 pictures a second for 10 s, 00.52). Low is
+  // 00.67's picture.
+  if (s_dc_resolution.empty())
+  {
+    const int scale = std::clamp(Settings::GetInt("dc_resolution", g), 1, 3);
+    s_dc_resolution = scale == 3 ? "1920x1440" : scale == 2 ? "1280x960" : "640x480";
+    const std::string sharpness = Settings::Get("dc_anisotropy", g);
+    s_dc_anisotropy = sharpness == "off" || sharpness == "8" || sharpness == "16" ? sharpness : "4";
+  }
+  set("internal_resolution", s_dc_resolution);
+  set("anisotropic_filtering", s_dc_anisotropy);
   set("alpha_sorting", "per-triangle (normal)");
   set("oit_abuffer_size", "512MB");
   set("oit_layers", "32");
@@ -1096,69 +1292,37 @@ void BuildArcadeVariables(const std::string& g)
 extern "C" const char* fbneo_emusuni_error(void);
 #endif
 
-// The DS's touch screen in the frame melonDS DS composed (its layouts, by the frame's size): x, y,
-// width, height in the frame's pixels.
+// The DS's touch screen in melonDS DS's picture (side by side, always, since 00.80: 512x192, the touch screen on the
+// right; DualScreens::InCorePicture): x, y, width, height in the picture's pixels. Another size: the whole picture.
 std::array<float, 4> NdsTouchScreen(unsigned w, unsigned h)
 {
-  if (w == 512 && h == 192)
-    return {256, 0, 256, 192};  // side by side: on the right
-  if (w == 256 && h >= 384)
-    return {0, static_cast<float>(h - 192), 256, 192};  // one above the other: at the bottom
-  if (w == 1024 && h == 576)
-    return {768, 192, 256, 192};  // big top screen (3x): the small one at the right, in the middle
-  if (w == 768 && h == 384)
-    return {512, 96, 256, 192};  // big top screen (2x)
+  DualScreens::Rect screens[2];
+  if (DualScreens::InCorePicture(false, w, h, 1, screens))
+    return {screens[1].x, screens[1].y, screens[1].w, screens[1].h};
   return {0, 0, static_cast<float>(w), static_cast<float>(h)};
 }
 
-// The 3DS's two screens as Azahar lays them out for 3DS Screens (and R3's swap): the picture it gives at a
-// resolution of `factor` times the 3DS's own (ComputeLayoutGeometry in citra_libretro/emu_window; the big top
-// screen's picture is 4x at least, so that 1x stays sharp), and where the touch screen is in it, in the
-// picture's pixels (framebuffer_layout.cpp: LargeFrameLayout with the small screen below, to the right, or
-// bottom right; SingleFrameLayout). touch[2] is 0 where the touch screen isn't shown (Top Screen Only).
+// The 3DS's two screens as Azahar lays them out: side by side, always, since 00.80 (its swap option off: the app
+// places the screens, DualScreens), the picture it gives at a resolution of `factor` times the 3DS's own
+// (ComputeLayoutGeometry in citra_libretro/emu_window: 720x240 times it; framebuffer_layout.cpp: LargeFrameLayout,
+// the touch screen to the right in the middle), and where the touch screen is in it, in the picture's pixels. Until
+// 00.79 Azahar laid out every 3DS Screens view itself (its big top screen's picture 1920x960, the touch screen left
+// out with Top Screen Only), and R3 had it swap them.
 struct ThreedsPicture
 {
   unsigned w = 0, h = 0;
   std::array<float, 4> touch{};  // x, y, width, height
 };
 
-// Are the screens swapped now? (Touch Screen Only is the single screen layout swapped; R3 swaps back.)
-bool ThreedsSwapped(const std::string& layout)
+ThreedsPicture ThreedsLayout(int factor)
 {
-  return (layout == "bottom") != s_3ds_swap;
-}
-
-ThreedsPicture ThreedsLayout(const std::string& layout, bool swapped, int factor)
-{
-  const unsigned f = static_cast<unsigned>(std::clamp(factor, 1, 3));
-  const float k = static_cast<float>(f);
+  const int f = std::clamp(factor, 1, 4);  // (3DS Resolution: 1x to 4x since 00.71)
   ThreedsPicture picture;
-  if (layout == "stack")
-  {
-    picture.w = 400 * f;
-    picture.h = 480 * f;
-    picture.touch = {40.0f * k, swapped ? 0.0f : 240.0f * k, 320.0f * k, 240.0f * k};
-  }
-  else if (layout == "large")
-  {
-    picture.w = swapped ? 1680 : 1920;
-    picture.h = 960;
-    picture.touch = swapped ? std::array<float, 4>{0.0f, 0.0f, 1280.0f, 960.0f}
-                            : std::array<float, 4>{1600.0f, 720.0f, 320.0f, 240.0f};
-  }
-  else if (layout == "top" || layout == "bottom")
-  {
-    picture.w = (swapped ? 320 : 400) * f;
-    picture.h = 240 * f;
-    if (swapped)
-      picture.touch = {0.0f, 0.0f, 320.0f * k, 240.0f * k};
-  }
-  else  // "side"
-  {
-    picture.w = 720 * f;
-    picture.h = 240 * f;
-    picture.touch = {swapped ? 0.0f : 400.0f * k, 0.0f, 320.0f * k, 240.0f * k};
-  }
+  picture.w = 720u * static_cast<unsigned>(f);
+  picture.h = 240u * static_cast<unsigned>(f);
+  DualScreens::Rect screens[2];
+  DualScreens::InCorePicture(true, picture.w, picture.h, f, screens);
+  picture.touch = {screens[1].x, screens[1].y, screens[1].w, screens[1].h};
   return picture;
 }
 
@@ -1193,24 +1357,101 @@ std::string ThreedsFailure(const std::string& message)
   return message;
 }
 
+// The 3DS game's title ID (its program ID, as Azahar's hack lists know it), read from its file's headers when the game
+// starts (Run): a .3ds/.cci's first partition, a .cxi's own (both are plain even in an encrypted dump); 0 for a .3dsx
+// or a file it can't read. And whether Accurate Shader Multiplication and the right eye are on for it this time - 3DS
+// Accurate Shader Multiplication and 3DS Right Eye, Auto by the lists below -, kept for the game as its size is.
+uint64_t s_3ds_title = 0;
+bool s_3ds_accurate_mul = false, s_3ds_right_eye = false;
+
+uint64_t ThreedsTitleId(const std::string& path)
+{
+  std::FILE* file = std::fopen(path.c_str(), "rb");
+  if (!file)
+    return 0;
+  uint8_t header[0x200] = {};
+  auto read_at = [&](uint64_t offset) {
+    return std::fseek(file, static_cast<long>(offset), SEEK_SET) == 0 && std::fread(header, 1, sizeof(header), file) ==
+                                                                              sizeof(header);
+  };
+  auto u32_at = [&](size_t at) {
+    return static_cast<uint32_t>(header[at]) | static_cast<uint32_t>(header[at + 1]) << 8 |
+           static_cast<uint32_t>(header[at + 2]) << 16 | static_cast<uint32_t>(header[at + 3]) << 24;
+  };
+  auto magic = [&](const char* word) { return std::memcmp(header + 0x100, word, 4) == 0; };
+  uint64_t title = 0;
+  if (read_at(0))
+  {
+    // NCSD (a cartridge's image): the partition table at 0x120, offsets and sizes in media units of 0x200 bytes.
+    if (magic("NCSD") && read_at(static_cast<uint64_t>(u32_at(0x120)) * 0x200) && magic("NCCH"))
+      title = u32_at(0x118) | static_cast<uint64_t>(u32_at(0x11C)) << 32;
+    else if (magic("NCCH"))  // an executable's own (.cxi)
+      title = u32_at(0x118) | static_cast<uint64_t>(u32_at(0x11C)) << 32;
+  }
+  std::fclose(file);
+  return title;
+}
+
+// The games that draw wrong without Accurate Shader Multiplication (00.81; every region's title ID): Pokémon X and Y
+// (the players: graphics errors; upstream, azahar #2583 and #1445: Froakie drawn white until it is on) and the games
+// on the same engine after them, Majora's Mask 3D (the players; upstream forces it for Ocarina of Time 3D, the same
+// engine: its hack list), Metroid: Samus Returns and Castlevania: Mirror of Fate (the players). Upstream's own list
+// (Ocarina of Time 3D, the Mario & Luigi games) is forced by the core whatever the setting.
+bool ThreedsAccurateMulGame(uint64_t title)
+{
+  static const uint64_t GAMES[] = {
+      0x0004000000055D00, 0x0004000000055E00,  // Pokémon X, Y (every region)
+      0x000400000011C400, 0x000400000011C500,  // Pokémon Omega Ruby, Alpha Sapphire
+      0x0004000000164800, 0x0004000000175E00,  // Pokémon Sun, Moon
+      0x00040000001B5000, 0x00040000001B5100,  // Pokémon Ultra Sun, Ultra Moon
+      0x0004000000125500, 0x0004000000125600, 0x00040000000D6E00,  // Majora's Mask 3D: USA, EUR, JPN
+      0x00040000001BB200, 0x00040000001BFB00, 0x00040000001BFC00,  // Metroid: Samus Returns: USA, EUR, JPN
+      0x0004000000096600, 0x000400000009E500, 0x00040000000BAC00,  // Castlevania: Mirror of Fate: USA, EUR, JPN
+  };
+  return std::find(std::begin(GAMES), std::end(GAMES), title) != std::end(GAMES);
+}
+
+// The games that need the right eye drawn (00.81): with Azahar's Disable Right Eye Render, Majora's Mask 3D's blur
+// effects freeze the screen (azahar #791; its black intro is fixed by azahar #2467, scripts/build-3ds-core.sh), Kingdom
+// Hearts 3D's and Pokémon Super Mystery Dungeon's bottom screen stays black (#1005, not fixed by #2467), Fire Emblem
+// Warriors' too since #2467, and upstream's newer hack list keeps it for Minecraft: New Nintendo 3DS Edition. (The
+// core's own list - Luigi's Mansion 1 and 2, Rayman Origins - draws it whatever the setting.)
+bool ThreedsRightEyeGame(uint64_t title)
+{
+  static const uint64_t GAMES[] = {
+      0x0004000000125500, 0x0004000000125600, 0x00040000000D6E00,  // Majora's Mask 3D: USA, EUR, JPN
+      0x000400000008D300, 0x0004000000095500, 0x000400000004EE00,  // Kingdom Hearts 3D: USA, EUR, JPN
+      0x0004000000174600, 0x0004000000174400,                      // Pokémon Super Mystery Dungeon: USA, EUR
+      0x000400000F70CC00, 0x000400000F70CD00,                      // Fire Emblem Warriors: USA, EUR
+      0x00040000001B8700, 0x000400000017CA00, 0x000400000017FD00,  // Minecraft: New 3DS Edition: USA, EUR, JPN
+  };
+  return std::find(std::begin(GAMES), std::end(GAMES), title) != std::end(GAMES);
+}
+
 // Azahar's options (the Nintendo 3DS): the original 3DS unless New 3DS Mode, its recompilers (the ARM11's and the
-// PICA shaders'), the vertex shaders on the GPU (Vulkan, on the app's device), accurate multiplication off,
-// the 3DS's own size (1x: no Quality levels for it since 00.64), no texture filters, HLE sound, the core's own
-// screen layouts (3DS Screens, R3's swap), the touchpad as the touch screen (the right stick is the C-stick), no
-// motion, no 3D. Every
-// option the core declares is answered (core_settings.cpp declares 32): one it isn't given gets the default
+// PICA shaders'), the vertex shaders on the GPU (Vulkan, on the app's device), accurate multiplication and the right
+// eye per game (00.81), 3DS Resolution (1x to 4x: the Quality levels' since 00.71; 1x only from 00.64 to 00.70), no
+// texture filters, HLE sound, the screens side by side (the app places them since 00.80: DualScreens), the touchpad as
+// the touch screen (the right stick is the C-stick), no motion, no 3D. Every
+// option the core declares is answered (core_settings.cpp declares 33, EmuSuNi's right eye with them since 00.81: its
+// build script): one it isn't given gets the default
 // of its code, not the one it declares. (Checked against the core's source by the PC tests.)
 void Build3dsVariables(const std::string& g)
 {
   const std::string p = "citra_";
   auto set = [&](const char* key, const std::string& value) { s_variables[p + key] = value; };
-  // New 3DS Mode counts as the game started: Azahar reads it once, and a change under a running game would be read
-  // half-way. The resolution is the 3DS's own, 1x, whatever a settings.ini of 00.63 says (3DS Resolution is hidden:
-  // the 3DS has no Quality levels, as the Dreamcast; its 3D games are slow on the PS4 at 1x already).
+  // New 3DS Mode and 3DS Resolution count as the game started: Azahar reads the first once, and the size is the
+  // picture's for the whole game (its buffers, the touch screen's place). A change under a running game is its next
+  // start's. (Azahar's texture filters are left off: subtle on the 3D, and their textures at the full size took twice
+  // the GPU memory on the PC - Settings.cpp PRESETS.)
   if (s_3ds_scale == 0)
   {
-    s_3ds_scale = 1;
+    s_3ds_scale = std::clamp(Settings::GetInt("3ds_resolution", g), 1, 4);
     s_3ds_new = Settings::Get("3ds_new", g) == "on" ? 1 : 0;
+    // (00.81: the core applies both when the game takes the GPU, at its start: kept for the game as well.)
+    const std::string mul = Settings::Get("3ds_accurate_mul", g), eye = Settings::Get("3ds_right_eye", g);
+    s_3ds_accurate_mul = mul == "on" || (mul != "off" && ThreedsAccurateMulGame(s_3ds_title));
+    s_3ds_right_eye = eye == "draw" || (eye != "skip" && ThreedsRightEyeGame(s_3ds_title));
   }
   set("is_new_3ds", s_3ds_new == 1 ? "New 3DS" : "Old 3DS");
   set("use_cpu_jit", "enabled");
@@ -1234,24 +1475,28 @@ void Build3dsVariables(const std::string& g)
   set("graphics_api", "Vulkan");
   set("use_hw_shader", "enabled");
   set("use_shader_jit", "enabled");
-  set("shaders_accurate_mul", "disabled");  // a few games show artifacts with it off; the PS4 can't afford it
+  // Accurate multiplication in the GPU's shaders: Off in most games (the same pictures, a little less GPU work), On in
+  // those that draw wrong without it (00.81: 3DS Accurate Shader Multiplication; Off for every game until 00.80).
+  set("shaders_accurate_mul", s_3ds_accurate_mul ? "enabled" : "disabled");
+  // The right eye's picture: left out (the PS4 shows no 3D) unless the game needs it (00.81: 3DS Right Eye; the core
+  // read only the file /data/EmuSuNi/3ds-right-eye until 00.80, which still draws it in every game).
+  set("emusuni_right_eye", s_3ds_right_eye ? "enabled" : "disabled");
   set("use_disk_shader_cache", "enabled");  // (saves/3ds/Azahar/shaders)
   set("resolution_factor", std::to_string(s_3ds_scale));
   set("texture_filter", "none");
   set("texture_sampling", "GameControlled");
   set("custom_textures", "disabled");
   set("dump_textures", "disabled");
-  // 3DS Screens: the core's layouts. The single-screen choices are its single screen layout with the screen
-  // they show; R3 swaps the screens (its swap option: the other one is shown, or put big or first).
-  const std::string layout = Settings::Get("3ds_layout", g);
-  const bool swapped = ThreedsSwapped(layout);
-  set("layout_option", layout == "stack" ? "default" :
-                       layout == "large" ? "large_screen" :
-                       layout == "top" || layout == "bottom" ? "single_screen" :
-                                                              "side_by_side");
-  set("swap_screen", swapped ? "Bottom" : "Top");
+  // The screens: side by side, always, never swapped by the core (720x240 times the resolution, the touch screen on
+  // the right: ThreedsLayout): the app places them as the screens' settings say, and R3 swaps them there
+  // (DrawScreens, src/DualScreens.h), so the touchpad's place on the touch screen never changes and the core's picture
+  // never changes size during a game. (Until 00.79 these were 3DS Screens' layouts, R3 the swap option: Azahar's
+  // libretro window has no gap and no place for the small screen, and its big top screen was a 1920x960 picture even
+  // at 1x.)
+  set("layout_option", "side_by_side");
+  set("swap_screen", "Top");
   set("swap_screen_mode", "Toggle");
-  set("large_screen_proportion", "4.00");  // (the size ThreedsLayout and the core's picture are made for)
+  set("large_screen_proportion", "4.00");  // (its Large Screen layout's, not used)
   set("render_3d", "off");
   set("factor_3d", "0");
   set("use_virtual_sd", "enabled");
@@ -1265,6 +1510,56 @@ void Build3dsVariables(const std::string& g)
   set("enable_touch_pointer_timeout", "enabled");
   set("enable_motion", "disabled");
   set("motion_sensitivity", "1.0");
+}
+
+#ifdef EMUSUNI_SATURN
+// YabaSanshiro's options (the Saturn): the real BIOS (the app finds it: EMUSUNI_SATURN_BIOS, Run), the core's own
+// frame skip off (on, its emulation thread waits to 60 frames a second by spinning), the 4 MiB RAM cartridge, the
+// console's picture at its own size (its software renderer: scripts/build-saturn-core.sh; the OpenGL renderer's
+// options answered as the core's defaults), no multitap. Every option it reads is answered.
+void BuildSaturnVariables(const std::string&)
+{
+  const std::string p = "yabasanshiro_";
+  auto set = [&](const char* key, const std::string& value) { s_variables[p + key] = value; };
+  set("force_hle_bios", "disabled");
+  set("frameskip", "disabled");
+  set("addon_cart", "4M_extended_ram");
+  set("system_language", "english");
+  set("multitap_port1", "disabled");
+  set("multitap_port2", "disabled");
+  set("polygon_mode", "perspective_correction");
+  set("resolution_mode", "original");
+  set("rbg_resolution_mode", "original");
+  set("rbg_use_compute_shader", "disabled");
+}
+#endif
+
+// Beetle PCE Fast's options (the PC Engine, 00.82): RGB colours, the whole picture (352 wide, lines 3 to 242), the pad
+// chosen (PC Engine Pad), no turbo or soft reset switches of the core's (the app's buttons), Reduce Sprite Flicker; the
+// app skips the frames (GET_AUDIO_VIDEO_ENABLE: scripts/build-beetle-cores.sh). (The CD's options - its System Card,
+// image cache, drive speed and volumes - are left at the core's defaults since 00.83: no CD game is given to it.)
+void BuildPceVariables(const std::string& g)
+{
+  const std::string p = "pce_fast_";
+  auto set = [&](const char* key, const std::string& value) { s_variables[p + key] = value; };
+  set("palette", "RGB");
+  set("nospritelimit", Settings::Get("sprite_flicker", g) == "enabled" ? "enabled" : "disabled");
+  set("ocmultiplier", "1");
+  set("hoverscan", "352");
+  set("initial_scanline", "3");
+  set("last_scanline", "242");
+  set("frameskip", "disabled");
+  set("frameskip_threshold", "33");
+  const std::string pad = Settings::Get("pce_pad", g) == "6" ? "6 Buttons" : "2 Buttons";
+  for (int port = 1; port <= 5; port++)
+    s_variables[p + "default_joypad_type_p" + std::to_string(port)] = pad;
+  set("turbo_toggling", "disabled");
+  set("turbo_toggle_hotkey", "disabled");
+  set("turbo_delay", "3");
+  set("disable_softreset", "disabled");
+  for (int channel = 0; channel < 6; channel++)
+    s_variables[p + "sound_channel_" + std::to_string(channel) + "_volume"] = "100";
+  set("mouse_sensitivity", "1.25");
 }
 
 void BuildVariables()
@@ -1290,6 +1585,12 @@ void BuildVariables()
     BuildArcadeVariables(s_game_id);
   else if (s_system == SystemId::THREEDS)
     Build3dsVariables(s_game_id);
+#ifdef EMUSUNI_SATURN
+  else if (s_system == SystemId::SATURN)
+    BuildSaturnVariables(s_game_id);
+#endif
+  else if (s_system == SystemId::PCE)
+    BuildPceVariables(s_game_id);
   else
     BuildSnesVariables(s_game_id);
   s_variables_changed = true;
@@ -1384,6 +1685,13 @@ bool Environment(unsigned command, void* data)
     *static_cast<bool*>(data) = s_variables_changed;
     s_variables_changed = false;
     return true;
+  case EMUSUNI_ENVIRONMENT_PSP_VBLANKS:
+    // (The PSP core's vblanks since it started, at the end of each run: PspFrames.)
+    if (!data || s_system != SystemId::PSP)
+      return false;
+    s_psp_vblanks = *static_cast<const unsigned long long*>(data);
+    s_psp_vblanks_known = true;
+    return true;
   case RETRO_ENVIRONMENT_SET_PIXEL_FORMAT:
   {
     // RGB565 as the game texture, the upscalers and the GPU filters take it; XRGB8888 (melonDS) is
@@ -1434,10 +1742,11 @@ bool Environment(unsigned command, void* data)
     static_cast<retro_rumble_interface*>(data)->set_rumble_state = SetRumble;
     return true;
   case RETRO_ENVIRONMENT_GET_INPUT_BITMASKS:
-    // mGBA, SwanStation, melonDS DS, PPSSPP, Flycast, Genesis Plus GX and FinalBurn Neo read all the
-    // buttons at once (InputState's mask); the others as before.
+    // mGBA, SwanStation, melonDS DS, PPSSPP, Flycast, Genesis Plus GX, FinalBurn Neo, YabaSanshiro and Beetle PCE
+    // Fast (00.82) read all the buttons at once (InputState's mask); the others as before.
     return IsHandheld(s_system) || s_system == SystemId::PS1 || s_system == SystemId::NDS ||
-           s_system == SystemId::PSP || IsFlycast(s_system) || IsGpgx(s_system) || s_system == SystemId::ARCADE;
+           s_system == SystemId::PSP || IsFlycast(s_system) || IsGpgx(s_system) || s_system == SystemId::ARCADE ||
+           s_system == SystemId::SATURN || s_system == SystemId::PCE;
   case RETRO_ENVIRONMENT_GET_SENSOR_INTERFACE:
   {
     if (!IsHandheld(s_system) || !data)
@@ -1475,7 +1784,13 @@ bool Environment(unsigned command, void* data)
     if (av->timing.sample_rate > 0)
       s_sample_rate = av->timing.sample_rate;
     if (av->timing.fps > 0)
+    {
+      // (Flycast at 30 FPS: 29.97, a picture every 2 of its frames - BuildDcVariables. Changes the pacing would
+      // round away aren't logged: Flycast's 59.83 at a game's end.)
+      if (std::abs(av->timing.fps / s_game_fps - 1.0) >= 0.012)
+        LogF("game: the core runs at %.3f FPS now (was %.3f)", av->timing.fps, s_game_fps);
       s_game_fps = av->timing.fps;
+    }
     NoteGeometry(av->geometry);
     return true;
   }
@@ -1556,6 +1871,11 @@ bool Environment(unsigned command, void* data)
     s_variables_changed = true;
     return true;
   }
+  case RETRO_ENVIRONMENT_SET_MEMORY_MAPS:
+    // The core's map of the console's memory (00.73): RetroAchievements reads the game's memory through it, as it
+    // numbers it (src/Achievements.h; copied there: cores pass arrays of their stack).
+    Achievements::SetMemoryMap(static_cast<const retro_memory_map*>(data));
+    return true;
   case RETRO_ENVIRONMENT_SET_PERFORMANCE_LEVEL:
   case RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS:
   case RETRO_ENVIRONMENT_SET_CONTROLLER_INFO:
@@ -1569,6 +1889,8 @@ bool Environment(unsigned command, void* data)
 
 void VideoRefresh(const void* pixels, unsigned width, unsigned height, size_t pitch)
 {
+  if (pixels)
+    StartGuard::Picture();  // (the start watchdog: a picture came)
   if (pixels == RETRO_HW_FRAME_BUFFER_VALID)
   {
     // The core's own image (set_image): nothing to upload.
@@ -1596,26 +1918,19 @@ void VideoRefresh(const void* pixels, unsigned width, unsigned height, size_t pi
   s_frame_hw = false;
   if (s_xrgb8888)
   {
-    // 32-bit pixels: 5-6-5 bits of each (the DS draws 6 bits per colour; the picture stays the same).
-    // The DS's screens swapped (R3): the halves trade places on the way (NdsSwapped).
-    const bool swap = NdsSwapped(width, height);
-    const unsigned shift_x = swap && height == 192 ? width / 2 : 0, shift_y = swap && height == 384 ? height / 2 : 0;
-    auto convert = [](const uint32_t* in, uint16_t* out, unsigned count) {
-      for (unsigned x = 0; x < count; x++)
+    // 32-bit pixels: 5-6-5 bits of each (the DS draws 6 bits per colour; the picture stays the same). (Until 00.79
+    // the DS's halves traded places here for R3's swap: the app places the screens now, DrawScreens.)
+    s_converted.resize(static_cast<size_t>(width) * height);
+    for (unsigned y = 0; y < height; y++)
+    {
+      const uint32_t* in =
+          reinterpret_cast<const uint32_t*>(static_cast<const uint8_t*>(pixels) + static_cast<size_t>(y) * pitch);
+      uint16_t* out = s_converted.data() + static_cast<size_t>(y) * width;
+      for (unsigned x = 0; x < width; x++)
       {
         const uint32_t c = in[x];
         out[x] = static_cast<uint16_t>(((c >> 8) & 0xF800) | ((c >> 5) & 0x07E0) | ((c >> 3) & 0x001F));
       }
-    };
-    s_converted.resize(static_cast<size_t>(width) * height);
-    for (unsigned y = 0; y < height; y++)
-    {
-      const unsigned from_y = y + shift_y < height ? y + shift_y : y + shift_y - height;
-      const uint32_t* in =
-          reinterpret_cast<const uint32_t*>(static_cast<const uint8_t*>(pixels) + static_cast<size_t>(from_y) * pitch);
-      uint16_t* out = s_converted.data() + static_cast<size_t>(y) * width;
-      convert(in + shift_x, out, width - shift_x);  // (two runs a row: the halves swapped)
-      convert(in, out + (width - shift_x), shift_x);
     }
     pixels = s_converted.data();
     pitch = static_cast<size_t>(width) * 2;
@@ -1652,7 +1967,7 @@ void VideoRefresh(const void* pixels, unsigned width, unsigned height, size_t pi
 size_t AudioBatch(const int16_t* samples, size_t frames)
 {
   if (s_audio)
-    s_audio->Push(samples, frames, s_sample_rate * s_audio_speed);
+    s_audio->Push(samples, frames, s_sample_rate);
   return frames;
 }
 
@@ -1809,15 +2124,22 @@ bool SharedFrame(const std::string& choice)
          choice == "stars";
 }
 
-// Which window of a built-in frame suits the picture, by its shape on a screen without one (BezelPath): "" a 4:3 one,
-// "-tall" a picture taller than wide (the DS's and the 3DS's screens one above the other, a vertical arcade game),
-// "-169" a widescreen one (the PSP, a big top screen), "-wide" two screens side by side.
-std::string BezelShape(const std::string& game)
+// The picture's shape on a screen without a bezel (width / height; 0 before the game's first picture).
+float PictureRatio(const std::string& game)
 {
   if (s_frame_w == 0 || s_frame_h == 0)
-    return {};
+    return 0.0f;
   const Picture picture = PlacePicture(game, false);
-  const float ratio = (picture.max.x - picture.min.x) / std::max(1.0f, picture.max.y - picture.min.y);
+  return (picture.max.x - picture.min.x) / std::max(1.0f, picture.max.y - picture.min.y);
+}
+
+// Which window of a built-in frame suits a picture of that shape (PictureRatio; BezelPath): "" a 4:3 one, "-tall" a
+// picture taller than wide (the DS's and the 3DS's screens one above the other, a vertical arcade game), "-169" a
+// widescreen one (the PSP, a big top screen), "-wide" two screens side by side.
+std::string BezelShape(float ratio)
+{
+  if (ratio <= 0.0f)
+    return {};
   return ratio < 0.95f ? "-tall" : ratio <= 1.55f ? "" : ratio <= 2.2f ? "-169" : "-wide";
 }
 
@@ -1834,9 +2156,34 @@ std::string BuiltinBezel(const std::string& name, const std::string& shape)
   return builtin + ".png";
 }
 
+// The console's own bezel - its Bezel setting's default: <console>-console.png, the Arcade's Arcade Cabinet - for a
+// game Per Game has no bezel for (00.80); the Retro TV for a console without a drawing of its own.
+std::string OwnBezel(const System& system, const std::string& shape)
+{
+  const Settings::Setting* setting = Settings::Find(std::string(system.key) + "_bezel");
+  const std::string own = setting && setting->fallback ? setting->fallback : "console";
+  if (own == "off" || own == "game" || own == "custom")
+    return {};
+  if (own == "tv")
+    return BuiltinBezel("tv", shape);
+  if (SharedFrame(own))
+    return BuiltinBezel("frame-" + own, shape);
+  const std::string first = std::string(App::ASSETS_DIR) + "/xmb/bezels/" + system.key + "-" + own + ".png";
+  return FileExists(first) ? BuiltinBezel(std::string(system.key) + "-" + own, shape) : BuiltinBezel("tv", shape);
+}
+
+// A bezel of the data folder (Your Own, Per Game): data_dir/bezels/...
+bool DataBezel(const std::string& path)
+{
+  const std::string folder = std::string(App::DATA_DIR) + "/bezels/";
+  return path.compare(0, folder.size(), folder) == 0;
+}
+
 // The bezel file the game's console is set to ("": none), for a picture of that shape (BezelShape). Your Own:
 // bezels/<console>/ in the data folder with the ROM's name (as The Bezel Project names its bezels) or the game's
-// title, else bezels/<console>.png; without one, the console's own built-in bezel (else the Retro TV).
+// title, else bezels/<console>.png; without one, the console's own built-in bezel (else the Retro TV). Per Game
+// (00.80): the game's own from The Bezel Project, which Settings -> Game Bezels downloads into bezels/<console>/ with
+// the ROM's name (src/BezelProject.h), else the console's own.
 std::string BezelPath(const Library::Game& game, const std::string& shape)
 {
   const System& system = GetSystem(game.system);
@@ -1848,9 +2195,20 @@ std::string BezelPath(const Library::Game& game, const std::string& shape)
     return BuiltinBezel("tv", shape);
   if (SharedFrame(choice))
     return BuiltinBezel("frame-" + choice, shape);
+  const std::string own = std::string(App::DATA_DIR) + "/bezels/" + system.key;
+  if (choice == "game")
+  {
+    for (const std::string& path : {own + "/" + game.id + ".png", own + "/" + game.title + ".png"})
+    {
+      if (FileExists(path))
+        return path;
+    }
+    LogF("bezel: no bezel of The Bezel Project's for %s in %s/bezels/%s (Settings -> Game Bezels): the console's own",
+         game.id.c_str(), App::DATA_DIR, system.key);
+    return OwnBezel(system, shape);
+  }
   if (choice != "custom")
     return BuiltinBezel(std::string(system.key) + "-" + choice, shape);
-  const std::string own = std::string(App::DATA_DIR) + "/bezels/" + system.key;
   for (const std::string& path : {own + "/" + game.id + ".png", own + "/" + game.title + ".png", own + ".png"})
   {
     if (FileExists(path))
@@ -1868,70 +2226,114 @@ void FreeBezel(Display& display)
   s_bezel = {};
 }
 
+// A bezel's PNG read and its window found (BezelProject::FindWindow: see-through from the middle out, fully
+// see-through there); fitted (00.80: a bezel of the data folder, once the picture's shape is known): the window where a
+// picture of that shape fits with no pixel of the bezel over it (The Bezel Project's TV screens have rounded, bulging
+// edges). fit: how big a picture of that shape is in it against the whole screen (1: as big).
+struct BezelImage
+{
+  ImageRGBA image;
+  BezelProject::Window window;
+  float fit = 0.0f;
+  bool fitted = false;
+};
+
+bool ReadBezel(const std::string& path, float ratio, bool fitted, BezelImage* out)
+{
+  if (!LoadPng(path, &out->image, Display::WIDTH, Display::HEIGHT))
+  {
+    LogF("bezel: %s can't be read", path.c_str());
+    return false;
+  }
+  const float W = static_cast<float>(Display::WIDTH), H = static_cast<float>(Display::HEIGHT);
+  out->fitted = fitted && ratio > 0.0f;
+  out->window = BezelProject::FindWindow(&out->image, out->fitted ? ratio : 0.0f, W, H);
+  if (!out->window.found)
+  {
+    LogF("bezel: %s%s", path.c_str(), out->window.why.c_str());
+    return false;
+  }
+  out->fit = BezelProject::FitScale(out->window, ratio, out->image.width, out->image.height, W, H);
+  return true;
+}
+
+// The bezel read as the texture drawn, its window where the picture goes.
+void ShowBezel(Display& display, const std::string& path, const BezelImage& bezel)
+{
+  s_bezel.texture = display.CreateTexture(bezel.image.pixels.data(), bezel.image.width, bezel.image.height);
+  if (!s_bezel.texture)
+    return;
+  // The PNG fills the screen (a smaller one is stretched).
+  const float sx = static_cast<float>(Display::WIDTH) / static_cast<float>(bezel.image.width);
+  const float sy = static_cast<float>(Display::HEIGHT) / static_cast<float>(bezel.image.height);
+  s_bezel.min = ImVec2(bezel.window.left * sx, bezel.window.top * sy);
+  s_bezel.max = ImVec2(bezel.window.right * sx, bezel.window.bottom * sy);
+  LogF("bezel: %s, window %.0fx%.0f at %.0f,%.0f%s", path.c_str(), s_bezel.max.x - s_bezel.min.x,
+       s_bezel.max.y - s_bezel.min.y, s_bezel.min.x, s_bezel.min.y, bezel.fitted ? " (fitted to the picture)" : "");
+}
+
 // Shows the bezel the settings choose for the picture's shape, when that changed: it is called at every pass of the
 // game's loop (a choice made in the in-game menu, R3's other DS view, a picture of a new shape), so the file is looked
-// for only when the choice or the shape changes.
+// for only when the choice or the shape changes (a bezel of the data folder: the picture's shape to the hundredth,
+// its window being fitted to it).
 void LoadBezel(Display& display, const Library::Game& game)
 {
-  const std::string choice = Settings::Get(std::string(GetSystem(game.system).key) + "_bezel", game.key);
-  const std::string shape = choice == "off" ? std::string() : BezelShape(game.key);
-  const std::string want = choice + shape;
+  const System& system = GetSystem(game.system);
+  const std::string choice = Settings::Get(std::string(system.key) + "_bezel", game.key);
+  const float ratio = choice == "off" ? 0.0f : PictureRatio(game.key);
+  const std::string shape = BezelShape(ratio);
+  char fitted_to[24] = "";
+  if (choice == "custom" || choice == "game")
+    std::snprintf(fitted_to, sizeof(fitted_to), "|%.2f", ratio);
+  const std::string want = choice + shape + fitted_to;
   if (want == s_bezel.want)
     return;
   const std::string path = BezelPath(game, shape);
-  if (path == s_bezel.path)
+  if (path == s_bezel.path && !DataBezel(path))
   {
     s_bezel.want = want;
     return;
   }
   FreeBezel(display);
   s_bezel.want = want;
+  // (A bezel of the data folder waits for the game's first picture: its window is fitted to the picture's shape.)
+  if (DataBezel(path) && ratio <= 0.0f)
+    return;
   s_bezel.path = path;
   if (path.empty())
     return;
-  ImageRGBA image;
-  if (!LoadPng(path, &image, Display::WIDTH, Display::HEIGHT))
+  BezelImage bezel;
+  const bool read = ReadBezel(path, ratio, DataBezel(path), &bezel);
+  const bool per_game = choice == "game" && DataBezel(path);
+  if (!per_game || (read && (ratio <= 0.0f || bezel.fit >= BezelProject::MIN_FIT)))
   {
-    LogF("bezel: %s can't be read", path.c_str());
+    if (read)
+      ShowBezel(display, path, bezel);
     return;
   }
-  // The window: see-through from the middle out along the middle row, then along its own middle
-  // column (an old TV's screen is off to one side).
-  const auto clear = [&image](uint32_t x, uint32_t y) {
-    return image.pixels[(static_cast<size_t>(y) * image.width + x) * 4 + 3] < 128;
-  };
-  const uint32_t middle_y = image.height / 2;
-  uint32_t x0 = image.width / 2, x1 = x0;
-  if (!clear(x0, middle_y))
+  // Per Game (00.80): the game's bezel can't be shown, or it is made for another shape of picture (the DS's screens
+  // side by side in a bezel made for them one above the other, a 16:9 picture in a TV made for 4:3): the console's own,
+  // when it shows the picture clearly bigger (a frame of its own for that shape: the DS's, the 3DS's, the frames').
+  const std::string fallback = OwnBezel(system, shape);
+  BezelImage own;
+  const bool own_read = !fallback.empty() && ReadBezel(fallback, ratio, false, &own);
+  if (read && (!own_read || own.fit < bezel.fit + 0.05f))
   {
-    LogF("bezel: %s isn't see-through in the middle", path.c_str());
+    LogF("bezel: %s is made for another shape of picture (this one is %.0f%% of its size in it), but the console's "
+         "own isn't bigger: kept",
+         path.c_str(), bezel.fit * 100.0f);
+    ShowBezel(display, path, bezel);
     return;
   }
-  while (x0 > 0 && clear(x0 - 1, middle_y))
-    x0--;
-  while (x1 + 1 < image.width && clear(x1 + 1, middle_y))
-    x1++;
-  const uint32_t middle_x = (x0 + x1) / 2;
-  uint32_t y0 = middle_y, y1 = middle_y;
-  while (y0 > 0 && clear(middle_x, y0 - 1))
-    y0--;
-  while (y1 + 1 < image.height && clear(middle_x, y1 + 1))
-    y1++;
-  if (x1 - x0 < image.width / 4 || y1 - y0 < image.height / 4)
+  if (read)
   {
-    LogF("bezel: %s's window is too small", path.c_str());
-    return;
+    LogF("bezel: %s is made for another shape of picture (this one would be %.0f%% of its size in it, %.0f%% in the "
+         "console's own): the console's own",
+         path.c_str(), bezel.fit * 100.0f, own.fit * 100.0f);
   }
-  s_bezel.texture = display.CreateTexture(image.pixels.data(), image.width, image.height);
-  if (!s_bezel.texture)
-    return;
-  // The PNG fills the screen (a smaller one is stretched).
-  const float sx = static_cast<float>(Display::WIDTH) / image.width;
-  const float sy = static_cast<float>(Display::HEIGHT) / image.height;
-  s_bezel.min = ImVec2(x0 * sx, y0 * sy);
-  s_bezel.max = ImVec2((x1 + 1) * sx, (y1 + 1) * sy);
-  LogF("bezel: %s, window %.0fx%.0f at %.0f,%.0f", path.c_str(), s_bezel.max.x - s_bezel.min.x,
-       s_bezel.max.y - s_bezel.min.y, s_bezel.min.x, s_bezel.min.y);
+  s_bezel.path = fallback;
+  if (own_read)
+    ShowBezel(display, fallback, own);
 }
 
 void DrawBezel(ImDrawList* dl)
@@ -1987,10 +2389,13 @@ GpuFilter::Mode GpuMode(const std::string& game)
   // Resolution are left out; the NTSC filter's picture goes through it).
   if (CrtLook(game) != 0)
     return GpuFilter::Mode::Crt;
-  if (IsFlycast(s_system))
-    return GpuFilter::Mode::Off;  // (the Dreamcast and its arcade boards play at Low: BuildDcVariables)
-  if (s_system == SystemId::THREEDS)
-    return GpuFilter::Mode::Off;  // (the 3DS's picture is Azahar's own for now: Build3dsVariables)
+  // (The 3DS's picture, drawn by the GPU, takes the GPU Upscaler as the other 3D consoles' since 00.71, below: until
+  // then Azahar's own only.)
+  // A vertical NAOMI or Atomiswave game: its picture is turned as it is drawn (DrawPicture), which of the filters only
+  // Tube TV does (above); the others would draw it on its side. (Flycast's consoles had no GPU filter from 00.53 to
+  // 00.68; since 00.69 the Quality levels' steps, below.)
+  if (IsFlycastBoard(s_system) && (s_rotation & 3) != 0)
+    return GpuFilter::Mode::Off;
   const std::string name = Settings::Get("gpu_filter", game);
   GpuFilter::Mode mode = name == "pixel"      ? GpuFilter::Mode::PixelArt :
                          name == "ai"         ? GpuFilter::Mode::AI :
@@ -2000,46 +2405,44 @@ GpuFilter::Mode GpuMode(const std::string& game)
                          name == "natural"    ? GpuFilter::Mode::NaturalHD :
                          name == "natural_ai" ? GpuFilter::Mode::NaturalAI :
                                                 GpuFilter::Mode::Off;
-  // Smooth Edges, Natural HD and Natural AI (the Quality levels' steps) suit every console and size
-  // as they are: GpuFilter redraws pixel art and only anti-aliases drawn (3D) pictures (the source's
-  // kind, DrawPicture), and leaves out what a picture as big as the screen doesn't need.
+  // Smooth Edges, Natural HD and Natural AI suit every console and size as they are: GpuFilter redraws pixel art and
+  // only anti-aliases drawn (3D) pictures (the source's kind, DrawPicture), and leaves out what a picture as big as the
+  // screen doesn't need.
   const bool steps = mode == GpuFilter::Mode::Edges || mode == GpuFilter::Mode::NaturalHD ||
                      mode == GpuFilter::Mode::NaturalAI;
-  if (s_system == SystemId::NDS && s_frame_w > 768 &&
-      (mode == GpuFilter::Mode::AI || mode == GpuFilter::Mode::PixelArt))
+  if (s_frame_hw)
   {
-    // The DS's Big Top Screen: already made 3x bigger by the core; Smooth HD on it.
-    mode = GpuFilter::Mode::Smooth;
-  }
-  else if (s_frame_hw && s_system == SystemId::PSP)
-  {
-    // The PSP: as the PlayStation, the AI on its HD 3D from 3x (1440 wide), else Smooth HD. At 4x the
-    // picture is the screen's size already: the AIs' 1.5-3 ms of GPU went short where the 4x picture
-    // itself needed it (God of War at Ultra: the drawing waited 6-7 ms a frame for the GPU), so it is
-    // only sharpened (Natural HD's pass for a picture that big).
-    if ((mode == GpuFilter::Mode::AI && s_frame_w < 1440) || mode == GpuFilter::Mode::PixelArt)
-      mode = GpuFilter::Mode::Smooth;
-    if (s_frame_w >= 1900 && (mode == GpuFilter::Mode::AI || mode == GpuFilter::Mode::NaturalAI))
+    // A 3D picture drawn by the GPU (the N64, the PlayStation, the PSP, Flycast's consoles, the 3DS) has no pixel art:
+    // Pixel Art HD and AI - the Quality levels' High and Ultra since 00.69 - are Smooth Edges (anti-aliased at the size
+    // drawn) and Natural HD (sharpened) for it. Anime4K's network works at about 768x576 to 960x720: on an HD picture
+    // it only made it smaller and softer (00.69, PC, the filter harness: Tekken 3 at 4x 6.4 of fine detail with Natural
+    // AI against Natural HD's 14.4, GoldenEye at 2x 2.3 against 4.4), so Natural AI on a picture drawn bigger than that
+    // is Natural HD too (the PSP's at 4x since 00.46). Until 00.68 the PlayStation from 3x and the PSP at 3x took the
+    // AI, the rest Smooth HD.
+    // (The 3DS: the picture the filter gets, its screens placed by the app - DrawScreens: the screens at one size, or
+    // Large Screen + Small's big one.)
+    double pixels = double(s_frame_w) * s_frame_h;
+    Screens screens;
+    if (CurrentScreens(game, &screens))
+    {
+      const double f = std::clamp(s_3ds_scale, 1, 4);
+      const DualScreens::Layout& placed = screens.layout;
+      const DualScreens::Rect& big = placed.shown[std::clamp(placed.big, 0, 1)].at;
+      pixels = (placed.same_scale ? double(placed.width) * placed.height : double(big.w) * big.h) * f * f;
+    }
+    if (mode == GpuFilter::Mode::PixelArt)
+      mode = GpuFilter::Mode::Edges;
+    else if (mode == GpuFilter::Mode::AI || (mode == GpuFilter::Mode::NaturalAI && pixels > 960.0 * 720.0))
       mode = GpuFilter::Mode::NaturalHD;
-  }
-  else if (s_frame_hw && s_system == SystemId::PS1)
-  {
-    // The PlayStation: the AI on its HD 3D from 3x (made a little smaller, supersampled, then the
-    // network). On its 1x and 2x pictures the AI and Pixel Art HD looked painted (real Tekken 3 and
-    // Gran Turismo 2 frames): Smooth HD there.
-    if ((mode == GpuFilter::Mode::AI && Settings::GetInt("ps1_resolution", game) < 3) ||
-        mode == GpuFilter::Mode::PixelArt)
-      mode = GpuFilter::Mode::Smooth;
-  }
-  else if (s_frame_hw)
-  {
-    // The N64's 3D has no pixel art to redraw: Smooth HD, which at 4x (as wide as the screen
-    // already) only sharpens.
-    if (mode == GpuFilter::Mode::PixelArt || mode == GpuFilter::Mode::AI)
-      mode = GpuFilter::Mode::Smooth;
-    if (mode == GpuFilter::Mode::Smooth && s_frame_w >= 2560)
+    // Smooth HD (AMD FSR) makes a picture bigger: on one as big as the screen's already (the N64 at 4x, Flycast at 3x,
+    // the 3DS from 3x) it only sharpens.
+    if (mode == GpuFilter::Mode::Smooth &&
+        ((s_system == SystemId::N64 && s_frame_w >= 2560) || (IsFlycast(s_system) && s_frame_h > 960) ||
+         (s_system == SystemId::THREEDS && s_3ds_scale >= 3)))
       mode = GpuFilter::Mode::Sharpen;
   }
+  // (The DS's big screen made 3x bigger by the core - Smooth HD on it - is gone since 00.80: its picture is always the
+  // two screens at their own size, DualScreens.)
   else if ((mode == GpuFilter::Mode::PixelArt || mode == GpuFilter::Mode::AI || steps) && NtscFilterOn(game))
   {
     mode = GpuFilter::Mode::Off;  // the NTSC filter's picture is a TV's look of its own
@@ -2058,7 +2461,7 @@ bool GpuRedraws(GpuFilter::Mode mode)
 Picture PlacePicture(const std::string& game, bool framed)
 {
   Picture picture;
-  // The screen, or the bezel's window (framed: as it is drawn; else as if there were none, BezelShape).
+  // The screen, or the bezel's window (framed: as it is drawn; else as if there were none, PictureRatio).
   ImVec2 area(0.0f, 0.0f);
   float W = static_cast<float>(Display::WIDTH), H = static_cast<float>(Display::HEIGHT);
   if (s_bezel.texture && framed)
@@ -2069,21 +2472,25 @@ Picture PlacePicture(const std::string& game, bool framed)
   }
   // The picture in the console's units: 256 wide (512 hi-res, 602 with the NTSC filter), 224 or
   // 239 lines (448 / 478 interlaced).
-  // (The DS's Big Screen: the core's 512x192 placed as 1024x576; One Screen: its left half, 256x192.)
-  const bool nds_big = NdsBig(), nds_single = NdsSingle();
-  const float frame_w = nds_big ? 1024.0f : nds_single ? 256.0f : static_cast<float>(s_frame_w);
-  float frame_h = nds_big ? 576.0f : static_cast<float>(s_frame_h);
-  if (s_system == SystemId::PS1)
+  // (The DS and the 3DS: their two screens as the app places them, in the console's pixels - DualScreens: One Above the
+  // Other 256x384 or 400x480, Side by Side 512x192 or 720x240, with the gap; Large Screen + Small the big screen's
+  // pixels, the small one beside it; one screen 256x192, 400x240 or 320x240.)
+  Screens screens;
+  const bool two = CurrentScreens(game, &screens);
+  const float frame_w = two ? screens.layout.width : static_cast<float>(s_frame_w);
+  float frame_h = two ? screens.layout.height : static_cast<float>(s_frame_h);
+  if (two)
+  {
+    // (in the console's pixels already)
+  }
+  else if (s_system == SystemId::PS1)
     frame_h /= static_cast<float>(std::clamp(Settings::GetInt("ps1_resolution", game), 1, 4));  // SwanStation's scale
   else if (s_system == SystemId::PSP)
     frame_h /= std::max(1.0f, std::round(static_cast<float>(s_frame_w) / 480.0f));  // PPSSPP's (480x270 at 1x)
   else if (IsFlycast(s_system))
     frame_h /= std::max(1.0f, std::floor(frame_h / 480.0f));  // Flycast's internal resolution (480 lines at 1x)
   else if (s_system == SystemId::THREEDS)
-  {
-    // Azahar's picture: the 3DS's own size (s_3ds_scale, 1x), but 4x for the big top screen (its buffer).
-    frame_h /= Settings::Get("3ds_layout", game) == "large" ? 4.0f : static_cast<float>(std::clamp(s_3ds_scale, 1, 3));
-  }
+    frame_h /= static_cast<float>(std::clamp(s_3ds_scale, 1, 4));  // (Azahar's picture: 3DS Resolution's size)
   else if (s_frame_hw && s_frame_w >= 1280)
     frame_h /= static_cast<float>(s_frame_w / 640);  // ParaLLEl-RDP's upscaled scanout
   // A NAOMI's or Atomiswave's vertical game: the core's picture turned as it is drawn (DrawPicture), so its width
@@ -2101,8 +2508,9 @@ Picture PlacePicture(const std::string& game, bool framed)
   // Perfect: its dots are square. The Super Game Boy's 256x224 picture was a TV's. The Game Gear's
   // LCD has the grid between its dots too, its shape 4:3 at Auto (Genesis Plus GX's 6:5 pixels).
   const bool screen = (IsHandheld(s_system) && s_frame_w != 256) || s_system == SystemId::NDS;
-  if ((screen || (HasLcd(s_system) && s_frame_w != 256)) && !nds_big)
-    picture.columns = nds_single ? 256.0f : static_cast<float>(s_frame_w);
+  // (The DS's grid is drawn on each screen, DrawScreens: the whole picture's for the screens at one size.)
+  if ((screen || (HasLcd(s_system) && s_frame_w != 256)) && (!two || screens.layout.same_scale))
+    picture.columns = frame_w;
   if (screen && (aspect == "auto" || aspect == "pixel"))
     ratio = frame_w / std::max(1.0f, frame_h);
   else if (s_system == SystemId::PS1 && Settings::Get("ps1_widescreen", game) == "on" && aspect != "stretch")
@@ -2110,15 +2518,17 @@ Picture PlacePicture(const std::string& game, bool framed)
   else if (s_system == SystemId::PSP && (aspect == "auto" || aspect == "pixel"))
     ratio = static_cast<float>(s_frame_w) / std::max(1.0f, static_cast<float>(s_frame_h));  // its 16:9 screen
   else if (s_system == SystemId::THREEDS && (aspect == "auto" || aspect == "pixel"))
-    ratio = static_cast<float>(s_frame_w) / std::max(1.0f, static_cast<float>(s_frame_h));  // its screens' pixels are square
+    ratio = two ? frame_w / std::max(1.0f, frame_h) :  // its screens' pixels are square
+                  static_cast<float>(s_frame_w) / std::max(1.0f, static_cast<float>(s_frame_h));
   else if (s_system == SystemId::ARCADE && aspect == "auto" && s_core_aspect > 0.0f)
     ratio = s_core_aspect;  // the board's own shape (a vertical game's 3:4), as FinalBurn Neo reports it
   else if (s_system == SystemId::ARCADE && (aspect == "auto" || aspect == "pixel"))
     ratio = frame_w / std::max(1.0f, frame_h);  // its pixels square (the picture is turned already)
   else if (turned && (aspect == "auto" || aspect == "pixel"))
     ratio = 3.0f / 4.0f;  // a vertical NAOMI or Atomiswave game: its monitor's 4:3 standing upright
-  else if (aspect == "pixel" && IsGpgx(s_system))
-    ratio = frame_w / std::max(1.0f, lines);  // the Mega Drive's 320 or 256 pixels, the Game Gear's 160
+  else if (aspect == "pixel" && (IsGpgx(s_system) || s_system == SystemId::PCE))
+    ratio = frame_w / std::max(1.0f, lines);  // the Mega Drive's 320 or 256 pixels, the GG's 160; the PC Engine's 256 to
+                                              // 352 (00.82)
   else if (aspect == "pixel" && s_system != SystemId::N64 && s_system != SystemId::PS1 && s_system != SystemId::PSP &&
            !IsFlycast(s_system))
     ratio = 256.0f / std::max(1.0f, lines);  // (the N64's, the PlayStation's and Flycast's pictures are 4:3 already)
@@ -2154,17 +2564,18 @@ Picture PlacePicture(const std::string& game, bool framed)
   return picture;
 }
 
-// The 3DS's stylus on the touch screen, drawn over the picture while the finger is on the touchpad or the tap
-// button is down, and a moment after (the core's own cursor is off: Build3dsVariables). s_3ds_at is where it
-// is in the core's picture, in its pixels.
-void Draw3dsStylus(ImDrawList* dl, const Picture& picture)
+// The 3DS's stylus on the touch screen, drawn where the touch screen is shown (`touch`, on the TV: DrawScreens) while
+// the finger is on the touchpad or the tap button is down, and a moment after (the core's own cursor is off:
+// Build3dsVariables). s_3ds_at is where it is in the core's picture, in its pixels; `from` is the touch screen's place
+// there.
+void Draw3dsStylus(ImDrawList* dl, const DualScreens::Rect& touch, const DualScreens::Rect& from)
 {
-  if (s_3ds_cursor <= 0 || s_frame_w == 0 || s_frame_h == 0)
+  if (s_3ds_cursor <= 0 || from.w <= 0.0f || from.h <= 0.0f)
     return;
   s_3ds_cursor--;
-  const float x = picture.min.x + s_3ds_at[0] / static_cast<float>(s_frame_w) * (picture.max.x - picture.min.x);
-  const float y = picture.min.y + s_3ds_at[1] / static_cast<float>(s_frame_h) * (picture.max.y - picture.min.y);
-  const float arm = (picture.max.x - picture.min.x) * 0.012f + 6.0f;
+  const float x = touch.x + (s_3ds_at[0] - from.x) / from.w * touch.w;
+  const float y = touch.y + (s_3ds_at[1] - from.y) / from.h * touch.h;
+  const float arm = touch.w * 0.0165f + 6.0f;  // (as big as on 00.79's One Above the Other, for its touch screen)
   const ImU32 dark = IM_COL32(0, 0, 0, 220), light = IM_COL32(255, 255, 255, 240);
   dl->AddLine(ImVec2(x - arm, y), ImVec2(x + arm, y), dark, 5.0f);
   dl->AddLine(ImVec2(x, y - arm), ImVec2(x, y + arm), dark, 5.0f);
@@ -2174,90 +2585,156 @@ void Draw3dsStylus(ImDrawList* dl, const Picture& picture)
     dl->AddCircle(ImVec2(x, y), arm * 0.7f, light, 16, 2.0f);
 }
 
-// Tube TV's look and screens for the picture DrawPicture hands GpuFilter (the whole picture, or the DS's One Screen's
-// half): the DS's and the 3DS's two screens each a tube of its own (their places in the picture drawn and in the
-// source, as NdsTouchScreen and ThreedsLayout lay them out), any other picture one, with the console's lines.
+// Tube TV's look and screen for the picture DrawPicture hands GpuFilter: one tube, with the console's lines (the DS's
+// and the 3DS's two screens are a tube each: DrawScreens).
 void CrtScreens(GpuFilter::Source* source, const Picture& picture, const std::string& game)
 {
   source->crt = std::max(1, CrtLook(game));
   source->screen_count = 1;
   source->screens[0] = GpuFilter::Source::Screen{};
   source->screens[0].lines = picture.rows;
-  const auto set = [source](int i, std::array<float, 4> place, std::array<float, 4> from, float lines) {
-    GpuFilter::Source::Screen& screen = source->screens[i];
-    std::copy(place.begin(), place.end(), screen.place);
-    std::copy(from.begin(), from.end(), screen.from);
-    screen.lines = lines;
-  };
-  if (s_system == SystemId::NDS)
+  // A vertical NAOMI or Atomiswave game: its image turned as DrawPicture turns it (a turned monitor's lines).
+  source->rotation = IsFlycastBoard(s_system) ? static_cast<int>(s_rotation & 3) : 0;
+}
+
+// The DS's and the 3DS's two screens drawn where the screens' settings place them (00.80, src/DualScreens.h), from the
+// core's picture of both side by side: the DS's in the game texture's corner (s_texture_w x s_texture_h: the CPU's
+// Resolution can have made it bigger), the 3DS's the core's own image. With the GPU's filters, screens at one size
+// (One Above the Other, Side by Side, one screen) are one picture for them - the parts copied to their places, the gap
+// black (GpuFilter.h Source::parts) -, so each filter works as on any other console's picture; Large Screen + Small: the
+// big screen through the filter, the small one drawn plain and smooth (as the DS's Big Screen since 00.40). Tube TV:
+// each screen a tube of its own. Without a filter: each screen from the image. Scanlines on each screen, with its own
+// lines (the DS's handheld grid); the 3DS's stylus on its touch screen wherever it is shown.
+struct ScreensSource
+{
+  VkImageView view = VK_NULL_HANDLE;  // for the filters
+  VkImageLayout layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+  bool exact = false;                 // the image is the picture (the 3DS's), else it is in its top-left corner
+  GpuFilter::Source::Kind kind = GpuFilter::Source::Kind::PixelArt;
+  uint32_t width = 0, height = 0;     // the core's picture in the image, in the image's pixels
+  float scale = 1.0f;                 // the image's pixels per pixel of the core's picture (the CPU's Resolution)
+  float console = 1.0f;               // the core's picture's pixels per pixel of the console's screens (3DS Resolution)
+  float uv_w = 1.0f, uv_h = 1.0f;     // the image's size (ImGui's texture coordinates)
+  std::function<ImTextureID(bool)> texture;  // the image for ImGui, with linear filtering (true) or nearest
+  bool upscaled = false;              // the picture made bigger than the console's own: always drawn smooth
+};
+
+void DrawScreens(ImDrawList* dl, const ScreensSource& src, const Screens& screens, const Picture& picture,
+                 const std::string& game, GpuFilter::Mode gpu)
+{
+  const DualScreens::Layout& layout = screens.layout;
+  const int count = std::clamp(layout.count, 1, 2);
+  const bool threeds = s_system == SystemId::THREEDS;
+  const float lines = threeds ? 240.0f : 192.0f;
+  // Each screen shown: its place on the TV, and where it is in the image (its pixels).
+  DualScreens::Rect tv[2], from[2];
+  for (int i = 0; i < count; i++)
   {
-    if (NdsSingle())
-    {
-      source->screens[0].lines = 192.0f;
-    }
-    else if (NdsBig())
-    {
-      // (Its source is the side-by-side picture: the left half 3x, the right 1x at the right, in the middle.)
-      set(0, {0.0f, 0.0f, 0.75f, 1.0f}, {0.0f, 0.0f, 0.5f, 1.0f}, 192.0f);
-      set(1, {0.75f, 1.0f / 3.0f, 0.25f, 1.0f / 3.0f}, {0.5f, 0.0f, 0.5f, 1.0f}, 192.0f);
-      source->screen_count = 2;
-    }
-    else if (s_frame_w == 512 && s_frame_h == 192)
-    {
-      set(0, {0.0f, 0.0f, 0.5f, 1.0f}, {0.0f, 0.0f, 0.5f, 1.0f}, 192.0f);
-      set(1, {0.5f, 0.0f, 0.5f, 1.0f}, {0.5f, 0.0f, 0.5f, 1.0f}, 192.0f);
-      source->screen_count = 2;
-    }
-    else if (s_frame_w == 256 && s_frame_h >= 384)
-    {
-      // One above the other (a gap between them, if the core leaves one).
-      const float h = 192.0f / static_cast<float>(s_frame_h);
-      set(0, {0.0f, 0.0f, 1.0f, h}, {0.0f, 0.0f, 1.0f, h}, 192.0f);
-      set(1, {0.0f, 1.0f - h, 1.0f, h}, {0.0f, 1.0f - h, 1.0f, h}, 192.0f);
-      source->screen_count = 2;
-    }
-    else if ((s_frame_w == 1024 && s_frame_h == 576) || (s_frame_w == 768 && s_frame_h == 384))
-    {
-      // The core's own big top screen (3x or 2x), the touch screen 1x at its right.
-      const std::array<float, 4> touch = NdsTouchScreen(s_frame_w, s_frame_h);
-      const float w = static_cast<float>(s_frame_w), h = static_cast<float>(s_frame_h);
-      const std::array<float, 4> a = {0.0f, 0.0f, touch[0] / w, 1.0f};
-      const std::array<float, 4> b = {touch[0] / w, touch[1] / h, touch[2] / w, touch[3] / h};
-      set(0, a, a, 192.0f);
-      set(1, b, b, 192.0f);
-      source->screen_count = 2;
-    }
+    tv[i] = DualScreens::OnScreen(layout.shown[i].at, layout, picture.min.x, picture.min.y, picture.max.x,
+                                  picture.max.y);
+    const DualScreens::Rect& r = screens.source[layout.shown[i].screen];
+    from[i] = {r.x * src.scale, r.y * src.scale, r.w * src.scale, r.h * src.scale};
   }
-  else if (s_system == SystemId::THREEDS)
+  auto base = [&src]() {
+    GpuFilter::Source source;
+    source.view = src.view;
+    source.layout = src.layout;
+    source.exact = src.exact;
+    source.kind = src.kind;
+    source.width = src.width;
+    source.height = src.height;
+    return source;
+  };
+  auto rounded = [](float v) { return static_cast<uint32_t>(std::lround(std::max(0.0f, v))); };
+  bool filtered[2] = {false, false};
+  if (gpu == GpuFilter::Mode::Crt)
   {
-    // Azahar's picture is the whole layout: the top screen where the touch screen isn't.
-    const std::string layout = Settings::Get("3ds_layout", game);
-    const bool swapped = ThreedsSwapped(layout);
-    const ThreedsPicture where = ThreedsLayout(layout, swapped, s_3ds_scale);
-    const float f = static_cast<float>(std::clamp(s_3ds_scale, 1, 3));
-    std::array<float, 4> top{};
-    if (layout == "side")
-      top = {swapped ? 320.0f * f : 0.0f, 0.0f, 400.0f * f, 240.0f * f};
-    else if (layout == "stack")
-      top = {0.0f, swapped ? 240.0f * f : 0.0f, 400.0f * f, 240.0f * f};
-    else if (layout == "large")
-      top = swapped ? std::array<float, 4>{1280.0f, 720.0f, 400.0f, 240.0f} : std::array<float, 4>{0.0f, 0.0f, 1600.0f, 960.0f};
-    if (top[2] > 0.0f && where.w == s_frame_w && where.h == s_frame_h)
+    // Both screens in one pass over the whole picture, each a tube of its own: its place in the picture drawn, its
+    // place in the source (the core's whole picture), its own lines.
+    GpuFilter::Source source = base();
+    source.crt = std::max(1, CrtLook(game));
+    source.screen_count = count;
+    const float sw = static_cast<float>(std::max(1u, src.width)), sh = static_cast<float>(std::max(1u, src.height));
+    for (int i = 0; i < count; i++)
     {
-      const float w = static_cast<float>(where.w), h = static_cast<float>(where.h);
-      const std::array<float, 4> a = {top[0] / w, top[1] / h, top[2] / w, top[3] / h};
-      const std::array<float, 4> b = {where.touch[0] / w, where.touch[1] / h, where.touch[2] / w, where.touch[3] / h};
-      set(0, a, a, 240.0f);
-      set(1, b, b, 240.0f);
-      source->screen_count = 2;
+      const DualScreens::Rect& at = layout.shown[i].at;
+      GpuFilter::Source::Screen& screen = source.screens[i];
+      const float place[4] = {at.x / layout.width, at.y / layout.height, at.w / layout.width, at.h / layout.height};
+      const float origin[4] = {from[i].x / sw, from[i].y / sh, from[i].w / sw, from[i].h / sh};
+      std::copy(std::begin(place), std::end(place), screen.place);
+      std::copy(std::begin(origin), std::end(origin), screen.from);
+      screen.lines = lines;
+    }
+    filtered[0] = filtered[1] = GpuFilter::Draw(dl, gpu, source, picture.min, picture.max);
+  }
+  else if (gpu != GpuFilter::Mode::Off && (!s_texture_scaled || threeds || !GpuRedraws(gpu)))
+  {
+    GpuFilter::Source source = base();
+    if (layout.same_scale)
+    {
+      // One picture of the screens at their places, the gap black: the image's pixels per console pixel.
+      const float px = src.scale * src.console;
+      source.width = rounded(layout.width * px);
+      source.height = rounded(layout.height * px);
+      source.part_count = count;
+      for (int i = 0; i < count; i++)
+      {
+        const DualScreens::Rect& at = layout.shown[i].at;
+        source.parts[i] = {rounded(from[i].x), rounded(from[i].y), rounded(from[i].w), rounded(from[i].h),
+                           rounded(at.x * px), rounded(at.y * px)};
+      }
+      filtered[0] = filtered[1] = GpuFilter::Draw(dl, gpu, source, picture.min, picture.max);
     }
     else
     {
-      source->screens[0].lines = 240.0f;
+      // The big screen alone through the filter.
+      const int big = std::clamp(layout.big, 0, count - 1);
+      source.width = rounded(from[big].w);
+      source.height = rounded(from[big].h);
+      source.part_count = 1;
+      source.parts[0] = {rounded(from[big].x), rounded(from[big].y), source.width, source.height, 0, 0};
+      filtered[big] = GpuFilter::Draw(dl, gpu, source, ImVec2(tv[big].x, tv[big].y),
+                                      ImVec2(tv[big].x + tv[big].w, tv[big].y + tv[big].h));
     }
   }
-  // A vertical NAOMI or Atomiswave game: its image turned as DrawPicture turns it (a turned monitor's lines).
-  source->rotation = IsFlycastBoard(s_system) ? static_cast<int>(s_rotation & 3) : 0;
+  // What no filter drew: each screen from the image, half a texel inside when smooth (the other screen is beside it
+  // in the image); the small screen of Large Screen + Small always smooth.
+  const bool smooth_all = src.upscaled || Settings::Get("filter", game) == "smooth";
+  for (int i = 0; i < count; i++)
+  {
+    if (filtered[i])
+      continue;
+    const bool smooth = smooth_all || (!layout.same_scale && i != layout.big);
+    const float inset = smooth ? 0.5f : 0.0f;
+    const ImVec2 uv0((from[i].x + inset) / src.uv_w, (from[i].y + inset) / src.uv_h);
+    const ImVec2 uv1((from[i].x + from[i].w - inset) / src.uv_w, (from[i].y + from[i].h - inset) / src.uv_h);
+    dl->AddImage(ImTextureRef(src.texture(smooth)), ImVec2(tv[i].x, tv[i].y),
+                 ImVec2(tv[i].x + tv[i].w, tv[i].y + tv[i].h), uv0, uv1);
+  }
+  // Scanlines, each screen with its own (Tube TV draws its own: DrawScanlines leaves them out).
+  for (int i = 0; i < count; i++)
+  {
+    Picture each;
+    each.min = ImVec2(tv[i].x, tv[i].y);
+    each.max = ImVec2(tv[i].x + tv[i].w, tv[i].y + tv[i].h);
+    each.rows = lines;
+    each.columns = threeds ? 0.0f : 256.0f;  // (the DS: the handheld's grid, as on the Game Boys)
+    DrawScanlines(dl, each, game);
+  }
+  if (threeds)
+  {
+    bool shown = false;
+    for (int i = 0; i < count; i++)
+    {
+      if (layout.shown[i].screen == 1)
+      {
+        Draw3dsStylus(dl, tv[i], screens.source[1]);
+        shown = true;
+      }
+    }
+    if (!shown)
+      s_3ds_cursor = 0;  // (the touch screen isn't shown)
+  }
 }
 
 void DrawPicture(ImDrawList* dl, Display& display, const std::string& game)
@@ -2279,6 +2756,26 @@ void DrawPicture(ImDrawList* dl, Display& display, const std::string& game)
       if (opaque != VK_NULL_HANDLE)
         view = opaque;
     }
+    // The 3DS's two screens: placed by the app (00.80), from Azahar's image of both side by side.
+    Screens screens;
+    if (CurrentScreens(game, &screens))
+    {
+      ScreensSource src;
+      src.view = view;
+      src.layout = s_hw_image.image_layout;
+      src.exact = true;
+      src.kind = GpuFilter::Source::Kind::Drawn;  // the cores' 3D
+      src.width = s_frame_w;
+      src.height = s_frame_h;
+      src.console = static_cast<float>(std::clamp(s_3ds_scale, 1, 4));
+      src.uv_w = static_cast<float>(s_frame_w);
+      src.uv_h = static_cast<float>(s_frame_h);
+      src.upscaled = s_3ds_scale > 1;  // (above Native always smooth, as Texture Filtering promises)
+      const VkImageLayout layout = s_hw_image.image_layout;
+      src.texture = [&display, view, layout](bool smooth) { return display.ExternalTexture(view, layout, smooth); };
+      DrawScreens(dl, src, screens, picture, game, gpu);
+      return;
+    }
     if (gpu != GpuFilter::Mode::Off)
     {
       GpuFilter::Source source;
@@ -2292,8 +2789,6 @@ void DrawPicture(ImDrawList* dl, Display& display, const std::string& game)
       if (GpuFilter::Draw(dl, gpu, source, picture.min, picture.max))
       {
         DrawScanlines(dl, picture, game);
-        if (s_system == SystemId::THREEDS)
-          Draw3dsStylus(dl, picture);
         return;
       }
     }
@@ -2320,8 +2815,6 @@ void DrawPicture(ImDrawList* dl, Display& display, const std::string& game)
       dl->AddImage(ImTextureRef(image), picture.min, picture.max);
     }
     DrawScanlines(dl, picture, game);
-    if (s_system == SystemId::THREEDS)
-      Draw3dsStylus(dl, picture);
     return;
   }
   if (s_texture_w == 0 || s_texture_h == 0)
@@ -2330,78 +2823,21 @@ void DrawPicture(ImDrawList* dl, Display& display, const std::string& game)
   // The GPU's filters: from the console's own picture (a picture the CPU made bigger only for HD
   // Sharpen; it is one frame old when the filter was just chosen).
   const GpuFilter::Mode gpu = GpuMode(game);
-  if (NdsSingle())
+  // The DS's two screens: placed by the app (00.80), from melonDS DS's picture of both side by side in the game
+  // texture (One Screen and Big Screen were drawn this way since 00.55 and 00.40; the others were the core's).
+  Screens screens;
+  if (CurrentScreens(game, &screens))
   {
-    // The DS's One Screen: the side-by-side picture's left half (the top screen, or the touch screen
-    // swapped in by R3) over the whole picture, through the GPU's filters.
-    const float half = static_cast<float>(s_texture_w) * 0.5f;
-    bool drawn = false;
-    if (gpu != GpuFilter::Mode::Off && (!s_texture_scaled || !GpuRedraws(gpu)))
-    {
-      GpuFilter::Source source;
-      source.view = display.GameView();
-      source.width = s_texture_w / 2;
-      source.height = s_texture_h;
-      source.exact = false;
-      source.kind = GpuFilter::Source::Kind::PixelArt;
-      if (gpu == GpuFilter::Mode::Crt)
-        CrtScreens(&source, picture, game);
-      drawn = GpuFilter::Draw(dl, gpu, source, picture.min, picture.max);
-    }
-    if (!drawn)
-    {
-      const bool smooth = s_texture_scaled || Settings::Get("filter", game) == "smooth";
-      const float inset = smooth ? 0.5f : 0.0f;
-      const float tw = Display::GAME_TEXTURE_W, th = Display::GAME_TEXTURE_H;
-      dl->AddImage(ImTextureRef(display.GameTexture(smooth)), picture.min, picture.max,
-                   ImVec2(inset / tw, inset / th), ImVec2((half - inset) / tw, (s_texture_h - inset) / th));
-    }
-    DrawScanlines(dl, picture, game);
-    return;
-  }
-  if (NdsBig() && gpu == GpuFilter::Mode::Crt && !s_texture_scaled)
-  {
-    // Tube TV on the DS's Big Screen: both screens from the side-by-side picture in one pass, each a tube of its own.
-    GpuFilter::Source source;
-    source.view = display.GameView();
-    source.width = s_texture_w;
-    source.height = s_texture_h;
-    source.exact = false;
-    CrtScreens(&source, picture, game);
-    if (GpuFilter::Draw(dl, gpu, source, picture.min, picture.max))
-      return;
-  }
-  if (NdsBig())
-  {
-    // The DS's Big Screen, from the side-by-side picture: its left half (the top screen, or the touch
-    // screen swapped in by R3) 3x over three quarters of a 16:9 picture (through the GPU's filters: it
-    // is in the texture's top-left corner), the other screen 1x at the right, in the middle.
-    const float s = (picture.max.x - picture.min.x) / 1024.0f;
-    const ImVec2 top0 = picture.min, top1(picture.min.x + 768.0f * s, picture.min.y + 576.0f * s);
-    const ImVec2 touch0(picture.min.x + 768.0f * s, picture.min.y + 192.0f * s);
-    const ImVec2 touch1(picture.min.x + 1024.0f * s, picture.min.y + 384.0f * s);
-    const float half = static_cast<float>(s_texture_w) * 0.5f;
-    bool drawn = false;
-    if (gpu != GpuFilter::Mode::Off && gpu != GpuFilter::Mode::Crt && (!s_texture_scaled || !GpuRedraws(gpu)))
-    {
-      GpuFilter::Source source;
-      source.view = display.GameView();
-      source.width = s_texture_w / 2;
-      source.height = s_texture_h;
-      source.exact = false;
-      source.kind = GpuFilter::Source::Kind::PixelArt;
-      drawn = GpuFilter::Draw(dl, gpu, source, top0, top1);
-    }
-    const bool smooth = s_texture_scaled || Settings::Get("filter", game) == "smooth";
-    const float inset = smooth ? 0.5f : 0.0f;
-    const float tw = Display::GAME_TEXTURE_W, th = Display::GAME_TEXTURE_H;
-    if (!drawn)
-    {
-      dl->AddImage(ImTextureRef(display.GameTexture(smooth)), top0, top1, ImVec2(inset / tw, inset / th),
-                   ImVec2((half - inset) / tw, (s_texture_h - inset) / th));
-    }
-    dl->AddImage(ImTextureRef(display.GameTexture(true)), touch0, touch1, ImVec2((half + 0.5f) / tw, 0.5f / th),
-                 ImVec2((s_texture_w - 0.5f) / tw, (s_texture_h - 0.5f) / th));
+    ScreensSource src;
+    src.view = display.GameView();
+    src.width = s_texture_w;
+    src.height = s_texture_h;
+    src.scale = static_cast<float>(s_texture_w) / static_cast<float>(std::max(1u, s_frame_w));
+    src.uv_w = static_cast<float>(Display::GAME_TEXTURE_W);
+    src.uv_h = static_cast<float>(Display::GAME_TEXTURE_H);
+    src.upscaled = s_texture_scaled;  // (a picture made bigger is always drawn smooth)
+    src.texture = [&display](bool smooth) { return display.GameTexture(smooth); };
+    DrawScreens(dl, src, screens, picture, game, gpu);
     return;
   }
   if (gpu != GpuFilter::Mode::Off && (!s_texture_scaled || !GpuRedraws(gpu)))
@@ -2411,10 +2847,7 @@ void DrawPicture(ImDrawList* dl, Display& display, const std::string& game)
     source.width = s_texture_w;
     source.height = s_texture_h;
     source.exact = false;
-    // Pixel art, but for the DS's Big Top Screen: made 3x bigger by the core already (its 3D drawn
-    // bigger), anti-aliased only.
-    source.kind = s_system == SystemId::NDS && s_frame_w > 768 ? GpuFilter::Source::Kind::Drawn :
-                                                                  GpuFilter::Source::Kind::PixelArt;
+    source.kind = GpuFilter::Source::Kind::PixelArt;
     if (gpu == GpuFilter::Mode::Crt)
       CrtScreens(&source, picture, game);
     if (GpuFilter::Draw(dl, gpu, source, picture.min, picture.max))
@@ -2440,9 +2873,11 @@ void UploadPicture(Display& display, const std::string& game)
   int factor = std::atoi(Settings::Get("resolution", game).c_str());
   // Hi-res and interlaced pictures are twice as big already (a Mega Drive's 320 pixels aren't hi-res:
   // only its interlaced lines are; an arcade board's picture is whatever size the board draws).
-  const bool doubled = s_system == SystemId::ARCADE ? false :
-                       IsGpgx(s_system)             ? s_frame_h > 300 :
-                                                      s_frame_w > 300 || s_frame_h > 300;
+  // (The PC Engine's pictures are 256 to 352 pixels wide, its hi-res mode 512: 00.82.)
+  const bool doubled = s_system == SystemId::ARCADE                         ? false :
+                       IsGpgx(s_system)                                  ? s_frame_h > 300 :
+                       s_system == SystemId::PCE                         ? s_frame_w > 400 :
+                                                                           s_frame_w > 300 || s_frame_h > 300;
   if (doubled && s_system != SystemId::NDS)
     factor /= 2;
   if (NtscFilterOn(game))
@@ -2502,8 +2937,124 @@ void LoadMemory(unsigned id, const std::string& path, std::vector<uint8_t>* save
   saved->assign(data, data + size);
 }
 
+// The battery save written beside the emulation (00.72). SaveMemory wrote the file - through a temporary file, with
+// an fsync - on the emulation thread, 3 s after each change the game made: an N64 game's 296960 bytes (its EEPROM, the
+// four Controller Paks, SRAM and FlashRAM) at every save it makes, the game's time spent waiting for the PS4's storage
+// (00.28's log: the pipeline cache's 2-4 MB took 14-24 ms, now and then seconds). During play the data is copied
+// there (a quarter of a millisecond) and this thread writes it; a newer copy of a file replaces one not written yet.
+// The game's end (and a forced save) waits until everything is written, then writes the last copy itself.
+class SaveWriter
+{
+public:
+  ~SaveWriter() { Stop(); }
+  // False when there is no thread to write it (it couldn't be started): the caller writes it then.
+  bool Post(const std::string& path, std::vector<uint8_t> data, const char* what)
+  {
+    std::lock_guard lock(m_mutex);
+    if (!m_started && !m_failed_start)
+    {
+      pthread_attr_t attr;
+      pthread_attr_init(&attr);
+      pthread_attr_setstacksize(&attr, 256 * 1024);  // (the start watchdog's size: libthr keeps one for the next)
+      m_started = pthread_create(&m_thread, &attr, &SaveWriter::Main, this) == 0;
+      pthread_attr_destroy(&attr);
+      m_failed_start = !m_started;
+      if (m_failed_start)
+        LogF("save: no thread to write the saves beside the game: written on the emulation thread");
+    }
+    if (!m_started)
+      return false;
+    for (Job& job : m_jobs)
+    {
+      if (job.path == path)
+      {
+        job.data = std::move(data);  // not written yet: the newer copy instead
+        job.posted = std::chrono::steady_clock::now();
+        return true;
+      }
+    }
+    m_jobs.push_back({path, std::move(data), what, std::chrono::steady_clock::now()});
+    m_wake.notify_all();
+    return true;
+  }
+  // Until everything posted is written.
+  void Flush()
+  {
+    std::unique_lock lock(m_mutex);
+    m_done.wait(lock, [this] { return m_jobs.empty() && !m_writing; });
+  }
+  void Stop()
+  {
+    {
+      std::lock_guard lock(m_mutex);
+      if (!m_started)
+        return;
+      m_quit = true;
+    }
+    m_wake.notify_all();
+    pthread_join(m_thread, nullptr);
+    m_started = false;
+    m_quit = false;
+  }
+
+private:
+  struct Job
+  {
+    std::string path;
+    std::vector<uint8_t> data;
+    const char* what;
+    std::chrono::steady_clock::time_point posted;
+  };
+  static void* Main(void* self)
+  {
+    // Off the emulation's core 2 and the N64's RDP command thread's core 3, at the PS4's usual priority: it mostly
+    // waits for the storage.
+    emusuni_set_affinity(scePthreadSelf(), (1ull << 0) | (1ull << 1) | (1ull << 4) | (1ull << 5));
+    scePthreadSetprio(scePthreadSelf(), 700);
+    static_cast<SaveWriter*>(self)->Loop();
+    return nullptr;
+  }
+  void Loop()
+  {
+    std::unique_lock lock(m_mutex);
+    for (;;)
+    {
+      m_wake.wait(lock, [this] { return m_quit || !m_jobs.empty(); });
+      if (m_jobs.empty())
+        break;  // stopped, and everything written
+      Job job = std::move(m_jobs.front());
+      m_jobs.pop_front();
+      m_writing = true;
+      lock.unlock();
+      const auto start = std::chrono::steady_clock::now();
+      const bool written = WriteDataFile(job.path, job.data.data(), job.data.size());
+      const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+      const double waited =
+          std::chrono::duration<double, std::milli>(start - job.posted).count();
+      if (written)
+        LogF("save: %s written beside the game (%zu bytes, %.0f ms; it waited %.0f ms)", job.what, job.data.size(), ms,
+             waited);
+      else
+        LogF("save: %s couldn't be written (%zu bytes, %.0f ms): written again at the game's end", job.what,
+             job.data.size(), ms);
+      lock.lock();
+      m_writing = false;
+      m_done.notify_all();
+    }
+    m_writing = false;
+    m_done.notify_all();
+  }
+  std::mutex m_mutex;
+  std::condition_variable m_wake, m_done;
+  std::deque<Job> m_jobs;
+  pthread_t m_thread{};
+  bool m_started = false, m_failed_start = false, m_quit = false, m_writing = false;
+};
+SaveWriter* s_save_writer = nullptr;  // while a game runs (Run)
+
 // Writes it when the game changed it (or always, with force). A save the game never touched
-// (all 0xFF: a Game Boy Advance game's 128 KiB before it first saves) isn't written.
+// (all 0xFF: a Game Boy Advance game's 128 KiB before it first saves) isn't written. During play (not forced) by
+// s_save_writer's thread; forced (the game's end, a state) here, after what is waiting there.
 void SaveMemory(unsigned id, const std::string& path, std::vector<uint8_t>* saved, const char* what, bool force)
 {
   const uint8_t* data = static_cast<const uint8_t*>(s_core->get_memory_data(id));
@@ -2517,10 +3068,19 @@ void SaveMemory(unsigned id, const std::string& path, std::vector<uint8_t>* save
     saved->assign(data, data + size);
     return;
   }
-  if (WriteTextFile(path, std::string(reinterpret_cast<const char*>(data), size)))
+  if (!force && s_save_writer && s_save_writer->Post(path, std::vector<uint8_t>(data, data + size), what))
+  {
+    saved->assign(data, data + size);  // what the file will hold (a failed write is done again at the game's end)
+    return;
+  }
+  if (s_save_writer)
+    s_save_writer->Flush();  // (an older copy mustn't land after this one)
+  const auto start = std::chrono::steady_clock::now();
+  if (WriteDataFile(path, data, size))
   {
     saved->assign(data, data + size);
-    LogF("save: %s written (%zu bytes)", what, size);
+    LogF("save: %s written (%zu bytes, %.0f ms)", what, size,
+         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
   }
 }
 
@@ -2534,6 +3094,53 @@ int CardSaves(const std::string& card)
   for (size_t frame = 1; frame < 16; frame++)
     saves += static_cast<uint8_t>(card[frame * 0x80]) == 0x51 ? 1 : 0;
   return saves;
+}
+
+// A PlayStation disc's tracks without their .cue (00.81: "Name (Track 1).bin", "Name (Track 2).bin"... as Redump
+// names them, the .cue lost - Library::LoneTracks): the core is given a .cue made for them in data_dir/cache/cue/ps1,
+// as Redump's own: the first track data (MODE2/2352), the others CD audio with their 2-second pregap in their files
+// (INDEX 00 at 00:00:00, INDEX 01 at 00:02:00); the disc's .sbi (a LibCrypt disc's), "Name.sbi" beside it, copied beside
+// that .cue, where the core looks for it. Any other disc as it is (a lone .bin of one track: the core reads it itself).
+std::string Ps1DiscContent(const std::string& disc)
+{
+  const std::vector<std::string> tracks = Library::LoneTracks(disc);
+  if (tracks.empty())
+    return disc;
+  std::string name = std::filesystem::path(disc).stem().string();
+  const size_t track = name.rfind(" (Track ");
+  if (track != std::string::npos && track > 0)
+    name.erase(track);  // "Name (Track 1)" -> "Name": the .sbi's name too
+  std::string file = name;
+  for (char& c : file)
+  {
+    if (c == '/' || c == '\\' || c == ':' || c == '*' || c == '?' || c == '"' || c == '<' || c == '>' || c == '|')
+      c = '_';
+  }
+  const std::string dir = std::string(App::DATA_DIR) + "/cache/cue/ps1";
+  MakeDirs(dir);
+  const std::string cue = dir + "/" + file + ".cue";
+  std::string text;
+  for (size_t i = 0; i < tracks.size(); i++)
+  {
+    char line[64];
+    std::snprintf(line, sizeof(line), "  TRACK %02zu %s\r\n", i + 1, i == 0 ? "MODE2/2352" : "AUDIO");
+    text += "FILE \"" + tracks[i] + "\" BINARY\r\n" + line +
+            (i == 0 ? "    INDEX 01 00:00:00\r\n" : "    INDEX 00 00:00:00\r\n    INDEX 01 00:02:00\r\n");
+  }
+  if (!WriteTextFile(cue, text))
+  {
+    LogF("ps1: %s: %zu tracks without a .cue, and the .cue for them couldn't be written (%s)", disc.c_str(),
+         tracks.size(), cue.c_str());
+    return disc;
+  }
+  const std::string sbi = (std::filesystem::path(disc).parent_path() / (name + ".sbi")).string();
+  const std::string sbi_copy = dir + "/" + file + ".sbi";
+  const bool has_sbi = FileExists(sbi) && WriteTextFile(sbi_copy, ReadTextFile(sbi));
+  if (!has_sbi)
+    std::remove(sbi_copy.c_str());
+  LogF("ps1: %s: %zu tracks without a .cue: started with %s%s", disc.c_str(), tracks.size(), cue.c_str(),
+       has_sbi ? " (and the disc's .sbi)" : "");
+  return cue;
 }
 
 // A game on several discs was each disc's own game before 00.50: the PlayStation's memory card (its
@@ -2610,8 +3217,8 @@ bool SaveState(int slot)
   const std::string path = Saves::StatePath(s_game_id, slot);
   if (!WriteDataFile(path, state.data(), size))
     return false;
-  // A Dreamcast game on several discs: the disc in it with the state (Flycast's states don't hold it;
-  // LoadState puts it in first).
+  // A Dreamcast game on several discs: the disc in it with the state (Flycast's states don't hold it; LoadState puts
+  // it in first).
   const std::string disc = path + ".disc";
   if (s_system == SystemId::DC && DiscCount() > 1)
     WriteTextFile(disc, std::to_string(DiscIn()));
@@ -2624,6 +3231,7 @@ bool SaveState(int slot)
     SavePng(Saves::StatePicturePath(s_game_id, slot), Shrink(picture, 512, 448));
   }
   LogF("state: saved slot %d (%zu bytes)", slot, size);
+  Achievements::StateSaved(path);  // (the achievements' progress beside it: <state>.ra)
   return true;
 }
 
@@ -2676,6 +3284,8 @@ bool LoadState(int slot)
     s_core->unserialize(machine.data(), machine.size());
   }
   LogF("state: slot %d %s", slot, ok ? "loaded" : "refused");
+  if (ok)
+    Achievements::StateLoaded(path);  // (the achievements' progress of then, or afresh)
   return ok;
 }
 
@@ -2868,10 +3478,12 @@ private:
   {
     // Beside the emulation thread (core 2) and the DS's 3D thread (core 3), at their priority; off
     // core 4 for the PSP (PPSSPP's render thread, port/ps4_n64.c).
-    // (the DS: off cores 3-5, its 2D helper's and 3D threads', port/ps4_n64.c)
-    const uint64_t cores = s_system == SystemId::PSP ? (1ull << 1) | (1ull << 5) :
-                           s_system == SystemId::NDS ? (1ull << 1) :
-                                                       (1ull << 1) | (1ull << 4) | (1ull << 5);
+    // (the DS: off cores 3-5, its 2D helper's and 3D threads', port/ps4_n64.c; the Saturn: off cores 1 and 3-5,
+    // its renderer's and sound's threads, src/SaturnBench.cpp)
+    const uint64_t cores = s_system == SystemId::PSP    ? (1ull << 1) | (1ull << 5) :
+                           s_system == SystemId::NDS    ? (1ull << 1) :
+                           s_system == SystemId::SATURN ? (1ull << 0) | (1ull << 6) :
+                                                          (1ull << 1) | (1ull << 4) | (1ull << 5);
     if (s_dc_threads_free)
     {
       // (A Dreamcast game's threads left to the PS4: this one too.)
@@ -2951,10 +3563,151 @@ static bool EnoughMemory(const Library::Game& game, std::string* error)
   return true;
 }
 
+#ifdef EMUSUNI_DC
+// Flycast's pictures and the console's frames between them (00.68). A run of the core is one picture: one frame of
+// the console in a 60 FPS game, 2 in one at 30 FPS (Jet Set Radio), 2 to 4 with Frame Skip or once Auto frame skip
+// skips. The core gives the frame count of each picture it presents (flycast_emusuni_vblanks: the emulation's count
+// when it sent the picture, whatever the threads' timing), and the pacing pays for the frames a picture covered.
+struct DcFrames
+{
+  unsigned long long last = 0;
+  bool known = false;
+  int candidate = 1, same = 0, logged = 1;
+
+  // The console's frames the run just made covered: 1 to 4 (a run without a new picture, 1).
+  int Take()
+  {
+    const unsigned long long now = flycast_emusuni_vblanks();
+    int covered = 1;
+    const bool picture = known && now > last;
+    if (picture)
+      covered = static_cast<int>(std::min<unsigned long long>(now - last, 4));
+    if (!known || now != last)
+    {
+      last = now;
+      known = true;
+    }
+    // A new spacing once 30 pictures in a row agree: logged.
+    if (picture)
+    {
+      same = covered == candidate ? same + 1 : 1;
+      candidate = covered;
+      if (same >= 30 && candidate != logged)
+      {
+        LogF("pacing: Flycast's pictures are %d of the console's frames apart now (was %d)%s", candidate, logged,
+             candidate == 2 ? ": a game at 30 FPS, or Frame Skip" : "");
+        logged = candidate;
+      }
+    }
+    return covered;
+  }
+  // The console's frames a picture covered beyond the runs its pass had planned: owed back, a run left out of each
+  // pass that follows until they are paid (the pacing's frames owed can't go below half a frame).
+  int ahead = 0;
+  void Owe(int frames) { ahead = std::min(ahead + frames, 8); }
+  int Pay(int frames)
+  {
+    const int paid = std::min(frames, ahead);
+    ahead -= paid;
+    return frames - paid;
+  }
+  // The frames counted from the next picture on (the in-game menu closed).
+  void Restart()
+  {
+    known = false;
+    ahead = 0;
+  }
+};
+#endif
+
+// The PSP's vblanks per run of the core (00.81, GitHub issue #19: God of War suddenly much faster). With Frame Skip on
+// (PPSSPP's own) a run lasts until the PSP's next picture: 2 vblanks in a game at 30 FPS - God of War once PSP Frame Rate
+// Auto chose 30 -, one more for each picture skipped, up to 10 in a loading screen; until 00.81 the app ran it once per
+// refresh, the game at 2x and more. The core gives its count of vblanks at the end of each run
+// (EMUSUNI_ENVIRONMENT_PSP_VBLANKS: s_psp_vblanks), and the pacing pays for those a run covered as for Flycast's pictures
+// (DcFrames): the runs its pass still planned first, then a run left out of each pass that follows. With Frame Skip off
+// every run is one vblank (the core's frame duplication): nothing changes.
+struct PspFrames
+{
+  unsigned long long last = 0;
+  bool known = false;
+  int candidate = 1, same = 0, logged = 1;
+  int ahead = 0;
+
+  // The vblanks the run just made covered: 1 to 10 (a run without the core's count, or one that ran none, 1).
+  int Take()
+  {
+    int covered = 1;
+    if (!s_psp_vblanks_known)
+      return covered;
+    const bool ran = known && s_psp_vblanks > last;
+    if (ran)
+      covered = static_cast<int>(std::min<unsigned long long>(s_psp_vblanks - last, 10));
+    last = s_psp_vblanks;
+    known = true;
+    // A new spacing once 30 runs in a row agree: logged.
+    if (ran)
+    {
+      same = covered == candidate ? same + 1 : 1;
+      candidate = covered;
+      if (same >= 30 && candidate != logged)
+      {
+        LogF("pacing: the PSP's pictures are %d vblanks apart now (was %d)%s", candidate, logged,
+             candidate > 1 ? ": Frame Skip, or a game at 30 FPS with it" : "");
+        logged = candidate;
+      }
+    }
+    return covered;
+  }
+  // The vblanks a run covered beyond the runs its pass had planned: owed back, a run left out of each pass that follows
+  // until they are paid.
+  void Owe(int frames) { ahead = std::min(ahead + frames, 20); }
+  int Pay(int frames)
+  {
+    const int paid = std::min(frames, ahead);
+    ahead -= paid;
+    return frames - paid;
+  }
+  // The vblanks counted from the next run on (the in-game menu closed).
+  void Restart()
+  {
+    known = false;
+    ahead = 0;
+  }
+};
+
+// The start watchdog's times by console (src/StartGuard.h), in seconds: the game running without a picture, one call
+// into the core, the core's load of the game. The cartridge consoles show a picture at their first frame; the
+// Dreamcast's first start compiles its shaders (up to a minute, mostly between frames), the PSP's its pipelines; a
+// NAOMI's cartridge (up to 384 MiB) is read from the USB drive in its load.
+static StartGuard::Limits StartLimits(SystemId system)
+{
+  if (IsFlycast(system))
+    return {120.0f, 120.0f, 180.0f};
+  switch (system)
+  {
+  case SystemId::PSP:
+    return {60.0f, 90.0f, 120.0f};
+  case SystemId::N64:
+  case SystemId::PS1:
+  case SystemId::NDS:
+  case SystemId::THREEDS:
+  case SystemId::SATURN:
+    return {30.0f, 60.0f, 90.0f};
+  case SystemId::ARCADE:
+    return {30.0f, 45.0f, 90.0f};
+  case SystemId::PCE:  // (00.82: cartridges, a picture at their first frame)
+  default:
+    return {20.0f, 45.0f, 90.0f};
+  }
+}
+
 Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont* bold,
            std::string* error)
 {
   LogF("game: %s (%s)", game.title.c_str(), game.path.c_str());
+  // The start watched until a while after its first picture (src/StartGuard.h); every return ends the watch.
+  const StartGuard::Scope start_guard(game.path, game.title, GetSystem(game.system).key, StartLimits(game.system));
   if (!EnoughMemory(game, error))
     return Result::Failed;
   std::vector<uint8_t> rom;
@@ -2975,6 +3728,8 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
       return Result::Failed;
     }
   }
+  if (!by_path)
+    StartGuard::Step("the game's file is read", true);
   if (!by_path && !Library::ReadRom(game.path, game.system, &rom, error))
   {
     LogF("game: can't read the ROM: %s", error->c_str());
@@ -2984,6 +3739,8 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   s_core = GetSystem(game.system).core;
   s_game_id = game.key;
   s_message.clear();
+  s_ps1_disc_error.clear();
+  s_ps1_libcrypt = false;
   s_display = &display;
   s_pad_handles.fill(-1);
   s_rumble = {};
@@ -2994,9 +3751,12 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   s_xrgb8888 = false;  // RGB565 unless the core asks for XRGB8888
   s_pointer = {};
   s_stylus = {};
-  s_3ds_swap = s_3ds_r3 = false;
+  s_r3_swap = false;
+  s_3ds_r3 = false;
+  s_screens_seen.clear();
   s_3ds_scale = 0;
   s_3ds_new = -1;
+  s_3ds_title = 0;
   s_3ds_cursor = 0;
   s_3ds_at = {};
   // The stylus starts in the middle of the touch screen: the 3DS's 320x240, the DS's 256x192.
@@ -3060,6 +3820,45 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
     s_save_dir += "/dc";
     MakeDirs(s_save_dir);
   }
+#ifdef EMUSUNI_SATURN
+  if (s_system == SystemId::SATURN)
+  {
+    // The Saturn: its BIOS (512 KiB: the owner's keeps its own name) found here in system/saturn, system or the
+    // game's folder, and given to the core by its path (EMUSUNI_SATURN_BIOS: scripts/build-saturn-core.sh); the
+    // backup memory (the games' saves, one file for all) in saves/saturn/yabasanshiro.
+    s_system_dir += "/saturn";
+    s_save_dir += "/saturn";
+    MakeDirs(s_system_dir);
+    MakeDirs(s_save_dir);
+    uint32_t crc = 0;
+    const std::string bios = SaturnTest::FindSaturnBios(
+        {s_system_dir, std::string(App::DATA_DIR) + "/system", std::filesystem::path(game.path).parent_path().string()},
+        &crc);
+    if (bios.empty())
+    {
+      LogF("saturn: no BIOS (a .bin of 512 KiB) in %s, system or the game's folder", s_system_dir.c_str());
+      *error = "No Saturn BIOS found.\nBIOS: the USA one, 512 KB (any name with \"bios\" in it),\n"
+               "in the same folder or in /data/EmuSuNi/system/saturn.";
+      return Result::Failed;
+    }
+    LogF("saturn: BIOS %s (CRC32 %08x: %s)", bios.c_str(), static_cast<unsigned>(crc),
+         SaturnTest::SaturnBiosName(crc).c_str());
+    setenv("EMUSUNI_SATURN_BIOS", bios.c_str(), 1);
+    // (00.69) The SH-2s' waits counted, not run (scripts/build-saturn-core.sh); the file
+    // /data/EmuSuNi/saturn-sh2-skip-off (any content) runs every turn of them as 00.68 did.
+    const bool skip_off = FileExists(std::string(App::DATA_DIR) + "/saturn-sh2-skip-off");
+    setenv("EMUSUNI_SATURN_SH2_SKIP", skip_off ? "0" : "1", 1);
+    LogF("saturn: the SH-2s' waits %s", skip_off ? "run turn by turn (the file saturn-sh2-skip-off)" :
+                                                   "counted, not run (the file /data/EmuSuNi/saturn-sh2-skip-off: "
+                                                   "run them)");
+  }
+#endif
+  // The PC Engine (00.82): system/pce, the core's system folder (no file is needed for its HuCards).
+  if (s_system == SystemId::PCE)
+  {
+    s_system_dir += "/pce";
+    MakeDirs(s_system_dir);
+  }
   // A NAOMI or Atomiswave game: its board's EEPROM and flash (the operator menu's settings, the high scores) in
   // saves/naomi/reicast and saves/atomiswave/reicast, made by the core and named after the zip; system/dc (Flycast's
   // own folder) can hold the BIOS zips, which it also finds beside the game. What the game needs and isn't there is
@@ -3094,11 +3893,11 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
       LogF("naomi: %s isn't where the core looks for it (beside the game, or %s/dc for a BIOS)", file.c_str(),
            s_system_dir.c_str());
     // What makes Flycast refuse the game is said here instead (00.64): its refusal is a C++ exception, and on the PS4
-    // one doesn't come back to its catch - the app ends without a word. The board's BIOS not there (a set could carry
-    // its BIOS's files, which Flycast finds by their CRC: MAME's don't), a GD-ROM game's disc image not there, a zip
-    // whose name isn't its set's in small letters where the drive tells case apart (the PS4's storage: Flycast finds
-    // its set by the name as it is). (A file of the set missing from its zip it can't see: that one still ends the
-    // app on the PS4.)
+    // one doesn't come back to its catch - the app ends without a word. The board's BIOS not there, a GD-ROM game's
+    // disc image not there, a zip whose name isn't its set's in small letters where the drive tells case apart (the
+    // PS4's storage: Flycast finds its set by the name as it is); and (00.65) what else it would refuse a set for,
+    // asked of the core itself as it would look (Naomi::CheckSet): a file of the set in neither its zip nor its
+    // parent's (another MAME version's set), a BIOS zip without the files the board boots from.
     std::string refusal;
     const std::string bios = s_board_set ? Naomi::BiosZip(*s_board_set) : std::string("naomi.zip");
     const auto missing = [&board_missing](const std::string& file) {
@@ -3115,11 +3914,12 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
       std::string lower = path.filename().string();
       std::transform(lower.begin(), lower.end(), lower.begin(),
                      [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-      const std::string passed = FileExists((path.parent_path() / lower).string()) ?
-                                     std::filesystem::path(lower).stem().string() :
-                                     path.stem().string();
+      const bool lower_there = FileExists((path.parent_path() / lower).string());
+      const std::string passed = lower_there ? std::filesystem::path(lower).stem().string() : path.stem().string();
       if (!s_board_set || passed != s_board_set->name)
         refusal = "Unknown game";
+      else
+        refusal = Naomi::CheckSet(lower_there ? (path.parent_path() / lower).string() : game.path, s_system_dir);
     }
     if (!refusal.empty())
     {
@@ -3169,6 +3969,8 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
     LogLine("psp: resolution and anti-aliasing as the game starts (the file psp-resolution-at-start)");
   s_gpgx_region.clear();
   s_dc_clock.clear();
+  s_dc_resolution.clear();
+  s_dc_anisotropy.clear();
   // (Before the core starts any of its threads.)
   s_dc_threads_free = IsFlycast(s_system) && FileExists(std::string(App::DATA_DIR) + "/dc-threads-free");
 #ifdef EMUSUNI_DC
@@ -3177,8 +3979,7 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   s_rotation = 0;
   s_core_aspect = 0.0f;
   s_psp_30fps_auto = false;
-  s_nds_chosen.clear();
-  s_nds_swap = false;
+  s_psp_vblanks_known = false;  // (the PSP core gives its count again from its first run: PspFrames)
   s_nds_r3 = false;
   Saves::Init(App::DATA_DIR);
   // A Game Boy cartridge's header: for the Game Boy Color (0x80: also the Game Boy, 0xC0: only it),
@@ -3187,10 +3988,48 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   s_gb_sgb_game = rom.size() > 0x146 && rom[0x146] == 0x03;
   s_tilt = {};
   s_n64_name = s_system == SystemId::N64 ? N64Name(rom) : std::string();
+  s_n64_code = s_system == SystemId::N64 ? N64Code(rom) : std::string();
+  s_n64_crc1 = s_system == SystemId::N64 ? N64Crc(rom, 0x10) : 0;
+  s_n64_crc2 = s_system == SystemId::N64 ? N64Crc(rom, 0x14) : 0;
+  s_3ds_title = s_system == SystemId::THREEDS ? ThreedsTitleId(game.path) : 0;  // (00.81: before Build3dsVariables)
+  if (s_system == SystemId::PSP)
+  {
+    // (00.81, GitHub issue #19: what a PSP game's speed and stick depend on, in a player's log. Frame Skip is PPSSPP's
+    // own: until 00.81 it made a 30 FPS game - God of War once PSP Frame Rate Auto chose 30 - run at twice its speed.)
+    const Settings::Scope scope = Settings::ScopeOf(game.key);
+    LogF("psp: settings from %s: Frame Skip %s, PSP Frame Rate %s, Emulation Speed %s%%, stick dead zone %s, "
+         "sensitivity %s",
+         scope == Settings::Scope::Game ? "This Game" : scope == Settings::Scope::Console ? "This Console" : "All Games",
+         Settings::Get("frameskip", game.key).c_str(), Settings::Get("psp_frame_rate", game.key).c_str(),
+         Settings::Get("speed", game.key).c_str(), Settings::Get("psp_deadzone", game.key).c_str(),
+         Settings::Get("psp_sensitivity", game.key).c_str());
+  }
   if (s_system == SystemId::N64)
   {
-    LogF("n64: cartridge \"%s\", N64 CPU Timing %s", s_n64_name.c_str(),
-         Settings::Get("n64_cpu_timing", game.key).c_str());
+    LogF("n64: cartridge \"%s\" (game code %s), N64 CPU Timing %s, N64 Graphics Sync %s", s_n64_name.c_str(),
+         s_n64_code.empty() ? "none" : s_n64_code.c_str(), Settings::Get("n64_cpu_timing", game.key).c_str(),
+         Settings::Get("n64_sync", game.key).c_str());
+    if (const N64AccurateTitle* accurate = N64AccurateGame(s_n64_code))
+    {
+      LogF("n64: %s plays with N64 Graphics Sync Accurate whatever the setting (%s)", accurate->name, accurate->why);
+      GameDb::Log("n64", accurate->name, "N64 Graphics Sync", "Accurate",
+                  std::string("EmuSuNi's list: ") + accurate->why);
+    }
+    // (00.81) The app's CPU timing for it, over the core's game list (whose settings for the game are logged once the
+    // core has started: GameDb::LogN64).
+    std::string count_source;
+    const std::string count = N64CountPerOp(game.key, &count_source);
+    if (!count_source.empty())
+      GameDb::Log("n64", s_n64_name, "CountPerOp", count, count_source);
+    // Where its picture's settings come from: a console with settings of its own (This Console) doesn't follow the
+    // main Settings' Quality - "Banjo-Kazooie stays blurry however I set the graphics" (src/Settings.cpp,
+    // UseConsoleByDefault).
+    const Settings::Scope scope = Settings::ScopeOf(game.key);
+    LogF("n64: picture settings from %s: Quality %s (All Games: %s), N64 Resolution %sx, GPU Upscaler %s, N64 2D %s",
+         scope == Settings::Scope::Game ? "This Game" : scope == Settings::Scope::Console ? "This Console" : "All Games",
+         Settings::Get("quality", game.key).c_str(), Settings::Get("quality").c_str(),
+         Settings::Get("n64_resolution", game.key).c_str(), Settings::Get("gpu_filter", game.key).c_str(),
+         Settings::Get("n64_2d", game.key).c_str());
   }
   if (s_system == SystemId::GB || s_system == SystemId::GBC)
   {
@@ -3206,11 +4045,35 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
     if (IsFlycastBoard(s_system))
       LogF("naomi: region %s, TEST and SERVICE buttons on, free play %s", s_variables["reicast_region"].c_str(),
            s_variables["reicast_force_freeplay"].c_str());
-    LogF("dc: CPU clock %s MHz (Dreamcast CPU Clock), sound DSP %s; threads %s", s_dc_clock.c_str(),
-         s_variables["reicast_enable_dsp"] == "enabled" ? "on" : "off",
+    LogF("dc: CPU clock %s MHz (Dreamcast CPU Clock), sound DSP %s; picture %s, texture sharpness %s (Quality); "
+         "threads %s",
+         s_dc_clock.c_str(), s_variables["reicast_enable_dsp"] == "enabled" ? "on" : "off", s_dc_resolution.c_str(),
+         s_dc_anisotropy == "off" ? "off" : (s_dc_anisotropy + "x").c_str(),
          s_dc_threads_free ? "left to the PS4: any core, the priority they start with (/data/EmuSuNi/dc-threads-free)" :
                              "placed: the renderer (retro_run) on core 2, Flycast-emu on core 3, both at priority 480");
   }
+  if (s_system == SystemId::THREEDS)
+  {
+    // Its level and size (the Quality levels since 00.71: 3DS Resolution 1x to 4x, the GPU Upscaler), and where they
+    // come from (This Console doesn't follow All Games' Quality: the N64's line says the same).
+    const Settings::Scope scope = Settings::ScopeOf(game.key);
+    const std::string screens = Settings::Get("3ds_layout", game.key);
+    const ThreedsPicture where = ThreedsLayout(s_3ds_scale);
+    LogF("3ds: picture settings from %s: Quality %s (All Games: %s), 3DS Resolution %dx (the picture %ux%u, screens "
+         "%s; the size until the game's next start), GPU Upscaler %s",
+         scope == Settings::Scope::Game ? "This Game" : scope == Settings::Scope::Console ? "This Console" : "All Games",
+         Settings::Get("quality", game.key).c_str(), Settings::Get("quality").c_str(), s_3ds_scale, where.w, where.h,
+         screens.c_str(), Settings::Get("gpu_filter", game.key).c_str());
+    // (00.81) The title ID, and what Auto made of the two settings for it (the players' graphics errors).
+    LogF("3ds: title ID %016llx; Accurate Shader Multiplication %s (%s), right eye %s (3DS Right Eye %s)%s",
+         static_cast<unsigned long long>(s_3ds_title), s_3ds_accurate_mul ? "on" : "off",
+         Settings::Get("3ds_accurate_mul", game.key).c_str(), s_3ds_right_eye ? "drawn" : "not drawn",
+         Settings::Get("3ds_right_eye", game.key).c_str(),
+         FileExists("/data/EmuSuNi/3ds-right-eye") ? "; /data/EmuSuNi/3ds-right-eye: drawn in every game" : "");
+  }
+  LogScreens(game.key, "the game's start");
+  if (TwoScreens())
+    s_screens_seen = ScreensSeen(game.key);
   s_frame = nullptr;
   s_frame_w = s_frame_h = 0;
   s_texture_w = s_texture_h = 0;
@@ -3221,6 +4084,7 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   s_undeclared_logged.clear();
   s_disk = {};  // set again by the core's init (SET_DISK_CONTROL_EXT_INTERFACE)
   s_disk_set = false;
+  StartGuard::Step("the core starts");
   s_core->set_environment(Environment);
   s_core->set_video_refresh(VideoRefresh);
   s_core->set_audio_sample(AudioSample);
@@ -3300,6 +4164,9 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
     if (IsFlycastBoard(s_system) && content != game.path && !FileExists(content))
       content = game.path;
   }
+  // (00.81) A PlayStation disc's tracks without their .cue: a .cue made for them (Ps1DiscContent), each disc's.
+  if (s_system == SystemId::PS1 && game.discs.size() <= 1)
+    content = Ps1DiscContent(content);
   if (game.discs.size() > 1)
   {
     const std::string dir = std::string(App::DATA_DIR) + "/cache/m3u/" + GetSystem(game.system).key;
@@ -3313,7 +4180,7 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
     const std::string m3u = dir + "/" + name + ".m3u";
     std::string list;
     for (const std::string& disc : game.discs)
-      list += disc + "\n";
+      list += (s_system == SystemId::PS1 ? Ps1DiscContent(disc) : disc) + "\n";
     if (WriteTextFile(m3u, list))
       content = m3u;
     LogF("game: %zu discs, %s", game.discs.size(), content == m3u ? m3u.c_str() : "the .m3u couldn't be written");
@@ -3369,20 +4236,80 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
 #ifdef EMUSUNI_N64
   emusuni_n64_fixed_cores = fixed_cores ? 1 : 0;
 #endif
-  const bool loaded = s_core->load_game(&info);
+  // RetroAchievements (00.73): the game identified as rcheevos does it (a cartridge from the ROM's bytes, now: the
+  // core may free its copy; a disc - the one it starts with - or an arcade set from its file, on the module's
+  // thread) and its achievements asked for. Nothing when no one is logged in; never a reason not to start the game.
+  {
+    retro_system_info core_info = {};
+    s_core->get_system_info(&core_info);
+    Achievements::Game ra;
+    ra.system = s_system;
+    ra.path = discs.size() > 1 && last_disc >= 0 && last_disc < static_cast<int>(discs.size()) ? discs[last_disc] :
+              content;
+    ra.data = rom.empty() ? nullptr : rom.data();
+    ra.size = rom.size();
+    ra.title = game.title;
+    ra.library_name = core_info.library_name ? core_info.library_name : "";
+    ra.library_version = core_info.library_version ? core_info.library_version : "";
+    Achievements::SetCoreMemory(s_core->get_memory_data, s_core->get_memory_size);
+    Achievements::GameStarting(ra);
+  }
+  StartGuard::Step("the core loads the game", true);
+  bool loaded = s_core->load_game(&info);
   s_info_ext = {};
   // Mupen64Plus, mGBA and Genesis Plus GX copy the ROM: up to 64 MiB back to the heap.
-  if (s_system == SystemId::N64 || IsHandheld(s_system) || s_system == SystemId::NDS || IsGpgx(s_system))
+  // (00.82: Beetle PCE Fast too - a HuCard in its ROM space.)
+  if (s_system == SystemId::N64 || IsHandheld(s_system) || s_system == SystemId::NDS || IsGpgx(s_system) ||
+      s_system == SystemId::PCE)
     std::vector<uint8_t>().swap(rom);
   if (loaded && s_hw_vulkan && s_hw_render.context_reset)
   {
     // The context is ready (the display's device): the core sets up its renderer.
+    StartGuard::Step("the core sets up its renderer");
     s_hw_render.context_reset();
+  }
+  // (00.81) A PlayStation disc image SwanStation couldn't open (a .cue whose tracks aren't there, a damaged file): it
+  // started the console's BIOS without a disc - a black screen, nothing to play. The game ends here instead, as the
+  // game's end does (its Vulkan objects, the game), and the menu says why.
+  const bool ps1_no_disc = loaded && s_system == SystemId::PS1 && !s_ps1_disc_error.empty();
+  if (ps1_no_disc)
+  {
+    LogF("ps1: the disc image couldn't be opened (%s): the game doesn't start", s_ps1_disc_error.c_str());
+    if (s_hw_vulkan && s_hw_render.context_destroy)
+    {
+      display.WaitIdle();
+      display.ForgetOpaqueViews();
+      s_hw_render.context_destroy();
+    }
+    s_core->unload_game();
+    loaded = false;
   }
   if (!loaded)
   {
     // The core's own reason when it gave one (a Famicom Disk System game without its BIOS).
     *error = s_message.empty() ? "The emulator couldn't load this ROM" : s_message;
+    if (ps1_no_disc)
+    {
+      // A track the .cue names that isn't there (SwanStation: "Failed to open track filename '<path>' (from '<name>'
+      // and '<cue>'): errno 2"): its name; another reason as the core says it, cut to the panel's width.
+      const std::string missing = "Failed to open track filename '";
+      const size_t from = s_ps1_disc_error.find("' (from '");
+      if (s_ps1_disc_error.rfind(missing, 0) == 0 && from != std::string::npos &&
+          s_ps1_disc_error.find("errno 2") != std::string::npos)
+      {
+        const std::string path = s_ps1_disc_error.substr(missing.size(), from - missing.size());
+        *error = "The disc image couldn't be opened:\nThis file its .cue names isn't beside it:\n" +
+                 std::filesystem::path(path).filename().string();
+      }
+      else
+      {
+        size_t cut = s_ps1_disc_error.size() > 90 ? 87 : s_ps1_disc_error.size();
+        while (cut > 0 && cut < s_ps1_disc_error.size() && (static_cast<unsigned char>(s_ps1_disc_error[cut]) & 0xC0) == 0x80)
+          cut--;  // (not inside a UTF-8 letter)
+        *error = "The disc image couldn't be opened:\n" + s_ps1_disc_error.substr(0, cut) +
+                 (cut < s_ps1_disc_error.size() ? "..." : "");
+      }
+    }
     if (s_system == SystemId::THREEDS)
       *error = ThreedsFailure(*error);
     if (error->find("disksys.rom") != std::string::npos)
@@ -3413,9 +4340,26 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
       LogF("game: disc %d didn't start: disc 1 next time", last_disc + 1);
     }
     s_message.clear();
+    Achievements::GameEnded();
     s_core->deinit();
+#ifdef EMUSUNI_SATURN
+    unsetenv("EMUSUNI_SATURN_BIOS");
+    unsetenv("EMUSUNI_SATURN_SH2_SKIP");
+#endif
     JitArenaReset();
     return Result::Failed;
+  }
+  StartGuard::Step("the game loaded");
+  // RetroAchievements (00.73): Snes9x gives no map of the console's memory - the app makes it (an SA-1 game's I-RAM,
+  // which Snes9x shows no other way, included: src/AchievementsSnes.h).
+  if (s_system == SystemId::SNES)
+  {
+    std::vector<retro_memory_descriptor> snes_map;
+    if (AchievementsSnesMap(&snes_map))
+    {
+      const retro_memory_map map = {snes_map.data(), static_cast<unsigned>(snes_map.size())};
+      Achievements::SetMemoryMap(&map);
+    }
   }
   // A NAOMI cartridge image: Flycast's warning for every .dat and .bin ("Please upgrade to MAME romsets or expect
   // issues") isn't shown - the image plays (logged above). Flycast turns no image's picture (only its sets', from its
@@ -3437,6 +4381,11 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   s_game_fps = av.timing.fps > 0 ? av.timing.fps : 60.0988;
   LogF("game: %s, %.4f FPS, %.0f Hz sound, %s", s_core->name, s_game_fps, s_sample_rate,
        s_core->get_region() == RETRO_REGION_PAL ? "PAL" : "NTSC");
+  // (00.81) The core's game list's settings for this cartridge (mupen64plus.ini: the core wrote its copy when it
+  // started, and applies the entry itself), in the log. The other cores log their own lists' (PPSSPP's compat.ini
+  // "gamedb: psp ...", SwanStation's "Game settings found for ...", Flycast's "Forcing ...").
+  if (s_system == SystemId::N64)
+    GameDb::LogN64(s_system_dir + "/Mupen64plus/mupen64plus.ini", s_n64_crc1, s_n64_crc2, s_n64_name);
   LogMemory("game loaded");
   // The PlayStation's pads are DualShocks (SwanStation's analog controller); the Super Multitap is
   // the Super Nintendo's (FCEUmm plugs in the Four Score by itself).
@@ -3467,7 +4416,9 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   IngameMenu menu;
   menu.Init(&display, regular, bold);
   menu.SetGame(App::DATA_DIR, game.key, game.title, game.system, game.path);
-  menu.CheatList().ApplyToCore(*s_core, s_system);
+  // The cheats (RetroAchievements is Casual only, 00.78: they always apply).
+  auto apply_cheats = [&]() { menu.CheatList().ApplyToCore(*s_core, s_system); };
+  apply_cheats();
   if (!menu.CheatList().Entries().empty())
     LogF("cheats: %zu codes", menu.CheatList().Entries().size());
   // Changing the disc (the in-game menu's Disc): the lid stays open for 1.5 s of the game - a game sees
@@ -3481,6 +4432,9 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
     {
       menu.Toast("Disc " + std::to_string(disc + 1) + " is in");
       LogF("game: disc %d in, the lid closed", disc + 1);
+      // (RetroAchievements: the disc identified.)
+      if (disc >= 0 && disc < static_cast<int>(discs.size()))
+        Achievements::DiscChanged(discs[disc]);
       return;
     }
     // (A disc that can't be read: the one before goes back in, the menu and the next start say so.)
@@ -3498,6 +4452,7 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
     dc_reboot_pending = false;
     s_dc_stopped = false;
     s_core->reset();  // (Flycast boots the disc in the drive: scripts/build-dc-core.sh)
+    Achievements::Reset();
     dc_restart_wait = 180;
     menu.Toast(DiscCount() > 1 ? "The console starts again with disc " + std::to_string(DiscIn() + 1) :
                                  std::string("The console starts again"),
@@ -3505,14 +4460,22 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
     LogF("game: the game went back to the Dreamcast's BIOS: the console starts again (disc %d)", DiscIn() + 1);
   };
 
-  // Continue: the PSP's state after its first frame (PPSSPP's GPU is made by then).
+  // Continue: the PSP's state after its first frame (PPSSPP's GPU is made by then); the Saturn's too (YabaSanshiro
+  // takes a state only once it has run a frame: before, it says it took it).
   bool resume_pending = false;
-  if (Settings::GetOn("resume", game.key) && Saves::Modified(Saves::StatePath(game.key, 0)))
+  // (Not after the start watchdog restarted EmuSuNi because the start stopped while that state loaded: SkipContinue.)
+  const bool resume_state = Settings::GetOn("resume", game.key) && Saves::Modified(Saves::StatePath(game.key, 0)) &&
+                            !StartGuard::SkipContinue();
+  if (resume_state)
   {
-    if (s_system == SystemId::PSP)
+    if (s_system == SystemId::PSP || s_system == SystemId::SATURN)
       resume_pending = true;
-    else if (LoadState(0))
-      menu.Toast("Continuing where you left off");
+    else
+    {
+      StartGuard::Step(StartGuard::CONTINUE_STEP);
+      if (LoadState(0))
+        menu.Toast("Continuing where you left off");
+    }
   }
   if (s_system == SystemId::DC)
   {
@@ -3520,12 +4483,23 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
     // 60 Hz on a silent screen that waits for A: players took both for a game that doesn't start.
     menu.Toast("Dreamcast: the first start can take a minute (shaders). Cross: A, Options: Start.", 8.0f);
   }
+  if (s_system == SystemId::PS1 && s_ps1_libcrypt)
+  {
+    // (00.81) A LibCrypt-protected disc (European games: Parasite Eve II, MediEvil, Spyro 3...) without its .sbi: it
+    // started anyway (scripts/build-ps1-core.sh; it couldn't before, "the emulator couldn't load this ROM"), but the
+    // protection's checks may stop it later. Redump's .sbi, named as the disc's file, goes beside it.
+    LogLine("ps1: a LibCrypt-protected disc without its .sbi file: started anyway, the player told");
+    menu.Toast("Protected disc (LibCrypt): put its .sbi file beside it, or the game may stop later.", 10.0f);
+  }
   if (IsFlycastBoard(s_system))
   {
     // An arcade board: coins and START, and where its TEST and SERVICE buttons are (the operator menu).
     // (No " = " in it: the language file's separator.)
     menu.Toast("Touchpad: Coin. Options: Start. TEST and SERVICE: Arcade Button in the L3+R3 menu.", 8.0f);
   }
+  // A start again (the start watchdog, src/StartGuard.h): why, over the console's own toast.
+  if (!StartGuard::RetryToast().empty())
+    menu.Toast(StartGuard::RetryToast(), 8.0f);
 
   GameAudio audio;
   audio.Start(Settings::GetInt("audio_buffer", game.key));
@@ -3561,7 +4535,7 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   // The DS: its 3D thread on core 3; the PSP, the Dreamcast (and its arcade boards) and the 3DS: their other
   // threads off core 2 (port/ps4_n64.c).
   if ((fixed_cores || s_system == SystemId::NDS || s_system == SystemId::PSP || IsFlycast(s_system) ||
-       s_system == SystemId::THREEDS) &&
+       s_system == SystemId::THREEDS || s_system == SystemId::SATURN) &&
       !s_dc_threads_free)
   {
     const int got = emusuni_get_affinity(scePthreadSelf(), &old_mask);
@@ -3585,11 +4559,19 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   if (board_stick_analog)
     LogF("naomi: the left stick is the game's analog control (%s), not the D-pad", s_board_set->gun ? "the gun's sight" :
                                                                                                      "a wheel, a stick or pedals");
+  // The battery save written beside the emulation during play (SaveWriter, 00.72): its thread starts at the first
+  // save the game makes; the game's end writes the last copy after it (SaveSram(true)), and nothing points at it after.
+  SaveWriter save_writer;
+  s_save_writer = &save_writer;
+  struct ForgetSaveWriter
+  {
+    ~ForgetSaveWriter() { s_save_writer = nullptr; }
+  } forget_save_writer;
   // The DS: its drawing beside its emulation (DrawWorker).
   DrawWorker drawer;
   // The PSP: only while its core is heavy (one frame more latency then: psp_overlap).
   const bool overlap_drawing = (s_system == SystemId::NDS || s_system == SystemId::PSP || IsFlycast(s_system) ||
-                                s_system == SystemId::THREEDS) &&
+                                s_system == SystemId::THREEDS || s_system == SystemId::SATURN) &&
                                drawer.Start();
   bool psp_overlap = false;
   s_defer_frame = false;
@@ -3610,8 +4592,12 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   // The core's time per frame (a moving average), and whether it is too slow to be caught up.
   double core_avg = 0.0;
   bool heavy = false;
+  bool threeds_pairs_said = false;  // (the 3DS: a light frame and the next in one pass, said once in the log)
+#ifdef EMUSUNI_DC
+  DcFrames dc_frames;  // (Flycast: the console's frames per picture)
+#endif
+  PspFrames psp_frames;  // (the PSP: its vblanks per run, Frame Skip on)
   int psp_heavy_passes = 0;  // (PSP Frame Rate Auto: passes in a row the core couldn't keep up)
-  s_audio_speed = 1.0;
   int skip_counter = 0;
   float sram_timer = 0.0f;
   bool slow_last = false;
@@ -3621,10 +4607,13 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   // Back from the in-game menu, player 1's pad reaches the game once every button is up (the press that closed
   // the menu isn't the game's).
   Controls::MenuRelease menu_release;
+  Controls::MenuOpener menu_opener;  // the in-game menu's buttons, a hold's time (00.68)
   float memory_log = 0.0f;
   float audio_log = 0.0f;  // play time since the sound's last health line
+  StartGuard::Step("the game runs");
   while (!quit)
   {
+    StartGuard::Beat();  // (the start watchdog: the emulation thread goes on)
     const auto now = Clock::now();
     const float dt = std::clamp(std::chrono::duration<float>(now - last).count(), 0.0f, 0.25f);
     last = now;
@@ -3645,12 +4634,15 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
     const uint32_t p1_pressed = (pad_held & ~menu_pad_held) | tour.buttons;
     const uint32_t p1_held = pad_held | tour.buttons;
     menu_pad_held = pad_held;
-    constexpr uint32_t COMBO = ORBIS_PAD_BUTTON_L3 | ORBIS_PAD_BUTTON_R3;
+    // The in-game menu's buttons (00.68: Controls -> In-Game Menu, for every game; L3 + R3 always open it too).
+    const Controls::MenuButtons menu_buttons = Controls::MenuButtonsFor(Settings::Get("menu_buttons"), game.system);
 
     if (!menu.IsOpen())
     {
-      if ((p1_held & COMBO) == COMBO && (p1_pressed & COMBO))
+      if (menu_opener.Update(menu_buttons, p1_held, p1_pressed, dt))
       {
+        // (R3's press made no swap of the DS's or the 3DS's screens: forgotten, so letting it go swaps none.)
+        s_nds_r3 = s_3ds_r3 = false;
         StopRumble();
         // A disc being changed goes in first (the menu's states and Quit Game see it in).
         if (disc_lid_open > 0)
@@ -3678,6 +4670,7 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
     else
     {
       const IngameMenu::Action action = menu.Poll(p1_pressed, p1_held, dt);
+      Achievements::Paused();  // (rc_client's waiting work while the game is paused: retries, pings)
       switch (action)
       {
       case IngameMenu::Action::Save:
@@ -3705,6 +4698,7 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
         s_shutdown = false;
         s_message.clear();
         s_core->reset();
+        Achievements::Reset();  // (the achievements' progress from the start too)
         dc_reboot_pending = s_dc_stopped = false;  // (the Dreamcast's restart, if it waited for one)
         dc_restart_wait = s_system == SystemId::DC ? 180 : 0;
         menu.Close();
@@ -3749,6 +4743,13 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
       {
         BuildVariables();
         update_motion();
+        // The DS's and the 3DS's screens: their settings changed, the screens as the menu shows them (R3's swap off).
+        if (TwoScreens() && ScreensSeen(game.key) != s_screens_seen)
+        {
+          s_screens_seen = ScreensSeen(game.key);
+          s_r3_swap = false;
+          LogScreens(game.key, "changed in the in-game menu");
+        }
         LoadBezel(display, game);
         audio.SetVolume(Settings::GetInt("volume", game.key));
         const bool want_multitap = snes && Settings::GetOn("multitap", game.key);
@@ -3759,7 +4760,7 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
         }
       }
       if (menu.TakeCheatsChanged())
-        menu.CheatList().ApplyToCore(*s_core, s_system);
+        apply_cheats();
       if (!menu.IsOpen())
       {
         audio.Clear();
@@ -3772,9 +4773,14 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
         schedule = 0.0;
         clock_drift = 0.0;
         pacer.Restart();  // the time the menu was open isn't caught up
+#ifdef EMUSUNI_DC
+        dc_frames.Restart();
+#endif
+        psp_frames.Restart();
         ResetWindow(stats, display.GetFlipState());
         stats.counted = -1;
         menu_release.Start();  // (the game sees player 1's pad again once every button is up)
+        menu_opener.Closed();  // (and a hold of the menu's buttons counts again once they were let go)
       }
     }
     if (quit)
@@ -3797,6 +4803,7 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
       DrawStats(fg, bold, stats, Settings::GetOn("show_fps", game.key),
                 Settings::GetOn("perf_overlay", game.key), audio.Fill());
       menu.Draw(fg, dt);
+      AchievementsUi::Draw(fg, display, regular, bold, dt);  // (RetroAchievements' popups, 00.73)
       ImGui::Render();
       stats.flip_frame[static_cast<size_t>(display.NextFlip() % 8)] = total;
       display.EndFrame();
@@ -3906,12 +4913,16 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
         }
         if (i == 0 && s_system == SystemId::NDS)
         {
-          // R3 (Swap Screens): the two screens trade places in the app's view (NdsSwapped), not in
-          // the core's picture.
+          // R3 (Swap Screens): the two screens trade places where the app places them (DrawScreens), not in the
+          // core's picture - the same as on the 3DS (00.80).
           const bool r3 = (s_buttons[0] >> RETRO_DEVICE_ID_JOYPAD_R3) & 1;
           s_buttons[0] &= ~(1u << RETRO_DEVICE_ID_JOYPAD_R3);
-          if (r3 && !s_nds_r3)
-            s_nds_swap = !s_nds_swap;
+          // (With the in-game menu on R3 held, 00.68: the swap is R3 let go before the menu's second.)
+          const bool on_release = menu_buttons.mask == ORBIS_PAD_BUTTON_R3;
+          s_r3_held = r3 && s_nds_r3 ? s_r3_held + dt : 0.0f;
+          if (on_release ? !r3 && s_nds_r3 && s_r3_was < menu_buttons.hold : r3 && !s_nds_r3)
+            s_r3_swap = !s_r3_swap.load();
+          s_r3_was = s_r3_held;
           s_nds_r3 = r3;
           // The touchpad (1920x942) is the DS's touch screen (src/Touchpad.h): a trackpad - the finger moves the
           // stylus from where it is, a tap touches there, the Tap button (Controls) holds it down - or, with DS
@@ -3956,20 +4967,22 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
         }
         if (i == 0 && s_system == SystemId::THREEDS)
         {
-          // R3 (Swap Screens): the screens trade places in the core (its swap option: Build3dsVariables); the
-          // button isn't the game's.
+          // R3 (Swap Screens): the two screens trade places where the app places them (DrawScreens), as on the DS
+          // (00.80; until 00.79 the core's swap option, its picture laid out again); the button isn't the game's.
           const bool r3 = (s_buttons[0] >> RETRO_DEVICE_ID_JOYPAD_R3) & 1;
           s_buttons[0] &= ~(1u << RETRO_DEVICE_ID_JOYPAD_R3);
-          if (r3 && !s_3ds_r3)
-          {
-            s_3ds_swap = !s_3ds_swap;
-            BuildVariables();
-          }
+          // (With the in-game menu on R3 held, 00.68: the swap is R3 let go before the menu's second.)
+          const bool on_release = menu_buttons.mask == ORBIS_PAD_BUTTON_R3;
+          s_r3_held = r3 && s_3ds_r3 ? s_r3_held + dt : 0.0f;
+          if (on_release ? !r3 && s_3ds_r3 && s_r3_was < menu_buttons.hold : r3 && !s_3ds_r3)
+            s_r3_swap = !s_r3_swap.load();
+          s_r3_was = s_r3_held;
           s_3ds_r3 = r3;
           // The touchpad (1920x942) is the 3DS's touch screen (320x240), as the DS's (src/Touchpad.h): a trackpad -
           // the finger moves the stylus from where it is, a tap touches there, the Tap button (Controls) holds it
           // down - or, with 3DS Touch Screen: Direct, the screen itself; it stays where it was left. The core wants
-          // it where the touch screen is in its picture (ThreedsLayout), over the whole picture.
+          // it where the touch screen is in its picture (ThreedsLayout: always the same place since 00.80, whatever
+          // the screens' settings and R3 show), over the whole picture; also with Top Screen Only, unseen.
           const auto& touch = pad.data.touch;
           const bool live = pad.ok && !touring;
           const bool finger = live && touch.fingers > 0;
@@ -3986,9 +4999,8 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
           if (finger || s_stylus.down)
             s_3ds_cursor = 90;
           s_pointer = {};
-          const std::string screens = Settings::Get("3ds_layout", game.key);
-          const ThreedsPicture where = ThreedsLayout(screens, ThreedsSwapped(screens), s_3ds_scale);
-          if (where.touch[2] > 0.0f && s_frame_w == where.w && s_frame_h == where.h)
+          const ThreedsPicture where = ThreedsLayout(s_3ds_scale);
+          if (s_frame_w == where.w && s_frame_h == where.h)
           {
             // The middle of the stylus's pixel.
             const float fx = where.touch[0] + (s_stylus.x + 0.5f) / 320.0f * where.touch[2];
@@ -3997,10 +5009,6 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
             s_pointer.x = static_cast<int16_t>(std::clamp(fx * 65534.0f / s_frame_w - 32767.0f, -32767.0f, 32767.0f));
             s_pointer.y = static_cast<int16_t>(std::clamp(fy * 65534.0f / s_frame_h - 32767.0f, -32767.0f, 32767.0f));
             s_pointer.pressed = s_stylus.down;
-          }
-          else if (where.touch[2] <= 0.0f)
-          {
-            s_3ds_cursor = 0;  // (the touch screen isn't shown)
           }
         }
       }
@@ -4021,6 +5029,13 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
         ratio = std::atoi(ff.c_str());
       if (limit == "0")
         ratio = std::max(ratio, 4.0);
+#ifdef EMUSUNI_DC
+      // Flycast keeps the console to this pace while no picture holds it back (00.69: a loading screen or a board's
+      // BIOS ran the emulation as fast as the PS4 could, its sound too fast for the app): the frames a second these
+      // passes ask for, Speed and Fast Forward included; no limit with the FPS limit off.
+      if (IsFlycast(s_system))
+        flycast_emusuni_pace(limit == "0" ? 0.0 : ratio * hz);
+#endif
       // N64 with V-Sync (N64 Frame Pacing: Even): the frames due by the vblank this pass's flip
       // will be shown at - VideoOut's count + the flips queued + 1 (src/Pacing.h). By the clock
       // (By the Clock, V-Sync off, fast forward, a vblank count that can't be trusted): as 00.27,
@@ -4028,6 +5043,7 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
       // didn't take - 104-108% in Mario Kart 64 - but taking it out alone makes the hitches worse in
       // the model, so the clock's way stays as it was, for comparison).
       int frames = 0;
+      int threeds_owed = 0;  // (the 3DS's heavy mode: the frames owed before its one frame a pass)
       bool paced = s_system == SystemId::N64 && !forward && ratio <= 1.25 && flip.vblanks >= 0 &&
                    Settings::Get("vsync", game.key) != "off" && Settings::Get("frame_pacing", game.key) != "clock";
       if (paced)
@@ -4085,7 +5101,7 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
         // A core that takes about a refresh per frame or more (God of War: Ghost of Sparta's fights,
         // 17-18 ms; Mario Kart DS's races) can't be caught up: each pass ran more frames and took
         // longer still (4 frames a pass, 72 ms passes: 16 pictures a second at 91% speed). One frame
-        // a pass then, every one of them shown; the game runs that much slower, its sound too.
+        // a pass then, every one of them shown; the game runs that much slower, its sound at its pitch.
         const double refresh_ms = 1000.0 / std::max(hz, 1.0);
         const bool was_heavy = heavy;
         if (!heavy && core_avg > refresh_ms * 0.92)
@@ -4095,7 +5111,11 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
         if (heavy != was_heavy)
         {
           LogF("pacing: the core takes %.1f ms a frame: %s", core_avg,
-               heavy ? "one frame a pass, the game a little slower" : "caught up again");
+               s_system == SystemId::SATURN ? (heavy ? "longer than a refresh, the game a little slower (one frame a "
+                                                       "pass, as always for the Saturn)" :
+                                                       "shorter than a refresh again") :
+               heavy                        ? "one frame a pass, the game a little slower" :
+                                              "caught up again");
         }
         // PSP Frame Rate Auto: about 2 s in a row too slow for 60 (not a loading screen's long frames,
         // nor the first seconds' pipeline compiles): God of War at 30 FPS for the rest of the game.
@@ -4114,39 +5134,61 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
         }
         if (heavy && !forward)
         {
+          threeds_owed = s_system == SystemId::THREEDS ? frames : 0;
           frames = std::min(frames, 1);
           schedule = std::min(schedule, 0.5);
-          // The speed one frame a pass gives (the pass's time against the game's frame).
-          const double speed = std::clamp(1000.0 / std::max(fps, 1.0) / std::max(dt * 1000.0, 1.0), 0.5, 1.0);
-          s_audio_speed += (speed - s_audio_speed) * 0.05;
+          // (The sound keeps its pitch: GameAudio stretches what the slower game sends.)
         }
-        else
+        // The Saturn (00.69): one frame a pass, always. Its core takes most of a refresh on the PS4 (00.68's log: Sonic
+        // R's race 15-21 ms of 16.7), so the heavy mode came and went every few seconds ("one frame a pass" / "caught
+        // up again" in turn), and each catch-up ran 2 or 3 frames in one pass: 35-56 ms without a new picture, its
+        // stutter. Now a frame longer than a refresh makes the game that much slower (the sound keeps its pitch) and
+        // is never made up for in a burst. (Fast Forward and Frame Rate Limit off as before.)
+        if (s_system == SystemId::SATURN && !forward && limit != "0")
         {
-          s_audio_speed += (1.0 - s_audio_speed) * 0.05;
+          frames = std::min(frames, 1);
+          schedule = std::min(schedule, 0.5);
         }
       }
+#ifdef EMUSUNI_DC
+      // (Flycast: the frames its pictures covered ahead of the pacing are paid here: DcFrames.)
+      if (IsFlycast(s_system) && !paced)
+        frames = dc_frames.Pay(frames);
+#endif
+      // (The PSP with Frame Skip: the vblanks its runs covered ahead of the pacing: PspFrames.)
+      if (s_system == SystemId::PSP && !paced)
+        frames = psp_frames.Pay(frames);
       stats.per_pass[static_cast<size_t>(std::min(frames, 3))]++;
       audio.SetMuted(fast && ff != "off");
       // (The PSP's and the Dreamcast's Frame Skip are their cores' own: BuildPspVariables, BuildDcVariables -
       // the NAOMI's and the Atomiswave's too; the Arcade's 1 and 2 too, BuildArcadeVariables, its Auto the app's.)
-      std::string skip = s_system == SystemId::PSP || IsFlycast(s_system) ? std::string("off") :
-                                                                            Settings::Get("frameskip", game.key);
+      // (The Saturn: none - YabaSanshiro draws every frame on its renderer's threads.)
+      std::string skip = s_system == SystemId::PSP || IsFlycast(s_system) || s_system == SystemId::SATURN ?
+                             std::string("off") :
+                             Settings::Get("frameskip", game.key);
       if (s_system == SystemId::ARCADE && skip != "auto")
         skip = "off";
-      // The DS: the last picture drawn while these frames run; the PSP and Flycast's machines only while
-      // their core is heavy.
-      if (s_system == SystemId::PSP || IsFlycast(s_system))
+      // The DS: the last picture drawn while these frames run; the PSP, Flycast's machines and the Saturn only
+      // while their core is heavy.
+      if (s_system == SystemId::PSP || IsFlycast(s_system) || s_system == SystemId::SATURN)
       {
         const double refresh_ms = 1000.0 / std::max(display.RefreshHz(), 1.0);
         if (!psp_overlap && core_avg > refresh_ms * 0.85)
           psp_overlap = true;
         else if (psp_overlap && core_avg < refresh_ms * 0.75)
           psp_overlap = false;
+        // (The Saturn, 00.69: always - each change between the two showed a picture twice or jumped one, and its core
+        // is near a refresh most of the time.)
+        if (s_system == SystemId::SATURN)
+          psp_overlap = true;
       }
       // (The 3DS: only in the heavy mode, one frame a pass: the core renders into a ring of 3 images and must
       // never reach the one being drawn.)
+      // (The Saturn: one frame a pass only - YabaSanshiro's renderer keeps three pictures, the one drawn here among
+      // them, and makes one each frame: more runs than one beside the drawing would reach it.)
       const bool overlap = overlap_drawing && frames > 0 && !touring &&
-                           (s_system == SystemId::NDS || (s_system == SystemId::THREEDS ? heavy && !forward : psp_overlap));
+                           (s_system == SystemId::NDS || (s_system == SystemId::THREEDS ? heavy && !forward : psp_overlap)) &&
+                           (s_system != SystemId::SATURN || frames == 1);
       if (overlap)
       {
         s_defer_frame = true;
@@ -4166,14 +5208,57 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
         const auto run_start = Clock::now();
         s_core->run();
         const float run_ms = std::chrono::duration<float, std::milli>(Clock::now() - run_start).count();
+        // RetroAchievements (00.73): every frame the core ran (fast forward's and skipped pictures' too), the game's
+        // achievements checked against its memory - nothing when the game has none.
+        Achievements::DoFrame();
+        // The 3DS (00.70): a game drawing at 30 FPS alternates a heavy frame (its picture) and a light one, and once
+        // the heavy ones pass a refresh the heavy mode ran one frame a pass, a light frame waiting a whole refresh by
+        // itself (00.69's log, Hey! Pikmin's busy scenes: frames of 34 and 5 ms, 51 ms for two, 62% speed). A light
+        // first frame (under half a refresh) lets the pass run the next one too when the pacing owes it: two images
+        // of the core's ring of three, never the one drawn beside.
+        if (threeds_owed >= 2 && f == 0 && frames == 1 && run_ms < 500.0f / std::max(static_cast<float>(hz), 1.0f))
+        {
+          frames = 2;
+          stats.per_pass[1]--;
+          stats.per_pass[2]++;
+          if (!threeds_pairs_said)
+          {
+            threeds_pairs_said = true;
+            LogF("pacing: a light 3DS frame (%.1f ms) and the next in one pass while the core is heavy (a game "
+                 "drawing at 30 FPS alternates heavy and light frames)", run_ms);
+          }
+        }
+        // The console's frames this run covered: 1, but Flycast's picture can be 2 to 4 (DcFrames). The pacing pays
+        // for them - the runs still planned for this pass first, then runs left out of the passes that follow - and
+        // the speed and the core's time per frame count them (Jet Set Radio at 30 FPS: one run every other refresh).
+        int covered = 1;
+#ifdef EMUSUNI_DC
+        if (IsFlycast(s_system))
+          covered = dc_frames.Take();
+#endif
+        // (The PSP: 1, but with Frame Skip on a run lasts until its next picture, 2 to 10 vblanks: PspFrames.)
+        if (s_system == SystemId::PSP)
+          covered = psp_frames.Take();
         stats.core_ms += run_ms;
-        stats.core_runs++;
+        stats.core_runs += covered;
         stats.core_max = std::max(stats.core_max, run_ms);
-        core_avg = core_avg <= 0.0 ? run_ms : core_avg * 0.9 + run_ms * 0.1;
-        stats.emulated++;
-        stats.emulated10++;
+        const double frame_ms = run_ms / covered;
+        core_avg = core_avg <= 0.0 ? frame_ms : core_avg * 0.9 + frame_ms * 0.1;
+        stats.emulated += covered;
+        stats.emulated10 += covered;
         stats.total++;
         stats.run_ms.push_back(run_ms);
+        if (covered > 1)
+        {
+          const int planned = std::min(covered - 1, frames - 1 - f);
+          f += planned;
+          if (s_system == SystemId::PSP)
+            psp_frames.Owe(covered - 1 - planned);
+#ifdef EMUSUNI_DC
+          else
+            dc_frames.Owe(covered - 1 - planned);
+#endif
+        }
         // (The disc goes in after the drawing beside these frames: its toast is the menu's, which
         // that drawing reads.)
         if (disc_lid_open > 0 && --disc_lid_open == 0)
@@ -4196,8 +5281,10 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
       if (resume_pending && !s_shutdown)
       {
         resume_pending = false;
+        StartGuard::Step(StartGuard::CONTINUE_STEP);
         if (LoadState(0))
           menu.Toast("Continuing where you left off");
+        StartGuard::Step("the game runs");
       }
       if (s_shutdown)
       {
@@ -4301,8 +5388,10 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
       stats.fps_time = 0.0f;
       // The N64's speed in the log every 10 seconds of play (how well the PS4 keeps up).
       // (Also for SNES/NES games drawn through a GPU filter: how busy the filter keeps the GPU.)
+      // (The Saturn too, 00.69: 00.68's log had its speed only while a GPU filter was on.)
       if ((s_system == SystemId::N64 || s_system == SystemId::PS1 || s_system == SystemId::PSP || IsFlycast(s_system) ||
-           s_system == SystemId::NDS || s_system == SystemId::ARCADE || s_system == SystemId::THREEDS || GpuMode(game.key) != GpuFilter::Mode::Off) &&
+           s_system == SystemId::NDS || s_system == SystemId::ARCADE || s_system == SystemId::THREEDS ||
+           s_system == SystemId::SATURN || GpuMode(game.key) != GpuFilter::Mode::Off) &&
           !menu.IsOpen() &&
           stats.time10 >= 10.0f)
       {
@@ -4345,11 +5434,11 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
           // The picture the core gives against the one the touch screen's place was worked out for, and whether
           // the touchpad reaches the game at all.
           const std::string screens = Settings::Get("3ds_layout", game.key);
-          const ThreedsPicture where = ThreedsLayout(screens, ThreedsSwapped(screens), s_3ds_scale);
+          const ThreedsPicture where = ThreedsLayout(s_3ds_scale);
           LogF("3ds: picture %ux%u (expected %ux%u), screens %s%s, touch screen at %.0f,%.0f %.0fx%.0f, %s 3DS at %dx; "
                "touchpad (%s): %d frames with a finger, %d with the stylus down, %d taps in these 10 s; stylus at "
                "%.0f,%.0f",
-               s_frame_w, s_frame_h, where.w, where.h, screens.c_str(), s_3ds_swap ? " (R3: swapped)" : "",
+               s_frame_w, s_frame_h, where.w, where.h, screens.c_str(), s_r3_swap.load() ? " (R3: swapped)" : "",
                where.touch[0], where.touch[1], where.touch[2], where.touch[3], s_3ds_new == 1 ? "New" : "Old",
                s_3ds_scale, Settings::Get("3ds_touch", game.key) == "touch" ? "direct" : "trackpad", s_touch_frames,
                s_tap_frames, s_touch_taps, s_stylus.x, s_stylus.y);
@@ -4373,6 +5462,17 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
       stats.draw_ms += pass_draw_ms;
       stats.draws++;
     }
+    // ---- The start watchdog (src/StartGuard.h): the first picture, or none in the console's time ----
+    const StartGuard::Verdict start_verdict = StartGuard::Pass(stats.total, menu.IsOpen());
+    if (start_verdict != StartGuard::Verdict::Go)
+    {
+      // Stopped as Quit Game stops it: started once more (Retry), or the menu says why (the second time).
+      result = start_verdict == StartGuard::Verdict::Retry ? Result::Retry : Result::Failed;
+      if (start_verdict == StartGuard::Verdict::Fail)
+        *error = StartGuard::FailMessage();
+      quit = true;
+      break;
+    }
     // V-Sync off: the flips don't wait for the TV; a pass per refresh by the clock, to a deadline
     // that moves on one refresh each pass (a sleep that runs long is made up by the next one; it
     // ran 2% slow, 58.8 passes a second, when each pass slept the rest of its own refresh).
@@ -4394,6 +5494,7 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   }
 
   // ---- Back to the menu ----
+  StartGuard::Ending();  // (the stop watched too: a core that doesn't stop restarts EmuSuNi into the menu)
   drawer.Stop();
   s_defer_frame = false;
   if (priority_set)
@@ -4407,14 +5508,16 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   if (disc_lid_open > 0)
     insert_disc();
   // The disc in now: the game starts with it next time.
-  if (DiscCount() > 1 && result != Result::Failed)
+  if (DiscCount() > 1 && result == Result::Menu)
     WriteTextFile(Saves::DiscPath(game.key), std::to_string(DiscIn()));
   // (Not while the Dreamcast waits to start again: its machine is stopped inside the BIOS's call. When
   // the Dreamcast's state isn't saved, the one of before goes: Continue would put back its older VMU - an
   // arcade board's older EEPROM.)
+  // (A start the start watchdog stopped - Retry - keeps the state it continues from as it was: neither saved over
+  // nor deleted.)
   const bool resume = Settings::GetOn("resume", game.key);
-  const bool saved = resume && result != Result::Failed && !dc_reboot_pending && SaveState(0);
-  if (resume && !saved && IsFlycast(s_system))
+  const bool saved = resume && result == Result::Menu && !dc_reboot_pending && SaveState(0);
+  if (resume && !saved && IsFlycast(s_system) && result != Result::Retry)
     Saves::DeleteState(game.key, 0);
   SaveSram(true);
   if (audio_log >= 1.0f)
@@ -4428,6 +5531,10 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   pads.Close();
   menu.ForgetPictures();
   FreeBezel(display);
+  // RetroAchievements (00.73): the game's achievements unloaded (an unlock still on its way goes on being sent), their
+  // pictures' textures freed.
+  Achievements::GameEnded();
+  AchievementsUi::Forget(display);
   // As RetroArch: the core's Vulkan objects go first (its RDRAM is still there), then the game and
   // the core. The frames that show the core's images are finished before.
   if (s_hw_vulkan && s_hw_render.context_destroy)
@@ -4438,6 +5545,10 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   }
   s_core->unload_game();
   s_core->deinit();
+#ifdef EMUSUNI_SATURN
+  unsetenv("EMUSUNI_SATURN_BIOS");
+  unsetenv("EMUSUNI_SATURN_SH2_SKIP");
+#endif
   JitArenaReset();
   s_hw_vulkan = false;
   s_hw_image_set = false;

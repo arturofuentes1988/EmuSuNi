@@ -28,6 +28,9 @@ extern "C" char __text_start[];  // defined by the OpenOrbis link.x at the start
 // port/ps4_runtime.cpp: the calling thread's stack, when known (threads started through pthread_create and the
 // main thread). Weak: a program may link without it.
 extern "C" __attribute__((weak)) int ps4rt_thread_stack(uintptr_t* low, uintptr_t* high);
+// src/StartGuard.cpp (00.70): a crash while a game starts or ends - the app's start watchdog restarts EmuSuNi for it
+// meanwhile; it waits a few seconds at most and comes back. Weak: a program may link without it.
+extern "C" __attribute__((weak)) void emusuni_start_crashed(int sig);
 // (The headers' stack_t is musl's, its fields in another order than the kernel's.)
 extern "C" int ps4_crash_sigaltstack(const void* stack, void* old) __asm__("sigaltstack");
 
@@ -60,6 +63,14 @@ int traceFd() {
         // xmb-trace.log, so restarting into the XMB keeps the last game's trace.
         struct stat st;
         const bool game = stat("/data/EmuSuNi/launch.txt", &st) == 0;
+        if (!game) {
+            // The traces of the sessions before (00.70, as src/main.cpp's logs): xmb-trace.log becomes
+            // xmb-trace-1.log, ... xmb-trace-4.log (the oldest goes). Their lines have their times.
+            rename("/data/EmuSuNi/xmb-trace-3.log", "/data/EmuSuNi/xmb-trace-4.log");
+            rename("/data/EmuSuNi/xmb-trace-2.log", "/data/EmuSuNi/xmb-trace-3.log");
+            rename("/data/EmuSuNi/xmb-trace-1.log", "/data/EmuSuNi/xmb-trace-2.log");
+            rename("/data/EmuSuNi/xmb-trace.log", "/data/EmuSuNi/xmb-trace-1.log");
+        }
         g_traceFd = open(game ? "/data/EmuSuNi/boot-trace.log" : "/data/EmuSuNi/xmb-trace.log",
                          O_WRONLY | O_CREAT | O_TRUNC, 0666);
     }
@@ -151,10 +162,17 @@ void crashHandler(int sig, siginfo_t* info, void* context) {
                 found++;
             }
         }
+        fsync(fd);  // (kept if the console hangs or is switched off next)
         close(fd);
     }
-    if (traceFd() >= 0)
+    if (traceFd() >= 0) {
         writeAll(traceFd(), "crashed (see crash.log)\n");
+        fsync(traceFd());
+    }
+    // A game starting or ending: the app's start watchdog restarts EmuSuNi (src/StartGuard.cpp); this thread waits
+    // for it here, 6 s at most.
+    if (emusuni_start_crashed)
+        emusuni_start_crashed(sig);
 
     // Back to the default action: returning re-executes the faulting instruction, which now
     // ends the process with the system's crash report.
@@ -219,6 +237,12 @@ extern "C" __attribute__((noinline)) void ps4_trace_callers(const char* what) {
         }
     }
     ps4_boot_trace(line);
+}
+
+// The trace written through to the disk (src/Log.cpp LogSync: the start watchdog's, every 2 s while a game starts).
+extern "C" void ps4_trace_sync(void) {
+    if (g_traceFd >= 0)
+        fsync(g_traceFd);
 }
 
 // Appends a line to /data/EmuSuNi/boot-trace.log (startup milestones), prefixed with the

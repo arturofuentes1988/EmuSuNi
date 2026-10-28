@@ -26,6 +26,8 @@ public:
   void GameEnded(const std::string& error);
   // The default game (Triangle -> Set as Default Game), when it exists.
   bool DefaultGame(Library::Game* game);
+  // A game of the lists by its file (the game the start watchdog restarted EmuSuNi for: src/StartGuard.h).
+  bool FindGame(const std::string& path, Library::Game* game);
   ImFont* RegularFont() const;
   ImFont* BoldFont() const;
 

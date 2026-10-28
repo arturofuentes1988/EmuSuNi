@@ -13,3 +13,6 @@ desktop.ini
 
 # Python
 __pycache__/
+
+# Dear ImGui's window settings, written at run time
+imgui.ini

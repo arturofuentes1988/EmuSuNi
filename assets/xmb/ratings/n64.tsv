@@ -1,0 +1,520 @@
+# EmuSuNi star ratings (scripts/make-ratings.py): the Nintendo 64 names and each one's game in the LaunchBox
+# Games Database (its id: the app downloads LaunchBox's ratings itself, src/Ratings.h).
+# Names: No-Intro's and Redump's, from libretro-database's metadat (github.com/libretro/libretro-database, CC BY-SA 4.0).
+# Matched with LaunchBox's Metadata.xml of 2026-10-22. This file is under CC BY-SA 4.0.
+# name<TAB>LaunchBox id
+007 - The World Is Not Enough	238
+1080 Snowboarding	237
+40 Winks	20269
+64 de Hakken!! Tamagotchi - Minna de Tamagotchi World	108227
+64 Hanafuda - Tenshi no Yakusoku	16127
+64 Oozumou	109313
+64 Oozumou 2	116566
+64 Trump Collection - Alice no Wakuwaku Trump World	16729
+AeroFighters Assault	1052
+AeroGauge	1053
+AI Shougi 3	16730
+Aidyn Chronicles - The First Mage	1054
+Air Boarder 64	1055
+Akumajou Dracula Mokushiroku - Real Action Adventure	2848
+Akumajou Dracula Mokushiroku Gaiden - Legend of Cornell	246
+All Star Tennis '99	1056
+All-Star Baseball 2000	1058
+All-Star Baseball 2001	1059
+All-Star Baseball 99	1057
+Armorines - Project S.W.A.R.M.	1060
+Army Men - Air Combat	2535
+Army Men - Sarge's Heroes	240
+Army Men - Sarge's Heroes 2	1061
+Asteroids Hyper 64	1062
+Automobili Lamborghini	1063
+Baku Bomberman	1072
+Baku Bomberman 2	1071
+Bakuretsu Muteki Bangaioh	16736
+Bakushou Jinsei 64 - Mezase! Resort Ou	16764
+Banjo to Kazooie no Daibouken	162
+Banjo to Kazooie no Daibouken 2	176
+Banjo-Kazooie	162
+Banjo-Tooie	176
+Bass Rush - ECOGEAR PowerWorm Championship	16768
+Bassmasters 2000	1064
+Batman Beyond - Return of the Joker	1065
+Batman of the Future - Return of the Joker	1065
+BattleTanx	241
+BattleTanx - Global Assault	242
+Battlezone - Rise of the Black Dogs	1066
+Beetle Adventure Racing!	1067
+Big Mountain 2000	1068
+Bio F.R.E.A.K.S.	1069
+Biohazard 2	397
+Blast Corps	1070
+Blastdozer	1070
+Blues Brothers 2000	243
+Body Harvest	244
+Bokujou Monogatari 2	1114
+Bomberman 64	1072
+Bomberman 64 - The Second Attack!	1071
+Bomberman Hero	245
+Bomberman Hero - Mirian Oujo o Sukue!	245
+Bottom of the 9th	1073
+Brunswick Circuit Pro Bowling	1074
+Buck Bumble	1075
+Bug's Life, A	239
+Bust-A-Move '99	1077
+Bust-A-Move 2 - Arcade Edition	1076
+Bust-A-Move 3 DX	1077
+California Speed	1078
+Carmageddon 64	1079
+Carnivale - Cenzo's Adventure	211208
+Castlevania	2848
+Castlevania - Legacy of Darkness	246
+Centre Court Tennis	1080
+Chameleon Twist	1081
+Chameleon Twist 2	1082
+Charlie Blast's Territory	1083
+Chopper Attack	247
+Choro Q 64	1179
+Choro Q 64 2 - Hacha Mecha Grand Prix Race	25735
+Chou Kuukan Nighter Pro Yakyuu King	32537
+Chou Kuukan Nighter Pro Yakyuu King 2	32538
+Chou Snobo Kids	1203
+City-Tour GP - Zen-Nihon GT Senshuken	1113
+Clay Fighter - Sculptor's Cut	1084
+Clay Fighter 63 1-3	9362
+Command & Conquer	1560
+Conker's Bad Fur Day	249
+Cruis'n Exotica	230
+Cruis'n USA	228
+Cruis'n World	229
+Custom Robo	16995
+Custom Robo V2	32153
+CyberTiger	1085
+Daffy Duck Starring as Duck Dodgers	265
+Dance Dance Revolution - Disney Dancing Museum	25775
+Dark Rift	1086
+Deadly Arts	1087
+Defi au Tetris Magique	1135
+Densha de Go! 64	32054
+Derby Stallion 64	25496
+Destruction Derby 64	1088
+Dexanoid	168100
+Dezaemon 3D	25736
+Diddy Kong Racing	178
+Die Hard 64	156510
+Dinosaur Planet	199680
+Donald Duck - Goin' Quackers	1089
+Donald Duck - Quack Attack	1089
+Dongwu Senlin	16732
+Donkey Kong 64	250
+Donsol	463030
+Doom 64	251
+Doraemon - Nobita to 3tsu no Seireiseki	25737
+Doraemon 2 - Nobita to Hikari no Shinden	25738
+Doraemon 3 - Nobita no Machi SOS!	25739
+Doubutsu Banchou	202782
+Doubutsu no Mori	16732
+Dr. Mario 64	1090
+Dragon Sword 64	128616
+Dual Heroes	1091
+Duck Dodgers Starring Daffy Duck	265
+Duke Nukem - Zero Hour	1092
+Duke Nukem 64	1093
+Earthworm Jim 3D	1094
+ECW Hardcore Revolution	1095
+Eikou no Saint Andrews	25740
+Eltale Monsters	1185
+Excitebike 64	1097
+Extreme-G	957
+Extreme-G XG2	958
+F-1 World Grand Prix	1100
+F-1 World Grand Prix II	1101
+F-Zero X	10836
+F1 Pole Position 64	1098
+F1 Racing Championship	1099
+Famista 64	32561
+FIFA - Road to World Cup 98	1102
+FIFA - Road to World Cup 98 - World Cup e no Michi	1102
+FIFA 64	1104
+FIFA 99	1103
+FIFA Soccer 64	1104
+Fighter Destiny 2	252
+Fighters Destiny	1105
+Fighting Cup	1105
+Fighting Force 64	253
+Flying Dragon	959
+Forsaken	254
+Forsaken 64	254
+Fox Sports College Hoops '99	1106
+Freak Boy	184748
+Frogger 2	1110
+Fushigi no Dungeon - Fuurai no Shiren 2 - Oni Shuurai! Shiren Jou!	25748
+G.A.S.P!! Fighters' NEXTream	1087
+Ganbare Goemon - Dero Dero Douchuu Obake Tenkomori	1111
+Ganbare Goemon - Neo Momoyama Bakufu no Odori	1152
+Ganbare! Nippon! Olympics 2000	1124
+Gauntlet Legends	255
+Getter Love!! - Cho Renai Party Game Tanjou	116665
+Gex 3 - Deep Cover Gecko	1108
+Gex 64 - Enter the Gecko	1109
+Glover	1110
+Glover 2	128626
+Goemon - Mononoke Sugoroku	25749
+Goemon's Great Adventure	1111
+Golden Nugget 64	1112
+GoldenEye 007	160
+GT 64 - Championship Edition	1113
+Hamster Monogatari 64	97429
+Harukanaru Augusta - Masters '98	24625
+Harvest Moon 64	1114
+Heiwa Pachinko World 64	128007
+Hercules - The Legendary Journeys	256
+Hexen	1115
+Hey You, Pikachu!	257
+Hiryuu no Ken Twin	959
+Holy Magic Century	1185
+Hoshi no Kirby 64	262
+Hot Wheels - Turbo Racing	1116
+HSV Adventure Racing!	1067
+Human Grand Prix - The New Generation	1098
+Hybrid Heaven	1117
+Hydro Thunder	258
+Hyper Olympics in Nagano 64	1153
+Ide Yosuke no Mahjong Juku	32574
+Iggy's Reckin' Balls	1118
+Iggy-kun no Bura Bura Poyon	1118
+In-Fisherman - Bass Hunter 64	1120
+Indiana Jones and the Infernal Machine	259
+Indy Racing 2000	1119
+International Superstar Soccer '98	1122
+International Superstar Soccer 2000	1123
+International Superstar Soccer 64	1121
+International Track & Field - Summer Games	1124
+International Track & Field 2000	1124
+Itoi Shigesato no Bass Tsuri No. 1 Kettei Ban!	123150
+J.League Dynamite Soccer 64	25753
+J.League Eleven Beat 1997	31700
+J.League Live 64	480990
+J.League Tactics Soccer	25773
+Jangou Simulation Mahjong Dou 64	32575
+Jeopardy!	2840
+Jeremy McGrath Supercross 2000	1125
+Jet Force Gemini	260
+Jikkyou G1 Stable	32576
+Jikkyou J.League 1999 - Perfect Striker 2	1123
+Jikkyou J.League Perfect Striker	24624
+Jikkyou Powerful Pro Yakyuu - Basic Ban 2001	131407
+Jikkyou Powerful Pro Yakyuu 2000	131399
+Jikkyou Powerful Pro Yakyuu 4	24153
+Jikkyou Powerful Pro Yakyuu 5	131405
+Jikkyou Powerful Pro Yakyuu 6	131406
+Jikkyou World Soccer - World Cup France '98	1122
+Jikkyou World Soccer 3	1121
+Jikuu Senshi Turok	68
+Jinsei Game 64	131422
+John Romero's Daikatana	1126
+Kakutou Denshou - F-Cup Maniax	252
+Ken Griffey Jr.'s Slugfest	1127
+Killer Instinct Gold	261
+King Hill 64 - Extreme Snowboarding	1227
+Kiratto Kaiketsu! 64 Tanteidan	123801
+Kirby 64 - The Crystal Shards	262
+Knife Edge - Nose Gunner	1128
+Knockout Kings 2000	264
+Kobe Bryant in NBA Courtside	1129
+Last Legion UX	25750
+Legend of Zelda, The - Majora's Mask	175
+Legend of Zelda, The - Ocarina of Time	161
+Legend of Zelda, The - Ocarina of Time - Master Quest	129915
+Legend of Zelda, The - The Sealed Palace	417507
+LEGO Racers	1130
+Let's Smash	1080
+Lode Runner 3-D	1131
+Lylat Wars	4
+Mace - The Dark Age	1132
+Madden Football 64	1133
+Madden NFL 2000	1134
+Madden NFL 2001	268
+Madden NFL 2002	269
+Madden NFL 99	267
+Magical Tetris Challenge	1135
+Magical Tetris Challenge featuring Mickey	1135
+Mahjong 64	20513
+Mahjong Hourouki Classic	122990
+Mahjong Master	20514
+Major League Baseball Featuring Ken Griffey Jr.	271
+Maliou Yisheng	1090
+Manic Miner 64	20514
+Mario Golf	1136
+Mario Golf 64	1136
+Mario Kart 64	266
+Mario no Photopie	20515
+Mario Party	42
+Mario Party 2	270
+Mario Party 3	960
+Mario Story	141
+Mario Tennis	1137
+Mario Tennis 64	1137
+Mega Man 64	1138
+Mia Hamm Soccer 64	3222
+Michael Owen's WLS 2000	3222
+Mickey no Racing Challenge USA	1139
+Mickey's Speedway USA	1139
+Micro Machines 64 Turbo	1140
+Midway's Greatest Arcade Hits - Volume 1	3223
+Mike Piazza's Strike Zone	1141
+Milo's Astro Lanes	1142
+Mini Racers	132623
+Mischief Makers	1143
+Mission - Impossible	2827
+Monaco Grand Prix	1144
+Monaco Grand Prix - Racing Simulation 2	1144
+Monopoly	2912
+Monster Truck Madness 64	1146
+Morita Shougi 64	25774
+Mortal Kombat 4	1147
+Mortal Kombat Mythologies - Sub-Zero	1148
+Mortal Kombat Trilogy	1149
+MRC - Multi-Racing Championship	1150
+Ms. Pac-Man - Maze Madness	1151
+Mystical Ninja 2 Starring Goemon	1111
+Mystical Ninja Starring Goemon	1152
+Nagano Winter Olympics '98	1153
+Namco Museum 64	3224
+NASCAR 2000	1154
+NASCAR 99	2818
+NBA Courtside 2 featuring Kobe Bryant	1155
+NBA Hangtime	1156
+NBA in the Zone '98	1157
+NBA in the Zone '99	272
+NBA in the Zone 2	272
+NBA in the Zone 2000	1158
+NBA Jam 2000	1160
+NBA Jam 99	1159
+NBA Live 2000	2811
+NBA Live 99	2809
+NBA Pro 98	1157
+NBA Pro 99	272
+NBA Showtime - NBA on NBC	2807
+Neon Genesis Evangelion	15117
+New Tetris, The	1161
+NFL Blitz	1163
+NFL Blitz - Special Edition	1162
+NFL Blitz 2000	581
+NFL Blitz 2001	2914
+NFL QB Club 2001	1168
+NFL Quarterback Club 2000	1167
+NFL Quarterback Club 98	1165
+NFL Quarterback Club 99	1166
+NHL 99	1169
+NHL Blades of Steel '99	1170
+NHL Breakaway 98	1171
+NHL Breakaway 99	1172
+NHL Pro 99	1170
+Nightmare Creatures	1173
+Nintama Rantarou 64 Game Gallery	123074
+Nintendo All-Star! Dairantou Smash Brothers	404
+Nuclear Strike 64	1174
+Nushi Zuri 64	123077
+Nushi Zuri 64 - Shiokaze ni Notte	123079
+O.D.T.	20267
+Off Road Challenge	1175
+Ogre Battle 64 - Person of Lordly Caliber	1176
+Olympic Hockey 98	1177
+Onegai Monsters	31699
+Operation WinBack	413
+Pachinko 365 Nichi	123092
+Paper Mario	141
+Paperboy	1178
+Parlor! Pro 64 - Pachinko Jikki Simulation Game	123093
+PD Ultraman Battle Collection 64	107233
+Penny Racers	1179
+Perfect Dark	173
+PGA European Tour	1180
+PGA European Tour Golf	1180
+Pikachuu Genki de Chuu	257
+Pilotwings 64	961
+Pokemon Puzzle League	1181
+Pokemon Snap	390
+Pokemon Stadium	391
+Pokemon Stadium 2	392
+Pokemon Stadium Kin Gin	392
+Polaris SnoCross	1182
+Power League 64	25752
+Power Rangers - Lightspeed Rescue	1183
+Powerpuff Girls, The - Chemical X-Traction	1184
+Premier Manager 64	4202
+Pro Mahjong Kiwame 64	25751
+Pro Mahjong Tsuwamono 64 - Jansou Battle ni Chousen	123132
+Puyo Puyo Sun 64	23759
+Puyo Puyoon Party	27817
+Puzzle Bobble 64	1077
+Pyoro 64	210222
+Quake	2922
+Quake II	2924
+Quest 64	1185
+Racing Simulation 2	1144
+Rakugakids	1186
+Rally '99	1187
+Rally Challenge 2000	1187
+Rampage - World Tour	394
+Rampage 2 - Universal Tour	2930
+Rat Attack	1188
+Rayman 2 - The Great Escape	395
+Razmoket, Les - La Chasse aux Tresors	1196
+Razor Freestyle Scooter	1189
+Re-Volt	1191
+Ready 2 Rumble Boxing	396
+Ready 2 Rumble Boxing - Round 2	1190
+Resident Evil 2	397
+Riqa	445890
+Road Rash 64	962
+Roadsters	1192
+Robot Poncots 64 - 7tsu no Umi no Caramel	34164
+Robotech - Crystal Dreams	3571
+Robotron 64	1193
+Rocket - Robot on Wheels	1194
+Rockman Dash - Hagane no Boukenshin	1138
+Ronaldinho's Soccer 64	1121
+RR64 - Ridge Racer 64	1195
+RTL World League Soccer 2000	3222
+Rugrats - Die grosse Schatzsuche	1196
+Rugrats - Scavenger Hunt	1196
+Rugrats - Treasure Hunt	1196
+Rugrats in Paris - The Movie	3294
+Rush 2 - Extreme Racing USA	1197
+S.C.A.R.S.	1198
+Saikyou Habu Shougi	126604
+San Francisco Rush - Extreme Racing	1199
+San Francisco Rush 2049	398
+Scooby-Doo! - Classic Creep Capers	1200
+SD Hiryuu no Ken Densetsu	132755
+Sesame Street - Elmo's Letter Adventure	1096
+Sesame Street - Elmo's Number Journey	3100
+Shadow Man	30094
+Shadowgate 64 - Trials of the Four Towers	1201
+Shin Nihon Pro Wrestling Toukon Road - Brave Spirits	20824
+Shin Nihon Pro Wrestling Toukon Road 2 - The Next Generation	20825
+SimCity 2000	25776
+SimCopter 64	421306
+Simpson Kart 64	440289
+Slasher Kart 64	440302
+Snobo Kids	1202
+Snow Speeder	1068
+Snowboard Kids	1202
+Snowboard Kids 2	1203
+Sonic Wings Assault	1052
+South Park	1204
+South Park - Chef's Luv Shack	400
+South Park Rally	399
+Space Dynamites	1086
+Space Invaders	3295
+SpaceStation Silicon Valley	1205
+Spider-Man	2952
+Star Fox 64	4
+Star Soldier - Vanishing Earth	1206
+Star Twins	260
+Star Wars - Rogue Squadron	403
+Star Wars - Shadows of the Empire	231
+Star Wars - Shutsugeki! Rogue Chuutai	403
+Star Wars - Teikoku no Kage	231
+Star Wars Episode I - Battle for Naboo	401
+Star Wars Episode I - Racer	402
+StarCraft 64	1207
+Starshot - Space Circus Fever	1208
+Stunt Racer 64	1209
+Super B-Daman - Battle Phoenix 64	133447
+Super Bowling	1210
+Super Mario 64	216
+Super Robot Spirits	133117
+Super Robot Taisen 64	32095
+Super Smash Bros.	404
+Super Speed Race 64	1063
+Supercross 2000	1211
+Superman	1164
+Superman - The New Superman Aventures	1164
+Susume! Taisen Puzzle Dama - Toukon! Marutama Chou	27818
+Sydney 2000	128067
+Tamiya Racing 64	141022
+Tarzan	3148
+Taz Express	1213
+Telefoot Soccer 2000	3222
+Telocation - Gemini	424314
+Tetris 64	20517
+Tetrisphere	405
+TG Rally 2	1222
+Tigger's Honey Hunt	1214
+Tom and Jerry in Fists of Furry	1215
+Tom Clancy's Rainbow Six	1216
+Tommy Thunder	95726
+Tonic Trouble	1217
+Tony Hawk's Pro Skater	406
+Tony Hawk's Pro Skater 2	1218
+Tony Hawk's Pro Skater 3	1219
+Tony Hawk's Skateboarding	406
+Toon Panic	107231
+Top Gear Hyper Bike	1220
+Top Gear Overdrive	1221
+Top Gear Rally	963
+Top Gear Rally 2	1222
+Toy Story 2 - Buzz l'Eclair a la Rescousse!	1223
+Toy Story 2 - Buzz Lightyear to the Rescue!	1223
+Toy Story 2 - Captain Buzz Lightyear auf Rettungsmission!	1223
+Transformers - Beast Wars Metals 64	1224
+Transformers - Beast Wars Transmetals	1224
+Triple Play 2000	1225
+Tsumi to Batsu - Hoshi no Keishousha	5652
+Turok - Dinosaur Hunter	68
+Turok - Legenden des Verlorenen Landes	408
+Turok - Rage Wars	408
+Turok 2 - Seeds of Evil	407
+Turok 3 - Shadow of Oblivion	1226
+Twisted Edge - Extreme Snowboarding	1227
+Twisted Edge - Snowboarding	1227
+Utchan Nanchan no Hono no Challenger - Denryuu Ira Ira Bou	25747
+V-Rally Edition 99	1230
+Viewpoint 2064	177125
+Vigilante 8	964
+Vigilante 8 - 2nd Offense	409
+Violence Killer - Turok New Generation	407
+Virtual Chess 64	1228
+Virtual Pool 64	1229
+Virtual Pro Wrestling 2 - Oudou Keishou	31085
+Virtual Pro Wrestling 64	31084
+Waialae Country Club - True Golf Classics	410
+War Gods	1231
+Wave Race 64 - Kawasaki Jet Ski	411
+Wayne Gretzky's 3D Hockey	1232
+Wayne Gretzky's 3D Hockey '98	2773
+WCW Backstage Assault	412
+WCW Mayhem	1233
+WCW Nitro	1234
+WCW vs. nWo - World Tour	1235
+WCW-nWo Revenge	1236
+Wetrix	1237
+Whack 'n' Roll	1110
+Wheel of Fortune	2769
+Wild Choppers	247
+Wildwaters	95725
+WinBack	413
+WinBack - Covert Operations	413
+Wipeout 64	1238
+Wonder Project J2 - Koruro no Mori no Jozet	22602
+World Cup 98	1239
+World Driver Championship	414
+Worms Armageddon	1240
+WWF Attitude	415
+WWF No Mercy	416
+WWF War Zone	2759
+WWF WrestleMania 2000	417
+X'treme Roller	207720
+Xena - Warrior Princess - The Talisman of Fate	418
+Yakouchuu II - Satsujin Kouro	123021
+Yoshi Story	419
+Yoshi's Story	419
+Yuke Yuke!! Trouble Makers	1143
+Zelda no Densetsu - Mujura no Kamen	175
+Zelda no Densetsu - Toki no Ocarina	161
+Zelda no Densetsu - Toki no Ocarina GC	161
+Zelda no Densetsu - Toki no Ocarina GC Ura	129915
+Zool - Majuu Tsukai Densetsu	101834
+Zui yu Fa - Diqiu de Jicheng Zhe	5652

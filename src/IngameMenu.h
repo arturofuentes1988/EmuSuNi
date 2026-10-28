@@ -68,6 +68,7 @@ private:
     CheatSearch,  // Find Cheats Online: libretro's lists for this game
     CheatPick,    // one list's codes, to choose from
     Controls,     // this console's buttons on the DualShock 4 (src/Controls.h): applied back in the game
+    Achievements,  // RetroAchievements (00.73, src/Achievements.h): the game's achievements, unlocked or not
   };
   struct Row
   {
@@ -77,11 +78,15 @@ private:
     bool note = false;  // takes effect at the next game start (amber)
     int tag = 0;        // cheats: 1 ON, -1 OFF
     std::string key;
+    std::string badge;  // an achievement's picture (its address: AchievementsUi::Picture)
+    std::string help;   // what the row says under the list (an achievement's description), as it is
+    bool raw = false;   // the label as it is (RetroAchievements' own texts: not translated)
+    bool dim = false;   // drawn dimmer (an achievement still locked)
   };
   void BuildRows();
   // The main page's selected line ("resume", "save", "load", "disc", ...), else "".
   std::string MainKey() const;
-  void Move(int direction);
+  void Move(int direction, bool wrap = false);  // wrap: past an end round to the other (a fresh press, 00.76)
   Action Activate();
   void Change(int direction);
   // What the row does (translated), shown small under the list.
@@ -118,6 +123,13 @@ private:
   CheatDownload::Finder::State m_finder_state = CheatDownload::Finder::State::Idle;
   int m_finder_mb = -1;
   int m_search_selected = 0;  // the list chosen last (back from its codes)
+  // The Achievements page (00.73): made again now and then while it is shown (the game's achievements may come
+  // meanwhile), its rows from Achievements::List().
+  float m_achievements_refresh = 0.0f;
+  void AchievementRows(std::vector<Row>* rows);
+  // A note as header lines of the panel's width (the text translated here unless it is RetroAchievements' own, the
+  // lines drawn as they are).
+  void PushWrapped(std::vector<Row>* rows, const std::string& text, bool translate = true);
   // The selected slot's picture.
   int m_picture_slot = -1;
   ImTextureID m_picture{};

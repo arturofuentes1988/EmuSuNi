@@ -12,7 +12,7 @@
 #     submodules), Flycast 2.7 (with the submodules its libretro core needs), Genesis Plus GX,
 #     FinalBurn Neo and Dear ImGui 1.92.2b sources (~/src), and Azahar 2126.2's unified source
 #     (~/src/azahar: every build but build.sh no-3ds uses it); YabaSanshiro 3.4.2 (~/src/yabasanshiro: only
-#     build.sh with-saturn uses it)
+#     build.sh with-saturn uses it); Beetle PCE Fast (~/src/beetle-pce-fast-libretro)
 # Mesa takes the longest (about half an hour). Then: scripts/build.sh and scripts/package.sh.
 #
 #   sudo -i bash /path/to/EmuSuNi/scripts/setup.sh
@@ -67,6 +67,13 @@ AZAHAR_VERSION=2126.2   # azahar-emu/azahar, 2026-10-08 (GIT-COMMIT 219d743a1e69
 AZAHAR_SHA256=85c8b56fac703df04720125044b8ff887997911858a6cde545dfb1107ba4cd26
 # YabaSanshiro 3.4.2 (Sega Saturn): only for build.sh with-saturn (00.64's speed test, scripts/build-saturn-core.sh).
 YABASANSHIRO_COMMIT=09ed8e5b2e97e7a848ea2514545c34c7b809e399   # libretro/yabause, branch yabasanshiro, 2026-08-23
+# Beetle PCE Fast (the PC Engine, 00.82; a Mednafen core, GPL-2.0, with its own libchdr, zlib and Tremor in deps/),
+# built by scripts/build-beetle-cores.sh. (00.80 to 00.82 also pinned PicoDrive - the 32X - and Beetle NeoPop and Cygne
+# - the Neo Geo Pockets, the WonderSwans -: gone in 00.83 with those consoles.)
+BEETLE_PCE_FAST_COMMIT=4eee99c451f85ebe66d1591de88b892015b23059   # libretro/beetle-pce-fast-libretro, 2026-10-23
+# RetroAchievements (00.73): rcheevos, its own library (MIT), and libchdr (BSD-3) for hashing CHD images.
+RCHEEVOS_COMMIT=1433173220a7eaede6a9ed7a18e94117be1821e0   # RetroAchievements/rcheevos, release v12.5.0, 2026-09-13
+LIBCHDR_COMMIT=47d794151b2b64f6aba60304e6480f4f5a2bc24b    # rtissera/libchdr, 2026-10-11
 MESA_TAG=mesa-26.0.8
 LIBDRM_TAG=libdrm-2.4.125
 export DEBIAN_FRONTEND=noninteractive
@@ -192,6 +199,20 @@ fi
 # YabaSanshiro (Sega Saturn, only build.sh with-saturn): built by scripts/build-saturn-core.sh (a CMake of its own
 # made there, without a renderer), which patches it each time from the files as git has them.
 checkout https://github.com/libretro/yabause.git "$SRC_ROOT/yabasanshiro" "$YABASANSHIRO_COMMIT"
+# Beetle PCE Fast (the PC Engine): built by scripts/build-beetle-cores.sh (a CMake of its own made there), which
+# patches it each time from the files as git has them.
+checkout https://github.com/libretro/beetle-pce-fast-libretro.git "$SRC_ROOT/beetle-pce-fast-libretro" "$BEETLE_PCE_FAST_COMMIT"
 checkout https://github.com/ocornut/imgui.git "$SRC_ROOT/imgui" "$IMGUI_COMMIT"
+# RetroAchievements (00.73): built by CMakeLists.txt as they are (no patches).
+checkout https://github.com/RetroAchievements/rcheevos.git "$SRC_ROOT/rcheevos" "$RCHEEVOS_COMMIT"
+checkout https://github.com/rtissera/libchdr.git "$SRC_ROOT/libchdr" "$LIBCHDR_COMMIT"
+# Mbed TLS 2.16.6, PacBrew's source tarball (its PKGBUILD's URL and SHA-256): scripts/build-mbedtls.sh rebuilds its
+# bignum.c with upstream's fix (00.73: HTTPS to RSA servers).
+MBEDTLS_SHA256=66455e23a6190a30142cdc1113f7418158839331a9d8e6b0778631d077281770
+if ! echo "$MBEDTLS_SHA256  $SRC_ROOT/mbedtls-2.16.6-apache.tgz" | sha256sum -c --quiet - 2>/dev/null; then
+    wget -q https://sources.buildroot.net/mbedtls/mbedtls-2.16.6-apache.tgz -O /tmp/mbedtls-2.16.6-apache.tgz
+    echo "$MBEDTLS_SHA256  /tmp/mbedtls-2.16.6-apache.tgz" | sha256sum -c -
+    mv /tmp/mbedtls-2.16.6-apache.tgz "$SRC_ROOT/mbedtls-2.16.6-apache.tgz"
+fi
 
 step "Ready: now scripts/build.sh and scripts/package.sh <version>"

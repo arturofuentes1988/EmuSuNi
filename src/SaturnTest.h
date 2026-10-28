@@ -10,6 +10,10 @@
 
 #pragma once
 
+#include <cstdint>
+#include <string>
+#include <vector>
+
 #include "Library.h"
 
 class Display;
@@ -17,6 +21,11 @@ struct ImFont;
 
 namespace SaturnTest
 {
+// The Saturn's BIOS (the test's and the console's, src/Emulator.cpp): a file of 512 KiB by a name the core knows
+// (saturn_bios.bin, mpr-17933.bin, sega_101.bin) or any such .bin with "bios" in its name, in these folders; a USA or
+// Europe one first. "" when there is none; crc: its CRC-32. The name of a known one by its CRC-32.
+std::string FindSaturnBios(const std::vector<std::string>& folders, uint32_t* crc);
+std::string SaturnBiosName(uint32_t crc);
 // Does Settings show the test (the file /data/EmuSuNi/saturn-test is there)? Its lines may set the test as well:
 // "frames=N" (frames from the BIOS, 4800), "seconds=N" (at most, each game: 300), "sleep_us=N" (the SCSP thread's
 // sleep, 30).

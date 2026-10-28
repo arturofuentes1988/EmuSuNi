@@ -125,6 +125,7 @@ bool DeleteState(const std::string& game_id, int slot)
 {
   std::remove(StatePicturePath(game_id, slot).c_str());
   std::remove((StatePath(game_id, slot) + ".disc").c_str());  // (a Dreamcast state's disc)
+  std::remove((StatePath(game_id, slot) + ".ra").c_str());    // (its RetroAchievements progress, 00.73)
   return std::remove(StatePath(game_id, slot).c_str()) == 0;
 }
 }  // namespace Saves

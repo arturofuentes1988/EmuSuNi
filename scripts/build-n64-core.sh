@@ -43,6 +43,12 @@
 #     ring's producer copies a command at once, ParaLLEl-RSP jumps between its compiled blocks and
 #     reads/writes the plain COP0 registers without calls into C, and the dynarec's JR lookup has a
 #     small cache in front. The same pictures, sound and RDRAM; about 12% less RSP time there.
+#   - A ParaLLEl-RSP task that waits for a signal from the CPU (World Driver Championship, Stunt Racer
+#     64) runs on when the CPU gives it: upstream's be05ef7 left it halted for good (00.72).
+#   - ParaLLEl-RSP's commonest vector loads and stores of whole aligned blocks in one SSE load or store
+#     (LQV/SQV, LDV/SDV, LPV/LUV, SPV/SUV): bit-exact against HEAD on every address and element (00.72).
+#   - For the log: the dynarec's compiling timed, and each new picture the game shows (00.72).
+#   - PGO: scripts/n64-core.profdata.xz (00.72; N64_CORE_PGO=off without it).
 # Everything is compiled again when the flags or this script change (make tracks neither flags nor
 # headers: in the N64 test 00.02, Granite's objects saw two Vulkan header versions and disagreed on
 # its Context, and the app closed at every N64 game's start).
@@ -1581,6 +1587,246 @@ patch('mupen64plus-core/src/device/r4300/new_dynarec/new_dynarec.c',
       "  for(n=0;n<65536;n++)\n"
       "    hash_table[n][0]=hash_table[n][1]=NULL;\n"
       "  memset(emusuni_jump_cache,0,sizeof(emusuni_jump_cache)); // EmuSuNi\n")
+# EmuSuNi 00.72: a ParaLLEl-RSP task that waits for the CPU runs on when the CPU answers. Such a task reads SP_STATUS
+# over and over until the CPU sets a signal bit while the task runs (Boss Game Studios' microcode: World Driver
+# Championship, Stunt Racer 64); after SP_STATUS_TIMEOUT reads RSP_MFC0 halts it so that the CPU can run, and
+# DoRspCycles clears that halt again ("CPU restarts with the correct SIGs", as CXD4): mupen64plus-core then runs the
+# task on at the CPU's next SP_STATUS write (rsp_task_locked). parallel-rsp's be05ef7 ("Fixed RSP hang when setting
+# HALT but not BREAK", in mupen64plus-next since 2025) returns early for any halt, so the timeout's halt stayed for good
+# and those games waited for ever after their first graphics task: a black screen from the start (the PC: World Driver
+# Championship (E) stops after one task with ParaLLEl-RSP, plays with CXD4). Now only a halt the microcode set itself
+# returns early; the timeout's goes on as before be05ef7. Each such wait is counted for the log (port/ps4_n64.c's
+# emusuni_n64_rsp_waits: "the RSP waited for the CPU N times").
+patch('mupen64plus-rsp-paraLLEl/rsp/cp0.cpp',
+      "extern int SP_STATUS_TIMEOUT;\n} // namespace RSP\n",
+      "extern int SP_STATUS_TIMEOUT;\n"
+      "extern bool emusuni_timeout_halt;  // EmuSuNi: the halt below (the task waits for the CPU), not the microcode's\n"
+      "} // namespace RSP\n")
+patch('mupen64plus-rsp-paraLLEl/rsp/cp0.cpp',
+      "\t\t\tif (RSP::MFC0_count[rt] >= RSP::SP_STATUS_TIMEOUT)\n"
+      "\t\t\t{\n"
+      "\t\t\t\t*RSP::rsp.SP_STATUS_REG |= SP_STATUS_HALT;\n"
+      "\t\t\t\treturn MODE_CHECK_FLAGS;\n"
+      "\t\t\t}\n"
+      "\t\t}\n"
+      "#endif\n",
+      "\t\t\tif (RSP::MFC0_count[rt] >= RSP::SP_STATUS_TIMEOUT)\n"
+      "\t\t\t{\n"
+      "\t\t\t\t*RSP::rsp.SP_STATUS_REG |= SP_STATUS_HALT;\n"
+      "\t\t\t\tRSP::emusuni_timeout_halt = true;\n"
+      "\t\t\t\treturn MODE_CHECK_FLAGS;\n"
+      "\t\t\t}\n"
+      "\t\t}\n"
+      "#endif\n")
+patch('mupen64plus-rsp-paraLLEl/parallel.cpp',
+      "short MFC0_count[32];\nint SP_STATUS_TIMEOUT;\n",
+      "short MFC0_count[32];\nint SP_STATUS_TIMEOUT;\n"
+      "// EmuSuNi: this task's halt came from RSP_MFC0's timeout (the task waits for the CPU), not from its microcode.\n"
+      "bool emusuni_timeout_halt = false;\n")
+patch('mupen64plus-rsp-paraLLEl/parallel.cpp',
+      "#include \"m64p_plugin.h\"\n#include \"rsp_1.1.h\"\n",
+      "#include \"m64p_plugin.h\"\n#include \"rsp_1.1.h\"\n"
+      "\n"
+      "#ifdef __PS4__\n"
+      "extern \"C\" unsigned emusuni_n64_rsp_waits;  // EmuSuNi (port/ps4_n64.c): tasks that waited for the CPU, for the log\n"
+      "#endif\n")
+patch('mupen64plus-rsp-paraLLEl/parallel.cpp',
+      "\t\tfor (auto &count : RSP::MFC0_count)\n\t\t\tcount = 0;\n",
+      "\t\tfor (auto &count : RSP::MFC0_count)\n\t\t\tcount = 0;\n"
+      "\t\tRSP::emusuni_timeout_halt = false;\n")
+patch('mupen64plus-rsp-paraLLEl/parallel.cpp',
+      "\t\telse if (*RSP::rsp.SP_STATUS_REG & SP_STATUS_HALT)\n\t\t\treturn cycles;\n",
+      "\t\telse if ((*RSP::rsp.SP_STATUS_REG & SP_STATUS_HALT) && !RSP::emusuni_timeout_halt)\n"
+      "\t\t\treturn cycles;  // EmuSuNi: the microcode's own halt (be05ef7); the timeout's goes on below\n")
+patch('mupen64plus-rsp-paraLLEl/parallel.cpp',
+      "\t\t// CPU restarts with the correct SIGs.\n\t\t*RSP::rsp.SP_STATUS_REG &= ~SP_STATUS_HALT;\n",
+      "#ifdef __PS4__\n"
+      "\t\tif (RSP::emusuni_timeout_halt)\n"
+      "\t\t\temusuni_n64_rsp_waits++;\n"
+      "#endif\n"
+      "\t\t// CPU restarts with the correct SIGs.\n\t\t*RSP::rsp.SP_STATUS_REG &= ~SP_STATUS_HALT;\n")
+# EmuSuNi 00.72, for the log (port/ps4_n64.c, every 10 s): the dynarec's compiling timed (TIMED_SECTION_COMPILER, which
+# the core declares but never timed: the line's "recompiler 0.00 ms" until now) - a game's code run for the first time
+# is compiled at once, GoldenEye's first weapon change 827 blocks in one frame (13 ms on the PC); and each new picture
+# the game shows (the VI origin's changes: a double-buffered game's pictures a second).
+patch('mupen64plus-core/src/device/r4300/new_dynarec/new_dynarec.c',
+      "#include \"main/rom.h\"\n",
+      "#include \"main/rom.h\"\n"
+      "#if defined(PROFILE)\n#include \"main/profile.h\"\n#endif\n")
+patch('mupen64plus-core/src/device/r4300/new_dynarec/new_dynarec.c',
+      "int new_recompile_block(int addr)\n{\n",
+      "#if defined(PROFILE)\n"
+      "/* EmuSuNi: each block's compiling timed (the log's recompiler time). */\n"
+      "static int emusuni_recompile_block(int addr);\n"
+      "int new_recompile_block(int addr)\n{\n"
+      "  timed_section_start(TIMED_SECTION_COMPILER);\n"
+      "  const int result = emusuni_recompile_block(addr);\n"
+      "  timed_section_end(TIMED_SECTION_COMPILER);\n"
+      "  return result;\n"
+      "}\n"
+      "static int emusuni_recompile_block(int addr)\n{\n"
+      "#else\n"
+      "int new_recompile_block(int addr)\n{\n"
+      "#endif\n")
+patch('mupen64plus-core/src/device/rcp/vi/vi_controller.c',
+      "void write_vi_regs(void* opaque, uint32_t address, uint32_t value, uint32_t mask)\n{\n",
+      "#ifdef __PS4__\n"
+      "extern void emusuni_n64_vi_origin(void);  /* EmuSuNi (port/ps4_n64.c): a new picture, for the log */\n"
+      "#endif\n"
+      "\n"
+      "void write_vi_regs(void* opaque, uint32_t address, uint32_t value, uint32_t mask)\n{\n")
+patch('mupen64plus-core/src/device/rcp/vi/vi_controller.c',
+      "    if (reg < VI_REGS_COUNT)\n    {\n        masked_write(&vi->regs[reg], value, mask);\n    }\n",
+      "#ifdef __PS4__\n"
+      "    if (reg == VI_ORIGIN_REG && (vi->regs[VI_ORIGIN_REG] & mask) != (value & mask))\n"
+      "        emusuni_n64_vi_origin();\n"
+      "#endif\n"
+      "    if (reg < VI_REGS_COUNT)\n    {\n        masked_write(&vi->regs[reg], value, mask);\n    }\n")
+# EmuSuNi 00.72: ParaLLEl-RSP's commonest vector loads and stores of whole aligned blocks in one SSE load or store
+# (rsp/ls.cpp): LQV/SQV (a quadword at a 16-byte boundary, element 0), LDV/SDV (a doubleword at an 8-byte boundary,
+# element 0 or 8), LPV/LUV (8 bytes made 8 elements, the doubleword's own bytes), SPV/SUV (element 0, at an 8-byte
+# boundary). The DMEM keeps the N64's big-endian words as host words: its halfwords are swapped in pairs and its bytes
+# reversed in each word, which one shuffle undoes. The other cases go as before. Bit-exact against HEAD on every
+# address, element and register (scratchpad n64-0072/ls-test). Conker's intro: these loads and stores were 11% of the
+# emulation thread.
+patch('mupen64plus-rsp-paraLLEl/rsp/ls.cpp',
+      "\t\tif (!((addr | e) & 1) && e <= 8)  // EmuSuNi: whole halfwords\n"
+      "\t\t{\n"
+      "\t\t\tuint16_t *reg = rsp->cp2.regs[rt].e + (e >> 1);\n"
+      "\t\t\tfor (unsigned i = 0; i < 4; i++)\n"
+      "\t\t\t\treg[i] = READ_MEM_U16(rsp->dmem, (addr + 2 * i) & 0xfff);\n"
+      "\t\t\treturn;\n"
+      "\t\t}\n",
+      "\t\tif (!((addr | e) & 1) && e <= 8)  // EmuSuNi: whole halfwords\n"
+      "\t\t{\n"
+      "\t\t\tuint16_t *reg = rsp->cp2.regs[rt].e + (e >> 1);\n"
+      "\t\t\tif (!(addr & 7) && !(e & 7))  // EmuSuNi 00.72: the aligned doubleword in one load\n"
+      "\t\t\t{\n"
+      "\t\t\t\tconst __m128i d = _mm_loadl_epi64(reinterpret_cast<const __m128i *>(\n"
+      "\t\t\t\t    reinterpret_cast<const uint8_t *>(rsp->dmem) + (addr & 0xfff)));\n"
+      "\t\t\t\t_mm_storel_epi64(reinterpret_cast<__m128i *>(reg), _mm_shufflelo_epi16(d, 0xb1));\n"
+      "\t\t\t\treturn;\n"
+      "\t\t\t}\n"
+      "\t\t\tfor (unsigned i = 0; i < 4; i++)\n"
+      "\t\t\t\treg[i] = READ_MEM_U16(rsp->dmem, (addr + 2 * i) & 0xfff);\n"
+      "\t\t\treturn;\n"
+      "\t\t}\n")
+patch('mupen64plus-rsp-paraLLEl/rsp/ls.cpp',
+      "\t\telse\n"
+      "\t\t{\n"
+      "\t\t\te >>= 1;\n"
+      "\t\t\tfor (unsigned i = 0; i < 4; i++)\n",
+      "\t\telse if (!(addr & 7) && !(e & 7))\n"
+      "\t\t{\n"
+      "\t\t\t// EmuSuNi 00.72: the aligned doubleword in one store.\n"
+      "\t\t\tconst __m128i v = _mm_loadl_epi64(reinterpret_cast<const __m128i *>(rsp->cp2.regs[rt].e + (e >> 1)));\n"
+      "\t\t\t_mm_storel_epi64(reinterpret_cast<__m128i *>(reinterpret_cast<uint8_t *>(rsp->dmem) + addr),\n"
+      "\t\t\t                 _mm_shufflelo_epi16(v, 0xb1));\n"
+      "\t\t}\n"
+      "\t\telse\n"
+      "\t\t{\n"
+      "\t\t\te >>= 1;\n"
+      "\t\t\tfor (unsigned i = 0; i < 4; i++)\n")
+patch('mupen64plus-rsp-paraLLEl/rsp/ls.cpp',
+      "\t\tif (index == 0)  // EmuSuNi: the doubleword's two words\n"
+      "\t\t{\n"
+      "\t\t\tconst uint32_t w0 = READ_MEM_U32(rsp->dmem, addr), w1 = READ_MEM_U32(rsp->dmem, (addr + 4));\n"
+      "\t\t\tfor (unsigned i = 0; i < 4; i++)\n"
+      "\t\t\t{\n"
+      "\t\t\t\treg[i] = uint16_t(((w0 >> (24 - 8 * i)) & 0xff) << 8);\n"
+      "\t\t\t\treg[i + 4] = uint16_t(((w1 >> (24 - 8 * i)) & 0xff) << 8);\n"
+      "\t\t\t}\n"
+      "\t\t\treturn;\n"
+      "\t\t}\n",
+      "\t\tif (index == 0)  // EmuSuNi: the doubleword's eight bytes, each the high byte of an element (00.72: one shuffle)\n"
+      "\t\t{\n"
+      "\t\t\tconst __m128i d = _mm_loadl_epi64(reinterpret_cast<const __m128i *>(\n"
+      "\t\t\t    reinterpret_cast<const uint8_t *>(rsp->dmem) + addr));\n"
+      "\t\t\tconst __m128i spread = _mm_setr_epi8(-1, 3, -1, 2, -1, 1, -1, 0, -1, 7, -1, 6, -1, 5, -1, 4);\n"
+      "\t\t\t_mm_store_si128(reinterpret_cast<__m128i *>(reg), _mm_shuffle_epi8(d, spread));\n"
+      "\t\t\treturn;\n"
+      "\t\t}\n")
+patch('mupen64plus-rsp-paraLLEl/rsp/ls.cpp',
+      "\t\tif (index == 0)  // EmuSuNi: the doubleword's two words\n"
+      "\t\t{\n"
+      "\t\t\tconst uint32_t w0 = READ_MEM_U32(rsp->dmem, addr), w1 = READ_MEM_U32(rsp->dmem, (addr + 4));\n"
+      "\t\t\tfor (unsigned i = 0; i < 4; i++)\n"
+      "\t\t\t{\n"
+      "\t\t\t\treg[i] = uint16_t(((w0 >> (24 - 8 * i)) & 0xff) << 7);\n"
+      "\t\t\t\treg[i + 4] = uint16_t(((w1 >> (24 - 8 * i)) & 0xff) << 7);\n"
+      "\t\t\t}\n"
+      "\t\t\treturn;\n"
+      "\t\t}\n",
+      "\t\tif (index == 0)  // EmuSuNi: the doubleword's eight bytes, each shifted 7 into an element (00.72: one shuffle)\n"
+      "\t\t{\n"
+      "\t\t\tconst __m128i d = _mm_loadl_epi64(reinterpret_cast<const __m128i *>(\n"
+      "\t\t\t    reinterpret_cast<const uint8_t *>(rsp->dmem) + addr));\n"
+      "\t\t\tconst __m128i spread = _mm_setr_epi8(-1, 3, -1, 2, -1, 1, -1, 0, -1, 7, -1, 6, -1, 5, -1, 4);\n"
+      "\t\t\t_mm_store_si128(reinterpret_cast<__m128i *>(reg), _mm_srli_epi16(_mm_shuffle_epi8(d, spread), 1));\n"
+      "\t\t\treturn;\n"
+      "\t\t}\n")
+patch('mupen64plus-rsp-paraLLEl/rsp/ls.cpp',
+      "\t\tTRACE_LS(SPV);\n"
+      "\t\tunsigned addr = (rsp->sr[base] + offset * 8) & 0xfff;\n"
+      "\t\tauto *reg = rsp->cp2.regs[rt].e;\n",
+      "\t\tTRACE_LS(SPV);\n"
+      "\t\tunsigned addr = (rsp->sr[base] + offset * 8) & 0xfff;\n"
+      "\t\tauto *reg = rsp->cp2.regs[rt].e;\n"
+      "\t\tif (e == 0 && !(addr & 7))  // EmuSuNi 00.72: the elements' high bytes, a doubleword in one store\n"
+      "\t\t{\n"
+      "\t\t\tconst __m128i pick = _mm_setr_epi8(7, 5, 3, 1, 15, 13, 11, 9, -1, -1, -1, -1, -1, -1, -1, -1);\n"
+      "\t\t\tconst __m128i v = _mm_load_si128(reinterpret_cast<const __m128i *>(reg));\n"
+      "\t\t\t_mm_storel_epi64(reinterpret_cast<__m128i *>(reinterpret_cast<uint8_t *>(rsp->dmem) + addr),\n"
+      "\t\t\t                 _mm_shuffle_epi8(v, pick));\n"
+      "\t\t\treturn;\n"
+      "\t\t}\n")
+patch('mupen64plus-rsp-paraLLEl/rsp/ls.cpp',
+      "\t\tTRACE_LS(SUV);\n"
+      "\t\tunsigned addr = (rsp->sr[base] + offset * 8) & 0xfff;\n"
+      "\t\tauto *reg = rsp->cp2.regs[rt].e;\n",
+      "\t\tTRACE_LS(SUV);\n"
+      "\t\tunsigned addr = (rsp->sr[base] + offset * 8) & 0xfff;\n"
+      "\t\tauto *reg = rsp->cp2.regs[rt].e;\n"
+      "\t\tif (e == 0 && !(addr & 7))  // EmuSuNi 00.72: the elements' bits 7-14, a doubleword in one store\n"
+      "\t\t{\n"
+      "\t\t\tconst __m128i pick = _mm_setr_epi8(6, 4, 2, 0, 14, 12, 10, 8, -1, -1, -1, -1, -1, -1, -1, -1);\n"
+      "\t\t\tconst __m128i v = _mm_srli_epi16(_mm_load_si128(reinterpret_cast<const __m128i *>(reg)), 7);\n"
+      "\t\t\t_mm_storel_epi64(reinterpret_cast<__m128i *>(reinterpret_cast<uint8_t *>(rsp->dmem) + addr),\n"
+      "\t\t\t                 _mm_shuffle_epi8(v, pick));\n"
+      "\t\t\treturn;\n"
+      "\t\t}\n")
+patch('mupen64plus-rsp-paraLLEl/rsp/ls.cpp',
+      "\t\tif (!((addr | e) & 1))  // EmuSuNi: whole halfwords\n"
+      "\t\t{\n"
+      "\t\t\tuint16_t *reg = rsp->cp2.regs[rt].e;\n"
+      "\t\t\tconst unsigned at = addr & 0xfff;\n",
+      "\t\tif (!((addr | e) & 1))  // EmuSuNi: whole halfwords\n"
+      "\t\t{\n"
+      "\t\t\tuint16_t *reg = rsp->cp2.regs[rt].e;\n"
+      "\t\t\tconst unsigned at = addr & 0xfff;\n"
+      "\t\t\tif (e == 0 && !(addr & 15))  // EmuSuNi 00.72: the aligned quadword in one load\n"
+      "\t\t\t{\n"
+      "\t\t\t\tconst __m128i q = _mm_loadu_si128(reinterpret_cast<const __m128i *>(\n"
+      "\t\t\t\t    reinterpret_cast<const uint8_t *>(rsp->dmem) + at));\n"
+      "\t\t\t\t_mm_store_si128(reinterpret_cast<__m128i *>(reg), _mm_shufflehi_epi16(_mm_shufflelo_epi16(q, 0xb1), 0xb1));\n"
+      "\t\t\t\treturn;\n"
+      "\t\t\t}\n")
+patch('mupen64plus-rsp-paraLLEl/rsp/ls.cpp',
+      "\t\tif (!((addr | e) & 1))  // EmuSuNi: whole halfwords\n"
+      "\t\t{\n"
+      "\t\t\tconst uint16_t *reg = rsp->cp2.regs[rt].e;\n"
+      "\t\t\tfor (unsigned i = e; i < end; i += 2)\n",
+      "\t\tif (!((addr | e) & 1))  // EmuSuNi: whole halfwords\n"
+      "\t\t{\n"
+      "\t\t\tconst uint16_t *reg = rsp->cp2.regs[rt].e;\n"
+      "\t\t\tif (e == 0 && !(addr & 15))  // EmuSuNi 00.72: the aligned quadword in one store\n"
+      "\t\t\t{\n"
+      "\t\t\t\tconst __m128i v = _mm_load_si128(reinterpret_cast<const __m128i *>(reg));\n"
+      "\t\t\t\t_mm_storeu_si128(reinterpret_cast<__m128i *>(reinterpret_cast<uint8_t *>(rsp->dmem) + addr),\n"
+      "\t\t\t\t                 _mm_shufflehi_epi16(_mm_shufflelo_epi16(v, 0xb1), 0xb1));\n"
+      "\t\t\t\treturn;\n"
+      "\t\t\t}\n"
+      "\t\t\tfor (unsigned i = e; i < end; i += 2)\n")
 for path, text in patched.items():
     full = root + '/' + path
     with open(full, encoding='utf-8') as f:
@@ -1618,11 +1864,33 @@ PS4+=" -include $OUT/prefix_mupen64plus.h"
 # The core's timing of its graphics and sound tasks and its recompiler, in the log every 2 s.
 PS4+=" -DPROFILE"
 CXXSYS="-nostdinc++ -isystem $HOME/dolphinps4-build/sysroot/include/c++/v1"
+# PGO (profile-guided optimisation, 00.72): scripts/n64-core.profdata.xz, a profile of the PC build of these same
+# sources and patches (the harness of scratchpad perf/pc-harness: prepare-core.sh, then the core built as a Linux
+# .so with -fprofile-instr-generate and without the harness's counters) playing 20 of the owner's cartridges - the
+# attract modes of Super Mario 64, Ocarina of Time, Majora's Mask, Conker, Rogue Squadron, Battle for Naboo, Perfect
+# Dark, Banjo-Tooie, Jet Force Gemini, Pokemon Snap, Paper Mario, Mario Party, F-Zero X, Diddy Kong Racing,
+# Banjo-Kazooie, World Driver Championship, Resident Evil 2, Beetle Adventure Racing, Space Station Silicon Valley
+# and GoldenEye's Dam with its weapons changed, 6000 frames each -, merged with llvm-profdata-21 and xz -9'd. The same
+# pictures, sound and memory (the PC: identical hashes); the emulation thread 1-7% faster there. A profile older than
+# the sources only optimises less (a function that changed gets none). N64_CORE_PGO=off builds without it.
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROFILE_XZ="${N64_CORE_PROFILE:-$HERE/n64-core.profdata.xz}"
+PGO="none"
+if [ "${N64_CORE_PGO:-use}" != off ] && [ -f "$PROFILE_XZ" ]; then
+  xz -dc "$PROFILE_XZ" > "$OUT/n64-core.profdata.new"
+  if cmp -s "$OUT/n64-core.profdata.new" "$OUT/n64-core.profdata"; then
+    rm -f "$OUT/n64-core.profdata.new"
+  else
+    mv "$OUT/n64-core.profdata.new" "$OUT/n64-core.profdata"
+  fi
+  PS4+=" -fprofile-instr-use=$OUT/n64-core.profdata -Wno-profile-instr-unprofiled"
+  PGO="profile $(sha256sum "$PROFILE_XZ" | cut -c1-16)"
+fi
 
 cd "$SRC"
 MAKEFLAGS_CORE="platform=unix ARCH=x86_64 STATIC_LINKING=1 HAVE_PARALLEL_RDP=1 HAVE_PARALLEL_RSP=1 HAVE_THR_AL=0 LLE=1 WITH_DYNAREC=x86_64"
 STAMP="$SRC/.emusuni-flags"
-WANT="$PS4 | $CXXSYS | $MAKEFLAGS_CORE | $(sha256sum "${BASH_SOURCE[0]}" | cut -d' ' -f1)"
+WANT="$PS4 | $CXXSYS | $MAKEFLAGS_CORE | pgo $PGO | $(sha256sum "${BASH_SOURCE[0]}" | cut -d' ' -f1)"
 if [ "${2:-}" = clean ] || [ "$(cat "$STAMP" 2>/dev/null)" != "$WANT" ]; then
   echo "Mupen64Plus-Next: compiling everything (new flags, a new version of this script, or clean)"
   make clean > /dev/null 2>&1 || true
@@ -1637,12 +1905,21 @@ if ! make -j"${EMUSUNI_JOBS:-4}" $MAKEFLAGS_CORE TARGET=mupen64plus_next_libretr
   exit 1
 fi
 printf '%s' "$WANT" > "$STAMP"
+if [ "${PGO%% *}" = profile ]; then
+  # (clang's -Wprofile-instr-out-of-date, one line per file: "of N functions, M have mismatched data")
+  STALE=$( { grep -oE "of [0-9]+ functions, [0-9]+ ha(s|ve) mismatched data" "$LOG" || true; } |
+           awk '{n += $2; m += $4} END {print m + 0, "of", n + 0}')
+  echo "Mupen64Plus-Next: PGO with $(basename "$PROFILE_XZ") (functions it doesn't match in the files compiled now: $STALE in the files with any)"
+fi
 
 # One object: the libretro API (renamed) and ParaLLEl-RDP's device creation stay global.
 # (GNU ld -r -d: the core is built with -fcommon; its common variables get their space here,
 # else they couldn't be made private.)
 ld.bfd -r -d --whole-archive "$SRC/mupen64plus_next_libretro.a" -o "$OUT/n64_core_all.o"
-llvm-objcopy-21 --wildcard --keep-global-symbol='mupen64plus_retro_*' \
+# (PGO's call graph profile - clang's .llvm.call-graph-profile, for the program's link to place hot functions together
+# - comes out of GNU ld -r without its entry size, which the app's link (ld.lld) refuses: left out.)
+llvm-objcopy-21 --remove-section=.llvm.call-graph-profile --remove-section=.rel.llvm.call-graph-profile \
+  --wildcard --keep-global-symbol='mupen64plus_retro_*' \
   --keep-global-symbol=parallel_create_device "$OUT/n64_core_all.o" "$OUT/n64_core.o"
 rm -f "$OUT/n64_core_all.o"
 ls -la "$OUT/n64_core.o"

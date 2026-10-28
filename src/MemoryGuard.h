@@ -48,11 +48,16 @@ inline int ColdMiB(const std::string& console)
   if (console == "nds" || console == "gb" || console == "gbc" || console == "gba")
     return 6;
 #ifdef EMUSUNI_SATURN
-  // The Saturn's speed test (src/SaturnTest.cpp): YabaSanshiro without a renderer starts one thread, its SCSP's
-  // (2 MiB + 16 KiB, kept for the next one): 3, as the lightest consoles.
+  // The Saturn (and its speed test, src/SaturnTest.cpp): YabaSanshiro starts five threads, its SCSP's and its
+  // software renderer's four (the VDP1's and its helper - 00.69 -, the VDP2's and its helper: scripts/
+  // build-saturn-core.sh), each 2 MiB + 16 KiB, kept for the next game: 11, the five stacks and a margin (00.68's PS4
+  // log: its first Saturn game took 9 MiB with four).
   if (console == "saturn")
-    return 3;
+    return 11;
 #endif
+  // The PC Engine (00.82: Beetle PCE Fast): no threads of its own: the others' 3.
+  if (console == "pce")
+    return 3;
   return 3;
 }
 

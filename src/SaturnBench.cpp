@@ -238,14 +238,26 @@ const Reference* FindReference(const std::string& name)
 extern "C" void emusuni_saturn_thread(const char* name)
 {
   const bool scsp = std::strcmp(name, "scsp") == 0;
+  const bool vdp1 = std::strcmp(name, "vdp1") == 0, vdp2 = std::strcmp(name, "vdp2") == 0;
+  const bool vdp2b = std::strcmp(name, "vdp2b") == 0, vdp1b = std::strcmp(name, "vdp1b") == 0;
   if (scsp)
     s_scsp_start_ns.store(ThreadCpuNs());
 #ifdef __PS4__
   // The SCSP thread beside the emulation thread (core 2, src/SaturnTest.cpp): on core 3 (the same CPU module), at
-  // its priority (480): the emulation waits for it at every frame's end. Others (none without a renderer) below.
+  // its priority (480): the emulation waits for it at every frame's end. The software renderer's threads (the VDP1's
+  // drawing in two bands of rows with its helper, 00.69; the VDP2's screens and picture, in two bands of lines with its
+  // helper: scripts/build-saturn-core.sh) on cores 4 and 0, 5 and 1, at the same priority: the emulation waits for
+  // them when they fall behind (the app's drawing beside the emulation then on cores 0 and 6, src/Emulator.cpp: the
+  // VDP1's helper is idle most of the time - its drawings come every 2 or 3 frames, 4 ms each on the PS4 by the PC's
+  // estimate). Others (none) below.
   void* self = saturn_pthread_self();
-  const uint64_t mask = scsp ? 1ull << 3 : (1ull << 1) | (1ull << 4) | (1ull << 5);
-  const int priority = scsp ? 480 : 700;
+  const uint64_t mask = scsp  ? 1ull << 3 :
+                        vdp1  ? 1ull << 4 :
+                        vdp2  ? 1ull << 5 :
+                        vdp2b ? 1ull << 1 :
+                        vdp1b ? 1ull << 0 :
+                                (1ull << 1) | (1ull << 4) | (1ull << 5);
+  const int priority = scsp || vdp1 || vdp2 || vdp2b || vdp1b ? 480 : 700;
   const int affinity = saturn_set_affinity(self, mask);
   const int prio = saturn_set_priority(self, priority);
   char thread_name[32];
@@ -255,10 +267,13 @@ extern "C" void emusuni_saturn_thread(const char* name)
        static_cast<unsigned long long>(mask), static_cast<unsigned>(affinity), priority, static_cast<unsigned>(prio),
        sceKernelGetCurrentCpu(), FlexibleFreeMiB());
 #else
-  // The PC check: SATBENCH_SCSP_CPU=n puts it on CPU n (the PC measurement: emulation on CPU 0, SCSP on CPU 3).
-  const char* cpu = std::getenv("SATBENCH_SCSP_CPU");
+  // The PC check: SATBENCH_SCSP_CPU=n puts it on CPU n (the PC measurement: emulation on CPU 0, SCSP on CPU 3), and
+  // SATBENCH_VDP1_CPU, SATBENCH_VDP1B_CPU, SATBENCH_VDP2_CPU, SATBENCH_VDP2B_CPU the renderer's.
+  const char* cpu = std::getenv(scsp ? "SATBENCH_SCSP_CPU" : vdp1 ? "SATBENCH_VDP1_CPU" :
+                                vdp1b ? "SATBENCH_VDP1B_CPU" :
+                                vdp2 ? "SATBENCH_VDP2_CPU" : vdp2b ? "SATBENCH_VDP2B_CPU" : "SATBENCH_OTHER_CPU");
 #ifdef __linux__
-  if (cpu && scsp)
+  if (cpu)
   {
     cpu_set_t set;
     CPU_ZERO(&set);
@@ -266,8 +281,13 @@ extern "C" void emusuni_saturn_thread(const char* name)
     pthread_setaffinity_np(pthread_self(), sizeof(set), &set);
   }
 #endif
-  LogF("saturn: thread \"%s\" started%s%s", name, cpu && scsp ? " on CPU " : "", cpu && scsp ? cpu : "");
+  LogF("saturn: thread \"%s\" started%s%s", name, cpu ? " on CPU " : "", cpu ? cpu : "");
 #endif
+}
+
+extern "C" void emusuni_saturn_stats(const char* text)
+{
+  LogF("saturn: %s", text);
 }
 
 extern "C" void emusuni_saturn_scsp_idle(void)

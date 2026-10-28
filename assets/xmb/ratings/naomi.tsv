@@ -1,0 +1,507 @@
+# EmuSuNi star ratings (scripts/make-ratings.py): the NAOMI names and each one's game in the LaunchBox
+# Games Database (its id: the app downloads LaunchBox's ratings itself, src/Ratings.h).
+# Names: Flycast's set names and full names (core/hw/naomi/naomi_roms.cpp).
+# Matched with LaunchBox's Metadata.xml of 2026-10-22. This file is under CC BY-SA 4.0.
+# name<TAB>LaunchBox id
+18 Wheeler (deluxe)	151766
+18 Wheeler (deluxe, Rev A)	151766
+18 Wheeler (deluxe, Rev T)	151766
+18 Wheeler (standard)	151766
+18 Wheeler (upright)	151766
+18wheelr	151766
+18wheelro	151766
+18wheelrt	151766
+18wheels	151766
+18wheelu	151766
+Airline Pilots (Japan, Rev A)	152410
+Airline Pilots (World, Rev B)	152410
+Akatsuki Blitzkampf Ausf. Achse	152426
+Alien Front (Rev A)	152427
+Alien Front (Rev T)	152427
+alienfnt	152427
+alienfnta	152427
+alpilot	152410
+alpilotj	152410
+anpanman2	286734
+anpanman2a	286734
+Asian Dynamite _ Dynamite Deka EX	35474
+Asian Dynamite _ Dynamite Deka EX (older)	35474
+asndynmt	35474
+asndynmto	35474
+ausfache	152426
+azumanga	152428
+Azumanga Daioh Puzzle Bobble	152428
+bdrdown	152414
+Beach Spikers	462525
+beachspi	462525
+Border Down	152414
+Cannon Spike _ Gun Spike	152386
+Capcom vs. SNK 2 Mark Of The Millennium 2001 (USA)	28664
+Capcom vs. SNK 2 Millionaire Fighting 2001 (Japan, Rev A)	151051
+Capcom vs. SNK Millennium Fight 2000	152381
+Capcom vs. SNK Millennium Fight 2000 (Rev A)	152381
+Capcom vs. SNK Millennium Fight 2000 (Rev C)	152381
+Capcom vs. SNK Millennium Fight 2000 Pro (Japan)	35866
+capsnk	152381
+capsnka	152381
+capsnkb	152381
+cfield	35981
+Chaos Field	35981
+chocomk	38246
+cleoftp	152416
+Cleopatra Fortune Plus	152416
+Club Kart for Cycraft	293053
+Club Kart for Cycraft (Rev A)	293053
+Club Kart Prize (Rev A)	36060
+Club Kart Prize (Ver. B prototype)	36060
+Club Kart Prize (Ver. B)	36060
+Club Kart_ European Session	152542
+Club Kart_ European Session (2003, prototype, set 1)	152542
+Club Kart_ European Session (2003, prototype, set 2)	152542
+Club Kart_ European Session (2003, Rev A)	152542
+Club Kart_ European Session (Rev A)	152542
+Club Kart_ European Session (Rev C)	152542
+Club Kart_ European Session (Rev D)	152542
+clubk2k3	152542
+clubk2kp	152542
+clubk2kpa	152542
+clubkcyc	293053
+clubkcyco	293053
+clubkprz	36060
+clubkpzb	36060
+clubkpzbp	36060
+clubkrt	152542
+clubkrta	152542
+clubkrtc	152542
+clubkrto	152542
+Confidential Mission	152417
+confmiss	152417
+Cosmic Smash	152418
+Cosmic Smash (Rev A)	152418
+Crackin' DJ	152420
+Crackin' DJ Part 2	152421
+crackndj	152420
+crakndj2	152421
+Crazy Taxi	152431
+crzytaxi	152431
+csmash	152418
+csmasho	152418
+cspike	152386
+cvs2	28664
+cvs2mf	151051
+cvsgd	35866
+Dead or Alive 2	152430
+Dead or Alive 2 (Rev A)	152430
+Dead or Alive 2 Millennium	156995
+Death Crimson OX (Japan)	36332
+Death Crimson OX (Japan, Rev A)	36332
+Death Crimson OX (USA)	36332
+deathcox	36332
+deathcoxj	36332
+deathcoxo	36332
+Derby Owners Club (Japan, Rev B)	180055
+derbyoc	180055
+dinoking	194662
+Dinosaur King (USA)	194662
+doa2	152430
+doa2a	152430
+doa2m	156995
+Doki Doki Idol Star Seeker	36415
+dragntr	152339
+dragntr2	152340
+dragntr3	152345
+dragntra	152339
+Dragon Treasure (Rev A)	152339
+Dragon Treasure (Rev B)	152339
+Dragon Treasure 2 (Rev A)	152340
+Dragon Treasure 3 (Rev A)	152345
+dybb99	36533
+dybbnao	36534
+dygolf	164523
+Dynamite Baseball '99 _ World Series '99	36533
+Dynamite Baseball NAOMI	36534
+f355	152432
+f355twin	152432
+f355twinp	152432
+f355twn2	36652
+Ferrari F355 Challenge (deluxe)	152432
+Ferrari F355 Challenge (twin)	152432
+Ferrari F355 Challenge (twin, preview)	152432
+Ferrari F355 Challenge 2	36652
+Galileo Factory (main)	423187
+galilfac	423187
+ggram2	36900
+ggx	133353
+ggxx	14996
+ggxxac	37063
+ggxxrl	37062
+ggxxrlo	37062
+ggxxsla	37064
+Giant Gram 2000	152434
+Giant Gram_ All Japan Pro Wrestling 2	36900
+Giga Wing 2	152372
+gram2000	152434
+Guilty Gear X	133353
+Guilty Gear XX	14996
+Guilty Gear XX #Reload	37062
+Guilty Gear XX #Reload (Rev A)	37062
+Guilty Gear XX Accent Core	37063
+Guilty Gear XX Slash (Rev A)	37064
+Gun Survivor 2 Biohazard Code_ Veronica (Japan)	152436
+Gun Survivor 2 Biohazard Code_ Veronica (World)	152436
+gundmct	152435
+gundmgd	152435
+gundmxgd	187242
+gunsur2	152436
+gunsur2j	152436
+gwing2	152372
+Heavy Metal_ Geomatrix	152402
+hmgeo	152402
+Idol Janshi Suchie-Pai 3	37303
+Ikaruga	152403
+ikaruga	152403
+illvelo	37320
+Illvelo (Illmatic Envelope)	37320
+inidv3ca	187246
+inidv3cy	187246
+initd	152551
+initdexp	152551
+initdexpo	152551
+initdo	152551
+initdv2e	152584
+initdv2j	152584
+initdv2ja	152584
+initdv2jo	152584
+initdv3e	152553
+initdv3j	152553
+initdv3jb	152553
+Initial D Arcade Stage (Export)	152551
+Initial D Arcade Stage (Export, Rev A)	152551
+Initial D Arcade Stage (Japan)	152551
+Initial D Arcade Stage (Japan, Rev B)	152551
+Initial D Arcade Stage 2 (Export)	152584
+Initial D Arcade Stage 2 (Japan)	152584
+Initial D Arcade Stage 2 (Japan, Rev A)	152584
+Initial D Arcade Stage 2 (Japan, Rev B)	152584
+Initial D Arcade Stage 3 (Export)	152553
+Initial D Arcade Stage 3 (Japan, Rev B)	152553
+Initial D Arcade Stage 3 (Japan, Rev C)	152553
+Initial D Arcade Stage 3 Cycraft Edition (Rev A)	187246
+Initial D Arcade Stage 3 Cycraft Edition (Rev B)	187246
+Inu no Osanpo _ Dog Walking	152443
+inunoos	152443
+jambo	152405
+Jambo! Safari	152405
+Jingi Storm - The Arcade	37412
+jingystm	37412
+Karous	152406
+karous	152406
+keyboard	37600
+Kick '4' Cash (Export)	37502
+kick4csh	37502
+kingrt66	152543
+kingrt66p	152543
+kurucham	37587
+Kurukuru Chameleon	37587
+La Keyboard	37600
+Lupin The Third - The Shooting	152450
+Lupin The Third - The Shooting (Rev A)	152450
+Lupin The Third - The Typing	37741
+lupinsho	152450
+lupinshoo	152450
+luptype	37741
+mamonoro	37981
+Mamoru-kun wa Norowarete Shimatta!	37981
+Manic Panic Ghosts!	152451
+manicpnc	152451
+Marvel vs. Capcom 2 New Age of Heroes (Export, Korea)	152449
+Marvel vs. Capcom 2 New Age of Heroes (USA)	152449
+mazan	152452
+Mazan_ Flash of the Blade (Japan)	152452
+Mazan_ Flash of the Blade (US)	152452
+Mazan_ Flash of the Blade (World)	152452
+mazanj	152452
+mazanu	152452
+mbaa	38072
+mbaao	152455
+Melty Blood Act Cadenza	27907
+Melty Blood Act Cadenza (Ver. A)	184794
+Melty Blood Act Cadenza (Ver. B)	27908
+Melty Blood Act Cadenza (Ver. B2)	152479
+Melty Blood Actress Again	152455
+Melty Blood Actress Again (Ver. A, Rev A)	38072
+meltyb	152479
+meltybld	184794
+meltyblo	27907
+meltybo	27908
+mj1	286736
+Mobile Suit Gundam_ Federation vs. Zeon	152435
+Mobile Suit Gundam_ Federation vs. Zeon DX	187242
+moeru	38145
+Moeru Casinyo	38145
+mok	152453
+Monkey Ball	38167
+monkeyba	38167
+Musapey's Choco Marker (Rev A)	38246
+mushi2eo	38254
+mushi2k3	38255
+mushi2k61	286750
+mushi2k62	286735
+mushik2e	38254
+mushik4e	286751
+mushik4t	286751
+mushike	38255
+mushikeo	38255
+Mushiking The King Of Beetle (2K3 2ND Ver. 1.000-, Korea)	38255
+Mushiking The King Of Beetle (2K3 2ND Ver. 1.002-, World)	38255
+Mushiking The King Of Beetle (2K3 2ND Ver. 1.003-, World)	38255
+Mushiking The King Of Beetle (2K3 2ND, Japan)	38255
+Mushiking The King Of Beetles - Mushiking II _ III _ III+ (World, Ver. 1.001)	38254
+Mushiking The King Of Beetles - Mushiking II _ III _ III+ (World, Ver. 2.001)	38254
+Mushiking The King Of Beetles - Mushiking IV _ V _ VI (Taiwan)	286751
+Mushiking The King Of Beetles - Mushiking IV _ V _ VI (World)	286751
+Mushiking The King Of Beetles 2006 First (Japan)	286750
+Mushiking The King Of Beetles 2006 Second (Japan)	286735
+mushikk	38255
+mvsc2	152449
+mvsc2u	152449
+Ninja Assault (Asia, NJA4 Ver.A)	28783
+Ninja Assault (Japan, NJA1 Ver.A)	28783
+Ninja Assault (US, NJA3 Ver.A)	28783
+Ninja Assault (World, NJA2 Ver.A)	28783
+ninjaslt	28783
+ninjaslta	28783
+ninjasltj	28783
+ninjasltu	28783
+Noukone Puzzle Takoron	38381
+otrigger	152480
+OutTrigger	152480
+pjustic	38143
+pjustica	38143
+pokasuka	152451
+Pokasuka Ghost!	152451
+Power Stone	152462
+Power Stone 2	152487
+Power Stone 2 (bootleg)	152487
+Project Justice _ Moero! Justice Gakuen	38143
+Project Justice _ Moero! Justice Gakuen (Rev A)	38143
+pstone	152462
+pstone2	152487
+pstone2b	152487
+psyvar2	38778
+Psyvariar 2 - The Will To Fabricate	38778
+Puyo Pop Fever (World)	164309
+Puyo Puyo Da!	38797
+Puyo Puyo Fever (Japan)	38798
+puyoda	38797
+puyofev	164309
+puyofevj	38798
+qmegamis	38860
+Quiz Ah Megamisama	38860
+Quiz Keitai Q mode	38878
+quizqgd	38878
+Radirgy	38932
+radirgy	38932
+Radirgy (Rev A)	38932
+Radirgy Noa	182675
+radirgyn	182675
+radirgyo	38932
+Rhythm Tengoku	39033
+rhytngk	39033
+Ring Out 4x4	39047
+Ring Out 4x4 (Rev A)	39047
+ringout	39047
+ringouto	39047
+samba	39162
+Samba De Amigo (Rev A)	39162
+Samba De Amigo (Rev B)	39162
+Samba De Amigo (USA, prototype)	39162
+Samba de Amigo ver. 2000 (Japan)	39163
+samba2k	39163
+sambaa	39162
+sambap	39162
+Sega Driving Simulator	293052
+Sega Strike Fighter	152624
+Sega Strike Fighter (no training mode)	152624
+Sega Tetris	152481
+Sega Yonin Uchi Mahjong MJ (Update Disc Ver.1.008, Japan) (CDP-10002B)	286736
+senko	152522
+Senko no Ronde	152522
+Senko no Ronde (Rev A)	152522
+Senko no Ronde Special	152475
+senkoo	152522
+senkosp	152475
+sfz3ugd	152492
+sgdrvsim	293052
+sgtetris	152481
+Shakatto Tambourine (Rev B)	39289
+Shakatto Tambourine Cho Powerup Chu (2K1 AUT)	39290
+Shakatto Tambourine Motto Norinori Shinkyoku Tsuika (2K1 SPR)	39291
+shaktam	39289
+shaktamb	39290
+shaktmsp	39291
+shikgam2	151263
+Shikigami no Shiro II _ The Castle of Shikigami II	151263
+Shin Nihon Pro Wrestling Toukon Retsuden 4 Arcade Edition (Japan, TRF1 Ver.A)	39314
+Shooting Love 2007	39326
+shootopl	152490
+Shootout Pool	152490
+Shootout Pool Prize (Export) _ Shootout Pool The Medal (Japan) Version B	39330
+Shootout Pool Prize (Export) _ Shootout Pool The Medal (Japan) Version B (prototype)	39330
+Shootout Pool Prize (Export) _ Shootout Pool The Medal (Japan, Rev A)	39330
+shootpl	39330
+shootplm	39330
+shootplmp	39330
+shorsepr	39612
+sl2007	39326
+slasho	152422
+Slashout	152422
+slashout	152422
+smlg99	39772
+Soreike! Anpanman Popcorn Koujou 2	286734
+Soreike! Anpanman Popcorn Koujou 2 (Rev A)	286734
+Soul Surfer (Rev A)	152544
+soulsurf	152544
+spawn	152494
+Spawn_ In the Demon's Hand	152494
+Spikers Battle	152491
+spkrbtl	152491
+Sports Jam	152441
+sprtjam	152441
+ss2005	39819
+ss2005o	39819
+sstrkfgt	152624
+sstrkfgta	152624
+Star Horse Progress Returns (satellite)	39612
+starseek	36415
+Street Fighter Zero 3 Upper	152492
+suchie3	37303
+Super Shanghai 2005	39819
+Super Shanghai 2005 (Rev A)	39819
+takoron	38381
+tduno	40219
+tduno2	152497
+tetgiano	40009
+tetkiwam	40010
+Tetris Giant _ Tetris Dekaris	40009
+Tetris Kiwamemichi	40010
+The King of Route 66 (prototype)	152543
+The King of Route 66 (Rev A)	152543
+The Maze of the Kings	152453
+Tokyo Bus Guide	152442
+tokyobus	152442
+Touch de Uno! 2	152497
+Touch de Uno! _ Unou Nouryoku Check Machine	40219
+Touch De Zunou (Rev A)	152498
+toukon4	39314
+Toy Fighter	40248
+toyfight	40248
+trgheart	40270
+trghearto	152512
+Trigger Heart Exelica	152512
+Trigger Heart Exelica (Ver. A)	40270
+Trizeal	40296
+trizeal	40296
+undefeat	152518
+Under Defeat	152518
+UNO the Medal	466525
+unomedal	466525
+Usagi - Yamashiro Mahjong Hen	152515
+usagiym	152515
+vathlete	40454
+vf4	152524
+vf4b	152524
+vf4cart	152524
+vf4evo	152545
+vf4evoa	152545
+vf4evob	152545
+vf4evoct	152545
+vf4o	152524
+vf4tuned	152546
+vf4tuneda	152546
+vf4tunedd	152546
+virnbao	152444
+virnbap	152444
+virnbapa	152444
+Virtua Athletics _ Virtua Athlete	40454
+Virtua Fighter 4	152524
+Virtua Fighter 4 (Rev B)	152524
+Virtua Fighter 4 (Ver. C)	152524
+Virtua Fighter 4 (World)	152524
+Virtua Fighter 4 Evolution (Japan)	152545
+Virtua Fighter 4 Evolution (Japan, Ver. B)	152545
+Virtua Fighter 4 Evolution (Japan, Ver. B, GDS-0024B)	152545
+Virtua Fighter 4 Evolution (World)	152545
+Virtua Fighter 4 Final Tuned (Rev A)	152546
+Virtua Fighter 4 Final Tuned (Ver. A)	152546
+Virtua Fighter 4 Final Tuned (Ver. B)	152546
+Virtua Golf _ Dynamic Golf	164523
+Virtua NBA	152444
+Virtua NBA (prototype)	152444
+Virtua NBA (prototype, 15.11)	152444
+Virtua Striker 2 Ver. 2000	152445
+Virtua Striker 2 Ver. 2000 (Rev C)	152445
+Virtua Striker 3	152547
+Virtua Striker 3 (World)	152547
+Virtua Striker 3 (World, Rev B)	152547
+Virtua Tennis 2 _ Power Smash 2	152517
+Virtua Tennis _ Power Smash	152521
+vs2_2k	152445
+vs2_2ko	152445
+vstrik3	152547
+vstrik3c	152547
+vstrik3co	152547
+vtenis2c	152517
+vtennis	152521
+vtennis2	152517
+vtennisg	152521
+Wave Runner GP (USA, Rev A)	152446
+wccf116	317305
+wccf1dup	317305
+wccf212e	317376
+wccf234j	317376
+wccf310j	317390
+wccf322e	317390
+wccf331e	317390
+wccf331j	317390
+wccf341j	40670
+wccf400j	317365
+wccf420e	317365
+Wild Riders	152548
+wldkicks	152523
+wldkicksj	152523
+wldkickspj	40683
+wldkickspw	40683
+wldkicksu	152523
+wldrider	152548
+World Club Champion Football European Clubs 2004-2005 (Asia)	317390
+World Club Champion Football European Clubs 2004-2005 (Export)	317390
+World Club Champion Football European Clubs 2004-2005 (Japan)	40670
+World Club Champion Football European Clubs 2004-2005 v1.1 (Export)	317390
+World Club Champion Football European Clubs 2004-2005 v1.1 (Japan)	317390
+World Club Champion Football European Clubs 2005-2006 (Export)	317365
+World Club Champion Football European Clubs 2005-2006 (Japan)	317365
+World Club Champion Football Serie A 2001-2002	317305
+World Club Champion Football Serie A 2001-2002 DIMM FIRM Ver.3.03	317305
+World Club Champion Football Serie A 2002-2003 (Italy)	317376
+World Club Champion Football Serie A 2002-2003 (Japan)	317376
+World Kicks (Japan, WK1 Ver.A)	152523
+World Kicks (PCB, Japan, WKC1 Ver.A)	40683
+World Kicks (PCB, World, WKC2 Ver.A)	40683
+World Kicks (US, WK3 Ver.A)	152523
+World Kicks (World, WK2 Ver.A)	152523
+World Series 99 _ Super Major League 99	39772
+World Series Baseball _ Super Major League	39771
+wrungpo	152446
+wsbbgd	39771
+WWF Royal Rumble	152447
+wwfroyal	152447
+Zero Gunner 2	152448
+zerogu2	152448
+Zombie Revenge	152540
+Zombie Revenge (Export)	152540
+Zombie Revenge (Rev A)	152540
+zombrvn	152540
+zombrvne	152540
+zombrvno	152540
+zunou	152498

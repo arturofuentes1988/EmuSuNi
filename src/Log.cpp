@@ -22,6 +22,7 @@ extern "C" __attribute__((weak)) void ps4rt_heap_usage(size_t* in_use, size_t* m
 extern "C" __attribute__((weak)) int ps4rt_thread_counts(char* text, size_t size);
 extern "C" __attribute__((weak)) int ps4rt_thread_defaults(size_t* stack, size_t* guard);
 extern "C" __attribute__((weak)) unsigned ps4rt_threads_made(void);
+extern "C" __attribute__((weak)) void ps4_trace_sync(void);  // port/ps4_crashlog.cpp
 
 namespace
 {
@@ -118,6 +119,21 @@ void LogThreadDefaults()
     LogF("threads: default stack %zu KiB, guard %zu KiB", stack / 1024, guard / 1024);
   else
     LogLine("threads: default stack unknown");
+}
+
+void LogSync()
+{
+  fsync(STDERR_FILENO);
+  if (ps4_trace_sync)
+    ps4_trace_sync();
+}
+
+void RotateLogs(const std::string& base, int keep)
+{
+  for (int i = keep - 1; i >= 1; i--)
+    std::rename((base + "-" + std::to_string(i) + ".log").c_str(), (base + "-" + std::to_string(i + 1) + ".log").c_str());
+  if (keep >= 1)
+    std::rename((base + ".log").c_str(), (base + "-1.log").c_str());
 }
 
 int FlexibleFreeMiB()

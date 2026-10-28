@@ -8,9 +8,11 @@
 #include <cstdlib>
 #include <ctime>
 #include <fcntl.h>
+#include <filesystem>
 #include <string>
 #include <thread>
 #include <unistd.h>
+#include <vector>
 
 #include <imgui.h>
 #include <orbis/Pad.h>
@@ -19,6 +21,7 @@
 #include <orbis/UserService.h>
 #include <orbis/libkernel.h>
 
+#include "Achievements.h"
 #include "Controls.h"
 #include "Display.h"
 #include "Emulator.h"
@@ -28,6 +31,7 @@
 #include "PS4Lang.h"
 #include "Saves.h"
 #include "Settings.h"
+#include "StartGuard.h"
 #include "Tour.h"
 #ifdef EMUSUNI_SATURN
 #include "SaturnTest.h"
@@ -132,12 +136,66 @@ bool MenuButtonHeld()
   scePadClose(pad);
   return held;
 }
+
+// 00.73 had error reports the player could send; 00.74 took them out. What 00.73 kept of them - data_dir/reports (a
+// report waiting to be offered or sent, the random ID it went with) and report-server.ini (a test server's address, if
+// one was made) - is deleted at the first start of a version without them (the next starts find nothing).
+// A folder and what it holds (its folders' too, a few levels), with the calls the menu already uses
+// (directory_iterator, remove): the files and folders deleted, the ones that couldn't be.
+void RemoveFolder(const std::filesystem::path& folder, int depth, int* removed, int* failed)
+{
+  std::error_code ec;
+  std::vector<std::filesystem::path> files, folders;
+  for (auto it = std::filesystem::directory_iterator(folder, ec); !ec && it != std::filesystem::directory_iterator();
+       it.increment(ec))
+  {
+    std::error_code type_error;
+    if (it->is_directory(type_error) && !it->is_symlink(type_error))
+      folders.push_back(it->path());
+    else
+      files.push_back(it->path());
+  }
+  for (const auto& sub : folders)
+  {
+    if (depth > 0)
+      RemoveFolder(sub, depth - 1, removed, failed);
+    else
+      (*failed)++;
+  }
+  files.push_back(folder);  // (last: empty by then)
+  for (const auto& file : files)
+  {
+    if (std::filesystem::remove(file, ec))
+      (*removed)++;
+    else
+      (*failed)++;
+  }
+}
+
+void RemoveOldReports(const std::string& data_dir)
+{
+  std::error_code ec;
+  const std::string folder = data_dir + "/reports";
+  if (std::filesystem::is_directory(folder, ec))
+  {
+    int removed = 0, failed = 0;
+    RemoveFolder(folder, 3, &removed, &failed);
+    LogF("reports: 00.73's error reports are gone in this version: %s deleted (%d files and folders%s)", folder.c_str(),
+         removed, failed > 0 ? (", " + std::to_string(failed) + " couldn't be").c_str() : "");
+  }
+  const std::string server = data_dir + "/report-server.ini";
+  if (std::filesystem::exists(server, ec) && std::filesystem::remove(server, ec))
+    LogF("reports: %s deleted", server.c_str());
+}
 }  // namespace
 
 int main()
 {
   const std::string data_dir = App::DATA_DIR;
   MakeDirs(data_dir);
+  // The logs of the four sessions before (00.70): emusuni.log becomes emusuni-1.log, ... emusuni-4.log, so a start
+  // that went wrong is still there after EmuSuNi was opened again (xmb-trace.log the same: port/ps4_crashlog.cpp).
+  RotateLogs(data_dir + "/emusuni", 4);
   // stdout/stderr go nowhere on PS4: to a file, unbuffered so it survives a crash.
   const int log_fd = open((data_dir + "/emusuni.log").c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0666);
   if (log_fd >= 0)
@@ -161,6 +219,17 @@ int main()
   }
   LoadSystemModules();
   SetTimeZone();
+  {
+    // (00.80) The console's Enter button: the PS4's own keyboard chose its keys with it (Circle on some consoles)
+    // until 00.79; the app's menus and keyboard always choose with Cross.
+    int32_t enter = -1;
+    sceSystemServiceParamGetInt(ORBIS_SYSTEM_SERVICE_PARAM_ID_ENTER_BUTTON_ASSIGN, &enter);
+    LogF("enter button: %s", enter == 0 ? "Circle" : enter == 1 ? "Cross" : "unknown");
+  }
+  // The start watchdog (src/StartGuard.h): what the process before left - a game's start that didn't finish, a game
+  // to start again at once (it restarted EmuSuNi for it), a failure to show - and its thread.
+  std::string again_path, again_message;
+  StartGuard::AppStarted(data_dir, &again_path, &again_message);
 #ifdef EMUSUNI_N64
   // How the PS4 lets code made at run time run (the N64 core's recompilers), once at start: every
   // executable mapping after this is made that way (port/ps4_runtime.cpp's mmap wrapper).
@@ -179,6 +248,13 @@ int main()
   Saves::Init(data_dir);
   PS4Lang::Load(App::ASSETS_DIR, Settings::Get("language"));
   Tour::Load(data_dir);
+  // RetroAchievements (00.73): the account kept in retroachievements.ini logs in again with its token, in the
+  // background (src/Achievements.h).
+  Achievements::Init(data_dir, App::ASSETS_DIR);
+  Achievements::SetLanguage(PS4Lang::Current().code);  // (00.76: the achievements' texts translated to it)
+  Achievements::SetRomReader(Library::ReadRom);  // (00.77: a zipped cartridge's ROM for the library's marks)
+  // 00.73's error reports were taken out in 00.74 (the owner's choice): what 00.73 kept of them goes, once.
+  RemoveOldReports(data_dir);
 
   IMGUI_CHECKVERSION();
   ImGui::CreateContext();
@@ -202,25 +278,40 @@ int main()
   ImFont* bold = menu.BoldFont();
 
   Library::Game game;
-  bool start_now = !Tour::Active() && menu.DefaultGame(&game) && !MenuButtonHeld();
-  if (start_now)
-    LogLine("default game: " + game.path);
+  bool start_now = false;
+  if (!again_path.empty())
+  {
+    // The game the start watchdog restarted EmuSuNi for: started again at once (L1 held: the menu instead).
+    start_now = menu.FindGame(again_path, &game) && !MenuButtonHeld();
+    LogLine(start_now ? "start: the game starts again: " + game.path :
+                        "start: not started again (not in the games now, or L1 held): " + again_path);
+    if (!start_now)
+      StartGuard::Forget();
+  }
+  else
+  {
+    start_now = !Tour::Active() && menu.DefaultGame(&game) && !MenuButtonHeld();
+    if (start_now)
+      LogLine("default game: " + game.path);
+  }
+  if (!again_message.empty())
+    menu.GameEnded(again_message);  // (the menu shows it as it opens)
   for (;;)
   {
     if (!start_now && !menu.Run(&game))
       continue;
     start_now = false;
-#ifdef EMUSUNI_SATURN
-    // The Saturn's speed test (Settings' row, with the file /data/EmuSuNi/saturn-test): run instead of a game.
-    if (SaturnTest::IsEntry(game))
-    {
-      SaturnTest::Run(display, regular, bold);
-      menu.GameEnded(std::string());
-      continue;
-    }
-#endif
     std::string error;
-    const Emulator::Result result = Emulator::Run(display, game, regular, bold, &error);
+    Emulator::Result result = Emulator::Run(display, game, regular, bold, &error);
+    if (result == Emulator::Result::Retry)
+    {
+      // The start watchdog stopped a start that showed no picture: the game once more, at once (src/StartGuard.h; the
+      // second time it ends with a message instead).
+      error.clear();
+      result = Emulator::Run(display, game, regular, bold, &error);
+      if (result == Emulator::Result::Retry)
+        result = Emulator::Result::Failed;  // (not reached: a second attempt fails instead)
+    }
     menu.GameEnded(result == Emulator::Result::Failed ? error : std::string());
   }
 }

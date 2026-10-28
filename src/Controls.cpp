@@ -82,8 +82,8 @@ const std::vector<Binding> PS1_BINDINGS = {
 // The Nintendo DS: its buttons where the SNES pad has them (A right, B bottom, X top, Y left), SELECT
 // on L2 (the touchpad is its touch screen, a trackpad: the finger moves the stylus, a tap or the touchpad's click
 // touches - src/Touchpad.h);
-// L3 blows into its microphone (melonDS DS), R3 swaps the two screens (the app's view,
-// src/Emulator.cpp NdsSwapped).
+// L3 blows into its microphone (melonDS DS), R3 swaps the two screens (where the app places them, as on
+// the 3DS: src/Emulator.cpp DrawScreens).
 const std::vector<Binding> NDS_BINDINGS = {
     {"b", "B", "Cross", false},                  {"a", "A", "Circle", false},
     {"y", "Y", "Square", false},                 {"x", "X", "Triangle", false},
@@ -126,6 +126,20 @@ const std::vector<Binding> MD_BINDINGS = {
     {"dpad", "D-Pad", "D-Pad + Left Stick", true},
     {"fast_forward", "Fast Forward (hold)", "R2", false},
 };
+#ifdef EMUSUNI_SATURN
+// The Saturn's pad: A, B and C along the bottom (Square, Cross, Circle), X, Y and Z above them (L1, Triangle, R1)
+// as the Mega Drive's, its L and R triggers on L2 and R2, START on Options (it has no SELECT: Fast Forward on the
+// touchpad).
+const std::vector<Binding> SATURN_BINDINGS = {
+    {"saturn_a", "A", "Square", false},         {"saturn_b", "B", "Cross", false},
+    {"saturn_c", "C", "Circle", false},         {"saturn_x", "X", "L1", false},
+    {"saturn_y", "Y", "Triangle", false},       {"saturn_z", "Z", "R1", false},
+    {"l2", "L", "L2", false},                   {"r2", "R", "R2", false},
+    {"start", "START", "Options", false},
+    {"dpad", "D-Pad", "D-Pad + Left Stick", true},
+    {"fast_forward", "Fast Forward (hold)", "Touchpad", false},
+};
+#endif
 // The Master System's and the SG-1000's pad: buttons 1 and 2 (Cross, Circle); the console's PAUSE
 // button on Options.
 const std::vector<Binding> SMS_BINDINGS = {
@@ -138,6 +152,17 @@ const std::vector<Binding> SMS_BINDINGS = {
 const std::vector<Binding> GG_BINDINGS = {
     {"button_1", "Button 1", "Cross", false},   {"button_2", "Button 2", "Circle", false},
     {"start", "START", "Options", false},
+    {"dpad", "D-Pad", "D-Pad + Left Stick", true},
+    {"fast_forward", "Fast Forward (hold)", "R2", false},
+};
+// The PC Engine (00.82, Beetle PCE Fast's RetroPad: II on B, I on A, III on Y, IV on X, V on L, VI on R): II and I
+// where the NES pad has B and A (Cross, Circle), SELECT on the touchpad and RUN on Options; the six-button pad's III,
+// IV, V, VI (PC Engine Pad: 6 Buttons) on Square, Triangle, L1, R1. Not L2: the core's switch between the two pads.
+const std::vector<Binding> PCE_BINDINGS = {
+    {"b", "II", "Cross", false},                {"a", "I", "Circle", false},
+    {"y", "III", "Square", false},              {"x", "IV", "Triangle", false},
+    {"l", "V", "L1", false},                    {"r", "VI", "R1", false},
+    {"start", "RUN", "Options", false},         {"select", "SELECT", "Touchpad", false},
     {"dpad", "D-Pad", "D-Pad + Left Stick", true},
     {"fast_forward", "Fast Forward (hold)", "R2", false},
 };
@@ -190,7 +215,8 @@ const std::vector<Binding> ATOMISWAVE_BINDINGS = {
 // L1 and R1, ZL and ZR (the New 3DS's: Old mode has no use for them, but the Circle Pad Pro games read them)
 // on L2 and R2, START on Options, SELECT on L3, the Circle Pad the left stick and the C-stick the right
 // stick (both analog). The touchpad is the touch screen, as the DS's (a trackpad: the finger moves the stylus,
-// a tap or the touchpad's click touches), and R3 swaps the two screens (the core's swap option, src/Emulator.cpp). No
+// a tap or the touchpad's click touches), and R3 swaps the two screens (where the app places them, as on the DS:
+// src/Emulator.cpp DrawScreens; the core's swap option until 00.79). No
 // HOME: L3 is its button and the core's own screen swap in Azahar, so the app never passes L3 on. No fast
 // forward by default (R2 is ZR): most 3D games run below full speed on the PS4.
 const std::vector<Binding> THREEDS_BINDINGS = {
@@ -241,6 +267,12 @@ const std::pair<const char*, int> KEY_IDS[] = {
     {"md_a", ID_Y},    {"md_b", ID_B},    {"md_c", ID_A},      {"md_x", ID_L},
     {"md_y", ID_X},    {"md_z", ID_R},    {"mode", ID_SELECT},
     {"button_1", ID_B}, {"button_2", ID_A},
+#ifdef EMUSUNI_SATURN
+    // The Saturn's as YabaSanshiro reads the RetroPad: A on B, B on A, C on L, X on Y, Y on X, Z on R (its L and R
+    // triggers on L2 and R2).
+    {"saturn_a", ID_B}, {"saturn_b", ID_A}, {"saturn_c", ID_L}, {"saturn_x", ID_Y},
+    {"saturn_y", ID_X}, {"saturn_z", ID_R},
+#endif
 };
 
 // The N64's normal layout until 00.30 is dropped once: the core read the buttons another way then
@@ -354,6 +386,12 @@ const std::vector<Binding>& Bindings(SystemId system)
     return NAOMI_BINDINGS;
   case SystemId::ATOMISWAVE:
     return ATOMISWAVE_BINDINGS;
+#ifdef EMUSUNI_SATURN
+  case SystemId::SATURN:
+    return SATURN_BINDINGS;
+#endif
+  case SystemId::PCE:
+    return PCE_BINDINGS;
   default:
     return SNES_BINDINGS;
   }
@@ -571,6 +609,60 @@ OrbisPadData Untouched(const OrbisPadData& data)
   out.analogButtons.l2 = out.analogButtons.r2 = 0;
   out.touch.fingers = 0;
   return out;
+}
+
+MenuButtons MenuButtonsFor(const std::string& choice, SystemId system)
+{
+  constexpr uint32_t STICKS = ORBIS_PAD_BUTTON_L3 | ORBIS_PAD_BUTTON_R3;
+  const bool touch_screen = system == SystemId::NDS || system == SystemId::THREEDS;
+  if (choice == "r3")
+    return {ORBIS_PAD_BUTTON_R3, 1.0f};
+  if (choice == "touchpad" && !touch_screen)
+    return {ORBIS_PAD_BUTTON_TOUCH_PAD, 1.0f};
+  if (choice == "options_touchpad" && !touch_screen)
+    return {ORBIS_PAD_BUTTON_OPTIONS | ORBIS_PAD_BUTTON_TOUCH_PAD, 0.0f};
+  // (00.69: both shoulder buttons or both triggers held, on every console - the DS's and the 3DS's L and R too.)
+  if (choice == "l1r1")
+    return {ORBIS_PAD_BUTTON_L1 | ORBIS_PAD_BUTTON_R1, 1.0f};
+  if (choice == "l2r2")
+    return {ORBIS_PAD_BUTTON_L2 | ORBIS_PAD_BUTTON_R2, 1.0f};
+  return {STICKS, 0.0f};
+}
+
+bool MenuOpener::Update(const MenuButtons& buttons, uint32_t held, uint32_t pressed, float dt)
+{
+  constexpr uint32_t STICKS = ORBIS_PAD_BUTTON_L3 | ORBIS_PAD_BUTTON_R3;
+  if ((held & STICKS) == STICKS && (pressed & STICKS))
+  {
+    m_time = 0.0f;
+    m_spent = (held & buttons.mask) == buttons.mask && buttons.hold > 0.0f;  // (R3 held with them: not again)
+    return true;
+  }
+  if (buttons.mask == 0 || buttons.mask == STICKS)
+    return false;
+  const bool down = (held & buttons.mask) == buttons.mask;
+  if (buttons.hold <= 0.0f)
+    return down && (pressed & buttons.mask) != 0;
+  if (!down)
+  {
+    m_time = 0.0f;
+    m_spent = false;
+    return false;
+  }
+  if (m_spent)
+    return false;
+  m_time += dt;
+  if (m_time < buttons.hold)
+    return false;
+  m_time = 0.0f;
+  m_spent = true;
+  return true;
+}
+
+void MenuOpener::Closed()
+{
+  m_time = 0.0f;
+  m_spent = true;  // (cleared at the first pass the buttons are up)
 }
 
 OrbisPadData MenuRelease::Pad(const OrbisPadData& data, bool connected, int* hidden_passes)

@@ -1,0 +1,1468 @@
+# EmuSuNi star ratings (scripts/make-ratings.py): the Mega Drive / Genesis names and each one's game in the LaunchBox
+# Games Database (its id: the app downloads LaunchBox's ratings itself, src/Ratings.h).
+# Names: No-Intro's and Redump's, from libretro-database's metadat (github.com/libretro/libretro-database, CC BY-SA 4.0).
+# Matched with LaunchBox's Metadata.xml of 2026-10-22. This file is under CC BY-SA 4.0.
+# name<TAB>LaunchBox id
+007 Shitou - The Duel	4459
+10 Super Jogos	20367
+16t	33439
+2020 Nen Super Baseball	4641
+3 Ninjas Kick Back	3371
+30 Years of Nintendon't	202558
+6-Pak	4392
+688 Attack Sub	3863
+A Ressha de Ikou MD	5583
+Aa Harimanada	20215
+Aaahh!!! Real Monsters	4184
+Action 52	4236
+Addams Family Values	9414
+Addams Family, The	4232
+Advanced Busterhawk Gley Lancer	2611
+Advanced Daisenryaku - Deutsch Dengeki Sakusen	33622
+Adventures of Batman & Robin, The	9415
+Adventures of Mighty Max, The	4235
+Adventures of Rocky and Bullwinkle and Friends, The	4234
+Adventures of the Gummi Bears, The	425885
+Adventurous Boy - Maoxian Xiaozi	33624
+Aero Blasters	3864
+Aero the Acro-Bat	4237
+Aero the Acro-Bat 2	4238
+Aerobiz	4239
+Aerobiz Supersonic	447
+After Burner II	446
+Ah Q Lianhuan Pao	13676
+Air Buster	3864
+Air Diver	448
+Air Hockey	457034
+Air Management - Oozora ni Kakeru	4239
+Air Management II - Koukuuou o Mezase	447
+Akal	457668
+Akira	173834
+Al Michaels Announces HardBall III	4444
+Aladdin	157
+Aladdin II	4240
+Alex Kidd - Cheongong Maseong	2271
+Alex Kidd - Tenkuu Majou	2271
+Alex Kidd in the Enchanted Castle	2271
+Alien 3	4241
+Alien Cat 2	213609
+Alien Soldier	2610
+Alien Storm	4242
+Alisia Dragoon	4243
+Altered Beast	118
+AlterEgo - Dreamwalker	190046
+AlterEgo - Remastered	190046
+American Gladiators	1703
+Andre Agassi Tennis	4244
+Angry Birds	181637
+Animaniacs	4185
+Another World	32809
+Aoki Ookami to Shiroki Mejika - Genchou Hishi	4393
+Aquatic Games Starring James Pond and the Aquabats, The	4245
+Arcade Classics	4246
+Arcade Legends Sega Mega Drive	202187
+Arcade Legends Street Fighter II' - Special Champion Edition	207010
+Arch Rivals - The Arcade Game	4247
+Arcus Odyssey	4248
+Ariel - The Little Mermaid	449
+Arkagis Revolution	173644
+Arnold Palmer Tournament Golf	4249
+Arrow Flash	3865
+Art Alive	450
+Art of Fighting	4250
+ASAP PLZ	213610
+Astebros	420026
+Asterix and the Great Rescue	4251
+Asterix and the Power of the Gods	9739
+Atomic Robo-Kid	3866
+Atomic Runner	3867
+ATP Tour	4252
+ATP Tour Championship Tennis	4252
+Aureole - Wings of Hope	459989
+Australian Rugby League	33932
+Awesome Possum	3868
+Awesome Possum Kicks Dr. Machino's Butt	3868
+Aworg - Hero in the Sky	33649
+Ayrton Senna's Super Monaco GP II	14837
+B.O.B.	457
+Baby Boom	156759
+Baby's Day Out	33650
+Back to the Future Part III	20647
+Bad Omen	4336
+Bahamut Senki	20295
+Ball Jacks	33933
+Ballz 3D - The Battle of the Ballz	451
+Baoxiao Sanguo	156760
+Barbarian	212884
+Barbie Super Model	4273
+Barbie Vacation Adventure	27454
+Bare Knuckle III	1310
+Barkley Shut Up and Jam 2	4275
+Barkley Shut Up and Jam!	4274
+Barney's Hide & Seek Game	452
+Bass Masters Classic	4278
+Bass Masters Classic - Pro Edition	453
+Batalha Naval	457054
+Batman	4279
+Batman - Revenge of the Joker	4280
+Batman - The Video Game	4279
+Batman Forever	454
+Batman Returns	4281
+Batman Returns MD	456674
+Battle City	182641
+Battle Frenzy	23294
+Battle Golfer Yui	20299
+Battle Mania	2623
+Battle Mania Daiginjou	33935
+Battle Squadron	3869
+Battlemaster	3870
+BattleTech - A Game of Armored Combat	455
+Battletoads	2768
+Battletoads-Double Dragon	1035
+Beast Warriors	3871
+Beast Wrestler	3871
+Beastball	33653
+Beauty and the Beast - Belle's Quest	4284
+Beauty and the Beast - Roar of the Beast	684
+Beavis and Butt-Head	4285
+Beethoven's 2nd - The Quest for Pups	208041
+Beggar Prince	20628
+Ben 10	180738
+Berenstain Bears' Camping Adventure, The	4663
+Best of the Best - Championship Karate	4286
+Beyond Oasis	3872
+Beyond Zero Tolerance	23293
+Bible Adventures	4287
+Bill Walsh College Football	4288
+Bill Walsh College Football 95	456
+Bill's Tomato Game	33654
+Bimini Run	3873
+Bio Evil	203026
+Bio Hazard Battle	20258
+Bishoujo Senshi Sailor Moon	33936
+Black Jewel Reborn	217689
+Blades of Vengeance	3875
+Blaster Master 2	3876
+Blockbuster World Video Game Championship II	4289
+Blockout	3877
+Bloodshot	23294
+Blue Almanac	25126
+Body Count	23295
+Bomb on Basic City	178315
+Bomb on Basic City - Special Edition + Papi Commando Tennis Demo	178316
+Bomber	151660
+Bonanza Bros.	4290
+Bone Marrow	213612
+Bonkers	29101
+Boogerman - A Pick and Flick Adventure	4292
+Boogie Woogie Bowling	4308
+Boxing Legends of the Ring	4293
+Bram Stoker's Dracula	3073
+Brave Battle Saga - Legend of the Magic Warrior	33934
+Breach	196485
+BreakThru!	464459
+Brett Hull Hockey 95	4294
+Brian Lara Cricket	34061
+Brian Lara Cricket 96	17352
+Brutal - Paws of Fury	4295
+Bubba 'N' Stix	3882
+Bubble and Squeak	3887
+Bubsy II	4296
+Bubsy in - Claws Encounters of the Furred Kind	459
+Buck Rogers - Countdown to Doomsday	3884
+Budokan - The Martial Spirit	3885
+Bug Hunt	33656
+Bug's Life, A - Chong Chong Weiji	9413
+Bugs Bunny in Double Trouble	460
+Bulls versus Blazers and the NBA Playoffs	461
+Bulls vs Lakers and the NBA Playoffs	4300
+Burning Force	4301
+Cadash	4302
+Caesar no Yabou	4716
+Caesar no Yabou II	4717
+Caesars Palace	4303
+Cal Ripken Jr. Baseball	4304
+Caliber.50	3890
+California Games	4305
+Cannon Fodder	26372
+Canon - The Legend of the New Gods	132476
+Captain America and the Avengers	5280
+Captain Lang	4450
+Captain Planet and the Planeteers	20304
+Cascade	156779
+Castle of Illusion Starring Mickey Mouse	115
+Castlevania - Bloodlines	2619
+Castlevania - The New Generation	2619
+Cavalos & Peoes	457039
+Cave Story - Doukutsu Monogatari	122288
+Centurion - Defender of Rome	462
+Chakan	3891
+Chameleon Kid	4477
+Champions World Class Soccer	4307
+Championship Bowling	4308
+Championship Pool	4309
+Championship Pro-Am	4310
+Chaoji Dafuweng	120270
+Chaoji Mahjong Club	156780
+Chaoji Poker	156781
+Chaos Engine 2, The	130396
+Chaos Engine, The	4622
+Chase H.Q. II	4311
+Chavez II	4293
+Cheese Cat-Astrophe Starring Speedy Gonzales	10251
+Chelnov	3867
+Chengjisihan II - Yuanchao Mishi Zhi Canglang Yu Bailu	4393
+Chess	160662
+Chessmaster, The	454633
+Chester Cheetah - Too Cool to Fool	1787
+Chester Cheetah - Wild Wild Quest	463
+Chi Chi's Pro Challenge Golf	3892
+Chibi Maruko-chan - Wakuwaku Shopping	20306
+Chiki Chiki Boys	464
+Chip 'n Dale - Rescue Rangers	458062
+Chou Kyuukai Miracle Nine	33939
+Chou Touryuu Retsuden - Dino Land	4338
+Chuck Rock	7506
+Chuck Rock II	4313
+Chuck Rock II - Son of Chuck	4313
+Citadel of Chaos, The	420584
+Classic Collection	4314
+ClayFighter	1739
+Cliffhanger	4315
+Clue	4316
+Coach K College Basketball	4317
+College Football USA 96	4319
+College Football USA 97	4318
+College Football's National Championship	4320
+College Football's National Championship II	4321
+College Slam	687
+Columns	465
+Columns III	2486
+Columns III - Taiketsu! Columns World	2486
+Combat Aces	164217
+Combat Cars	4322
+Comix Zone	3487
+Congo - The Game	130516
+Contra - Hard Corps	6242
+Cool Spot	735
+Corporation	468
+Cosmic Spacehead	26373
+Crack Down	4323
+Crayon Shin-chan - Arashi o Yobu Enji	33940
+CrossFire	4324
+Crude Buster	4701
+Crue Ball	466
+Crue Ball - Heavy Metal Pinball	466
+Crusader of Centy	3897
+Crying - Aseimei Sensou	20258
+Crystal's Pony Tale	467
+Curse	33941
+Curse of Illmoore Bay, The	196487
+Cursed Knight, The	213616
+Cutie Suzuki no Ringside Angel	33942
+CutThroat Island	4325
+Cyber Police - ESWAT	4361
+Cyber-Cop	468
+Cyberball	4326
+Cyborg Justice	30615
+Da Zhanlue - Shandian Qixi	33622
+Daana	19421
+Daemon Claw - Origins of Nnar	458017
+Daffy Duck in Hollywood	9740
+Dahna - Megami Tanjou	19421
+Daikoukai Jidai II	658
+Daimakaimura	2592
+Dangerous Seed	33943
+Danny Sullivan's Indy Heat	33658
+Darius	171596
+Darius - Extra Version	200762
+Darius II	29162
+Dark Castle	469
+Darkwing Duck	458058
+Darwin 4081	20354
+Dashin' Desperadoes	2487
+David Crane's Amazing Tennis	4327
+David Robinson Basketball	4328
+David Robinson's Supreme Court	4328
+Davis Cup II	133945
+Davis Cup Tennis	4329
+Davis Cup World Tour	4329
+Daze Before Christmas	34096
+Deadly Moves	4331
+Death and Return of Superman, The	4664
+Death Duel	4332
+Debtor	213617
+DEcapAttack	4333
+Deflektor	178087
+Demolition Man	4334
+Demons of Asteborg	188080
+Desert Demolition Starring Road Runner and Wile E. Coyote	4335
+Desert Strike - Return to the Gulf	470
+Desert Strike - Wangan Sakusen	470
+Devi to Pii	420564
+Devil Crash MD	4347
+Devilish - The Next Possession	4336
+Dial Q o Mawase!	115067
+Dick Tracy	113655
+Dick Vitale's 'Awesome, Baby!' College Hoops	4337
+Diguo Wangchao	131150
+Dino Dini's Soccer	33692
+Dino Land	4338
+Dinosaur's Tale, A	4721
+Disney Collection, The - QuackShot Starring Donald Duck + Castle of Illusion Starring Mickey Mouse	31889
+Divine Sealing	33944
+DJ Boy	4340
+Domine o Territorio	151660
+Dominus	29388
+Donald in Maui Mallard	10748
+Dongguri Techi Jakjeon	4345
+Doom Troopers	4341
+Doraemon - Yume Dorobou to 7 Nin no Gozans	33946
+Double Clutch	34062
+Double Dragon	4342
+Double Dragon 3 - The Arcade Game	471
+Double Dragon II - The Revenge	27518
+Double Dragon V - The Shadow Falls	4343
+Double Dribble - The Playoff Edition	4344
+Double Symbol	178274
+Dr. Robotnik's Mean Bean Machine	4345
+Dragon - The Bruce Lee Story	113081
+Dragon Ball - Final Bout	31729
+Dragon Ball Z - Buyuu Retsuden	24746
+Dragon Ball Z - L'Appel du Destin	24746
+Dragon Slayer - Eiyuu Densetsu	20322
+Dragon Slayer - Eiyuu Densetsu II	20324
+Dragon's Eye Plus - Shanghai III	20508
+Dragon's Fury	4347
+Dragon's Revenge	4348
+Dream Team USA	709
+Du Shen Zhi - Menghuan Poker	156787
+Duke Nukem 3D	34097
+Duli Zhanzheng	4487
+Dune - The Battle for Arrakis	4349
+Dune II - Kampf um den Wuestenplaneten	4349
+Dune II - The Battle for Arrakis	4349
+Dungeons & Dragons - Warriors of the Eternal Sun	4330
+Dyna Brothers	20326
+Dyna Brothers 2	20327
+Dyna Brothers 2 Special	20327
+Dynamite Duke	4350
+Dynamite Headdy	4351
+DynoBlaze	156788
+EA Hockey	4533
+EA Sports Double Header	20366
+Earnest Evans	4352
+Earth Defense	24078
+Earthworm Jim	4353
+Earthworm Jim 2	1585
+Ecco - The Tides of Time	4354
+Ecco Jr.	4355
+Ecco the Dolphin	2900
+Ecco the Dolphin II	4354
+El.Viento	4356
+Elemental Master	4357
+Eliminate Down	18739
+Elite	213808
+Elitserien 95	210963
+Elitserien 96	663
+Empire of Steel	4676
+ESPN Baseball Tonight	2488
+ESPN National Hockey Night	472
+ESPN Speed World	4359
+ESPN Sunday Night NFL	4360
+ESWAT - City under Siege	4361
+Eternal Champions	473
+Europa Sensen	671
+European Club Soccer	4740
+Evander Holyfield's 'Real Deal' Boxing	4362
+Ex-Mutants	4364
+Ex-Ranza	681
+Exile	4363
+Exile - Toki no Hazama he	4363
+Exo Squad	113082
+Exodus - Journey to the Promised Land	20358
+F-117 Night Storm	4368
+F-117 Stealth - Operation - Night Storm	4368
+F-15 Strike Eagle II	4367
+F-22 Interceptor - Advanced Tactical Fighter	8090
+F1	8091
+F1 - World Championship Edition	4366
+F1 Circus MD	33947
+Faery Tale Adventure, The	4665
+Family Feud	475
+Fantasia	29351
+Fantastic Dizzy	476
+Fantasy Pinball	457056
+Fantasy Zone	420572
+Fastest 1	33948
+Fatal Fury	4371
+Fatal Fury 2	975
+Fatal Labyrinth	477
+Fatal Rewind	478
+Fatman	4619
+Felix the Cat	123870
+Feng Shen Yingjie Chuan	132476
+Fengkuang Taohuayuan	132475
+Ferias Frustradas do Pica Pau	34098
+Ferrari Grand Prix Challenge	479
+Fever Pitch Soccer	4448
+Fica 1	457040
+Fido Dido	29118
+FIFA 2003	203030
+FIFA 98 - Road to World Cup	34065
+FIFA International Soccer	4372
+FIFA Soccer 2000	203032
+FIFA Soccer 95	4374
+FIFA Soccer 96	4375
+FIFA Soccer 97	4373
+FIFA Soccer 99	203031
+Fighting Masters	4376
+Final Blow	4460
+Final Fight MD	454179
+Final Zone	480
+Fire Mustang	10802
+Fire Shark	4377
+Fix-It Felix Jr.	33332
+Flash Point	33662
+Flashback	4378
+Flashback - The Quest for Identity	4378
+Flicky	4379
+Flink	24012
+Flintstones, The	4666
+Foreman for Real	4380
+Forgotten Worlds	4381
+Formula One	8091
+Foxy Land	213809
+Frank Thomas Big Hurt Baseball	4382
+Frog Dude	130398
+Frogger	4383
+From TV Animation Slam Dunk - Kyougou Makkou Taiketsu!	20331
+Fun 'n Games	4384
+Funny World & Balloon Boy	481
+Fushigi no Umi no Nadia	33949
+Futari de Puyo Puyo Sun	440262
+Futbol Argentino 96	203046
+Futbol Argentino 98 - Pasion de Multitudes	203047
+G-LOC - Air Battle	4396
+Gadget Twins	4667
+Gaiares	4385
+Gain Ground	4386
+Galaxy Force II	4387
+Gambler Jiko Chuushinha - Katayama Masayuki no Mahjong Doujou	20376
+Game no Kanzume Otokuyou	132573
+Gang Du Shaonian	719
+Garfield - Caught in the Act	4388
+Garfield - The Lost Levels	452659
+Gargoyles	1937
+Garou Densetsu - Shukumei no Tatakai	4371
+Garou Densetsu 2 - Aratanaru Tatakai	975
+Garry Kitchen's Super Battletank - War in the Gulf	20379
+Gauntlet	4389
+Gauntlet IV	4389
+Gedou Tiequan	971
+Gemfire	4390
+General Chaos	1939
+General Chaos Daikonsen	1939
+Generals of the Yang Family - Clan of Heroes	34113
+Generations Lost	4391
+Genesis Clicker	465742
+Genghis Khan II - Clan of the Gray Wolf	4393
+Gensou Senki Kokou no Ryuu - Crying Dragon	174520
+George Foreman's KO Boxing	4394
+Ghostbusters	4395
+Ghouls'n Ghosts	2592
+Global Gladiators	4502
+Gluf	202199
+Go Net	132742
+Gods	4397
+Gold Rush	466807
+Golden Axe	209
+Golden Axe II	967
+Golden Axe III	968
+Goofy's Hysterical History Tour	4398
+Gouketsuji Ichizoku	33952
+Granada	4399
+GrandSlam - The Tennis Tournament	134133
+GrandSlam - The Tennis Tournament '92	134133
+Gravibots	212878
+Great Circus Mystery - Mickey to Minnie Magical Adventure 2	301
+Great Circus Mystery Starring Mickey & Minnie, The	301
+Great Waldo Search, The	4668
+Greatest Heavyweights	4400
+Greendog - The Beached Surfer Dude!	2593
+Grind Stormer	4401
+Growl	4402
+Guaishou Jingji Chang - Pokemon Stadium	156868
+Gunfight 3 in 1	132574
+Gunship	34066
+Gunstar Heroes	138
+Gynoug	34861
+Hangkong Baye II	447
+Hard Drivin'	483
+HardBall '94	4445
+HardBall '95	4446
+HardBall!	4447
+Harry Potter	177863
+Haunting Starring Polterguy	484
+Havoc	4450
+Hayato's Journey	449181
+Head-On Soccer	4448
+Heavy Nova	4449
+Heavy Unit - Mega Drive Special	33953
+Hei Tao 2 - Super Big 2	34103
+Hellfire	485
+Hercules 2	156856
+Herzog Zwei	486
+High Seas Havoc	4450
+Hit the Ice - VHL - The Official Video Hockey League	4451
+Hokuto no Ken - Shin Seikimatsu Kyuuseishu Densetsu	4482
+Home Alone	487
+Home Alone 2 - Lost in New York	4452
+Hongzha Xiaozi - Bomboy	33655
+Honoo no Toukyuuji - Dodge Danpei	33956
+Hook	4453
+Hoops Shut Up and Jam 2	4275
+Hoops Shut Up and Jam!	4274
+Huangshi Xue Yi	4390
+Huanle Taoqi Shu - Smart Mouse	34104
+Humans, The	488
+Hunter Girls	451236
+Huoqiang Yingxiong	138
+Hurricanes	27519
+Hybrid Front, The	20383
+Hyokkori Hyoutan-jima - Daitouryou wo Mezase!	20457
+Hyper Dunk	4344
+Hyper Dunk - The Playoff Edition	4344
+Hyper Marbles	33959
+I Love Mickey and Donald - Fushigi na Magic Box	139
+I Love Mickey Mouse - Fushigi no Oshiro Daibouken	115
+Ikasuze! Koi no Doki Doki Penguin Land MD	33945
+IMG International Tour Tennis	4454
+Immortal, The	489
+Incredible Crash Dummies, The	4669
+Incredible Hulk, The	1988
+Indiana Jones and the Last Crusade	4455
+Insane Pain	418316
+Insector X	490
+Instruments of Chaos Starring Young Indiana Jones	4744
+International Rugby	34067
+International Sensible Soccer	34079
+International Superstar Soccer Deluxe	34068
+Iraq War 2003	209593
+Iron Hammer	464458
+Iron Man	420381
+Ishido - The Way of Stones	4456
+It Came from the Desert	27522
+Itchy & Scratchy Game, The	302
+Ivanhoe	213810
+Izzy's Quest for the Olympic Rings	4457
+J. League Champion Soccer	4740
+J. League Pro Striker	33696
+J. League Pro Striker 2	33964
+J. League Pro Striker Perfect	33967
+Jack Nicklaus' Power Challenge Golf	4458
+James 'Buster' Douglas Knockout Boxing	4460
+James Bond 007 - The Duel	4459
+James Pond - Underwater Agent	4461
+James Pond 3	4463
+James Pond II	4462
+James Pond II - Codename - Robocod	4462
+Jammit	1993
+Janou Touryuumon	20336
+Jantei Monogatari	20334
+Jashin Draxos	28077
+Jelly Boy	29390
+Jennifer Capriati Tennis	134133
+Jeopardy!	4465
+Jeopardy! - Deluxe Edition	4466
+Jeopardy! - Sports Edition	4467
+Jerry Glanville's Pigskin Footbrawl	20392
+Jesse 'The Body' Ventura - Wrestling Superstars	156861
+Jewel Master	27961
+Jim Power - The Arcade Game	23292
+Jim Power - The Lost Dimension in 3D	201999
+Jimmy White's Whirlwind Snooker	34070
+Jin Guanjun Xiongdi Xiang - Shijie Zhibang Zhengba Zhan	34105
+Jiuji Mahjong II	148719
+Joe & Mac	17156
+Joe Montana Football	4468
+Joe Montana II - Sports Talk Football	534
+John Madden Football	286
+John Madden Football '92	629
+John Madden Football '93	630
+John Madden Football - Championship Edition	4469
+John Madden Football - Pro Football	629
+Jordan vs Bird	535
+Jordan vs Bird - One on One	535
+Joshua & the Battle of Jericho	20359
+Journey from Darkness - Strider Returns	2650
+Judge Dredd	4471
+JuJu Densetsu	717
+Junction	4472
+Jungle Book, The	1578
+Jungle Strike	536
+Jungle Strike - Uketsugareta Kyouki	536
+Jurassic Park	537
+Jurassic Park - Rampage Edition	4473
+Justice League Task Force	4474
+Juuouki	118
+Juusou Kihei Leynos	708
+Ka-Ge-Ki	4475
+Ka-Ge-Ki - Fists of Steel	4475
+Kawasaki Superbike Challenge	4476
+Kick Boxing, The	4286
+Kick Off 3 - European Challenge	34071
+Kid Chameleon	4477
+Kidou Keisatsu Patlabor - 98-Shiki Kidou Seyo!	20337
+Killing Game Show, The	478
+King & Balloon MD	460669
+King of Fighters '99, The	156862
+King of Fighters 2000, The	155120
+King of Fighters 98', The	155120
+King of the Monsters	111628
+King of the Monsters 2	4479
+King Salmon	538
+King Salmon - The Big Catch	538
+King's Bounty - The Conqueror's Quest	4480
+Kishi Densetsu	20395
+Kiss Shot	33701
+Klax	539
+Klirk, The	463201
+Kolobok - Pyramid	34390
+Kongque Wang 2 - Huanying Cheng	2594
+Koutetsu Teikoku	4676
+Krusty's Super Fun House	4481
+Kujaku Ou 2 - Geneijou	2594
+Kunio no Nekketsu - School Fighters	419819
+Kuuga - Operation Code 'Vapor Trail'	4708
+Kyuukai Douchuuki	20396
+Kyuukyoku Tiger	4699
+La Russa Baseball 95	4689
+Lakers versus Celtics and the NBA Playoffs	2250
+Landstalker	540
+Landstalker - Die Schatze von Konig Nolo	540
+Landstalker - Koutei no Zaihou	540
+Landstalker - Le Tresor du Roi Nole	540
+Landstalker - The Treasures of King Nole	540
+Langrisser	4718
+Langrisser II	27524
+Last Action Hero	541
+Last Battle	4482
+Last Defense	458165
+Lawnmower Man, The	4671
+Legend of Galahad, The	4672
+Legend of Wukong	31609
+Legende de Thor, La	3872
+Lego Batman	206993
+Leidian Chuanshuo II	34110
+Lemmings	4483
+Lemmings 2 - The Tribes	4484
+Lethal Enforcers	4485
+Lethal Enforcers II - Gun Fighters	542
+LHX Attack Chopper	4486
+Liberty or Death	4487
+Light Crusader	2575
+Lightening Force - Quest for the Darkstar	543
+Link Dragon	33703
+Lion King 3, The	141319
+Lion King II, The - Simba's Mighty Adventure	141320
+Lion King, The	669
+Lobo	26689
+Lord Monarch - Tokoton Sentou Densetsu	20339
+Lord of the Rings 3 - The Return of the King	279793
+Lost Vikings, The	544
+Lost World, The - Jurassic Park	2576
+Lotus II	545
+Lotus Turbo Challenge	546
+Lufia & The Fortress of Doom	132589
+M-1 Abrams Battle Tank	4488
+Mad Stalker - Full Metal Forth	192892
+Madden NFL '94	631
+Madden NFL 95	632
+Madden NFL 96	4490
+Madden NFL 97	4492
+Madden NFL 98	29132
+Madou Monogatari I	20341
+Magic Bubble	33704
+Magic School Bus, The - Space Exploration Game	711
+Magical Hat no Buttobi Turbo! Daibouken	33970
+Magical Taruruuto-kun	33972
+Mahjong Cop Ryuu - Shiro Ookami no Yabou	20397
+Mahjong Emo Ta - Devilish Mahjong Tower	132591
+Mahjong Qingren	132590
+Mamono Hunter Youko - Dai 7 no Keishou	33974
+Man Overboard!	20398
+Maou Renjishi	4514
+Marble Madness	4493
+Mario 3 - Around the World	420320
+Mario 4 - Space Odyssey	420392
+Mario Andretti Racing	4494
+Mario Lemieux Hockey	4495
+Marko	18741
+Marko's Magic Football	18741
+Marsupilami	633
+Marvel Land	4497
+Mary Shelley's Frankenstein	4498
+Master of Monsters	4499
+Master of Weapon	33977
+Maten no Soumetsu	20345
+Math Blaster - Episode 1	634
+Mazin Saga	635
+Mazin Saga - Mutant Fighter	635
+Mazin Wars	635
+McDonald's Treasure Land Adventure	636
+Medal City	33979
+Mega 6 Vol. 3	20501
+Mega Bomberman	5484
+Mega Bomberman - Special 8-Player-Demo	156864
+Mega Casanova	213150
+Mega Casanova 2	213161
+Mega Casanova 3	213126
+Mega Cheril Perils	188079
+Mega Games 2	20401
+Mega Games 3	19854
+Mega Games 6	19841
+Mega Games 6 Vol. 2	20502
+Mega Games I	122641
+Mega lo Mania	4702
+Mega Man - The Sequel Wars - Episode Red	419067
+Mega Man - The Wily Wars	2281
+Mega Mindtris	178317
+Mega Pang	464608
+Mega Q-bert	150087
+Mega R-Type	424141
+Mega Slow Mole	458110
+Mega SWIV	19504
+Mega Turrican	2217
+Mega Turrican - Director's Cut	219411
+MegaMind	33721
+MegaPanel	33980
+MegaTrax	4582
+Menacer - 6-Game Cartridge	4500
+Menghuan Shuiguo Pan - 777 Casino	5582
+Mengnake Huangzu - Zuizhong Zhandou Chuanshuo	20339
+Mercs	4501
+Metal Blast 2277	188081
+Metal Fangs	33981
+Metal Gear	457624
+Metal Slug Warfare	424560
+Michael Jackson's Moonwalker	128
+Mick & Mack as the Global Gladiators	4502
+Mickey Mania	637
+Mickey Mania - The Timeless Adventures of Mickey Mouse	637
+Mickey's Ultimate Challenge	4503
+Micro Machines	4504
+Micro Machines - Military	19505
+Micro Machines - Turbo Tournament 96	18743
+Micro Machines 2 - Turbo Tournament	19506
+Midnight Resistance	652
+Midway Presents Arcade's Greatest Hits	4726
+Mig-29 Fighter Pilot	4505
+Might and Magic - Gates to Another World	4506
+Might and Magic III - Isles of Terra	132732
+Mighty Morphin Power Rangers	4507
+Mighty Morphin Power Rangers - The Movie	4508
+Mike Ditka Power Football	20503
+mikeyeldey95	458183
+Minato no Traysia	719
+Miniplanets	178273
+Minnesota Fats - Pool Legend	4510
+Miracle Piano Teaching System, The	164726
+Misplaced	178090
+MK5 - Mortal Kombat Mythologies - Sub-Zero	156867
+MLBPA Baseball	2582
+Monopoly	4513
+Monster World IV	2649
+Mortal Kombat	653
+Mortal Kombat 3	651
+Mortal Kombat II	642
+Mr. Nutz	20582
+Mr. Nutz - Hoppin' Mad	33723
+Ms. Pac-Man	1958
+Muhammad Ali Heavyweight Boxing	654
+Mulan	20499
+MUSHA - Metallic Uniframe Super Hybrid Armor	4489
+Mutant League Football	1969
+Mutant League Hockey	1970
+Mystic Defender	2594
+Mystical Fighter	4514
+Nakajima Satoru Kanshuu - F-1 Hero MD	479
+Nakajima Satoru Kanshuu - F1 Grand Prix	33984
+Nakajima Satoru Kanshuu - F1 Super License	33986
+NBA Action '94	20405
+NBA Action '95 Starring David Robinson	4516
+NBA All-Star Challenge	655
+NBA Hang Time	4517
+NBA Jam	657
+NBA Jam - Tournament Edition	656
+NBA Live 95	4518
+NBA Live 96	2251
+NBA Live 97	4519
+NBA Live 98	4520
+NBA Live Nong-gu 95	4518
+NBA Playoffs - Bulls vs Blazers	461
+NBA Pro Basketball '94	4521
+NBA Pro Basketball - Bulls vs Lakers and the NBA Playoffs	4300
+NBA Showdown '94	4521
+NCAA Final Four Basketball	29140
+NCAA Final Four Special Edition	29140
+NCAA Football	20406
+Nekketsu Koukou Dodgeball-bu - Soccer Hen MD	20410
+New 3D Golf Simulation - Devil's Course	33691
+New 3D Golf Simulation - Harukanaru Augusta	33695
+New 3D Golf Simulation - Pebble Beach no Hatou	675
+New 3D Golf Simulation - Waialae no Kiseki	34052
+New Horizons	658
+Newman Haas IndyCar Featuring Nigel Mansell	4524
+NewZealand Story, The	33987
+NFL '95	4525
+NFL 98	4526
+NFL Football '94 Starring Joe Montana	659
+NFL Pro Football '94	631
+NFL Quarterback Club	4528
+NFL Quarterback Club 96	4529
+NFL Sports Talk Football '93 Starring Joe Montana	28098
+NHK Taiga Drama - Taiheiki	20407
+NHL '94	661
+NHL 95	662
+NHL 96	663
+NHL 97	4530
+NHL 98	4531
+NHL All-Star Hockey 95	4532
+NHL Hockey	4533
+NHLPA Hockey 93	664
+Nigel Mansell's World Championship Racing	4534
+Nightmare Circus	34100
+Nikkan Sports Pro Yakyuu VAN	20504
+Ninja Burai Densetsu	20411
+Ninja Gaiden	18828
+No Escape	4535
+Nobunaga no Yabou - Bushou Fuuunroku	20458
+Nobunaga no Yabou - Haouden	20459
+Nobunaga no Yabou - Zenkoku Ban	4536
+Nobunaga's Ambition	4536
+Normy's Beach Babe-O-Rama	4537
+Nyuushi Chokuzen Check - Nanmon Kimon Kiki Kaikai	148056
+Ocean Beach Volley	208937
+Odeio Carros	419331
+Oh Mummy Genesis	34119
+Old Towers	178086
+Olympic Gold	670
+Olympic Summer Games	4538
+Omega Blast	203238
+On Dal Jang Goon	2594
+Onslaught	4539
+Ooze, The	2220
+Operation Europe - Path to Victory 1939-45	671
+Osomatsu-kun Hachamecha Gekijou	33989
+Ottifants, The	27525
+Out of the Vortex	208042
+Out of This World	32809
+Outback Joey	203119
+Outlander	4542
+OutRun	4541
+OutRun 2019	4543
+OutRunners	672
+Outworld 2375 A.D.	455071
+Ozaki Naomichi no Super Masters	4249
+P-47 II MD	457691
+P.T.O. - Pacific Theater of Operations	4544
+Pac-Attack	673
+Pac-Man 2 - The New Adventures	674
+Pac-Mania	4546
+Pac-Panic	673
+Pachinko Kuunyan	20417
+Paddle Fighter	33990
+Pagemaster, The	4547
+Panorama Cotton	33991
+Paperboy	4548
+Paperboy 2	4549
+Papi Commando	34120
+Papi Commando Remix Deluxe	213815
+Party Quiz Mega Q	20419
+Pat Riley Basketball	4551
+Pebble Beach Golf Links	675
+Pele II - World Tournament Soccer	4553
+Pele!	4552
+Pepenga Pengo	33992
+Perlin & Pinpin - The Robin Tower - Back to School	213816
+Pete Sampras Tennis	20421
+PGA European Tour	4554
+PGA Tour 96	4555
+PGA Tour Golf	677
+PGA Tour Golf II	676
+PGA Tour Golf III	4556
+Phantasy Star - Sennenki no Owari ni	127
+Phantasy Star Fukkokuban	90941
+Phantasy Star II	678
+Phantasy Star II - Amia's Adventure	33878
+Phantasy Star II - Anne's Adventure	33879
+Phantasy Star II - Huey's Adventure	33881
+Phantasy Star II - Kaerazaru Toki no Owari ni	678
+Phantasy Star II - Kinds's Adventure	33882
+Phantasy Star II - Nei's Adventure	33883
+Phantasy Star II - Rudger's Adventure	33884
+Phantasy Star II - Shilka's Adventure	33885
+Phantasy Star II - Yushis's Adventure	33880
+Phantasy Star III - Generations of Doom	679
+Phantasy Star IV	127
+Phantom 2040	4558
+Phantom Gear	188088
+Phelios	2583
+Pier Solar and the Great Architects	20347
+Pikachu - Pocket Monster	141475
+Pikachu II - Pocket Monster II	141495
+Pink Goes to Hollywood	2489
+Pinocchio	4559
+Pirates of Dark Water, The	712
+Pirates! Gold	969
+Pit-Fighter	680
+Pitfall - The Mayan Adventure	667
+Planet Message Quiz	148055
+Plants vs. Zombies	208886
+Pocahontas	4560
+Pokemon Crazy Drummer	172158
+Poker Club 6 in 1	156869
+Popeye in High Seas High-Jinks	464460
+Populous	4561
+Power Athlete	4331
+Power Drive	31945
+Power Monger	4562
+Powerball	4563
+Predator 2	4564
+Premier Manager	34073
+Premier Manager 97	34074
+Primal Rage	666
+Prime Time NFL Starring Deion Sanders	4527
+Prince of Persia	4105
+Pringles Game	171026
+Prisonela MD	457622
+Pro Moves Soccer	4253
+Pro Quarterback	4565
+Pro Striker - Final Stage	33966
+Pro Yakyuu Super League '91	132592
+Probotector	6242
+Project MD	34138
+Psy-O-Blade	33993
+Psycho Pinball	18745
+Puggsy	4566
+Pulseman	24025
+Punisher, The	386
+Putter Golf	34021
+Putty Squad	132593
+Puyo Puyo	34022
+Puyo Puyo Tsuu	34023
+Puzzle & Action - Ichidanto-R	34024
+Puzzle & Action - Tanto-R	34026
+Puzzli	212879
+Pyramid Magic	34027
+Pyramid Magic II	34028
+Pyramid Magic III	34029
+Pyramid Magic Special	34030
+QuackShot Starring Donald Duck	4581
+Quad Challenge	4582
+R.B.I. Baseball '93	4591
+R.B.I. Baseball '94	4592
+R.B.I. Baseball '95	208048
+R.B.I. Baseball 3	24075
+R.B.I. Baseball 4	682
+Race Drivin'	4583
+Radical Rex	4584
+Raiden Trad	4585
+Rainbow Islands Extra	20424
+Rambo III	114123
+Rampart	4587
+Ranger X	681
+Ransei no Hasha	20460
+Rastan Saga II	4588
+Red Zone	4593
+Ren & Stimpy Show Presents, The - Stimpy's Invention	732
+Rent a Hero	20348
+Renzhe Wu lei Chuanshuo	20411
+Resq	34075
+Revenge of Shinobi, The	4673
+Revolution X	668
+Richard Scarry's Busytown	4594
+Rick Dangerous	173975
+Rick Dangerous 2	173976
+Riddle Wired	132644
+Rings of Power	4595
+Rise of the Robots	34076
+Risk	683
+Risky Woods	28077
+Ristar	2269
+Ristar - The Shooting Star	2269
+Road Rash	4598
+Road Rash 3	26291
+Road Rash II	109843
+RoadBlasters	4597
+RoboCop 3	2047
+RoboCop Versus The Terminator	4600
+Robot Battler	132428
+Rock 'n' Roll Racing	4601
+Rocket Knight Adventures	685
+Rocket Panda	451384
+Rockman - Mega World	2281
+Rockman X3	4605
+Roger Clemens' MVP Baseball	686
+Rolling Thunder 2	111701
+Rolling Thunder 3	29161
+Rolo to the Rescue	26598
+Romance of the Three Kingdoms II	113080
+Romance of the Three Kingdoms III - Dragon of Destiny	4603
+Romeow and Julicat	217691
+Ronaldinho 98	203049
+Royal Blood	4390
+Rugby World Cup 95	4604
+Runark	4402
+Runes	212880
+Ryuthela	457614
+Ryuuko no Ken	4250
+Sacred Line Genesis	148460
+Sacred Line II	458140
+Sagaia	29162
+Saint Sword	29163
+Same! Same! Same!	4377
+Sampras Tennis 96	28089
+Samurai Shodown	4609
+Samurai Shodown vs Soul Edge	26694
+Samurai Spirits	4609
+San Guo Zhi Lie Zhuan - Luan Shi Qun Ying	20426
+Sangokushi II	113080
+Sangokushi III	4603
+Sangokushi Retsuden - Ransei no Eiyuutachi	20426
+Sanguo Yanyi - Huoshao Chibi	33651
+Sanguozhi V	132645
+Sanrin San-chan - Spatter	420562
+Sansan	20427
+Saturday Night Slammasters	4610
+Schtroumpfs Autour du Monde, Les	34087
+Scooby-Doo Mystery	4611
+Scrabble	34077
+SD Valis	4649
+seaQuest DSV	4612
+Second Samurai	34078
+Secret of the Four Winds, The	449194
+SEGA Master System Brawl	178276
+Sega Sports 1	20506
+Sega Top Five	20507
+SegaSonic Bros.	202206
+Sensible Soccer	34080
+Sesame Street Counting Cafe	4613
+Shadow Blasters	688
+Shadow Dancer	2597
+Shadow Dancer - The Secret of Shinobi	2597
+Shadow of the Beast	689
+Shadow of the Beast - Mashou no Okite	689
+Shadow of the Beast II	4614
+Shadowrun	1306
+Shane Warne Cricket	17352
+Shanghai II - Dragon's Eye	4615
+Shaolin Carcara	457666
+Shaq-Fu	28092
+Shengzhan Fengyun	20295
+Shi no Meikyuu - Labyrinth of Death	477
+Shijou Saidai no Soukoban	696
+Shikinjou	34035
+Shikong Yibian	4363
+Shiliu Zhang Mahjong - Xiangyan Meiren Pian	5581
+Shin Changsegi - Ragnacenty	3897
+Shin Souseiki Ragnacenty	3897
+Shining and the Darkness	697
+Shining Force	183
+Shining Force - Kamigami no Isan	183
+Shining Force II	184
+Shining Force II - Inishie no Fuuin	184
+Shining in the Darkness	697
+Shinobi III - Return of the Ninja Master	120
+Shisan Zhang Mahjong - 98 Mei Shaonu	156890
+Shisan Zhang Mahjong - Zhongguo Meinu Pian	457206
+Shiten Myouou	688
+Shougi no Hoshi	34037
+Shove It! ...The Warehouse Game	696
+Show do Milhao	31119
+Show do Milhao - Volume 2	34139
+Shuihu Fengyun Zhuan	34107
+Shuihu Zhuan	131141
+Shura no Mon	20446
+Shylax	458145
+Side Pocket	4616
+Silent Hill Genesis	117990
+Simpsons, The - Bart vs. the Space Mutants	4674
+Simpsons, The - Bart's Nightmare	4675
+Skeleton Krew	4617
+Skitchin'	4618
+Slam - Shaq vs. the Legends	11156
+Slap Fight MD	34038
+Slaughter Sport	4619
+Slime World	20537
+Smart Mouse	34104
+Smurfs, The	9741
+Snake Rattle n Roll	19526
+Snow Bros. - Nick & Tom	34040
+Socket	4620
+Sol-Deace	4621
+Soldiers of Fortune	4622
+Soleil	3897
+Solitaire in Space	458157
+Sonic & Knuckles	733
+Sonic & Knuckles + Sonic 3	14066
+Sonic & Knuckles + Sonic The Hedgehog	106306
+Sonic & Knuckles + Sonic The Hedgehog 2	106307
+Sonic & Knuckles + Sonic The Hedgehog 2 + Sonic The Hedgehog 3	420243
+Sonic & Knuckles + Sonic The Hedgehog 3	14066
+Sonic 3	691
+Sonic 3D Blast	2284
+Sonic 3D Blast - Director's Cut	142748
+Sonic Compilation	4624
+Sonic Crackers	27257
+Sonic Eraser	33877
+Sonic Jam 6	141768
+Sonic Spinball	692
+Sonic The Hedgehog	108428
+Sonic The Hedgehog 2	108429
+Sonic The Hedgehog 3	691
+Sonic The Hedgehog 3 Limited Edition	691
+Sorcer Kingdom	4627
+Sorcerer's Kingdom	4627
+Sorcerian	20448
+Soul Blade	26693
+Space Funky B.O.B.	457
+Space Harrier II	2598
+Space Hero	208050
+Space Invaders '91	698
+Space Invaders 90	698
+Sparkster	4629
+Sparkster - Rocket Knight Adventures 2	4629
+Speedball 2	7464
+Speedball 2 - Brutal Deluxe	7464
+Spider-Man	611
+Spider-Man - Venom - Maximum Carnage	4631
+Spider-Man - X-Men - Arcade's Revenge	699
+Spider-Man vs. The Kingpin	611
+Spiritual Warfare	4632
+Spirou	19527
+Splatterhouse 2	2285
+Splatterhouse 3	4633
+Splatterhouse Part 2	2285
+Splatterhouse Part 3	4633
+Sport Games	20529
+Sports Talk Baseball	700
+Spot Goes to Hollywood	701
+Squirrel King	34108
+ST II' Turbo	7394
+Star Control	548
+Star Cruiser	20452
+Star Mobile	420563
+Star Odyssey	25126
+Star Trek - Deep Space Nine - Crossroads of Time	4634
+Star Trek - The Next Generation - Echoes from the Past	4635
+Star Wars	174521
+Starflight	4636
+Stargate	4637
+Steel Empire	4676
+Steel Talons	4638
+Stone Protectors	34141
+Stormlord	4639
+Story of Thor, The	3872
+Story of Thor, The - Hikari o Tsugumono	3872
+Street Fighter II' - Special Champion Edition	7394
+Street Fighter II' Plus - Champion Edition	7394
+Street Racer	34088
+Street Smart	4640
+Streets of Rage	971
+Streets of Rage 2	694
+Streets of Rage 3	1310
+Strider	702
+Strider Hiryuu	702
+Strider II	2650
+Striker	34089
+Sub-Terrania	2584
+Summer Challenge	20532
+Sunset Riders	695
+Super Airwolf	4324
+Super Baseball 2020	4641
+Super Battleship - The Classic Naval Combat Game	549
+Super Daisenryaku	20534
+Super Donkey Kong 99	156901
+Super Fantasy Zone	34090
+Super H.Q.	4311
+Super Hang-On	4643
+Super High Impact	703
+Super Hydlide	4644
+Super Kick Off	34091
+Super King Kong 99	156901
+Super League	718
+Super Locomotive	420565
+Super Magican - Ling Huan Daoshi	20369
+Super Mario 2	156903
+Super Mario Bros.	156904
+Super Mario World	451348
+Super Mario World 64	26683
+Super Monaco GP	18747
+Super Off Road	1484
+Super Real Basketball	4551
+Super Shinobi II, The	120
+Super Skidmarks	18748
+Super Smash T.V.	9101
+Super Street Fighter II	2585
+Super Street Fighter II - The New Challengers	2585
+Super Tank War	34109
+Super Thunder Blade	704
+Super Volley Ball	4646
+Superman	4647
+Superman - The Man of Steel	4647
+Surging Aura	34041
+Swamp Thing	132668
+Sweetsdigger	218017
+Sword of Sodan	4648
+Sword of Vermilion	705
+Syd of Valis	4649
+Sylvester & Tweety in Cagey Capers	4650
+Syndicate	706
+T2 - Terminator 2 - Judgment Day	4662
+T2 - The Arcade Game	4651
+Tai Ge Lizhi Chuan	20440
+Taikong Zhanshi - Mofa Zhanshi	33934
+Taikou Risshiden	20440
+Taipingyang Zhengba Zhan	4544
+Taiwan Daheng	132735
+TaleSpin	707
+Talmit's Adventure	4497
+Tanglewood	145343
+Tanzer	172383
+Target Earth	708
+Task Force Harrier EX	4653
+Taz in Escape from Mars	4358
+Taz-Mania	2288
+TC 2000	203051
+Team USA Basketball	709
+TechnoClash	710
+Technocop	4654
+Tecmo Cup Football Game	34043
+Tecmo Super Baseball	2490
+Tecmo Super Bowl	4655
+Tecmo Super Bowl II - Special Edition	4656
+Tecmo Super Bowl III - Final Edition	4657
+Tecmo Super Hockey	4658
+Tecmo Super NBA Basketball	4659
+Tecmo World Cup	20535
+Tecmo World Cup '92	20535
+Teddy Boy Blues	34045
+Teenage Mutant Hero Turtles - The Hyperstone Heist	1971
+Teenage Mutant Hero Turtles - Tournament Fighters	4661
+Teenage Mutant Ninja Turtles - Return of the Shredder	1971
+Teenage Mutant Ninja Turtles - The Hyperstone Heist	1971
+Teenage Mutant Ninja Turtles - The Legend Returns	156912
+Teenage Mutant Ninja Turtles - Tournament Fighters	4661
+Teitoku no Ketsudan	4544
+Tekken 3 Special	156913
+Tekken Special	156913
+Tel-Tel Mahjong	34046
+Tel-Tel Stadium	20511
+Telethugs	208077
+Tenchi o Kurau III - Sangoku Gaiden	33657
+Terminator, The	4677
+Teshu Budui 357	20437
+Test Drive II - The Duel	1908
+Tetris	27521
+Tetrogen Classic	192891
+Theme Park	4679
+Thomas the Tank Engine & Friends	4680
+Thunder Force II	714
+Thunder Force II MD	714
+Thunder Force III	4681
+Thunder Force IV	543
+Thunder Fox	4682
+Thunder Paw	213803
+Thunder Pro Wrestling Retsuden	34047
+Thunderbolt II	34110
+Thundercats	451835
+Tick, The	4678
+Time Dominator 1st	4620
+Time Killers	4683
+Time Trax	34324
+Tinhead	4684
+Tintin in Tibet	7615
+Tiny Toon Adventures - ACME All-Stars	4685
+Tiny Toon Adventures - Buster's Hidden Treasure	715
+Tiny Toon Adventures 3	34111
+TNN Bass Tournament of Champions	4686
+TNN Outdoors Bass Tournament '96	2574
+Todd's Adventures in Slime World	20537
+ToeJam & Earl	2289
+ToeJam & Earl in Panic on Funkotron	716
+ToeJam & Earl in Panik auf Funkotron	716
+Toki - Going Ape Spit	717
+Toki no Keishousha - Phantasy Star III	679
+Tom and Jerry	4687
+Tom and Jerry - Frantic Antics!	4687
+Tom Clown	34326
+Tom Mason's Dinosaurs for Hire	4339
+Tommy Lasorda Baseball	718
+Tony La Russa Baseball	4688
+Top Fighter 2000 MK VIII	27258
+Top Gear 2	4690
+Top Pro Golf	34048
+Top Pro Golf 2	3892
+Total Football	18753
+Toughman Contest	4691
+Tougi Ou - King Colossus	2651
+Tourmaline	212881
+Toxic Crusaders	2149
+Toy Story	4692
+Toys - Let the Toy Wars begin!	4693
+Trampoline Terror!	4694
+Traysia	719
+Triple Play - Gold Edition	720
+Triple Play 96	2491
+Trouble Shooter	2623
+Troy Aikman NFL Football	4696
+Truco '96	157177
+True Lies	4697
+Truxton	721
+Tunshi Tiandi III	132737
+Turbo OutRun	31707
+Turma da Monica na Terra dos Monstros	729
+Turrican	19658
+Twin Cobra - Desert Attack Helicopter	4699
+Twin Hawk	4700
+Twinkle Tale	14706
+Two Crude Dudes	4701
+Two Tribes - Populous II	34092
+Tyrants - Fight Through Time	4702
+Uchuu Senkan Gomora	34049
+Ultimate Mortal Kombat 3	4703
+Ultimate QIX	722
+Ultimate Soccer	34093
+Ultracore	172299
+Ultraman	34050
+Uncharted Waters	4704
+Undead Line	14772
+Universal Soldier	4706
+Unnecessary Roughness '95	4705
+Urban Strike	723
+UWOL - Quest for Money	34390
+Uzu Keobukseon	34060
+V-V	4401
+Valis	4707
+Valis III	724
+Vampire Killer	2619
+Vapor Trail	4708
+Vectorman	4709
+Vectorman 2	547
+Venom - Spider-Man - Separation Anxiety	7465
+Vermilion	705
+Verytex	34051
+Viewpoint	2492
+Virtua Fighter 2	4710
+Virtua Fighter 2 VS Tekken 2	27254
+Virtua Fish	460400
+Virtua Racing	4711
+Virtual Bart	2586
+Virtual Pinball	725
+Vixen 357	20437
+Volfied	722
+VR Troopers	4712
+VS Puyo Puyo Sun	440262
+Wacky Races	9376
+Wacky Worlds Creativity Studio	4713
+Wani Wani World	34054
+Wardner	4714
+Wardner no Mori Special	4714
+Warlock	726
+WarpSpeed	4715
+Warrior of Rome	4716
+Warrior of Rome II	4717
+Warsong	4718
+Water Margin - A Tale of Clouds and Wind	34107
+Waterworld	29398
+Wayne Gretzky and the NHLPA All-Stars	4719
+Wayne's World	2174
+WeaponLord	4720
+Whac-a-Critter	4722
+Wheel of Fortune	727
+Where in the World Is Carmen Sandiego	27497
+Where in Time Is Carmen Sandiego	4723
+Whip Rush	4724
+Whip Rush - Wakusei Voltegas no Nazo	4724
+WildSnake	34391
+Williams Arcade's Greatest Hits	4726
+Wimbledon	4727
+Wimbledon Championship Tennis	4727
+Wings of Wor	34861
+Winter Challenge	4729
+Winter Challenger	4729
+Wisdom Tree Collection	192699
+Wiz 'N' Liz	4730
+Wiz 'n' Liz - The Frantic Wabbit Wescue	4730
+Wizard of the Immortal	489
+Wolfchild	4731
+Wolverine - Adamantium Rage	2221
+Wonder Boy III - Monster Lair	4732
+Wonder Boy in Monster World	729
+Wonder Boy V - Monster World III	729
+World Championship Soccer	4733
+World Championship Soccer II	4734
+World Class Leader Board	4735
+World Class Leaderboard Golf	4735
+World Cup Italia '90	4733
+World Cup Soccer	4733
+World Cup USA 94	4736
+World Heroes	4737
+World of Illusion Starring Mickey Mouse and Donald Duck	139
+World Series Baseball	730
+World Series Baseball '95	4738
+World Series Baseball '96	4739
+World Series Baseball 98	2493
+World Trophy Soccer	4740
+Worms	34094
+Wrestle War	34056
+Wrestleball	4563
+Wukong Waizhuan	31609
+Wushu Shen Jie	4627
+WWF RAW	2222
+WWF Royal Rumble	4741
+WWF Super WrestleMania	4742
+WWF WrestleMania - The Arcade Game	731
+X-Men	665
+X-Men 2 - Clone Wars	972
+X-Perts	4743
+XDR - X-Dazedly-Ray	34057
+Xeno Crisis	171998
+Xenon 2 - Megablast	7391
+Xiao Monu - Magic Girl	34112
+Xin Chuangshiji	3897
+Xin Guangming Yu Heian III - Gudai Fengyin	184
+Xin Qigai Wangzi	20628
+Xin Shi Zhong Jian	705
+Xin Zhang Yewang - Bawang Chuan	20459
+Yazzie	178281
+Yie Ar Kung-Fu	182657
+Yimen Yinglie - Yangjia Jiang	34113
+Yogi Bear - Cartoon Capers	1533
+Ys - Wanderers from Ys	4746
+Ys III	4746
+Yu Yu Hakusho - Makyou Toitsusen	34058
+Yu Yu Hakusho Gaiden	20430
+YuYu Hakusho - Sunset Fighters	34058
+Zan - Yasha Enbukyoku	20428
+Zany Golf	4747
+Zero the Kamikaze Squirrel	4748
+Zero Tolerance	4749
+Zero Wing	7392
+Zhanqi - Chinese Battle Chess	157189
+Zhen Shihun - Samurai Spirits II	156889
+Zhongguo Xiangqi	141754
+Zhua Gui Dashi - Ghost Hunter	34114
+Zombie High	132741
+Zombies	2757
+Zombies Ate My Neighbors	2757
+Zool	4750
+Zool - Ninja of the 'Nth' Dimension	4750
+Zool Redimensioned	4750
+Zoom!	4751
+Zooming Secretary - Going Panic	164096
+Zoop	4752
+Zou! Zou! Zou! Rescue Daisakusen	26598
+ZPF	458122

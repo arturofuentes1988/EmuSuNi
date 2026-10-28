@@ -1,0 +1,370 @@
+# EmuSuNi star ratings (scripts/make-ratings.py): the PC Engine / TurboGrafx-16 names and each one's game in the LaunchBox
+# Games Database (its id: the app downloads LaunchBox's ratings itself, src/Ratings.h).
+# Names: No-Intro's and Redump's, from libretro-database's metadat (github.com/libretro/libretro-database, CC BY-SA 4.0).
+# Matched with LaunchBox's Metadata.xml of 2026-10-22. This file is under CC BY-SA 4.0.
+# name<TAB>LaunchBox id
+1943 Kai	23253
+21 Emon - Mezase! Hotel Ou	29044
+Adventure Island	8205
+Aero Blasters	4909
+After Burner II	20228
+Air Zonk	8185
+Alien Crush	8186
+All Star Power League	8245
+Andre Panza Kick Boxing	8187
+Ankoku Densetsu	5675
+Aoi Blink	20230
+Appare! Gateball	20231
+Armed F	20233
+Artist Tool	20234
+Atomic Robo-Kid Special	20235
+AV Poker - World Gambler	20236
+Ballistix	8188
+Barbarian	452627
+Bari Bari Densetsu	20241
+Barunba	20242
+Batman	20243
+Battle Lode Runner	20244
+Battle Royale	8189
+Be Ball	8198
+Benkei Gaiden	20245
+Bikkuriman World	120103
+Billy's Bad Day	459456
+Blazing Lazers	5657
+Blodia	8239
+Bloody Wolf	8190
+Bodycon Quest II - Kyuseishu	29484
+Bomberman	5658
+Bomberman '93	8191
+Bomberman '93 - Special Version	131757
+Bomberman '94	18440
+Bomberman - Users Battle	34671
+Bonk 3 - Bonk's Big Adventure	8192
+Bonk's Adventure	3777
+Bonk's Revenge	5661
+Bouken Danshaku Don - The Lost Sunheart	18400
+Boxyboy	8193
+Bravoman	8194
+Break In	20248
+Bug Hunt	203242
+Bull Fight - Ring no Hasha	20249
+Burning Angels	18401
+Cadash	8195
+Champion Wrestler	29875
+Champions Forever Boxing	8196
+Chase H.Q.	8197
+Chew-Man-Fu	8198
+Chibi Maruko-chan - Quiz de Piihyara	29876
+Chikudenya Toubei - Kubikiri Yakata Yori	103942
+China Warrior	4107
+Chou Zetsurinjin Bravoman	8194
+Circus Lido	18441
+City Hunter	18402
+Columns	23255
+Cratermaze	8199
+Cross Wiber - Cyber Combat Police	31728
+Cyber Core	8200
+Cyber Dodge	34672
+Daichi-kun Crisis - Do Natural	103949
+Daisenpuu	32840
+Darius Alpha	27809
+Darius Plus	27093
+Darkwing Duck	8201
+Davis Cup Tennis	8202
+Dead Moon	8203
+Dead Moon - Getsu Sekai no Akumu	8203
+Deep Blue	5662
+Deep Blue - Kaitei Shinwa	5662
+Detana!! TwinBee	23257
+Devil Crash - Naxat Pinball	5663
+Devil's Crush	5663
+Die Hard	23276
+Digital Champ - Battle Boxing	23277
+Dinoforce	217403
+Don Doko Don!	23278
+Doraemon - Meikyuu Daisakusen	8199
+Doraemon - Nobita no Dorabian Night	27810
+Double Dungeons	8204
+Down Load	18404
+Dragon Egg!	18443
+Dragon Saber	32829
+Dragon Spirit	5666
+Dragon's Curse	8205
+Drop Off	8206
+Drop Rock Hora Hora	8206
+Dungeon Explorer	5667
+Dungeons & Dragons - Order of the Griffon	8221
+Energy	34654
+Eternal City - Toshi Tensou Keikaku	18430
+F-1 Dream	104627
+F-1 Pilot - You're King of Kings	106152
+F1 Circus	18405
+F1 Circus '91	104626
+F1 Circus '92	18406
+F1 Triple Battle	106153
+Falcon	8207
+Fantasy Zone	5669
+Fighting Run	106154
+Final Blaster	18407
+Final Lap Twin	5670
+Final Match Tennis	33323
+Final Soldier	18408
+Final Soldier - Special Version	216517
+Fire Pro Wrestling - 2nd Bout	31940
+Fire Pro Wrestling - Combination Tag	31939
+Fire Pro Wrestling 3 - Legend Bout	31941
+Formation Soccer - Human Cup '90	106937
+Formation Soccer - On J.League	106938
+Fushigi no Yume no Alice	30101
+Gai Flame	106939
+Gaia no Monshou	32834
+Galaga '88	5671
+Galaga '90	5671
+Ganbare! Golf Boys	106940
+Gekisha Boy	18444
+Genji Tsuushin Agedama	24801
+Genpei Toumaden	134100
+Genpei Toumaden - Kan no Ni	5680
+Ghost Manor	5672
+Gokuraku! Chuuka Taisen	18409
+Gomola Speed	31080
+Gradius	24802
+Gunboat	8208
+Gunhed	5657
+Gunhed - Special Version	5657
+Hana Taaka Daka!	27541
+Hanii in the Sky	34715
+Hanii on the Road	34716
+Hatris	107659
+Heavy Unit	32231
+Hisou Kihei X-SERD	107345
+Hit the Ice - VHL - The Official Video Hockey League	8209
+Hit the Ice - VHL - The Video Hockey League	8209
+Honoo no Toukyuuji - Dodge Danpei	34717
+HuZERO	419833
+Hyper Dyne - SideArms	5682
+Idol Hanafuda Fan Club	108236
+ImageFight	32835
+Impossamole	8210
+J.J. & Jeff	8211
+J.League Greatest Eleven	108280
+Jack Nicklaus' Greatest 18 Holes of Major Championship Golf	8212
+Jack Nicklaus' Turbo Golf	8212
+Jackie Chan	8213
+Jackie Chan's Action Kung Fu	8213
+Jaseiken Necromancer	34809
+Jigoku Meguri	18411
+Jinmu Denshou	108304
+Juuouki	28717
+Kaizou Choujin Shubibinman	34718
+Kaizou Choujin Shubibinman 2 - Aratanaru Teki	8227
+Kato-chan Ken-chan	8211
+Kattobi! Takuhai-kun	108394
+Keith Courage in Alpha Zones	5673
+KickBall	34719
+Kiki Kaikai	103956
+King of Casino	8214
+Klax	8215
+Knight Rider Special	33988
+Kore ga Pro Yakyuu '89	109028
+Kore ga Pro Yakyuu '90	111128
+Kung Fu, The	4107
+Kyuukyoku Mahjong - Idol Graphic	111197
+Kyuukyoku Mahjong II - Super Idol Graphic	111198
+Kyuukyoku Tiger	22393
+Lady Sword - Ryakudatsu Sareta 10-nin no Otome	34807
+Legend of Hero Tonma	8216
+Legendary Axe II	5675
+Legendary Axe, The	5674
+Lode Runner - Lost Labyrinth	29051
+Maerchen Maze	32240
+Magical Chase	4108
+Mahjong Gakuen - Touma Soushirou Toujou	120172
+Mahjong Gakuen Mild - Touma Soushirou Toujou	120173
+Mahjong Gokuu Special	120174
+Mahjong Haouden - Kaiser's Quest	29485
+Mahjong Shikaku Retsuden - Mahjong Wars	120175
+Mai Nurse	445875
+Maison Ikkoku	33507
+Makai Hakkenden - Shada	120225
+Makai Prince Dorabocchan	30102
+Makyou Densetsu	5674
+Maniac Pro Wres - Asu e no Tatakai	31950
+Maria	453447
+Mashin Eiyuuden Wataru	5673
+Mesopotamia	8231
+Metal Stoker	33508
+Military Madness	5676
+Mizubaku Daibouken	24803
+Momotarou Densetsu Gaiden - Dai-1-shuu	120227
+Momotarou Densetsu II	120228
+Momotarou Densetsu Turbo	34810
+Momotarou Katsugeki	24804
+Monster Pro Wres	31951
+Morita Shougi PC	120267
+Moto Roader	8217
+Moto Roader II	18412
+Mr. Heli no Daibouken	32237
+Nantettatte Engine	185225
+Narazumono Sentou Butai - Bloody Wolf	8190
+Naxat Open	18413
+Naxat Stadium	120268
+Necros no Yousai	120271
+Nectaris	5676
+Nekketsu Koukou Dodgeball-bu - PC Bangai Hen	26214
+Nekketsu Koukou Dodgeball-bu - PC Soccer Hen	33152
+Neutopia	5677
+Neutopia - Frey no Shou	5677
+Neutopia II	8218
+New Adventure Island	8219
+NewZealand Story, The	21546
+NHK Taiga Drama - Taiheiki	120272
+Night Creatures	8220
+Ninja Ryuuken Den	26642
+Ninja Spirit	5678
+Ninjawarriors, The	27811
+Obocchama-kun	120274
+Off the Wall	156983
+Operation Wolf	29483
+Ordyne	4109
+Out Live	121283
+OutRun	26094
+Override	18414
+P-47 - The Freedom Fighter	31081
+Pac-Land	5679
+Pachio-kun - Juuban Shoubu	121284
+Paranoia	8224
+Parasol Stars - The Story of Bubble Bobble III	8222
+Parodius Da! - Shinwa kara Owarai e	18872
+PC Denjin - Punkic Cyborgs	8185
+PC Genjin - Pithecanthropus Computerurus	3777
+PC Genjin 2 - Pithecanthropus Computerurus	5661
+PC Genjin 3 - Pithecanthropus Computerurus	8192
+PC Pachi-Slot - Idol Gambler	29050
+Populous	34655
+Power Drift	121306
+Power Eleven	121355
+Power Gate	121356
+Power Golf	8223
+Power League	8245
+Power League '93	121357
+Power League 4	121359
+Power League 5	121360
+Power League II	31082
+Power League III	121358
+Power Sports	8247
+Power Tennis	18445
+Pro Tennis - World Court	8246
+Pro Yakyuu World Stadium	29147
+Pro Yakyuu World Stadium '91	121362
+Psycho Chaser	22394
+Psychosis	8224
+Puzzle Boy	121363
+Puzznic	121364
+Quiz Toukou Shashin	121365
+R-Type	8226
+R-Type I	8226
+R-Type II	219383
+Rabio Lepus Special	29048
+Racing Damashii	121366
+Raiden	8225
+Rastan Saga II	32236
+Reflectron	35262
+Rock-On	121382
+Ryuukyuu	121383
+S.C.I. - Special Criminal Investigation	29049
+Sadakichi Seven - Hideyoshi no Ougon	121384
+Saigo no Nindou - Ninja Spirit	5678
+Salamander	22395
+Samurai-Ghost	5680
+Santatlantean	35263
+Sekigahara	121385
+Sengoku Mahjong	121386
+Shanghai	121387
+Shinobi	25033
+Shiryou Sensen - War of the Dead	121388
+Shockman	8227
+Shougi Shodan Icchokusen	121389
+Shougi Shoshinsha Muyou	121390
+SideArms	5682
+Silent Debuggers	8228
+Sindibad - Chitei no Daimakyuu	121391
+Sinistron	8229
+Skweek	121397
+Soldier Blade	8230
+Soldier Blade - Special Version	132775
+Somer Assault	8231
+Son Son II	18416
+Sonic Spike - World Championship Beach Volleyball	8232
+Soukoban World	8193
+Space Harrier	8233
+Space Invaders - Fukkatsu no Hi	121392
+Spin Pair	28976
+Spiral Wave	121395
+Splatterhouse	3776
+Stratego	121396
+Street Fighter II' - Champion Edition	18873
+Strife Sisters	440290
+Strip Fighter II	26649
+Super Mario Bros.	183065
+Super Metal Crusher	29045
+Super Momotarou Dentetsu	29046
+Super Momotarou Dentetsu II	29047
+Super Star Soldier	8234
+Super Volley Ball	8235
+Susanoou Densetsu	121398
+Taito Chase H.Q.	8197
+Takahashi Meijin no Shin Bouken-jima	8219
+Takeda Shingen	18417
+Takin' It to the Hoop	8236
+TaleSpin	26650
+Tatsujin	32833
+Tatsunoko Fighter	121399
+Ten no Koe Bank	132783
+Tenseiryuu - Saint Dragon	18415
+Terra Cresta II - Mandoler no Gyakushuu	18418
+Thunder Blade	32836
+Tiger Road	5683
+Time Cruise	8238
+Time Cruise II	8238
+Timeball	8239
+Titan	121400
+Toilet Kids	28974
+Tongueman's Logic	175093
+Tora e no Michi	5683
+Tower of Druaga, The	24805
+Toy Shop Boys	121402
+Tricky	8240
+Tricky Kick	8240
+Tsuppari Oozumou - Heisei Ban	121403
+Tsuru Teruhito no Jissen Kabushiki Bai Bai Game	121404
+Turrican	8241
+TV Sports Baseball	208035
+TV Sports Basketball	8242
+TV Sports Football	5684
+TV Sports Hockey	8243
+USA Pro Basketball	8236
+UWOL - Quest for Money	203241
+Valkyrie no Densetsu	22396
+Veigues - Tactical Gladiator	8244
+Victory Run	5685
+Victory Run - Eikou no 13,000km	5685
+Vigilante	4110
+Violent Soldier	8229
+Volfied	101392
+W Ring - The Double Rings	18419
+Wai Wai Mahjong - Yukai na Janyuu-tachi	121405
+Winning Shot	121412
+Wonder Momo	121414
+World Beach Volley	8232
+World Circuit	29481
+World Class Baseball	8245
+World Court Tennis	8246
+World Jockey	121415
+World Sports Competition	8247
+Xevious - Fardraut Densetsu	27812
+Yo' Bro	8248
+You-You Jinsei	111646
+Youkai Douchuuki	104177
+Zero4 Champ	111220
+Zipang	32159

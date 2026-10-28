@@ -2,8 +2,9 @@
 
 // The game picture drawn through the GPU's filters (shaders) instead of ImGui's plain textured
 // quad: xBRZ at the TV's resolution for pixel art, AMD's FSR 1 and RCAS, Anime4K's neural
-// network, and the three steps of the Quality levels (MMPX and SMAA anti-aliasing, then FSR, then
-// the network mixed with its input); and an old tube TV's look (CRT). The passes before the last draw
+// network, and the natural steps (MMPX and SMAA anti-aliasing, then FSR, then the network mixed with its
+// input: the Quality levels' from 00.40 to 00.68; since 00.69 Medium, Pixel Art HD and AI, Emulator.cpp
+// GpuMode); and an old tube TV's look (CRT). The passes before the last draw
 // into images of their own (Display::EndFrame records them before the screen's render pass); the last one draws straight
 // into the screen, inside ImGui's render pass, through a draw-list callback where the picture goes.
 
@@ -28,8 +29,8 @@ enum class Mode
   PixelArt,  // Pixel Art HD: xBRZ (freescale), drawn at the size the picture has on the screen
   Smooth,    // Smooth HD: AMD FidelityFX Super Resolution 1 (EASU, then RCAS)
   AI,        // AI: xBRZ at 768 pixels wide, Anime4K's Restore network, Catmull-Rom to the screen
-  // The Quality levels' steps, each one the one before plus more (after the four above: their
-  // numbers stay):
+  // The natural steps, each one the one before plus more (after the four above: their numbers stay;
+  // the Quality levels' until 00.68, Medium's since):
   Edges,      // Smooth Edges: jagged edges anti-aliased, nothing else changed. Pixel art: MMPX at 2x
               // (4x for the Game Boys), SMAA, crisp pixels to the screen. Drawn (3D) pictures: SMAA,
               // Catmull-Rom.
@@ -97,6 +98,16 @@ struct Source
   int screen_count = 1;
   Screen screens[2];
   int rotation = 0;  // Tube TV: the source drawn turned, libretro's quarter turns anticlockwise (a vertical NAOMI game)
+  // The picture made of parts of the image (00.80: the DS's and the 3DS's screens, placed by the app - Emulator.cpp
+  // DrawScreens): up to two rectangles of the image (from_x, from_y, width, height, in its pixels), each copied to its
+  // place (to_x, to_y) in a picture of width x height, black elsewhere (the gap between the screens); the filters then
+  // work on that picture, both screens at once. 0: the picture is the image's top-left corner, as before.
+  struct Part
+  {
+    uint32_t from_x = 0, from_y = 0, width = 0, height = 0, to_x = 0, to_y = 0;
+  };
+  int part_count = 0;
+  Part parts[2];
 };
 
 // DrawPicture: this frame's picture through the mode's passes, the last one into the screen at

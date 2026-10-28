@@ -21,9 +21,14 @@
 # build since 00.62: its ~27 MB of code and data come out of the PS4's flexible memory, which the other
 # cores need too - about 93 MiB of it is left free at display ready with it, 119 without: no-3ds leaves it
 # out; its recompilers' 64 MiB are mapped from the system's own flexible memory when a 3DS game starts). Only
-# with with-saturn: the Sega Saturn's speed test (00.64), YabaSanshiro (/root/src/yabasanshiro) without a renderer,
-# by scripts/build-saturn-core.sh (in <build>/saturn): shown in Settings only with the file /data/EmuSuNi/saturn-test.
+# with with-saturn: the Sega Saturn (experimental, 00.68: its tab, Roms/saturn), YabaSanshiro (/root/src/yabasanshiro)
+# with its software renderer on threads of its own, by scripts/build-saturn-core.sh (in <build>/saturn); and its
+# speed test (00.64), shown in Settings only with the file /data/EmuSuNi/saturn-test. The PC Engine (00.82), Beetle PCE
+# Fast (/root/src/beetle-pce-fast-libretro), by scripts/build-beetle-cores.sh (in <build>/beetle; no-pce leaves it out).
+# (00.80 to 00.82 also built PicoDrive for the 32X and Beetle NeoPop and Cygne for the Neo Geo Pockets and the
+# WonderSwans: gone in 00.83 with those consoles and the Sega CD; their sources stay in /root/src.)
 #   build.sh [setup] [no-n64] [no-ps1] [no-nds] [no-psp] [no-dc] [no-sega] [no-arcade] [no-3ds] [with-saturn]
+#            [no-pce]
 #                                                 (setup: configure from scratch; no-n64: without
 #                                                 the Nintendo 64; no-ps1: without the PlayStation;
 #                                                 no-nds: without the Nintendo DS; no-psp: without
@@ -31,8 +36,9 @@
 #                                                 without the SG-1000, Master System, Game Gear and
 #                                                 Mega Drive; no-arcade: without the Arcade;
 #                                                 no-3ds: without the Nintendo 3DS; with-3ds, as
-#                                                 before 00.62, is the default now; with-saturn: with
-#                                                 the Saturn's speed test, out by default)
+#                                                 before 00.62, is the default now; with-saturn:
+#                                                 with the Saturn, out by default; no-pce: without
+#                                                 the PC Engine)
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SRC="$(cd "$HERE/.." && pwd)"
@@ -46,6 +52,7 @@ SEGA=ON
 ARCADE=ON
 THREEDS=ON
 SATURN=OFF
+PCE=ON
 for arg in "$@"; do
     case "$arg" in
         setup) SETUP=1 ;;
@@ -59,6 +66,7 @@ for arg in "$@"; do
         no-3ds) THREEDS=OFF ;;
         with-3ds) THREEDS=ON ;;
         with-saturn) SATURN=ON ;;
+        no-pce) PCE=OFF ;;
     esac
 done
 BUILD="${EMUSUNI_BUILD:-$HOME/emusuni-build}"
@@ -127,6 +135,19 @@ else
     SATURN_OBJECT=""
 fi
 EXTRA="$EXTRA -DSATURN_CORE_OBJECT=$SATURN_OBJECT"
+# The PC Engine's core (00.82): a minute the first time, then only what changed.
+if [ "$PCE" = ON ]; then
+    bash "$HERE/build-beetle-cores.sh" "$BUILD/beetle"
+    PCE_OBJECT="$BUILD/beetle/pce_core.o"
+else
+    PCE_OBJECT=""
+fi
+EXTRA="$EXTRA -DPCE_CORE_OBJECT=$PCE_OBJECT"
+# Mbed TLS (curl's TLS, HTTPS): PacBrew's libraries with bignum.c rebuilt with upstream's fix (00.73: PacBrew's fail
+# every RSA handshake), by scripts/build-mbedtls.sh (once).
+bash "$HERE/build-mbedtls.sh" "$BUILD/mbedtls"
+MBEDTLS_LIB_DIR="$BUILD/mbedtls/lib"
+EXTRA="$EXTRA -DMBEDTLS_LIB_DIR=$MBEDTLS_LIB_DIR"
 source "$HERE/ps4-env.sh"
 # From scratch also when the Nintendo 64 comes in or goes out.
 if [ "$SETUP" = 1 ] || [ ! -f "$BUILD/build.ninja" ] || \
@@ -179,6 +200,21 @@ else
     # The Saturn's speed test's object in (with-saturn) or out, or a build directory from before it.
     if ! grep -q "^SATURN_CORE_OBJECT:FILEPATH=$SATURN_OBJECT\$" "$BUILD/CMakeCache.txt"; then
         AGAIN+=(-DSATURN_CORE_OBJECT="$SATURN_OBJECT")
+    fi
+    # The PC Engine's core in or out (no-pce), or a build directory from before it (00.82).
+    if ! grep -q "^PCE_CORE_OBJECT:FILEPATH=$PCE_OBJECT\$" "$BUILD/CMakeCache.txt"; then
+        AGAIN+=(-DPCE_CORE_OBJECT="$PCE_OBJECT")
+    fi
+    # A build directory of 00.80 to 00.82: the 32X's, the Neo Geo Pockets' and the WonderSwans' cores out of its cache
+    # (CMakeLists.txt no longer reads them; emptied so that nothing of theirs is linked by an old rule).
+    for gone in PICO_CORE_OBJECT NGP_CORE_OBJECT WSWAN_CORE_OBJECT; do
+        if grep -q "^$gone:FILEPATH=." "$BUILD/CMakeCache.txt"; then
+            AGAIN+=(-U"$gone")
+        fi
+    done
+    # The fixed Mbed TLS (00.73), or a build directory from before it.
+    if ! grep -q "^MBEDTLS_LIB_DIR:PATH=$MBEDTLS_LIB_DIR\$" "$BUILD/CMakeCache.txt"; then
+        AGAIN+=(-DMBEDTLS_LIB_DIR="$MBEDTLS_LIB_DIR")
     fi
     if [ ${#AGAIN[@]} -gt 0 ]; then
         env -u CFLAGS -u CXXFLAGS -u CPPFLAGS -u LDFLAGS -u LIBS cmake "${AGAIN[@]}" "$BUILD" > /dev/null

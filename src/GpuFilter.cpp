@@ -932,8 +932,9 @@ bool BuildChain(Mode mode, const Source& source, uint32_t picture_w, uint32_t pi
   };
   const uint32_t sw = source.width, sh = source.height;
   int picture = -1;
-  if (!source.exact)
+  if (!source.exact || source.part_count > 0)
   {
+    // (With parts: the picture made of them, the copy's constants say where each goes - SetConstants.)
     picture = image(sw, sh, Target::Rgba8);
     pass(COPY, Target::Rgba8, picture, {-1}, false);
   }
@@ -1243,6 +1244,25 @@ void SetConstants()
     case CRT:
       CrtConstants(push);
       break;
+    case COPY:
+    {
+      // The parts (src/shaders/copy.frag): Const0 and Const2 their places (x, y, width, height), Const1.xy and
+      // Const3.xy where they come from, Const3.z how many (0: the image's top-left corner, as it is).
+      const Source& source = s_job.source;
+      const int parts = std::clamp(source.part_count, 0, 2);
+      for (int i = 0; i < parts; i++)
+      {
+        const Source::Part& part = source.parts[i];
+        push.con[i * 8 + 0] = part.to_x;
+        push.con[i * 8 + 1] = part.to_y;
+        push.con[i * 8 + 2] = part.width;
+        push.con[i * 8 + 3] = part.height;
+        push.con[i * 8 + 4] = part.from_x;
+        push.con[i * 8 + 5] = part.from_y;
+      }
+      push.con[14] = static_cast<uint32_t>(parts);
+      break;
+    }
     default:
       break;
     }
@@ -1631,8 +1651,13 @@ bool Draw(ImDrawList* dl, Mode mode, const Source& source, ImVec2 min, ImVec2 ma
   if (mode == Mode::Crt)
     std::snprintf(crt, sizeof(crt), "%s, %d screen%s)", CRT_NAMES[std::clamp(source.crt, 1, 4) - 1],
                   std::clamp(source.screen_count, 1, 2), source.screen_count > 1 ? "s" : "");
-  std::snprintf(what, sizeof(what), "%s%s, %ux%u%s to %dx%d, %zu passes", Name(mode), crt, source.width, source.height,
-                !steps ? "" : drawn ? " (drawn)" : " (pixel art)", x1 - x0, y1 - y0, s_chain.size());
+  char parts[32] = "";
+  if (source.part_count > 0)
+    std::snprintf(parts, sizeof(parts), ", %d part%s", std::clamp(source.part_count, 1, 2),
+                  source.part_count > 1 ? "s" : "");
+  std::snprintf(what, sizeof(what), "%s%s, %ux%u%s%s to %dx%d, %zu passes", Name(mode), crt, source.width,
+                source.height, !steps ? "" : drawn ? " (drawn)" : " (pixel art)", parts, x1 - x0, y1 - y0,
+                s_chain.size());
   if (s_logged != what)
   {
     s_logged = what;

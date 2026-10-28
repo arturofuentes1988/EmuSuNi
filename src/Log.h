@@ -23,6 +23,12 @@ void LogMemory(const char* where);
 void LogF(const char* format, ...) __attribute__((format(printf, 1, 2)));
 // At the start: the stack and guard a thread gets when its creator doesn't say (libthr's default).
 void LogThreadDefaults();
+// The log and the trace written through to the disk (fsync): a hang, a forced close or the power going off keeps
+// them (src/StartGuard.cpp, every 2 s while a game starts). Any thread.
+void LogSync();
+// The logs of the sessions before (00.70): <base>.log becomes <base>-1.log, <base>-1.log becomes <base>-2.log, ...
+// up to <base>-<keep>.log (the oldest goes). Before <base>.log is opened.
+void RotateLogs(const std::string& base, int keep);
 
 // The regular flexible memory free now, in MiB (a reading, as LogMemory's: see FlexibleMostMiB).
 int FlexibleFreeMiB();

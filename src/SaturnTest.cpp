@@ -261,6 +261,16 @@ void Message(Display& display, ImFont* regular, ImFont* bold, Pad& pad, const st
 }
 }  // namespace
 
+std::string FindSaturnBios(const std::vector<std::string>& folders, uint32_t* crc)
+{
+  return FindBios(folders, crc);
+}
+
+std::string SaturnBiosName(uint32_t crc)
+{
+  return BiosName(crc);
+}
+
 bool Enabled()
 {
   return FileExists(std::string(App::DATA_DIR) + "/saturn-test");

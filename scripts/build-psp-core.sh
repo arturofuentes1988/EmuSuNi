@@ -68,8 +68,11 @@
 #   - ISOs are never cached whole in RAM (ppsspp_cache_iso is ignored); files are read with stdio
 #     (libretro-common without mmap). The sound conversion fixed for blocks of more than 1024 frames
 #     (upstream read past a 1024-frame stack buffer).
-#   - One retro_run per vblank, always (frame duplication on: the app paces by the display; without
-#     it a 30 fps game would end a frame every other vblank and run twice as fast). A game that can't
+#   - One retro_run per vblank with Frame Skip off (frame duplication on: the app paces by the display;
+#     without it a 30 fps game would end a frame every other vblank and run twice as fast). With Frame
+#     Skip on, PPSSPP's own, a run lasts until the next picture: the core gives its count of vblanks at
+#     the end of each run and the app pays for those a run covered (00.81: until then God of War at
+#     30 FPS ran at 2x); PPSSPP's own sleeps for its pacing left out of retro_run. A game that can't
 #     start asks for RETRO_ENVIRONMENT_SHUTDOWN; retro_run then does nothing (upstream ran the CPU it
 #     never set up: a crash). A program's debug output (homebrew, PPSSPP's tests) logged at INFO.
 #   - A few lines in the log every ~10 s (PSP_TIMING_FRAMES=n: every n frames; Common/EmuSuNiTiming.h,
@@ -833,6 +836,49 @@ patch('libretro/libretro.cpp',
       '   // EmuSuNi: one retro_run per vblank, always (the app paces by the display: without this a\n'
       '   // 30 fps game ends a frame every second vblank and would run twice as fast).\n'
       '   g_Config.bRenderDuplicateFrames = true;\n'
+      '#endif\n')
+
+# --- The PSP's time per run, for the app to count (00.81, GitHub issue #19: God of War suddenly much faster, then other
+# games). A run of the core lasts until the PSP's next picture. With Frame Skip off that is every vblank (the frame
+# duplication), but frame skip turns the duplication off (upstream's duplicateFrames needs iFrameSkip == 0), and the
+# app's Frame Skip (1, 2, Auto) is PPSSPP's: a game at 30 FPS then ran 2 vblanks a run, a skipped picture one more, a
+# loading screen up to 10, while the app ran the core once per TV refresh - the game at 2x and more, God of War the
+# moment PSP Frame Rate Auto turned PPSSPP's 30 FPS hack on. Now:
+#   - the core counts its vblanks and gives the count at the end of each run (the environment call
+#     EMUSUNI_ENVIRONMENT_PSP_VBLANKS, 0x25053, the vblanks since the core started; a frontend that doesn't know it
+#     refuses it), and the app pays for those a run covered as it does for Flycast's pictures (src/Emulator.cpp:
+#     PspFrames): a game at 30 FPS with Frame Skip runs every other refresh, each picture shown twice;
+#   - PPSSPP doesn't sleep inside a run for its own pacing any more (a skipped picture waited for its time on the clock,
+#     a vblank without a picture after 2 of them: runs of 33-100 ms the app took for a heavy core); the app paces.
+# A run still ends at a picture only, as upstream's: every picture handed to the app is one the PSP drew whole (ending a
+# run at a skipped picture's vblank would show a framebuffer the game is drawing into).
+patch('Core/HLE/sceDisplay.cpp',
+      'static int numSkippedFrames;\n',
+      'static int numSkippedFrames;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '// EmuSuNi: the vblanks since the core started (never reset, never in a state), for the app\'s pacing:\n'
+      '// libretro.cpp gives the count at the end of each retro_run.\n'
+      'static unsigned long long g_emusuniVblanks = 0;\n'
+      'unsigned long long EmuSuNiVblanks() { return g_emusuniVblanks; }\n'
+      '#endif\n')
+patch('Core/HLE/sceDisplay.cpp',
+      '\tnumVBlanksSinceFlip++;\n',
+      '\tnumVBlanksSinceFlip++;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\tg_emusuniVblanks++;\n'
+      '#endif\n')
+patch('Core/HLE/sceDisplay.cpp',
+      '\t\tDoFrameIdleTiming();\n',
+      '#ifndef EMUSUNI_PORT\n'
+      '\t\tDoFrameIdleTiming();  // (EmuSuNi: no sleep for PPSSPP\'s own pacing: the app paces)\n'
+      '#endif\n')
+patch('Core/HLE/sceDisplay.cpp',
+      '\tDoFrameTiming(throttle, &skipFrame, scaledTimestep, nextFrame);\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '\t// EmuSuNi: its wait only deferred (never done: the app paces), a skipped picture\'s too.\n'
+      '\tDoFrameTiming(throttle, &skipFrame, scaledTimestep, true);\n'
+      '#else\n'
+      '\tDoFrameTiming(throttle, &skipFrame, scaledTimestep, nextFrame);\n'
       '#endif\n')
 
 # --- The JIT's code memory: this game's part of the app's shared JIT arena, else no JIT.
@@ -2336,6 +2382,22 @@ patch('libretro/libretro.cpp',
       '   upload_output_audio_buffer();\n'
       '#endif\n'
       '}\n')
+# The PSP's vblanks so far, to the app at the end of each run (00.81: the app pays for those a run covered - with Frame
+# Skip on a run lasts until the next picture; see "The PSP's time per run" above).
+patch('libretro/libretro.cpp',
+      'static bool g_emusuni30fps = false;\n#endif\n',
+      'static bool g_emusuni30fps = false;\n'
+      '// EmuSuNi: the vblanks since the core started (Core/HLE/sceDisplay.cpp), given to the app at the end of each\n'
+      '// retro_run by this private environment call (another frontend refuses it).\n'
+      'unsigned long long EmuSuNiVblanks();\n'
+      '#define EMUSUNI_ENVIRONMENT_PSP_VBLANKS (0x20000 | 0x5053)\n'
+      '#endif\n')
+patch('libretro/libretro.cpp',
+      '      upload_output_audio_buffer();\n   }\n#else\n',
+      '      upload_output_audio_buffer();\n'
+      '      unsigned long long emusuniVblanks = EmuSuNiVblanks();\n'
+      '      environ_cb(EMUSUNI_ENVIRONMENT_PSP_VBLANKS, &emusuniVblanks);\n'
+      '   }\n#else\n')
 patch('libretro/libretro.cpp',
       '   // TODO: This seems dubious.\n   if (softwareRenderInitHack)\n',
       '#ifdef EMUSUNI_PORT\n'
@@ -2778,6 +2840,55 @@ patch('assets/compat.ini',
       'NPEG90035 = true\nNPUG70125 = true\nNPJG90095 = true\n'
       '\n'
       '[GoWFramerateHack60]\n')
+
+# --- compat.ini: upstream's newer per-game entries (00.81). PPSSPP's own list of games and the fixes each needs
+# (assets/compat.ini, read at each game's boot) is in the app's package; upstream (hrydgard/ppsspp master, 2026-10-27)
+# has added games to it since v1.20.4. Only those whose fix is a compat flag this PPSSPP already reads, the same way, and
+# that came without a change to the code: Echochrome's other regions and Metal Gear Solid: Portable Ops drawing their
+# lines centred (CenteredLines, #15556, #20142), Tales of Phantasia: Full Voice Edition's framebuffer match (as Tales
+# of Phantasia X, #21162), Megpoid the Music with the UMD's delays (#17474), the PopCap games at the default CPU clock
+# and a GTA romhack with buffered rendering (both what the app always does). Left out, with the reason
+# (scratchpad gamedb-0081): the software renderer for Echoshift and a homebrew (too slow on the PS4), the Sims 2 games'
+# and Worms: Battle Islands' readbacks and Amagoushi no Yakata (they came with code changes), the depth rounding
+# for Hot Pixel and Kidou Keisatsu (needs upstream's later depth-rounding fix) and the nearest filtering moved over
+# from the dropped ShaderColorBitmask (this PPSSPP still has it).
+patch('assets/compat.ini',
+      '[CenteredLines]\n# Echochrome looks better with these. Related: #15556\n',
+      '[CenteredLines]\n# Echochrome looks better with these. Related: #15556\n'
+      '# EmuSuNi: upstream\'s later entries (Echochrome\'s other regions; Metal Gear Solid: Portable Ops, #20142)\n'
+      'UCJS10081 = true\nUCKS46082 = true\nNPJG00012 = true\nUCJS18028 = true\n'
+      'ULUS10202 = true\nULES00645 = true\n')
+patch('assets/compat.ini',
+      '[BoostExactFramebufferMatch]\n',
+      '[BoostExactFramebufferMatch]\n'
+      '# EmuSuNi: upstream\'s later entry - Tales of Phantasia FVE\n'
+      'ULJS00079 = true\n')
+patch('assets/compat.ini',
+      '[ForceUMDDelay]\n',
+      '[ForceUMDDelay]\n'
+      '# EmuSuNi: upstream\'s later entry - Megpoid the Music (#17474)\n'
+      'ULJM06226 = true\n')
+patch('assets/compat.ini',
+      '[RequireDefaultCPUClock]\n',
+      '[RequireDefaultCPUClock]\n'
+      '# EmuSuNi: upstream\'s later entries - Bejeweled 2, Peggle, Zuma\n'
+      'NPUG30038 = true\nNPEG00036 = true\nNPUG30040 = true\nNPEG00038 = true\nNPUG30039 = true\nNPEG00037 = true\n')
+patch('assets/compat.ini',
+      '[RequireBufferedRendering]\n',
+      '[RequireBufferedRendering]\n'
+      '# EmuSuNi: upstream\'s later entry - Seen in Liberty City (GTA LCS romhack)\n'
+      'ULUS11826 = true\n')
+# Each flag compat.ini turns on for the game, in the log at its boot ("gamedb: psp ULUS10202: CenteredLines = true
+# (compat.ini)"): the PS4's log says which of the list's fixes a game got.
+patch('Core/Compatibility.cpp',
+      '\t\tsection->Get(gameID, flag);\n\n\t\t// Shortcut for debugging, sometimes useful to globally enable compat flags.\n',
+      '\t\tsection->Get(gameID, flag);\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\tbool emusuniSet = false;\n'
+      '\t\tif (section->Get(gameID, &emusuniSet) && emusuniSet)\n'
+      '\t\t\tINFO_LOG(Log::System, "gamedb: psp %s: %s = true (compat.ini)", gameID.c_str(), option);\n'
+      '#endif\n'
+      '\n\t\t// Shortcut for debugging, sometimes useful to globally enable compat flags.\n')
 
 # --- The picture's options while a game runs. Upstream's libretro core applies the texture upscaling shader
 # (the textures redone) and the anti-aliasing (the framebuffers made again) at once, but not:

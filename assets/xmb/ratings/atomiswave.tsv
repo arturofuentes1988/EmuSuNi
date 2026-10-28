@@ -1,0 +1,39 @@
+# EmuSuNi star ratings (scripts/make-ratings.py): the Atomiswave names and each one's game in the LaunchBox
+# Games Database (its id: the app downloads LaunchBox's ratings itself, src/Ratings.h).
+# Names: Flycast's set names and full names (core/hw/naomi/naomi_roms.cpp).
+# Matched with LaunchBox's Metadata.xml of 2026-10-22. This file is under CC BY-SA 4.0.
+# name<TAB>LaunchBox id
+anmlbskt	172541
+anmlbskta	172541
+basschal	92607
+basschalo	92607
+blokpong	164113
+claychal	91842
+demofist	14950
+dirtypig	14953
+dolphin	14952
+fotns	14956
+ftspeed	14954
+ggisuka	91848
+ggx15	91849
+kofnw	91850
+kofnwj	91850
+kofxi	91851
+kov7sprt	91852
+maxspeed	91853
+mslug6	91854
+ngbc	91855
+ngbcj	91855
+rangrmsn	91856
+rumblef	91857
+rumblef2	91858
+rumblefp	91857
+rumblf2p	91858
+salmankt	39159
+samsptk	39176
+sprtshot	91860
+sushibar	186984
+vfurlong	139348
+waidrive	158213
+xtrmhnt2	91861
+xtrmhunt	14974

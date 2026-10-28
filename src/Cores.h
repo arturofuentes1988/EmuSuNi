@@ -72,7 +72,11 @@ extern const CoreApi FBNEO;  // Arcade (FinalBurn Neo; builds with EMUSUNI_ARCAD
 extern const CoreApi AZAHAR;  // Nintendo 3DS (Azahar; builds with EMUSUNI_3DS)
 #endif
 #ifdef EMUSUNI_SATURN
-// Sega Saturn: only its speed test (YabaSanshiro without a renderer, src/SaturnTest.h; builds with EMUSUNI_SATURN)
+// Sega Saturn: YabaSanshiro with its software renderer (experimental; its speed test too, src/SaturnTest.h; builds
+// with EMUSUNI_SATURN)
 extern const CoreApi YABASANSHIRO;
+#endif
+#ifdef EMUSUNI_PCE
+extern const CoreApi BEETLE_PCE;  // PC Engine (Beetle PCE Fast; builds with EMUSUNI_PCE)
 #endif
 }  // namespace Cores

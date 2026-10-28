@@ -74,6 +74,12 @@ std::vector<std::string> Missing(const Set& set, const std::string& folder, cons
 // translates it), or data under such a line (a file's name, a path).
 std::string LoadError(const std::string& core_message, const Set* set, const std::vector<std::string>& missing,
                       const std::string& system_dir);
+// What Flycast would refuse the set at path (as the core is given it) for, its message as it would send it (for
+// LoadError), else empty: asked of the core before it starts (scripts/build-dc-core.sh's flycast_emusuni_check_set),
+// as the core looks - each of the set's files in its zip or its parent's, its BIOS's in the BIOS zip it would take -
+// without loading anything. (The core's refusal is a C++ exception, which on the PS4 ends the app.) system_dir: the
+// app's; Flycast's BIOS folder is its dc. Without the Dreamcast (EMUSUNI_DC): empty.
+std::string CheckSet(const std::string& path, const std::string& system_dir);
 
 // A NAOMI cartridge image's header (RomBootID, hw/naomi/naomi_cart.h): its titles for Japan, the USA and export,
 // as written ("MARVEL VS CAPCOM 2 USA", " VIRTUA TENNIS 2 IN USA --"), and its monitor's way up.

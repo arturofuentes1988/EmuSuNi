@@ -43,7 +43,12 @@ public:
   void Stop();
   State GetState() const { return m_state; }
   int DownloadedMb() const { return m_mb; }
+  int TotalMb() const { return m_total_mb; }  // the collection's size as the server says it (0: not known yet)
+  // Failed: what (Error(): "The cheat collection couldn't be downloaded") and why, in plain words (Reason(): no
+  // internet connection, the server didn't answer or had a problem, the connection was cut, what came isn't the
+  // collection - a network's sign-in page -, the PS4's storage is full...). English, for PS4Lang::T.
   std::string Error() const;
+  std::string Reason() const;
   // The lists' names (their files' names without .cht), the most like the game first.
   const std::vector<std::string>& Results() const { return m_results; }
 
@@ -64,10 +69,10 @@ private:
 
   std::thread m_thread;
   std::atomic<State> m_state{State::Idle};
-  std::atomic<int> m_mb{0};
+  std::atomic<int> m_mb{0}, m_total_mb{0};
   std::atomic<bool> m_stop{false};
   mutable std::mutex m_mutex;
-  std::string m_error;
+  std::string m_error, m_reason;
   std::string m_zip_path;
   std::vector<std::string> m_results;   // shown names
   std::vector<std::string> m_entries;   // their paths in the zip

@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <climits>
 #include <cstring>
 #include <fstream>
@@ -22,6 +23,9 @@ extern "C" unsigned flycast_emusuni_arcade_list(void (*add)(void* user, const ch
                                                             const char* title, const char* bios_zip, const char* gdrom,
                                                             int platform, unsigned size, unsigned flags),
                                                 void* user);
+// (00.65) What would make the set's start fail, looked for as the core looks, without loading anything or a C++
+// exception: 1 when it would start, else 0 and Flycast's message. bios_dir: Flycast's system/dc.
+extern "C" int flycast_emusuni_check_set(const char* path, const char* bios_dir, char* error, unsigned error_size);
 #endif
 
 namespace Naomi
@@ -328,6 +332,24 @@ std::string LoadError(const std::string& core_message, const Set* set, const std
     return "The cartridge image can't be read";
   return core_message.empty() ? std::string("The emulator couldn't load this game") :
                                 "The emulator couldn't load this game\n" + core_message;
+}
+
+std::string CheckSet(const std::string& path, const std::string& system_dir)
+{
+#ifdef EMUSUNI_DC
+  char error[256] = {};
+  const auto start = std::chrono::steady_clock::now();
+  const bool starts = flycast_emusuni_check_set(path.c_str(), (system_dir + "/dc").c_str(), error, sizeof(error)) != 0;
+  const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+  LogF("naomi: Flycast's check of %s: %s (%.1f ms)", path.c_str(), starts ? "it would start" : error, ms);
+  if (starts)
+    return std::string();
+  return error[0] != '\0' ? std::string(error) : std::string("Unknown game");
+#else
+  (void)path;
+  (void)system_dir;
+  return std::string();
+#endif
 }
 
 bool IsImageName(const std::string& name)

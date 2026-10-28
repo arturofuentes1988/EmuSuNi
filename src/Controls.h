@@ -96,4 +96,29 @@ private:
   bool m_waiting = false;
   int m_passes = 0;
 };
+
+// The buttons that open the in-game menu (00.68, GitHub issue #5: Settings "menu_buttons", for every game, chosen in
+// Settings -> Controls and in the in-game menu's Controls): L3 + R3 pressed together (the default), R3 or the
+// touchpad held for a second, or Options + Touchpad (START + SELECT on most consoles); since 00.69 also L1 + R1 or
+// L2 + R2 held together for a second (the game sees them meanwhile). The PS button is the PS4's own.
+// On the DS and the 3DS, where the touchpad is the touch screen, a touchpad's choice is L3 + R3. L3 + R3 always open
+// the menu too (MenuOpener), so a choice can't leave a player without it.
+struct MenuButtons
+{
+  uint32_t mask = 0;   // the DualShock 4 buttons, all down
+  float hold = 0.0f;   // seconds they are held (0: pressed together)
+};
+MenuButtons MenuButtonsFor(const std::string& choice, SystemId system);
+// Whether this pass opens the menu (player 1's buttons down now, and those that went down this pass). A hold counts
+// again only once its buttons were let go: after the menu closed (Closed()), or a hold that opened it.
+class MenuOpener
+{
+public:
+  bool Update(const MenuButtons& buttons, uint32_t held, uint32_t pressed, float dt);
+  void Closed();
+
+private:
+  float m_time = 0.0f;
+  bool m_spent = false;  // the buttons held are a hold that already opened the menu (or were down as it closed)
+};
 }  // namespace Controls

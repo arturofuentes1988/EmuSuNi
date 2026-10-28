@@ -712,13 +712,15 @@ void emusuni_dc_thread(const char* name)
 /* Azahar's threads (scripts/build-3ds-core.sh, builds with EMUSUNI_3DS) call this first with the name
  * Azahar gives them, or the script: "VulkanWorker" (records and submits the Vulkan work beside the
  * emulation: retro_run waits for it at the end of every frame), "VulkanFence" (waits for the GPU's
- * fences and tells the emulation), "Pipeline workers" and "Shader workers" (2 each: pipelines and
+ * fences and tells the emulation), "Pipeline workers" and "Shader workers" (3 each: pipelines and
  * GLSL/SPIR-V compiled ahead of use), "Disk Shader Cache Append Worker", "FSUSER_Worker" and "HleAsync"
  * (the games' file work: many short-lived ones), "citra:Log", "Teakra", "AmScan"... The emulation
  * thread (retro_run's: both or all four ARM11 cores, one after the other) is never named:
  * src/Emulator.cpp keeps it on core 2 at 480. The Vulkan worker beside it on core 3 (the same CPU
  * module) at its priority, and the fence thread (it only sleeps and signals) at the same off core 3;
- * all the workers at ONE priority (700) on cores 1, 3, 4 and 5, the log and the disk writers a little
+ * all the workers at ONE priority (700) on cores 0, 1, 3, 4 and 5 (every core but the emulation's: core
+ * 0 has only the sound's short turns at 400 in a game, so a burst of new pipelines is built 3 at a time
+ * where 2 were; the GPU filter's compiles take the same five cores), the log and the disk writers a little
  * below (760): the PS4 runs threads by fixed priorities, and workers of several priorities taking the
  * same locks froze the app once (the heap's spin lock, port/ps4_dlmalloc.c - a mutex now, but the
  * emulation waits for the Vulkan worker, so nothing else may run ahead of it on its core). Each name is
@@ -726,7 +728,7 @@ void emusuni_dc_thread(const char* name)
 #ifdef EMUSUNI_3DS
 void emusuni_3ds_thread(const char* name)
 {
-  uint64_t mask = (1ull << 1) | (1ull << 3) | (1ull << 4) | (1ull << 5);
+  uint64_t mask = (1ull << 0) | (1ull << 1) | (1ull << 3) | (1ull << 4) | (1ull << 5);
   int priority = 700;
   if (strcmp(name, "VulkanWorker") == 0)
   {
@@ -905,9 +907,28 @@ enum timed_section
   NUM_TIMED_SECTIONS
 };
 
+/* EmuSuNi 00.72: ParaLLEl-RSP's tasks that stopped to wait for a signal from the CPU and ran on when it came
+ * (scripts/build-n64-core.sh: World Driver Championship's and Stunt Racer 64's microcode does it dozens of times a
+ * frame; most games never). Counted by the core, read and cleared here every 10 s. */
+unsigned emusuni_n64_rsp_waits = 0;
+
 static long long s_section_ns[NUM_TIMED_SECTIONS], s_section_start[NUM_TIMED_SECTIONS];
+/* EmuSuNi 00.68: how many of each (a graphics or sound task: one RSP task) and the longest one, per window. */
+static unsigned s_section_count[NUM_TIMED_SECTIONS];
+static long long s_section_max_ns[NUM_TIMED_SECTIONS];
 static long long s_window_start = 0;
 static unsigned s_window_frames = 0;
+/* EmuSuNi 00.72: this frame's time in each section, and the window's heaviest frame by them (what a hitch was made
+ * of: an RSP task, the dynarec compiling code run for the first time, the sound); the pictures the game showed (the VI
+ * origin's changes, scripts/build-n64-core.sh). */
+static long long s_frame_ns[NUM_TIMED_SECTIONS], s_heaviest_ns[NUM_TIMED_SECTIONS];
+static unsigned s_frame_count[NUM_TIMED_SECTIONS], s_heaviest_count[NUM_TIMED_SECTIONS];
+static unsigned s_vi_origins = 0;
+
+void emusuni_n64_vi_origin(void)
+{
+  s_vi_origins++;
+}
 
 static long long now_ns(void)
 {
@@ -923,31 +944,83 @@ void timed_section_start(enum timed_section section)
 
 void timed_section_end(enum timed_section section)
 {
-  s_section_ns[section] += now_ns() - s_section_start[section];
+  const long long took = now_ns() - s_section_start[section];
+  s_section_ns[section] += took;
+  s_section_count[section]++;
+  if (took > s_section_max_ns[section])
+    s_section_max_ns[section] = took;
+  s_frame_ns[section] += took;
+  s_frame_count[section]++;
+}
+
+/* The frame that just ended: the window's heaviest so far by the time its parts took? */
+static void EndFrame(void)
+{
+  const long long parts = s_frame_ns[TIMED_SECTION_GFX] + s_frame_ns[TIMED_SECTION_AUDIO] +
+                          s_frame_ns[TIMED_SECTION_COMPILER];
+  const long long heaviest = s_heaviest_ns[TIMED_SECTION_GFX] + s_heaviest_ns[TIMED_SECTION_AUDIO] +
+                             s_heaviest_ns[TIMED_SECTION_COMPILER];
+  if (parts > heaviest)
+  {
+    memcpy(s_heaviest_ns, s_frame_ns, sizeof(s_heaviest_ns));
+    memcpy(s_heaviest_count, s_frame_count, sizeof(s_heaviest_count));
+  }
+  memset(s_frame_ns, 0, sizeof(s_frame_ns));
+  memset(s_frame_count, 0, sizeof(s_frame_count));
+}
+
+static void ResetWindow(long long now)
+{
+  s_window_start = now;
+  s_window_frames = 0;
+  memset(s_section_ns, 0, sizeof(s_section_ns));
+  memset(s_section_count, 0, sizeof(s_section_count));
+  memset(s_section_max_ns, 0, sizeof(s_section_max_ns));
+  memset(s_heaviest_ns, 0, sizeof(s_heaviest_ns));
+  memset(s_heaviest_count, 0, sizeof(s_heaviest_count));
+  s_vi_origins = 0;
+  emusuni_n64_rsp_waits = 0;
 }
 
 void timed_sections_refresh(void)
 {
   const long long now = now_ns();
+  EndFrame();
   if (s_window_start == 0 || now - s_window_start > 60000000000LL)
   {
-    s_window_start = now;  /* the first frame, or a game started again after a long pause */
-    s_window_frames = 0;
-    memset(s_section_ns, 0, sizeof(s_section_ns));
+    ResetWindow(now);  /* the first frame, or a game started again after a long pause */
     return;
   }
   s_window_frames++;
   if (now - s_window_start < 10000000000LL)
     return;
   const double frames = s_window_frames ? (double)s_window_frames : 1.0;
-  char line[200];
-  snprintf(line, sizeof(line),
-           "n64 core per frame: graphics tasks (RSP) %.2f ms, sound tasks %.2f ms, recompiler %.2f ms; "
-           "%.1f frames per second",
-           s_section_ns[TIMED_SECTION_GFX] / 1e6 / frames, s_section_ns[TIMED_SECTION_AUDIO] / 1e6 / frames,
-           s_section_ns[TIMED_SECTION_COMPILER] / 1e6 / frames, frames / ((now - s_window_start) / 1e9));
+  const double seconds = (now - s_window_start) / 1e9;
+  char line[640];
+  /* (The tasks a frame: a game drawing at 30 FPS sends a graphics task every 2nd frame; the longest one is a
+   * heavy frame's - a stutter.) 00.72: the recompiler's blocks (code run for the first time: a hitch where it is a lot),
+   * the pictures the game showed a second (against the frames: the game's own frame rate), the heaviest frame's parts
+   * (with the speed line's "most": what a hitch was), the RSP's waits for the CPU (World Driver Championship). */
+  int at = snprintf(line, sizeof(line),
+                    "n64 core per frame: graphics tasks (RSP) %.2f ms (%.2f tasks, the longest %.1f ms), sound tasks %.2f "
+                    "ms (%.2f), recompiler %.2f ms; %.1f frames per second; the game showed %.1f pictures a second; "
+                    "recompiled %u blocks in %.0f ms; the heaviest frame: RSP %.1f ms (%u tasks), recompiler %.1f ms "
+                    "(%u blocks), sound %.1f ms",
+                    s_section_ns[TIMED_SECTION_GFX] / 1e6 / frames, s_section_count[TIMED_SECTION_GFX] / frames,
+                    s_section_max_ns[TIMED_SECTION_GFX] / 1e6, s_section_ns[TIMED_SECTION_AUDIO] / 1e6 / frames,
+                    s_section_count[TIMED_SECTION_AUDIO] / frames, s_section_ns[TIMED_SECTION_COMPILER] / 1e6 / frames,
+                    frames / seconds, s_vi_origins / seconds, s_section_count[TIMED_SECTION_COMPILER],
+                    s_section_ns[TIMED_SECTION_COMPILER] / 1e6, s_heaviest_ns[TIMED_SECTION_GFX] / 1e6,
+                    s_heaviest_count[TIMED_SECTION_GFX], s_heaviest_ns[TIMED_SECTION_COMPILER] / 1e6,
+                    s_heaviest_count[TIMED_SECTION_COMPILER], s_heaviest_ns[TIMED_SECTION_AUDIO] / 1e6);
+  if (emusuni_n64_rsp_waits > 0 && at > 0 && at < (int)sizeof(line))
+    snprintf(line + at, sizeof(line) - (size_t)at, "; the RSP waited for the CPU %u times", emusuni_n64_rsp_waits);
   emusuni_log_line(line);
-  memset(s_section_ns, 0, sizeof(s_section_ns));
-  s_window_start = now;
-  s_window_frames = 0;
+  /* A game that sends sound tasks but no graphics task for 10 s isn't drawing: its picture stays as it was (black
+   * after a fade). Cruis'n USA and Resident Evil 2 did that with N64 Graphics Sync Fast, each waiting for something
+   * the asynchronous RDP had not finished (src/Emulator.cpp N64AccurateGame); another game doing it is a candidate. */
+  if (s_section_count[TIMED_SECTION_GFX] == 0 && s_section_count[TIMED_SECTION_AUDIO] > 0)
+    emusuni_log_line("n64: no graphics task in these 10 s while the game's sound runs: the picture isn't changing "
+                     "(black or frozen?). If it stays so, try N64 Graphics Sync: Accurate.");
+  ResetWindow(now);
 }

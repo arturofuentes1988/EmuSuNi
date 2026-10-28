@@ -35,6 +35,16 @@
 #   - No dlopen of a Vulkan library (the frontend's vkGetInstanceProcAddr is all it needs).
 #   - Built as a static library, without LTO (ld -r of LLVM bitcode); the files are read with
 #     plain reads (libretro-common without mmap: no mapping of disc images on the USB drive).
+#   - (00.81) Jackie Chan Stuntmaster on the recompiler (it crawled on the PS4 with the interpreter that
+#     the core's game database forced for it): an interrupt that writing SR makes pending is taken at
+#     once (DuckStation 312790c9, which dropped that from its database too), in the recompiler's code
+#     and the interpreter's uncached blocks.
+#   - (00.81) Disc images of 2048-byte sectors (an ISO made by a converter; a .cue's MODE1/2048 or
+#     MODE2/2048 track): each sector made a whole Mode 2 Form 1 one as it is read; a lone .bin, .img or
+#     .iso gets its sector size from what it holds (it was always read as 2352: such a game never started).
+#   - (00.81) A LibCrypt disc without its .sbi starts (the core refused it: the app could only say the
+#     game didn't load), logged for the app to tell the player; and each start logs the disc (or none:
+#     an image the core couldn't open boots the BIOS without one), its code, the BIOS and the CPU.
 # The object is checked at the end: only swanstation_retro_* defined globally, the C++ operator
 # new/delete it uses all EmuSuNi's own (port/ps4_new.cpp, on the app's heap) and none defined in
 # it, and every other symbol it needs found in what the app links (OpenOrbis' libc, libkernel,
@@ -376,6 +386,195 @@ patch('src/core/gpu_hw_vulkan.cpp',
       '  g_vulkan_context->SubmitCommandBuffer();  // EmuSuNi: under the queue lock (the context takes it)\n'
       '#else\n'
       '  m_ri->lock_queue(m_ri->handle);\n  g_vulkan_context->SubmitCommandBuffer();\n  m_ri->unlock_queue(m_ri->handle);\n'
+      '#endif\n')
+
+# --- (00.81) Jackie Chan Stuntmaster: the recompiler, not the interpreter. The game raises a software interrupt by
+# writing the status register's interrupt mask (mtc0 SR) with the interrupt already pending, and expects it taken at
+# once; the recompiler only made the block's end run the events, so the rest of the block ran first and the game
+# crashed - DuckStation forced its interpreter for it (its database, 2020-10), which is several times slower: on the
+# PS4 the game crawled. DuckStation's fix (commit 312790c9, 2023-11, "CPU/NewRec: Handle mtc0 rt, sr"), which also
+# dropped that, for this recompiler: the block is left right after the mtc0 (the next instruction's PC written,
+# the events run at once, which dispatch the interrupt), and the interpreter's uncached blocks end there too.
+patch('src/core/cpu_recompiler_code_generator.cpp',
+      '            EmitConditionalBranch(Condition::Zero, false, &no_interrupt);\n'
+      '            EmitStoreCPUStructField(offsetof(State, downcount), Value::FromConstantU32(0));\n'
+      '            EmitBindLabel(&no_interrupt);\n'
+      '            m_register_cache.UninhibitAllocation();\n'
+      '          }\n'
+      '          else if (reg == Cop0Reg::DCIC && g_settings.cpu_recompiler_memory_exceptions)\n',
+      '            EmitConditionalBranch(Condition::Zero, false, &no_interrupt);\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '            // EmuSuNi (DuckStation 312790c9): an interrupt pending now is taken now, not at the block\'s end\n'
+      '            // (Jackie Chan Stuntmaster, MTV Sports games: a software interrupt raised by writing SR.Im).\n'
+      '            EmitBranch(GetCurrentFarCodePointer());\n'
+      '            SwitchToFarCode();\n'
+      '            WriteNewPC(CalculatePC(), false);\n'
+      '            EmitStoreCPUStructField(offsetof(State, downcount), Value::FromConstantU32(0));\n'
+      '            EmitExceptionExit();\n'
+      '            SwitchToNearCode();\n'
+      '#else\n'
+      '            EmitStoreCPUStructField(offsetof(State, downcount), Value::FromConstantU32(0));\n'
+      '#endif\n'
+      '            EmitBindLabel(&no_interrupt);\n'
+      '            m_register_cache.UninhibitAllocation();\n'
+      '          }\n'
+      '          else if (reg == Cop0Reg::DCIC && g_settings.cpu_recompiler_memory_exceptions)\n')
+patch('src/core/cpu_core.cpp',
+      '    if (g_state.exception_raised || (!branch && in_branch_delay_slot) ||\n'
+      '        IsExitBlockInstruction(g_state.current_instruction))\n'
+      '    {\n'
+      '      break;\n'
+      '    }\n'
+      '\n'
+      '    in_branch_delay_slot = branch;\n'
+      '  }\n'
+      '}\n'
+      '\n'
+      'template void InterpretUncachedBlock<PGXPMode::Disabled>();\n',
+      '    if (g_state.exception_raised || (!branch && in_branch_delay_slot) ||\n'
+      '        IsExitBlockInstruction(g_state.current_instruction))\n'
+      '    {\n'
+      '      break;\n'
+      '    }\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '    else if ((g_state.current_instruction.bits & 0xFFC0FFFFu) == 0x40806000u && HasPendingInterrupt())\n'
+      '    {\n'
+      '      // EmuSuNi (DuckStation 312790c9): mtc0 rt, sr with an interrupt pending - Jackie Chan Stuntmaster, MTV\n'
+      '      // Sports games raise a software interrupt by writing SR.Im: the block ends, the interrupt is taken.\n'
+      '      break;\n'
+      '    }\n'
+      '#endif\n'
+      '\n'
+      '    in_branch_delay_slot = branch;\n'
+      '  }\n'
+      '}\n'
+      '\n'
+      'template void InterpretUncachedBlock<PGXPMode::Disabled>();\n')
+patch('src/libretro/libretro_game_settings.cpp',
+      '      || game_code == "SLUS-00684" /* Jackie Chan\'s Stuntmaster (NTSC-U) */\n'
+      '      || game_code == "SCES-01444" /* Jackie Chan\'s Stuntmaster (PAL) */\n',
+      '#ifndef EMUSUNI_PORT\n'
+      '      // EmuSuNi: Jackie Chan Stuntmaster plays on the recompiler (the mtc0 SR change above; DuckStation\'s\n'
+      '      // database dropped this with it).\n'
+      '      || game_code == "SLUS-00684" /* Jackie Chan\'s Stuntmaster (NTSC-U) */\n'
+      '      || game_code == "SCES-01444" /* Jackie Chan\'s Stuntmaster (PAL) */\n'
+      '#endif\n')
+
+# --- (00.81) Disc images of 2048-byte sectors (a cooked ISO: a converter's "BIN to ISO", the user data only; a .cue's
+# MODE1/2048 or MODE2/2048 track): their sectors made whole as they are read - the core read them as 2352 bytes, so
+# such a game never started. The PlayStation's CD controller hands the CPU a data sector's bytes from offset 24 (Mode
+# 2 Form 1) and drops a sector of another mode, so each is made a Mode 2 Form 1 one: sync, header (its position on
+# the disc as BCD minutes, seconds and frames; mode 2), a data subheader (twice), the 2048 bytes, no EDC/ECC (not
+# checked). A converter's ISO keeps no Form 2 sectors (XA sound, STR films): those games play without them.
+patch('src/common/cd_image.cpp',
+      '      if (!ReadSectorFromIndex(buffer, *m_current_index, m_position_in_index))\n'
+      '      {\n'
+      '        Log_ErrorPrintf("Read of LBA %u failed", m_position_on_disc);\n'
+      '        Seek(m_position_on_disc);\n'
+      '        return false;\n'
+      '      }\n',
+      '      if (!ReadSectorFromIndex(buffer, *m_current_index, m_position_in_index))\n'
+      '      {\n'
+      '        Log_ErrorPrintf("Read of LBA %u failed", m_position_on_disc);\n'
+      '        Seek(m_position_on_disc);\n'
+      '        return false;\n'
+      '      }\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '      // EmuSuNi: a 2048-byte sector made a whole Mode 2 Form 1 one (scripts/build-ps1-core.sh).\n'
+      '      if (m_current_index->file_sector_size == DATA_SECTOR_SIZE &&\n'
+      '          (m_current_index->mode == TrackMode::Mode1 || m_current_index->mode == TrackMode::Mode2Form1))\n'
+      '      {\n'
+      '        static constexpr uint8_t sync[SECTOR_SYNC_SIZE] = {0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,\n'
+      '                                                           0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00};\n'
+      '        uint8_t* const sector = static_cast<uint8_t*>(buffer);\n'
+      '        std::memmove(sector + 24, sector, DATA_SECTOR_SIZE);\n'
+      '        std::memcpy(sector, sync, sizeof(sync));\n'
+      '        const Position position = Position::FromLBA(m_current_index->start_lba_on_disc + m_position_in_index);\n'
+      '        sector[12] = BinaryToBCD(position.minute);\n'
+      '        sector[13] = BinaryToBCD(position.second);\n'
+      '        sector[14] = BinaryToBCD(position.frame);\n'
+      '        sector[15] = 0x02;\n'
+      '        std::memset(sector + 16, 0, 8);\n'
+      '        sector[18] = 0x08;  // submode: data\n'
+      '        sector[22] = 0x08;\n'
+      '        std::memset(sector + 24 + DATA_SECTOR_SIZE, 0, RAW_SECTOR_SIZE - 24 - DATA_SECTOR_SIZE);\n'
+      '      }\n'
+      '#endif\n')
+# A lone .bin, .img or .iso (the core opens it as one data track): its sector size from what it holds - a raw image's
+# first sector begins with the sync (2352 bytes a sector, as before), a cooked one has its volume descriptor
+# ("\1CD001") at 32768, sector 16 (2048 bytes, Mode 2 Form 1). Anything else raw, as before.
+patch('src/common/cd_image_bin.cpp',
+      '  const uint32_t track_sector_size = RAW_SECTOR_SIZE;\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '  uint32_t track_sector_size = RAW_SECTOR_SIZE;\n'
+      '  TrackMode mode = TrackMode::Mode2Raw;\n'
+      '#else\n'
+      '  const uint32_t track_sector_size = RAW_SECTOR_SIZE;\n'
+      '#endif\n')
+patch('src/common/cd_image_bin.cpp',
+      '  const uint32_t file_size = static_cast<uint32_t>(rftell(m_fp));\n'
+      '  rfseek(m_fp, 0, SEEK_SET);\n',
+      '  const uint32_t file_size = static_cast<uint32_t>(rftell(m_fp));\n'
+      '  rfseek(m_fp, 0, SEEK_SET);\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '  {\n'
+      '    // EmuSuNi: the sector size from what the image holds (scripts/build-ps1-core.sh).\n'
+      '    static constexpr uint8_t sync[SECTOR_SYNC_SIZE] = {0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,\n'
+      '                                                       0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00};\n'
+      '    uint8_t head[SECTOR_SYNC_SIZE] = {}, volume[6] = {};\n'
+      '    const bool raw = rfread(head, sizeof(head), 1, m_fp) == 1 && std::memcmp(head, sync, sizeof(sync)) == 0;\n'
+      '    const bool cooked = !raw && file_size % DATA_SECTOR_SIZE == 0 &&\n'
+      '                        rfseek(m_fp, 16 * DATA_SECTOR_SIZE, SEEK_SET) == 0 &&\n'
+      '                        rfread(volume, sizeof(volume), 1, m_fp) == 1 && std::memcmp(volume, "\\1CD001", 6) == 0;\n'
+      '    if (cooked)\n'
+      '    {\n'
+      '      track_sector_size = DATA_SECTOR_SIZE;\n'
+      '      mode = TrackMode::Mode2Form1;\n'
+      '      Log_InfoPrintf("EmuSuNi: \'%s\' has 2048-byte sectors (an ISO\'s: no sound or film sectors): read as Mode 2 Form 1",\n'
+      '                     filename);\n'
+      '    }\n'
+      '    rfseek(m_fp, 0, SEEK_SET);\n'
+      '  }\n'
+      '#endif\n')
+patch('src/common/cd_image_bin.cpp',
+      '  SubChannelQ::Control control = {};\n'
+      '  TrackMode mode = TrackMode::Mode2Raw;\n',
+      '  SubChannelQ::Control control = {};\n'
+      '#ifndef EMUSUNI_PORT\n'
+      '  TrackMode mode = TrackMode::Mode2Raw;\n'
+      '#endif\n')
+
+# --- (00.81) A LibCrypt-protected disc (dozens of European games: Parasite Eve II, MediEvil, Spyro 3...) without the
+# .sbi file of its protection's subchannel data: the core refused to start it - its "are you sure?" needs a dialog
+# the libretro frontend hasn't, so the app said only that the game couldn't be loaded. Now it starts (as DuckStation
+# does once the player agrees: the game may stop at its protection's checks later), and the log says so for the app
+# to tell the player where the .sbi goes ("EmuSuNi: LibCrypt" in src/Emulator.cpp).
+patch('src/core/system.cpp',
+      '  if (g_host_interface->GetBoolSettingValue("CDROM", "AllowBootingWithoutSBIFile", false))\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '  // EmuSuNi: started anyway; the app tells the player (src/Emulator.cpp looks for this line).\n'
+      '  Log_WarningPrintf("EmuSuNi: LibCrypt-protected disc %s (%s) without its .sbi file: started anyway",\n'
+      '                    s_running_game_code.c_str(), s_running_game_title.c_str());\n'
+      '  if (true)\n'
+      '#else\n'
+      '  if (g_host_interface->GetBoolSettingValue("CDROM", "AllowBootingWithoutSBIFile", false))\n'
+      '#endif\n')
+
+# --- (00.81) What the app's log needs to tell a PlayStation game's trouble (players' black screens and slow games):
+# the disc in the drive or none (an image the core couldn't open boots the BIOS without a disc: a black screen), the
+# disc's code, the BIOS (OpenBIOS, built in, when no BIOS file was found: it starts fewer games) and the CPU the game
+# runs on (the core's game database forces the interpreter for a few games).
+patch('src/libretro/libretro_host_interface.cpp',
+      '  if (!BootSystem(std::move(bp)))\n'
+      '    return false;\n',
+      '  if (!BootSystem(std::move(bp)))\n'
+      '    return false;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '  Log_InfoPrintf("EmuSuNi: disc %s, code \'%s\', BIOS %s, CPU %s", System::HasMedia() ? "in" : "NONE",\n'
+      '                 System::GetRunningCode().c_str(),\n'
+      '                 std::memcmp(Bus::g_bios + 0x78, "OpenBIOS", 8) == 0 ? "OpenBIOS (built in: no BIOS file found)" :\n'
+      '                                                                      "from a BIOS file",\n'
+      '                 Settings::GetCPUExecutionModeName(g_settings.cpu_execution_mode));\n'
       '#endif\n')
 
 for path, text in patched.items():

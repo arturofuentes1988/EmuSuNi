@@ -44,12 +44,15 @@ constexpr uint32_t FOR_ARCADE = 1u << static_cast<int>(SystemId::ARCADE);
 constexpr uint32_t FOR_3DS = 1u << static_cast<int>(SystemId::THREEDS);
 constexpr uint32_t FOR_NAOMI = 1u << static_cast<int>(SystemId::NAOMI);
 constexpr uint32_t FOR_ATOMISWAVE = 1u << static_cast<int>(SystemId::ATOMISWAVE);
+constexpr uint32_t FOR_SATURN = 1u << static_cast<int>(SystemId::SATURN);
+constexpr uint32_t FOR_PCE = 1u << static_cast<int>(SystemId::PCE);
+static_assert(SYSTEM_COUNT <= 32, "the consoles' masks are 32-bit");
 // Flycast's machines: the Dreamcast and its arcade boards, the NAOMI and the Atomiswave (one core, the same
-// processor and sound chip; they all play at one fixed quality, Standard).
+// processor and sound chip, the same Quality levels: from 00.53 to 00.67 one fixed quality, Standard).
 constexpr uint32_t FOR_FLYCAST = FOR_DC | FOR_NAOMI | FOR_ATOMISWAVE;
 // The three Game Boys (mGBA).
 constexpr uint32_t FOR_HANDHELD = FOR_GB | FOR_GBC | FOR_GBA;
-// Sega's cartridge consoles (Genesis Plus GX; the Dreamcast is Flycast's).
+// Sega's 8- and 16-bit consoles (Genesis Plus GX's cartridges); the Saturn and the Dreamcast are other cores'.
 constexpr uint32_t FOR_SEGA = FOR_SG1000 | FOR_SMS | FOR_GG | FOR_MD;
 // The handhelds' LCDs (HasLcd): the Game Boys' and the Game Gear's.
 constexpr uint32_t FOR_LCD = FOR_HANDHELD | FOR_GG;
@@ -57,7 +60,7 @@ constexpr uint32_t FOR_LCD = FOR_HANDHELD | FOR_GG;
 constexpr uint32_t FOR_RETRO = FOR_SNES | FOR_NES;
 // The consoles whose picture the CPU hands over as pixels (Resolution, Upscaling Filter): the Arcade's
 // too (FinalBurn Neo draws its boards on the CPU).
-constexpr uint32_t FOR_PIXELS = FOR_RETRO | FOR_HANDHELD | FOR_NDS | FOR_SEGA | FOR_ARCADE;
+constexpr uint32_t FOR_PIXELS = FOR_RETRO | FOR_HANDHELD | FOR_NDS | FOR_SEGA | FOR_ARCADE | FOR_PCE;
 
 struct Setting
 {
@@ -130,7 +133,7 @@ std::string LabelOf(const Setting& setting, const std::string& value);
 const Choice* FindChoice(const Setting& setting, const std::string& value);
 std::string Step(const Setting& setting, const std::string& value, int direction);
 // What a Quality level does on one console, in plain words (English, for PS4Lang::T): the level's help on that
-// console's games' pages, in place of the choice's own (which is for every console). "" for Custom, and for Flycast's
-// consoles (the Dreamcast, the NAOMI, the Atomiswave: one fixed level, Standard).
+// console's games' pages, in place of the choice's own (which is for every console). "" for Custom. (Flycast's consoles
+// have the levels again since 00.68, the 3DS since 00.71: from 00.64 to 00.70 its own resolution only.)
 std::string QualityHelp(const std::string& level, SystemId system);
 }  // namespace Settings

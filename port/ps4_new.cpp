@@ -11,8 +11,10 @@
 // Memory is running out", error CE-34878-0).
 
 #include <cstddef>
+#include <cstdio>
 #include <cstdlib>
 #include <new>
+#include <unistd.h>
 
 extern "C" {
 void* __wrap_malloc(size_t size);
@@ -24,8 +26,12 @@ namespace
 {
 constexpr size_t MIN_ALIGNMENT = 16;  // what dlmalloc's malloc gives
 
-[[noreturn]] void OutOfMemory()
+[[noreturn]] void OutOfMemory(size_t size)
 {
+  // (00.81) The log says so first: the bad_alloc out of a core ends the app on the PS4 without a crash report. The
+  // line goes straight to the log (stderr), without the heap that just ran out.
+  fprintf(stderr, "memory: the heap has no %zu bytes for a C++ allocation (operator new): the app ends here\n", size);
+  fsync(STDERR_FILENO);
 #if defined(__cpp_exceptions)
   throw std::bad_alloc();
 #else
@@ -51,7 +57,7 @@ void* operator new(std::size_t size)
 {
   void* p = Allocate(size);
   if (!p)
-    OutOfMemory();
+    OutOfMemory(size);
   return p;
 }
 
@@ -59,7 +65,7 @@ void* operator new[](std::size_t size)
 {
   void* p = Allocate(size);
   if (!p)
-    OutOfMemory();
+    OutOfMemory(size);
   return p;
 }
 
@@ -77,7 +83,7 @@ void* operator new(std::size_t size, std::align_val_t alignment)
 {
   void* p = AllocateAligned(size, alignment);
   if (!p)
-    OutOfMemory();
+    OutOfMemory(size);
   return p;
 }
 
@@ -85,7 +91,7 @@ void* operator new[](std::size_t size, std::align_val_t alignment)
 {
   void* p = AllocateAligned(size, alignment);
   if (!p)
-    OutOfMemory();
+    OutOfMemory(size);
   return p;
 }
 

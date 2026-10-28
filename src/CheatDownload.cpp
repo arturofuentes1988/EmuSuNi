@@ -3,11 +3,13 @@
 #include "CheatDownload.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <cctype>
 #include <cstring>
 #include <ctime>
+#include <thread>
 
 #include <sys/stat.h>
 
@@ -139,6 +141,7 @@ void Finder::Start(const std::string& data_dir, SystemId system, const std::stri
   {
     std::lock_guard lock(m_mutex);
     m_error.clear();
+    m_reason.clear();
     m_results.clear();
     m_entries.clear();
     m_codes.clear();
@@ -146,6 +149,7 @@ void Finder::Start(const std::string& data_dir, SystemId system, const std::stri
     m_open_name.clear();
   }
   m_mb = 0;
+  m_total_mb = 0;
   m_state = State::Searching;
   m_thread = std::thread(&Finder::Run, this, data_dir, system, game_path, title);
 }
@@ -156,13 +160,20 @@ std::string Finder::Error() const
   return m_error;
 }
 
+std::string Finder::Reason() const
+{
+  std::lock_guard lock(m_mutex);
+  return m_reason;
+}
+
 void Finder::Run(std::string data_dir, SystemId system, std::string game_path, std::string title)
 {
-  auto fail = [this](const std::string& error) {
+  auto fail = [this](const std::string& error, const std::string& reason = {}) {
     std::lock_guard lock(m_mutex);
     m_error = error;
+    m_reason = reason;
     m_state = State::Failed;
-    LogLine("cheats: " + error);
+    LogLine("cheats: " + error + (reason.empty() ? "" : ": " + reason));
   };
   // The collection: kept for a month; a failed download keeps an older one.
   const std::string dir = data_dir + "/cache";
@@ -172,31 +183,72 @@ void Finder::Run(std::string data_dir, SystemId system, std::string game_path, s
   const bool have = stat(zip_path.c_str(), &st) == 0 && st.st_size > 0;
   if (!have || std::time(nullptr) - st.st_mtime > MAX_AGE)
   {
+    // 00.68 (users' "error" downloading it, nothing more said): no limit for the whole download any more (600 s
+    // stopped any connection under 62 KB/s: the collection is 35 MB), only for a minute without a byte (Net); a cut
+    // or a server's passing failure tried again twice; what came checked to be the zip, whole; and the reason said.
     m_state = State::Downloading;
     const std::string temp = zip_path + ".new";
-    FILE* file = fopen(temp.c_str(), "wb");
     long status = 0;
     std::string error;
     size_t bytes = 0;
-    if (file)
+    bool write_failed = false;
+    std::atomic<int64_t> expected{-1};
+    for (int attempt = 0; attempt < 3 && !m_stop && !write_failed; attempt++)
     {
+      if (attempt > 0)
+      {
+        LogF("cheats: trying again (%s)", error.empty() ? ("HTTP " + std::to_string(status)).c_str() : error.c_str());
+        for (int i = 0; i < 20 && !m_stop; i++)
+          std::this_thread::sleep_for(std::chrono::milliseconds(100));  // (2 s: a moment for the network)
+      }
+      FILE* file = fopen(temp.c_str(), "wb");
+      if (!file)
+      {
+        write_failed = true;
+        break;
+      }
+      bytes = 0;
+      error.clear();
+      expected = -1;
       Net::Request request;
       request.url = URL;
-      request.timeout_seconds = 600;
+      request.timeout_seconds = 0;
+      request.expected = &expected;
       status = Net::Get(
           request,
           [&](const char* data, size_t size) {
-            if (m_stop || fwrite(data, 1, size, file) != size)
+            if (m_stop)
               return false;
+            if (fwrite(data, 1, size, file) != size)
+            {
+              write_failed = true;
+              return false;
+            }
             bytes += size;
             m_mb = static_cast<int>(bytes >> 20);
+            m_total_mb = expected > 0 ? static_cast<int>((expected + (1 << 19)) >> 20) : 0;
             return true;
           },
           &error);
-      fclose(file);
+      if (fclose(file) != 0)
+        write_failed = true;
+      const bool whole = status >= 200 && status < 300 && bytes > 0 && (expected <= 0 || bytes == static_cast<size_t>(expected));
+      if (whole || write_failed || m_stop || (status >= 400 && status < 500))
+        break;  // (a refusal or "not there" is the server's answer: not tried again)
     }
-    const bool ok = file && status >= 200 && status < 300 && bytes > 0 && !m_stop;
-    if (ok)
+    // What came: a zip ("PK\3\4"), all of it.
+    bool zip = false;
+    if (!write_failed && !m_stop && status >= 200 && status < 300 && bytes > 0)
+    {
+      if (FILE* file = fopen(temp.c_str(), "rb"))
+      {
+        char magic[4] = {};
+        zip = fread(magic, 1, 4, file) == 4 && std::memcmp(magic, "PK\x03\x04", 4) == 0;
+        fclose(file);
+      }
+    }
+    const bool whole = expected <= 0 || bytes == static_cast<size_t>(expected);
+    if (zip && whole)
     {
       std::rename(temp.c_str(), zip_path.c_str());
       LogF("cheats: libretro's collection downloaded (%zu bytes)", bytes);
@@ -206,12 +258,21 @@ void Finder::Run(std::string data_dir, SystemId system, std::string game_path, s
       std::remove(temp.c_str());
       if (m_stop)
         return;
-      LogF("cheats: the collection couldn't be downloaded (HTTP %ld, %s)", status, error.c_str());
+      const std::string reason =
+          write_failed ? std::string("it couldn't be saved: the PS4's storage may be full (it needs about 40 MB free)") :
+          status >= 200 && status < 300 && bytes > 0 && !zip ?
+                         std::string("what came isn't the collection (a web page: does the network ask to sign in?)") :
+          status >= 200 && status < 300 && !whole ? std::string("the connection was cut") :
+                                                    Net::Plain(status, error);
+      LogF("cheats: the collection couldn't be downloaded from %s into %s (HTTP %ld, %zu of %lld bytes, %s): %s", URL,
+           temp.c_str(), status, bytes, static_cast<long long>(expected), error.empty() ? "no curl error" : error.c_str(),
+           reason.c_str());
       if (!have)
       {
-        fail("The cheat collection couldn't be downloaded");
+        fail("The cheat collection couldn't be downloaded", reason);
         return;
       }
+      LogLine("cheats: the collection downloaded before is used");
     }
     m_state = State::Searching;
   }
@@ -221,7 +282,7 @@ void Finder::Run(std::string data_dir, SystemId system, std::string game_path, s
   if (!zip)
   {
     std::remove(zip_path.c_str());  // a broken file: downloaded again next time
-    fail("The cheat collection can't be read");
+    fail("The cheat collection can't be read", "the file is damaged: it is downloaded again the next time");
     return;
   }
   std::vector<std::string> names, entries;

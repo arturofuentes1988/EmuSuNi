@@ -20,6 +20,7 @@ enum class Result
 {
   Menu,    // Quit Game: back to the game list
   Failed,  // the game couldn't start (error says why)
+  Retry,   // the start watchdog stopped it (no picture in time): to be started once more (src/StartGuard.h)
 };
 
 Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont* bold,

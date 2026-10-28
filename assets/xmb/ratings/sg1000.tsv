@@ -1,0 +1,99 @@
+# EmuSuNi star ratings (scripts/make-ratings.py): the SG-1000 names and each one's game in the LaunchBox
+# Games Database (its id: the app downloads LaunchBox's ratings itself, src/Ratings.h).
+# Names: No-Intro's and Redump's, from libretro-database's metadat (github.com/libretro/libretro-database, CC BY-SA 4.0).
+# Matched with LaunchBox's Metadata.xml of 2026-10-22. This file is under CC BY-SA 4.0.
+# name<TAB>LaunchBox id
+007 James Bond	91043
+Arno Dash	455995
+Bank Panic	33324
+Black Onyx, The	97159
+Bomb Jack	107045
+Bomberman Special	157974
+Borderline	33326
+C_So!	100953
+Cabbage Patch Kids	160698
+Castle, The	35127
+Chack'n Pop	33327
+Challenge Derby	107047
+Champion Baseball	107059
+Champion Billiards	35134
+Champion Boxing	107213
+Champion Golf	107214
+Champion Ice Hockey	107215
+Champion Kendou	107216
+Champion Pro Wrestling	107217
+Champion Soccer	35135
+Champion Tennis	107218
+Championship Lode Runner	127210
+Cheril Perils Classic	418236
+Choplifter	100954
+Circus Charlie	173873
+Congo Bongo	100955
+Doki Doki Penguin Land	100951
+Dragon Wang	35136
+Drol	35128
+Elevator Action	107212
+Exerion	107219
+Flicky	102352
+Girl's Garden	33168
+Golgo 13	33246
+GP World	35146
+Gulkave	35130
+Guzzler	107222
+H.E.R.O.	33244
+Hang On II	107223
+Home Mahjong	107335
+Hustle Chumy	35132
+Hyper Sports	107341
+Hyper Sports 2	173872
+I.Q.	107716
+King's Valley	164916
+Knightmare	165647
+Legend of Kage, The	165728
+Lode Runner	107342
+Magical Kid Wiz	165739
+Magical Tree	173869
+Mahjong	127202
+Monaco GP	35145
+N-Sub	107580
+Ninja Princess	35138
+Okamoto Ayako no Match Play Golf	107581
+Orguss	35139
+Othello	107612
+Pacar	107613
+Pachinko	107614
+Pachinko II	107615
+Ping Pong	175580
+Pippols	175581
+Pitfall II - The Lost Caverns	35140
+Pop Flamer	107625
+Q-bert	107626
+Rally-X	173811
+Road Fighter	173813
+Rock n' Bolt	107627
+Safari Hunting	33247
+Safari Race	35141
+San-nin Mahjong	107647
+Sega Flipper	107648
+Sega-Galaga	35142
+Serizawa Hachidan no Tsumeshougi	107649
+Shinnyushain Tooru-kun	35143
+Sindbad Mystery	107715
+Soukoban	107716
+Space Armor	107717
+Space Invaders	107718
+Space Mountain	107719
+Space Slalom	107720
+Star Force	107721
+Star Jacker	35137
+Star Soldier	175582
+Super Tank	107722
+Tank Battalion	173851
+TwinBee	173852
+Wonder Boy	107723
+Yamato	107768
+Yie Ar Kung-Fu	199952
+Yie Ar Kung-Fu II	173853
+Zaxxon	107787
+Zippy Race	107788
+Zoom 909	107789

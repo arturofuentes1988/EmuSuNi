@@ -63,6 +63,10 @@ std::vector<std::string> Discs(const Game& game);
 // the discs its .m3u lists - those in its own folder (or below), and not named by another game there.
 // Delete Game deletes them; Information adds up their size.
 std::vector<std::string> GameFiles(const Game& game);
+// A PlayStation disc's tracks left without their .cue (00.81): for "Name (Track 1).bin" (or "(Track 01)"), it and the
+// "Name (Track N).bin" beside it, N from 2 on without a gap, as Redump names them; none for any other file, or when
+// it is alone (its data track is then the whole disc). The game is started with a .cue made for them (Emulator.cpp).
+std::vector<std::string> LoneTracks(const std::string& path);
 
 // ---- Where the games are found (00.62) ----
 // The USB drives connected now, as the app sees them: /usb0 ... /usb7 that have something in them (an empty one

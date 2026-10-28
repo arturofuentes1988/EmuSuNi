@@ -38,23 +38,31 @@
 #include <orbis/UserService.h>
 #include <orbis/libkernel.h>
 
+#include "Achievements.h"
+#include "AchievementsUi.h"
 #include "Arcade.h"
+#include "BezelProject.h"
 #include "CheatDownload.h"
 #include "Cheats.h"
 #include "Controls.h"
 #include "CoverDownload.h"
+#include "CoverFiles.h"
 #include "Display.h"
 #include "GameAudio.h"
 #include "Image.h"
 #include "Log.h"
+#include "MenuNav.h"
 #include "Naomi.h"
+#include "Net.h"
 #include "PS4Glyphs.h"
 #include "PS4Lang.h"
+#include "Ratings.h"
 #include "Saves.h"
 #include "Settings.h"
 #include "Systems.h"
-#include "SystemKeyboard.h"
+#include "TextKeyboard.h"
 #include "Tour.h"
+#include "Update.h"
 #ifdef EMUSUNI_SATURN
 #include "SaturnTest.h"
 #endif
@@ -117,6 +125,132 @@ void DrawStar(ImDrawList* dl, ImVec2 c, float r, ImU32 fill, ImU32 outline = 0)
   dl->AddConcavePolyFilled(points, 10, fill);
   if (outline)
     dl->AddPolyline(points, 10, outline, ImDrawFlags_Closed, std::max(1.0f, r * 0.12f));
+}
+
+// A game's rating (src/Ratings.h): five stars in a row centred on c, each r in radius, gold up to its half stars
+// (0 to 10: a half star is its left half), the others in `empty`; each over a shadow (a cover's bright reflection
+// under them). How wide the row is: RatingWidth.
+constexpr float RatingWidth(float r)
+{
+  return r * 2.5f * 4.0f + r * 2.0f;
+}
+
+// The star's points for a radius of 1 (DrawStar's shape).
+const std::array<ImVec2, 10>& StarPoints()
+{
+  static const std::array<ImVec2, 10> UNIT = [] {
+    std::array<ImVec2, 10> points;
+    for (int i = 0; i < 10; i++)
+    {
+      const float angle = -IM_PI * 0.5f + static_cast<float>(i) * IM_PI / 5.0f;
+      const float radius = i % 2 == 0 ? 1.0f : 0.45f;
+      points[i] = ImVec2(std::cos(angle) * radius, std::sin(angle) * radius);
+    }
+    return points;
+  }();
+  return UNIT;
+}
+
+// The star as a picture (white, its edges soft): STAR_SIZE square, its points STAR_RADIUS from the middle.
+constexpr int STAR_SIZE = 64;
+constexpr float STAR_RADIUS = 31.0f;
+std::vector<uint8_t> StarPixels()
+{
+  const auto& unit = StarPoints();
+  std::vector<uint8_t> pixels(STAR_SIZE * STAR_SIZE * 4, 255);
+  auto inside = [&](float x, float y) {
+    bool in = false;  // (even-odd: the polygon's edges a ray to the right crosses)
+    for (int i = 0, j = 9; i < 10; j = i++)
+    {
+      const ImVec2 a(STAR_SIZE * 0.5f + unit[i].x * STAR_RADIUS, STAR_SIZE * 0.5f + unit[i].y * STAR_RADIUS);
+      const ImVec2 b(STAR_SIZE * 0.5f + unit[j].x * STAR_RADIUS, STAR_SIZE * 0.5f + unit[j].y * STAR_RADIUS);
+      if ((a.y > y) != (b.y > y) && x < (b.x - a.x) * (y - a.y) / (b.y - a.y) + a.x)
+        in = !in;
+    }
+    return in;
+  };
+  for (int y = 0; y < STAR_SIZE; y++)
+  {
+    for (int x = 0; x < STAR_SIZE; x++)
+    {
+      int covered = 0;  // of 4 x 4 samples in the pixel
+      for (int sy = 0; sy < 4; sy++)
+      {
+        for (int sx = 0; sx < 4; sx++)
+          covered += inside(static_cast<float>(x) + (sx + 0.5f) / 4.0f, static_cast<float>(y) + (sy + 0.5f) / 4.0f);
+      }
+      pixels[(y * STAR_SIZE + x) * 4 + 3] = static_cast<uint8_t>(covered * 255 / 16);
+    }
+  }
+  return pixels;
+}
+
+// RetroAchievements' mark on a game (00.77): a small "RA" box whose bottom right corner is `corner`, h tall - gold
+// when the game is completed (every achievement unlocked; 00.78: Casual and Hardcore alike), a gold line inside for
+// the share unlocked; nothing for a game it has no achievements for (or not checked yet). Its width: 1.75 h.
+void DrawAchievementMark(ImDrawList* dl, ImFont* bold, ImVec2 corner, float h, const Achievements::LibraryInfo& info,
+                         float alpha)
+{
+  if (info.state != Achievements::LibraryInfo::State::Known || alpha <= 0.01f)
+    return;
+  const float w = h * 1.75f;
+  const ImVec2 p0(corner.x - w, corner.y - h);
+  const bool completed = info.progress && info.achievements > 0 && info.unlocked >= info.achievements;
+  const int a = static_cast<int>(255 * std::clamp(alpha, 0.0f, 1.0f));
+  dl->AddRectFilled(p0, corner, completed ? IM_COL32(232, 178, 40, a) : IM_COL32(14, 14, 22, a * 82 / 100), h * 0.28f);
+  dl->AddRect(p0, corner, completed ? IM_COL32(255, 214, 90, a) : IM_COL32(255, 255, 255, a * 60 / 100),
+              h * 0.28f, 0, std::max(1.0f, h * 0.07f));
+  const float size = h * 0.62f;
+  const ImVec2 t = bold->CalcTextSizeA(size, FLT_MAX, 0, "RA");
+  dl->AddText(bold, size, ImVec2(p0.x + (w - t.x) * 0.5f, p0.y + (h - t.y) * 0.5f - h * 0.05f),
+              completed ? IM_COL32(48, 32, 0, a) : IM_COL32(255, 255, 255, a), "RA");
+  if (info.progress && info.unlocked > 0 && !completed)
+  {
+    const float share = static_cast<float>(info.unlocked) / static_cast<float>(info.achievements);
+    const float inset = h * 0.2f, y = corner.y - h * 0.17f;
+    dl->AddLine(ImVec2(p0.x + inset, y), ImVec2(p0.x + inset + (w - 2.0f * inset) * share, y),
+                IM_COL32(255, 200, 60, a), std::max(1.5f, h * 0.1f));
+  }
+}
+
+// `star`: the star's picture (Menu's m_star) - a quad per star, its shadow and its gold half (4 vertices each, no
+// triangulation: 13 rows, 65 stars, every frame); without it the star's polygon (ImGui's concave fill).
+void DrawRating(ImDrawList* dl, ImTextureID star, ImVec2 c, float r, int half_stars, ImU32 empty, float alpha)
+{
+  const ImU32 gold = Rgba(0xFFD34D, alpha);
+  const ImU32 shade = IM_COL32(0, 0, 0, static_cast<int>(std::clamp(alpha, 0.0f, 1.0f) * 115));
+  const float step = r * 2.5f, q = r * (STAR_SIZE * 0.5f) / STAR_RADIUS;
+  const ImVec2 offset(r * 0.12f, r * 0.16f);
+  const auto& unit = StarPoints();
+  for (int i = 0; i < 5; i++)
+  {
+    const float x = c.x + (static_cast<float>(i) - 2.0f) * step;
+    const int fill = std::clamp(half_stars - 2 * i, 0, 2);
+    if (star != ImTextureID{})
+    {
+      dl->AddImage(ImTextureRef(star), ImVec2(x - q + offset.x, c.y - q + offset.y),
+                   ImVec2(x + q + offset.x, c.y + q + offset.y), ImVec2(0, 0), ImVec2(1, 1), shade);
+      dl->AddImage(ImTextureRef(star), ImVec2(x - q, c.y - q), ImVec2(x + q, c.y + q), ImVec2(0, 0), ImVec2(1, 1),
+                   fill == 2 ? gold : empty);
+      if (fill == 1)
+        dl->AddImage(ImTextureRef(star), ImVec2(x - q, c.y - q), ImVec2(x, c.y + q), ImVec2(0, 0), ImVec2(0.5f, 1),
+                     gold);
+      continue;
+    }
+    ImVec2 points[10];
+    for (int k = 0; k < 10; k++)
+      points[k] = ImVec2(x + unit[k].x * r + offset.x, c.y + unit[k].y * r + offset.y);
+    dl->AddConcavePolyFilled(points, 10, shade);
+    for (int k = 0; k < 10; k++)
+      points[k] = ImVec2(x + unit[k].x * r, c.y + unit[k].y * r);
+    dl->AddConcavePolyFilled(points, 10, fill == 2 ? gold : empty);
+    if (fill == 1)
+    {
+      // The left half: from the inner point at the bottom round to the top point (the same way round).
+      const ImVec2 half[6] = {points[5], points[6], points[7], points[8], points[9], points[0]};
+      dl->AddConcavePolyFilled(half, 6, gold);
+    }
+  }
 }
 
 // A textured quad with a colour per corner (the Library's cover reflections fade out).
@@ -222,15 +356,12 @@ std::string Lower(std::string text)
 }
 
 // The names a cover put in covers/ by hand is looked for by (the keys of m_cover_files: lower case, the
-// console's prefix, no .png): the game's key and its title, and an arcade game's full name and its
-// parent's (libretro's thumbnails are named so, ':' and '/' made '_').
+// console's prefix, no extension): the game's key and its title, and an arcade game's full name and its
+// parent's (libretro's thumbnails are named so, ':' and '/' made '_'). (00.81: src/CoverFiles.h's, which
+// Download Covers looks with too.)
 std::vector<std::string> CoverNames(const Library::Game& rom)
 {
-  const std::string prefix = GetSystem(rom.system).prefix;
-  std::vector<std::string> names = {Lower(rom.key), prefix + Lower(rom.title)};
-  for (const std::string& name : rom.cover_names)
-    names.push_back(prefix + Lower(name));
-  return names;
+  return CoverFiles::Names(rom);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -418,6 +549,7 @@ enum Button : uint32_t
   BTN_OPTIONS = 1 << 10,
   BTN_L2 = 1 << 11,
   BTN_R2 = 1 << 12,
+  BTN_TOUCHPAD = 1 << 13,  // (00.80: the games' RetroAchievements filter)
 };
 
 // DualShock 4 buttons (ORBIS_PAD_BUTTON_*) as the menu's: the screenshot tour presses them.
@@ -430,7 +562,7 @@ uint32_t MenuButtons(uint32_t b)
       {ORBIS_PAD_BUTTON_TRIANGLE, BTN_TRIANGLE}, {ORBIS_PAD_BUTTON_SQUARE, BTN_SQUARE},
       {ORBIS_PAD_BUTTON_L1, BTN_L1},         {ORBIS_PAD_BUTTON_R1, BTN_R1},
       {ORBIS_PAD_BUTTON_L2, BTN_L2},         {ORBIS_PAD_BUTTON_R2, BTN_R2},
-      {ORBIS_PAD_BUTTON_OPTIONS, BTN_OPTIONS},
+      {ORBIS_PAD_BUTTON_OPTIONS, BTN_OPTIONS}, {ORBIS_PAD_BUTTON_TOUCH_PAD, BTN_TOUCHPAD},
   };
   uint32_t out = 0;
   for (const auto& [orbis, button] : MAP)
@@ -497,31 +629,27 @@ public:
           held |= BTN_L2;
         if ((b & ORBIS_PAD_BUTTON_R2) || data.analogButtons.r2 > 180)
           held |= BTN_R2;
+        if (b & ORBIS_PAD_BUTTON_TOUCH_PAD)
+          held |= BTN_TOUCHPAD;
       }
     }
     uint32_t pressed = held & ~m_held;
-    constexpr uint32_t directions = BTN_UP | BTN_DOWN | BTN_LEFT | BTN_RIGHT;
-    if ((held & directions) && (held & directions) == (m_held & directions))
-    {
-      m_repeat -= dt;
-      if (m_repeat <= 0.0f)
-      {
-        pressed |= held & directions;
-        m_repeat = 0.075f;
-      }
-    }
-    else
-    {
-      m_repeat = 0.35f;
-    }
+    // Held, the directions repeat, and L1 / R1 too (00.76: the Library's console tabs one after another, src/MenuNav.h).
+    // Repeated() says which of this pass's presses are a repeat: a list goes round only on a fresh press.
+    m_repeated = m_directions.Update(held, m_held, dt) | m_shoulders.Update(held, m_held, dt);
+    pressed |= m_repeated;
     m_held = held;
     return pressed;
   }
+  uint32_t Repeated() const { return m_repeated; }
 
 private:
   int m_pad = -1;
   uint32_t m_held = 0;
-  float m_repeat = 0.35f;
+  uint32_t m_repeated = 0;
+  MenuNav::HeldRepeat m_directions{BTN_UP | BTN_DOWN | BTN_LEFT | BTN_RIGHT, MenuNav::DIRECTION_DELAY,
+                                   MenuNav::DIRECTION_PERIOD};
+  MenuNav::HeldRepeat m_shoulders{BTN_L1 | BTN_R1, MenuNav::SHOULDER_DELAY, MenuNav::SHOULDER_PERIOD};
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -558,6 +686,7 @@ struct Preferences
   bool sounds = true;
   int volume = 80;
   bool clock = true;
+  bool ratings = true;  // Settings -> Star Ratings: the stars under the covers (00.73)
   // Settings -> Game Folders: each console's ("snes" -> folder); none = data_dir/<its folder>.
   std::map<std::string, std::string> games_dirs;
   std::string last_game;
@@ -565,6 +694,9 @@ struct Preferences
   std::string sort = "title";     // "title", "recent" (last played first), "region", "console",
                                   // "nocover" (Without Cover: this session only)
   std::string default_game;       // starts by itself when the app opens
+  // (00.80) The games' RetroAchievements filter (Touchpad): "off", "known" (the games with achievements), "progress"
+  // (those with achievements begun, not all unlocked).
+  std::string ra_filter = "off";
   std::string console_order;      // Settings -> Console Order: "snes,nes,..." ("": the usual one)
   // 2: the standard order became Nintendo then Sony, the most basic first (00.43): an order saved
   // before is dropped once.
@@ -592,6 +724,8 @@ struct Preferences
         volume = std::clamp(std::atoi(value.c_str()), 0, 100);
       else if (key == "clock")
         clock = value == "on";
+      else if (key == "ratings")
+        ratings = value != "off";
       else if (key == "games_dir")
         games_dirs["snes"] = value;  // the Super Nintendo's (as before EmuSuNi played other consoles)
       else if (key.rfind("games_dir.", 0) == 0)
@@ -604,6 +738,8 @@ struct Preferences
         sort = value == "nocover" ? "title" : value;  // Without Cover lasts one session
       else if (key == "default_game")
         default_game = value;
+      else if (key == "ra_filter")
+        ra_filter = value == "known" || value == "progress" ? value : "off";
       else if (key == "console_order")
         console_order = value;
       else if (key == "console_order_version")
@@ -621,9 +757,10 @@ struct Preferences
     const auto snes = games_dirs.find("snes");
     text += "theme=" + theme + "\nwallpaper=" + wallpaper + "\nsounds=" + (sounds ? "on" : "off") +
             "\nvolume=" + std::to_string(volume) + "\nclock=" + (clock ? "on" : "off") +
+            "\nratings=" + (ratings ? "on" : "off") +
             "\ngames_dir=" + (snes == games_dirs.end() ? std::string() : snes->second) +
             "\nlast_game=" + last_game + "\nstyle=" + style + "\nsort=" + sort +
-            "\ndefault_game=" + default_game + "\nconsole_order=" + console_order +
+            "\ndefault_game=" + default_game + "\nra_filter=" + ra_filter + "\nconsole_order=" + console_order +
             "\nconsole_order_version=" + std::to_string(console_order_version) + "\n";
     for (const auto& [key, dir] : games_dirs)
     {
@@ -659,11 +796,13 @@ enum class Category
   ThreedsGames,  // builds with the Nintendo 3DS (EMUSUNI_3DS)
   NaomiGames,    // builds with the Dreamcast (EMUSUNI_DC): its arcade boards
   AtomiswaveGames,
+  SaturnGames,   // builds with the Sega Saturn (EMUSUNI_SATURN)
+  PceGames,      // builds with the PC Engine (EMUSUNI_PCE): its HuCards
   Favorites,
   SavedData,
   Themes,
 };
-constexpr int CATEGORY_COUNT = 23;
+constexpr int CATEGORY_COUNT = 25;
 static_assert(static_cast<int>(Category::N64Games) ==
               static_cast<int>(Category::Games) + 1 + static_cast<int>(SystemId::N64));
 static_assert(static_cast<int>(Category::GbaGames) ==
@@ -678,12 +817,16 @@ static_assert(static_cast<int>(Category::NaomiGames) ==
               static_cast<int>(Category::Games) + 1 + static_cast<int>(SystemId::NAOMI));
 static_assert(static_cast<int>(Category::AtomiswaveGames) ==
               static_cast<int>(Category::Games) + 1 + static_cast<int>(SystemId::ATOMISWAVE));
+static_assert(static_cast<int>(Category::SaturnGames) ==
+              static_cast<int>(Category::Games) + 1 + static_cast<int>(SystemId::SATURN));
+static_assert(static_cast<int>(Category::PceGames) ==
+              static_cast<int>(Category::Games) + 1 + static_cast<int>(SystemId::PCE));
 static_assert(static_cast<int>(Category::Favorites) == static_cast<int>(Category::Games) + 1 + SYSTEM_COUNT);
 constexpr const char* CATEGORY_NAMES[CATEGORY_COUNT] = {
     "Settings",  "All Games", "Super Nintendo", "NES",        "Nintendo 64", "Game Boy",
     "Game Boy Color", "Game Boy Advance", "PlayStation", "Nintendo DS", "PSP", "Dreamcast",
     "SG-1000", "Master System", "Game Gear", "Genesis", "Arcade", "Nintendo 3DS", "NAOMI", "Atomiswave",
-    "Favorites", "Saved Data", "Themes"};
+    "Saturn", "PC Engine", "Favorites", "Saved Data", "Themes"};
 constexpr const char* SORT_NAMES[][2] = {
     {"title", "A-Z"}, {"recent", "Recently Played"}, {"region", "Region"}, {"console", "Console"},
     {"nocover", "Without Cover"}};  // a view: only the games without a cover picture, A-Z
@@ -705,13 +848,13 @@ int s_console_order_version = 1;  // changes with the order (Tabs() and Columns(
 std::vector<SystemId> s_shown_consoles;
 
 // The standard order (Default Order): Nintendo's consoles, then Sony's, then Sega's, each from the
-// most basic to the most powerful, then the arcade boards: the Arcade, the NAOMI (Sega's, the
-// Dreamcast's hardware in a cabinet) and the Atomiswave (Sammy's, the same again).
+// most basic to the most powerful, then NEC's (the PC Engine, 00.82), then the arcade boards: the Arcade, the NAOMI
+// (Sega's, the Dreamcast's hardware in a cabinet) and the Atomiswave (Sammy's, the same again).
 constexpr SystemId STANDARD_ORDER[] = {SystemId::GB,  SystemId::NES, SystemId::GBC, SystemId::SNES,
                                        SystemId::GBA, SystemId::N64, SystemId::NDS, SystemId::THREEDS,
                                        SystemId::PS1, SystemId::PSP, SystemId::SG1000, SystemId::SMS,
-                                       SystemId::GG,  SystemId::MD,  SystemId::DC,  SystemId::ARCADE,
-                                       SystemId::NAOMI, SystemId::ATOMISWAVE};
+                                       SystemId::GG,  SystemId::MD,  SystemId::SATURN, SystemId::DC,
+                                       SystemId::PCE, SystemId::ARCADE, SystemId::NAOMI, SystemId::ATOMISWAVE};
 
 // The consoles of this build in the standard order (any not in it after them).
 std::vector<SystemId> StandardOrder()
@@ -745,15 +888,16 @@ std::vector<SystemId> PresetOrder(const std::string& preset)
 {
   std::vector<SystemId> order;
   if (preset == "power")
-    order = {SystemId::GB,  SystemId::SG1000, SystemId::NES, SystemId::SMS,    SystemId::GG,
-             SystemId::GBC, SystemId::MD,     SystemId::SNES, SystemId::GBA,   SystemId::PS1,
-             SystemId::N64, SystemId::NDS,    SystemId::DC,   SystemId::ARCADE, SystemId::NAOMI,
-             SystemId::ATOMISWAVE, SystemId::PSP, SystemId::THREEDS};
+    order = {SystemId::GB,  SystemId::SG1000, SystemId::NES,    SystemId::SMS,   SystemId::GG,
+             SystemId::PCE, SystemId::GBC,    SystemId::MD,     SystemId::SNES,  SystemId::GBA,
+             SystemId::PS1, SystemId::SATURN, SystemId::N64,    SystemId::NDS,   SystemId::DC,
+             SystemId::ARCADE, SystemId::NAOMI, SystemId::ATOMISWAVE, SystemId::PSP, SystemId::THREEDS};
   else if (preset == "year")
-    order = {SystemId::NES, SystemId::SG1000, SystemId::SMS,  SystemId::MD,  SystemId::GB,   // 1983 1983 1985 1988 1989
-             SystemId::GG,  SystemId::ARCADE, SystemId::SNES, SystemId::PS1, SystemId::N64,  // 1990 1990 1990 1994 1996
-             SystemId::GBC, SystemId::DC,     SystemId::NAOMI, SystemId::GBA, SystemId::ATOMISWAVE,  // 1998 1998 1998 2001 2003
-             SystemId::NDS, SystemId::PSP,    SystemId::THREEDS};                             // 2004 2004 2011
+    order = {SystemId::NES, SystemId::SG1000, SystemId::SMS,  SystemId::PCE, SystemId::MD,    // 1983 1983 1985 1987 1988
+             SystemId::GB,  SystemId::GG,     SystemId::ARCADE, SystemId::SNES,                 // 1989 1990 1990 1990
+             SystemId::SATURN, SystemId::PS1,                                                   // 1994 1994
+             SystemId::N64, SystemId::GBC,    SystemId::DC,   SystemId::NAOMI, SystemId::GBA,  // 1996 1998 1998 1998 2001
+             SystemId::ATOMISWAVE, SystemId::NDS, SystemId::PSP, SystemId::THREEDS};            // 2003 2004 2004 2011
   else if (preset == "alpha")
   {
     for (const System& system : Systems())
@@ -942,32 +1086,9 @@ std::string Upper(std::string text)
   return text;
 }
 
-// The search keyboard (R2): four rows of ten keys, then Space, Delete, Clear and Done, each two
-// or four columns wide.
-constexpr const char* KEY_ROWS[] = {"1234567890", "QWERTYUIOP", "ASDFGHJKL-", "ZXCVBNM'&."};
-constexpr int KEY_COLUMNS = 10;
-constexpr int KEY_ROW_COUNT = 5;
+// The search keyboard (R2) types at most this many characters; its keys and every other text's are src/TextKeyboard.h's
+// (00.80: one keyboard for every text the app asks for).
 constexpr size_t SEARCH_MAX = 40;
-struct WideKey
-{
-  const char* label;
-  int first, span;    // columns
-  const char* glyph;  // the button that does the same
-};
-constexpr WideKey WIDE_KEYS[] = {{"Space", 0, 3, "Triangle"},
-                                 {"Delete", 3, 2, "Square"},
-                                 {"Clear All", 5, 3, "L2"},
-                                 {"Done", 8, 2, "R2"}};
-
-int WideKeyAt(int column)
-{
-  for (int i = 0; i < static_cast<int>(std::size(WIDE_KEYS)); i++)
-  {
-    if (column >= WIDE_KEYS[i].first && column < WIDE_KEYS[i].first + WIDE_KEYS[i].span)
-      return i;
-  }
-  return 0;
-}
 
 // What the search compares: lower-case letters and digits, the words separated by one space
 // ("Yoshi's Island" -> "yoshis island").
@@ -1016,7 +1137,9 @@ constexpr ConsoleNote CONSOLE_NOTES[] = {
     {SystemId::GB, "Game Boy games", nullptr, nullptr},
     {SystemId::GBC, "Game Boy Color games", nullptr, nullptr},
     {SystemId::GBA, "Game Boy Advance games", nullptr, nullptr},
-    {SystemId::PS1, "PlayStation games, on one disc or several", nullptr, nullptr},
+    // (00.81: a .bin without its .cue too - src/Library.cpp.)
+    {SystemId::PS1, "PlayStation games, on one disc or several", nullptr,
+     ".cue (with its .bin tracks) or a .bin alone, .chd, .pbp, .iso, .m3u; not in a .zip"},
     {SystemId::NDS, "Nintendo DS games", nullptr, nullptr},
     {SystemId::PSP, "PSP games: UMD images and PSN downloads", nullptr, nullptr},
     {SystemId::DC, "Dreamcast games, on one disc or several", nullptr, nullptr},
@@ -1037,6 +1160,12 @@ constexpr ConsoleNote CONSOLE_NOTES[] = {
      "MAME sets (mvsc2.zip) or .dat / .bin images, unzipped"},
     {SystemId::ATOMISWAVE, "Sammy's Atomiswave arcade games",
      "awbios.zip in Roms/atomiswave or /data/EmuSuNi/system/dc", "MAME sets, one .zip per game (kofxi.zip)"},
+    // (The app finds the Saturn's BIOS in system/saturn, system or the game's folder: src/SaturnTest.h.)
+    {SystemId::SATURN, "Sega Saturn games (experimental: slower than the console)",
+     "The USA one, 512 KB (any name with \"bios\" in it), in /data/EmuSuNi/system/saturn",
+     ".cue (with its .bin tracks), .chd, .iso, .ccd, .mds; one disc each, not in a .zip"},
+    // (00.82. No SuperGrafx.)
+    {SystemId::PCE, "PC Engine and TurboGrafx-16 HuCards", nullptr, ".pce, or a .zip of one (no SuperGrafx .sgx)"},
 };
 
 struct Item
@@ -1074,8 +1203,17 @@ enum Setting
   SET_NO_COVER,         // Games Without Cover: the games without a picture, each one's Find Cover
   SET_CONSOLE_ORDER,    // Console Order: the consoles' tabs, moved up and down
   SET_CONSOLES_SHOWN,   // Consoles Shown: all, those with games, or the ones chosen (each on or off)
+  SET_UPDATES,          // Check for Updates: this version, the newest one, Update (00.73, src/Update.h)
+  SET_UPDATE_NOTICE,    // the start's notice of a newer version: Update or Later
+  SET_RATINGS,          // Star Ratings: the stars under the covers on or off (00.73)
+  SET_ACHIEVEMENTS,     // RetroAchievements (00.73, src/Achievements.h): the account (log in, log out), its settings
+  SET_RA_HISTORY,       // RetroAchievements -> My Achievements (00.75): the unlocks and the games played
+  SET_RA_GAME,          // My Achievements -> a game (00.76): all its achievements, locked or not
+  SET_RA_VERSIONS,      // a game's Triangle -> Achievements on a file RetroAchievements doesn't know (00.79)
+  SET_RA_ABOUT,         // RetroAchievements -> What is RetroAchievements? (00.79)
+  SET_BEZELS,           // Game Bezels (00.80, src/BezelProject.h): The Bezel Project's bezels of the player's games
+  SET_BEZELS_DELETE,    // "Delete?" for the downloaded bezels
 #ifdef EMUSUNI_SATURN
-  SET_SATURN_TEST,      // Saturn (speed test): builds with EMUSUNI_SATURN, with the file saturn-test (src/SaturnTest.h)
 #endif
   SET_GROUP = 100,  // + index into Settings::Categories(): an emulation settings list
 };
@@ -1092,6 +1230,8 @@ struct SettingRow
   std::string glyph;    // Controls: the DualShock 4 control, drawn as its icon
   int tag = 0;          // cheats: 1 = an ON tag (green), -1 = an OFF tag (red)
   ImTextureID icon{};
+  std::string picture;  // RetroAchievements' picture (its address: drawn once downloaded, 00.75)
+  std::string help;     // the row's own help text (made with it: RetroAchievements' history, 00.75)
 };
 
 // A PSP-style panel on the right: options to pick from, information text, or a settings list.
@@ -1109,12 +1249,18 @@ struct SidePanel
   int setting = -1;
   float slide = 0.0f;
   float scroll = 0.0f;
+  bool snap = false;  // the list went round (00.76): its scroll jumps there instead of sliding through every row
+  // Information: a game's rating in stars (half stars 0 to 10; -1 none), drawn at the end of its line of `lines`.
+  int stars = -1;
+  std::string stars_line;
 };
 
 struct Game
 {
   Library::Game rom;
   int64_t played = 0;
+  Ratings::Rating rating;  // its stars (src/Ratings.h; half_stars -1: none, or not matched yet)
+  Achievements::LibraryInfo ra;  // RetroAchievements' mark (00.77: src/Achievements.h's library marks)
 };
 }  // namespace
 
@@ -1137,6 +1283,7 @@ public:
     MakeDirs(m_data_dir + "/cheats");
     MakeDirs(m_data_dir + "/themes");
     LoadNames();
+    m_rating_copy = Ratings::ReadCopy(m_data_dir);  // (LaunchBox's ratings downloaded before: BuildGames matches)
     BuildGames();
     LoadPlayed();
     LoadFavorites();
@@ -1177,6 +1324,18 @@ public:
       }
     }
     Log("default game not found: " + m_prefs.default_game);
+    return false;
+  }
+  bool FindGame(const std::string& path, Library::Game* game)
+  {
+    for (const Game& g : m_games)
+    {
+      if (g.rom.path == path)
+      {
+        *game = g.rom;
+        return true;
+      }
+    }
     return false;
   }
   ImFont* m_font = nullptr;
@@ -1232,7 +1391,7 @@ private:
   void OpenSettingsList(const std::string& category, const std::string& game_id, int system = -1);
   void BuildSettingRows();
   void ChangeSettingRow(int direction);
-  void MoveSettingRow(int direction);
+  void MoveSettingRow(int direction, bool wrap = false);
   void OpenControlsMenu();
   void OpenControlsList(const std::string& game_key, SystemId system);
   void BuildControlRows();
@@ -1256,16 +1415,53 @@ private:
   void ToggleFavorite(int game);
   void RebuildGameLists(bool keep_selection);
   void SetSearch(const std::string& text);
-  void EditSearch(const std::string& key);
+  // The keyboard (00.80, src/TextKeyboard.h): the search's, or a text asked for (AskText).
   void HandleKeyboard(uint32_t pressed);
+  void KeyboardDid(TextKeyboard::Result result, int direction, uint32_t button);
   void ShowToast(const std::string& text, int icon);
-  // A game's name of the user's own (data_dir/names.ini) and a text asked for: the PS4's
-  // keyboard, else the menu's own (asking mode).
+  // A game's name of the user's own (data_dir/names.ini) and a text asked for: the app's keyboard (00.80; until 00.79
+  // the PS4's), with a title, the line under the field, at most `max_length` characters.
   void LoadNames();
   void SaveNames() const;
   void RenameGame(const std::string& key, const std::string& name);
-  void AskText(const std::string& title, const std::string& text, std::function<void(const std::string&)> done);
-  void UpdateAsk();
+  void AskText(const std::string& title, const std::string& text, std::function<void(const std::string&)> done,
+               uint32_t max_length = 100, TextKeyboard::Mode mode = TextKeyboard::Mode::Text,
+               const std::string& hint = "");
+  // RetroAchievements (00.73, src/Achievements.h): Settings -> RetroAchievements - log in (the user name, then the
+  // password, on the keyboard), log out; the panel follows the login as it goes (every frame).
+  void OpenAchievementsPanel();
+  void BuildAchievementsRows();
+  void UpdateAchievements(float dt);
+  std::string AchievementsDetail() const;
+  Achievements::Login m_ra_login = Achievements::Login::Out;  // the login's state the panel and the row show
+  std::string m_ra_user;          // the user name typed, until the password's keyboard opens
+  int m_ra_ask_password = 0;      // frames until the password's keyboard opens (one closes before the next opens)
+  float m_ra_refresh = 0.0f;
+  // (00.75) The session's line as shown (the panels follow it when it changes), and My Achievements.
+  std::string m_ra_status;
+  void OpenHistoryPanel();
+  void BuildHistoryRows();
+  std::string m_ra_history_shown;  // what the history panel was made from (made again when it changes)
+  // (00.76) My Achievements -> a game: every achievement of it.
+  void OpenGameAchievements(uint32_t game_id);
+  void BuildGameAchievementRows();
+  std::string m_ra_game_shown;  // what the game's panel was made from
+  uint32_t m_ra_game = 0;       // the game shown (Circle goes back to its row in My Achievements)
+  bool m_ra_from_game = false;  // (00.79) opened from a game's Triangle -> Achievements: Circle goes back there
+  // (00.79) Triangle -> Achievements on a file RetroAchievements doesn't know: the files it knows of that game.
+  void OpenVersionsPanel(const Game& game);
+  void BuildVersionsRows();
+  std::string m_ra_versions_shown;
+  // (00.79) Settings -> RetroAchievements -> What is RetroAchievements?: how to start, what it is.
+  void OpenAboutPanel();
+  // (00.77) RetroAchievements' marks on the games: the games handed to the module after each scan, their states taken
+  // back once a second at most when it says something changed.
+  void StartAchievementMarks();
+  void RefreshAchievementMarks();
+  bool m_ra_marks = true;         // the setting (Settings -> RetroAchievements -> Marks on the Games)
+  int m_ra_lib_version = -1;
+  float m_ra_lib_time = 0.0f;
+  std::string AchievementLine(const Game& game) const;  // Information's line
   // Find Cover (Triangle's options): libretro's pictures most like a name, looked up on a thread.
   void OpenFindCover(int game, bool back_to_list = false);
   void StartFind();
@@ -1278,6 +1474,13 @@ private:
   void ReturnToNoCover();
   std::string NoCoverDetail() const;
   void RefreshNoCoverItem();
+  // Updates (00.73, src/Update.h): Settings -> Check for Updates and the start's notice of a newer version (one
+  // panel each), what they show (rebuilt when the updater's state changes) and their options; every frame.
+  void OpenUpdatePanel(bool notice);
+  void BuildUpdatePanel();
+  void UpdatePanelChoice();
+  void UpdateUpdater();
+  std::string UpdatesDetail(const Update::Status& status) const;
   // Deleting games: one (Triangle's options), or the duplicates and the other regions (Clean Up).
   void OpenCleanUp();
   void DeleteGames(const std::vector<std::string>& paths);
@@ -1299,6 +1502,26 @@ private:
   void UpdateCoverDownload();
   bool MissingCovers() const;
   bool HasCover(const Library::Game& rom) const;
+  // Star ratings (src/Ratings.h): the games not matched yet go to the matcher's thread (StartRatings, after the
+  // games are read; again: every game, after a new download); what it found comes into the games (UpdateRatings,
+  // every frame) and stays, by game key. LaunchBox's ratings are downloaded when the menu opens without them (or
+  // with ones 60 days old), once a session, or from Settings -> Star Ratings (StartRatingsDownload).
+  void StartRatings(bool again = false);
+  void UpdateRatings();
+  bool StartRatingsDownload();
+  // A game's rating as Information says it (its stars are drawn on the first line), and Star Ratings' lines.
+  std::vector<std::string> RatingLines(const Game& game) const;
+  std::vector<std::string> RatingsPanelLines();
+  std::string RatingsDownloadText() const;  // "Downloading ratings 45 / 109 MB", else ""
+  // Game Bezels (00.80, src/BezelProject.h): The Bezel Project's bezels of the player's games, downloaded on its
+  // thread (paused while a game runs; a download cut goes on at the next start), the page's rows as it goes
+  // (UpdateBezelDownload, every frame), Delete Downloaded Bezels.
+  std::vector<std::string> BezelConsoles() const;  // the consoles with games that The Bezel Project has bezels for
+  bool StartBezelDownload(const std::vector<std::string>& consoles, bool resumed);
+  void OpenBezelsPanel();
+  void BuildBezelRows();
+  void UpdateBezelDownload();
+  std::string BezelsDetail();  // (the bezels there are counted the first time)
 
   bool Library() const { return m_prefs.style != "xmb"; }
   int LibraryTab() const;
@@ -1321,8 +1544,9 @@ private:
   void DrawLibrarySaves(ImDrawList* dl, float alpha);
   void DrawLibraryList(ImDrawList* dl, float alpha);
   void DrawLibraryHints(ImDrawList* dl);
+  // stars_x: where its rating's stars are centred (the part of it in view), -1: its middle.
   void DrawCover(ImDrawList* dl, int game, ImVec2 a, ImVec2 b, ImVec2 c, ImVec2 d, float alpha,
-                 int focus);
+                 int focus, float stars_x = -1.0f);
   float DrawBadge(ImDrawList* dl, const Library::Game& rom, ImVec2 at, float alpha, float max_w = 0.0f);
   void DrawTopBar(ImDrawList* dl);
   void DrawPageTitle(ImDrawList* dl, Category category, const std::string& title, const std::string& sub,
@@ -1364,16 +1588,37 @@ private:
   float m_category_pos = 1.0f;  // the XMB row's position (Columns(): all the games)
   float m_item_pos[CATEGORY_COUNT] = {};
   bool m_all_covered[CATEGORY_COUNT] = {};  // Without Cover emptied the list: its games all have covers
+  // (00.80) The RetroAchievements filter (Touchpad): each game list's games before it (the search's), those of the
+  // consoles it has, those not checked yet, and whether it emptied the list.
+  struct RaCount
+  {
+    int total = 0, files = 0, unchecked = 0;
+  };
+  RaCount m_ra_count[CATEGORY_COUNT];
+  bool m_ra_emptied[CATEGORY_COUNT] = {};
+  bool m_ra_rebuild = false;  // the games' states changed under a panel: the lists made again once it closes
+  bool RaFilterOn() const { return m_ra_marks && m_prefs.ra_filter != "off"; }
+  bool RaFilterPasses(const Game& game) const;
+  std::string RaFilterLine(int c) const;  // "With achievements: 438 of 793  -  checking 1200 of 3585..."
   SidePanel m_panel;
   bool m_assets_loaded = false;
 
   Audio m_audio;
   Input m_input;
+  // (00.76) This pass's presses that are a held button's repeat (Input::Repeated): a list goes round only on a fresh
+  // press. The last change of a console tab or an XMB column (m_time): its covers and the drives' look wait for
+  // MenuNav::TAB_SETTLE; a look asked for meanwhile waits too.
+  uint32_t m_repeated = 0;
+  float m_tab_changed = -1.0f;
+  bool m_places_waiting = false;
+  bool Fresh(uint32_t button) const { return (m_repeated & button) == 0; }
+  bool TabsSettled() const { return m_time - m_tab_changed >= MenuNav::TAB_SETTLE; }
   std::map<std::string, std::unique_ptr<Sound>> m_sounds;
   ImTextureID m_wallpaper{};
   ImTextureID m_logo{};  // the "EmuSuNi" letters
   float m_logo_aspect = 4.0f;
   ImTextureID m_glow{};  // a soft round light (white, gaussian alpha): the intro's stardust
+  ImTextureID m_star{};  // a star (white, soft edges): the ratings' stars, tinted (DrawRating)
 
   // Controls page: a game's own layout (its key) or its console's normal one; a button capture.
   bool m_controls_open = false;
@@ -1399,6 +1644,8 @@ private:
   CheatDownload::Finder m_finder;
   CheatDownload::Finder::State m_finder_state = CheatDownload::Finder::State::Idle;
   int m_finder_mb = -1;
+  int m_update_serial = -1;     // the updater's state the update panel and the Settings row show
+  bool m_update_started = false;
   int m_search_selected = 0;
 
   // Saved data.
@@ -1409,7 +1656,7 @@ private:
   std::string m_state_pictures_game;
 
   // Covers.
-  std::map<std::string, std::string> m_cover_files;  // lower-case name without .png -> path
+  std::map<std::string, std::string> m_cover_files;  // lower-case name without its extension -> path (CoverFiles)
   struct CoverEntry
   {
     ImTextureID texture{};
@@ -1436,6 +1683,7 @@ private:
     int game = -1;
     ImageRGBA image;
     uint64_t generation = 0;
+    std::string path, why, detail;  // a picture that couldn't be read: why (LoadPicture's words)
   };
   std::deque<CoverJob> m_cover_jobs;
   std::deque<CoverDone> m_cover_done;
@@ -1456,6 +1704,26 @@ private:
   bool m_dl_closest = false;      // the download is Games Without Cover's "Closest for All"
   std::string m_nocover_status;   // its result, shown in Games Without Cover
   int m_nocover_progress = -1;    // the download's progress the list last showed
+  // Why the last downloads left each game without a cover (game key -> CoverDownload's plain reason), said under
+  // Games Without Cover's list for the selected game (00.68).
+  std::unordered_map<std::string, std::string> m_cover_why;
+  // Star ratings: each game's once matched (game key -> its rating; half_stars -1: none), the thread matching the
+  // others, and the games it was given (by key: they aren't given again while it works).
+  std::unordered_map<std::string, Ratings::Rating> m_ratings;
+  Ratings::Matcher m_rating_matcher;
+  std::set<std::string> m_rating_asked;
+  bool m_rating_rematch = false;  // a new copy came while the matcher worked: every game again after it
+  // LaunchBox's ratings downloaded (data_dir/cache/ratings/launchbox.tsv), and whether this session tried already.
+  Ratings::Downloader m_rating_download;
+  bool m_rating_download_tried = false;
+  Ratings::Copy m_rating_copy;  // what is there (read at the start and after each download)
+  // Game Bezels (00.80): the download, the progress the page last showed, the bezels there (per console, read again
+  // after each download or deletion), whether this session resumed a download cut before.
+  BezelProject::Downloader m_bezel_download;
+  unsigned m_bezel_serial = 0;
+  std::map<std::string, BezelProject::Downloaded> m_bezels_there;
+  bool m_bezels_counted = false;
+  bool m_bezel_resume_tried = false;
 
   std::string m_browse_dir;  // Game Folder browser: the folder shown ("" = the places)
   SystemId m_browse_system = SystemId::SNES;  // whose game folder it picks
@@ -1472,7 +1740,6 @@ private:
   int m_launch = -1;
   float m_launch_time = 0.0f;
 #ifdef EMUSUNI_SATURN
-  bool m_saturn_test = false;  // Settings' Saturn (speed test) picked: Run returns its stand-in (src/SaturnTest.h)
 #endif
   std::string m_pending_error;
   float m_memory_log = 0.0f;
@@ -1480,8 +1747,8 @@ private:
   // Favorites (game keys, data_dir/favorites.ini) and the search.
   std::set<std::string> m_favorites;
   std::string m_search;
-  bool m_keyboard = false;
-  int m_key_row = 1, m_key_col = 0;
+  bool m_keyboard = false;  // the keyboard is up (m_board: the search's, or a text asked for)
+  TextKeyboard::Board m_board;
   float m_keyboard_slide = 0.0f;
   std::string m_toast;  // a short notice at the top ("Added to Favorites")
   int m_toast_icon = 0;  // 1 a star, 2 an empty star
@@ -1489,11 +1756,10 @@ private:
 
   // The user's names for games (key -> name).
   std::map<std::string, std::string> m_names;
-  // A text asked for: the PS4's keyboard is open (m_asking), or the menu's own edits m_ask_text.
+  // A text asked for (the keyboard's Text, Plain or Password mode): what OK does with it, the keyboard's title and the
+  // line under its field.
   std::function<void(const std::string&)> m_ask_done;
-  bool m_asking = false;
-  bool m_keyboard_ask = false;
-  std::string m_ask_text, m_ask_title;
+  std::string m_ask_title, m_ask_hint;
   // Find Cover: the jobs for the thread (0 list the pictures like m_find_query, 1 preview one,
   // 2 make one the cover) and their results.
   struct FindJob
@@ -1605,6 +1871,8 @@ void Menu::Impl::BuildGames()
     return la != lb ? la < lb : a.rom.id < b.rom.id;
   });
   Log("games: " + found);
+  StartRatings();  // (the stars: the games matched before at once, the others on the matcher's thread)
+  StartAchievementMarks();  // (RetroAchievements' marks, 00.77: hashed on the module's thread)
 }
 
 void Menu::Impl::LoadAssets()
@@ -1665,6 +1933,10 @@ void Menu::Impl::LoadAssets()
     }
     m_glow = m_display.CreateTexture(pixels.data(), SIZE, SIZE);
   }
+  {
+    const std::vector<uint8_t> star = StarPixels();
+    m_star = m_display.CreateTexture(star.data(), STAR_SIZE, STAR_SIZE);
+  }
   std::error_code error;
   for (const auto& entry : std::filesystem::directory_iterator(m_data_dir + "/themes", error))
   {
@@ -1687,11 +1959,14 @@ void Menu::Impl::LoadAssets()
         job = std::move(m_cover_jobs.front());
         m_cover_jobs.pop_front();
       }
+      // (00.81: a PNG or a JPEG, by what it is; a big one made smaller as it is read.)
       ImageRGBA image;
-      LoadPng(job.path, &image, 600, 430);
+      std::string why, detail;
+      if (LoadPicture(job.path, &image, 600, 430, &why, &detail))
+        why.clear();
       std::lock_guard lock(m_cover_mutex);
       if (job.generation == m_cover_generation)  // (else the games were read again meanwhile)
-        m_cover_done.push_back({job.game, std::move(image), job.generation});
+        m_cover_done.push_back({job.game, std::move(image), job.generation, job.path, why, detail});
     }
   });
 }
@@ -1707,10 +1982,11 @@ void Menu::Impl::StopCoverThread()
     m_cover_thread.join();
 }
 
-// Covers: data_dir/covers/<file name>.png or <title>.png (any case), e.g. from libretro's
-// thumbnails ("Named_Boxarts"); another console's in its subfolder (covers/nes/). Indexed by the
-// game key's way: "nes/<name>". The USB drives' EmuSuNi/covers too (Covers Saved On), the place new
-// covers are saved in last: its picture wins over another place's of the same name.
+// Covers: data_dir/covers/<console>/<file name> or <title> (.png, .jpg, .jpeg, any case), e.g. from libretro's
+// thumbnails ("Named_Boxarts"): covers/snes/, covers/nes/... (src/CoverFiles.h; the Super Nintendo's right in
+// covers/ too, as before 00.81, moved into covers/snes/ once). Indexed by the game key's way: "nes/<name>". The
+// USB drives' EmuSuNi/covers too (Covers Saved On), the place new covers are saved in last: its picture wins over
+// another place's of the same name.
 void Menu::Impl::IndexCovers()
 {
   m_cover_files.clear();
@@ -1726,19 +2002,8 @@ void Menu::Impl::IndexCovers()
   places.push_back(save);
   for (const std::string& place : places)
   {
-    for (const System& system : Systems())
-    {
-      const std::string prefix = system.prefix;
-      // (Not a range-for: its ++ throws when a USB drive goes away meanwhile; increment(ec) just stops.)
-      std::error_code ec;
-      for (std::filesystem::directory_iterator it(place + "/" + prefix, ec), end; !ec && it != end; it.increment(ec))
-      {
-        const std::string name = it->path().filename().string();
-        const std::string lower = Lower(name);
-        if (lower.size() > 4 && lower.compare(lower.size() - 4, 4, ".png") == 0)
-          m_cover_files[prefix + lower.substr(0, lower.size() - 4)] = it->path().string();
-      }
-    }
+    CoverFiles::MoveOldSnesCovers(place);
+    CoverFiles::List(place, &m_cover_files);
   }
   for (auto& [index, cover] : m_covers)
   {
@@ -1796,7 +2061,8 @@ ImTextureID Menu::Impl::Cover(int game, float* aspect)
       *aspect = cover.aspect;
     return cover.texture;
   }
-  if (!cover.requested && !cover.missing)
+  // (00.76: none asked for while the console tabs move - L1 / R1 held -: the tab they stop on loads its own.)
+  if (!cover.requested && !cover.missing && TabsSettled())
   {
     const Library::Game& rom = m_games[game].rom;
     std::string path;
@@ -1851,6 +2117,24 @@ void Menu::Impl::UpdateCovers()
     if (result.image.empty())
     {
       cover.missing = true;
+      // (00.81) A picture that can't be read - not a PNG or a JPEG (a WebP named .png), damaged, too big - is said in
+      // the log and under Games Without Cover, and isn't the game's cover anymore: the game has none (its other
+      // names' pictures, if any, are looked for), and Download Covers leaves the file as it is (the player's own).
+      if (!result.why.empty() && result.game < static_cast<int>(m_games.size()))
+      {
+        Log("covers: " + result.path + " isn't used: " + result.why +
+            (result.detail.empty() ? std::string() : " (" + result.detail + ")"));
+        for (auto file = m_cover_files.begin(); file != m_cover_files.end();)
+          file = file->second == result.path ? m_cover_files.erase(file) : std::next(file);
+        const Library::Game& rom = m_games[result.game].rom;
+        m_cover_why[rom.key] = "Your picture isn't used: " + result.path + "\n" + result.why;
+        if (HasCover(rom))
+          m_covers.erase(it);  // another of its names' pictures: looked for the next time it is drawn
+        m_covers_changed = true;
+        RefreshNoCoverItem();
+        if (m_panel.open && m_panel.setting == SET_NO_COVER)
+          BuildNoCoverRows();
+      }
       continue;
     }
     if (cover.texture != ImTextureID{})
@@ -1877,6 +2161,352 @@ void Menu::Impl::UpdateCovers()
     m_covers.erase(oldest);
     loaded--;
   }
+}
+
+// The games matched before get their ratings now; the others (the first read, a new folder's, a game renamed) go to
+// the matcher's thread - when it isn't at work: then they wait for its end (UpdateRatings starts them). again (a new
+// copy of LaunchBox's ratings): every game, as soon as the matcher is free.
+void Menu::Impl::StartRatings(bool again)
+{
+  if (again)
+  {
+    m_ratings.clear();
+    m_rating_rematch = m_rating_matcher.Busy();  // (its run's answers are the old copy's: dropped)
+    if (m_rating_rematch)
+      return;
+    m_rating_asked.clear();
+  }
+  std::vector<Library::Game> wanted;
+  for (Game& game : m_games)
+  {
+    const auto it = m_ratings.find(game.rom.key);
+    if (it != m_ratings.end())
+      game.rating = it->second;
+    else if (!again)
+      game.rating = Ratings::Rating{};  // (again: the stars stay until the new copy's come)
+    if (it == m_ratings.end() && !m_rating_asked.count(game.rom.key))
+      wanted.push_back(game.rom);
+  }
+  if (wanted.empty() || m_rating_matcher.Busy())
+    return;
+  if (m_rating_matcher.Start(wanted, m_assets_dir + "/xmb/ratings", Ratings::CopyPath(m_data_dir)))
+  {
+    for (const Library::Game& rom : wanted)
+      m_rating_asked.insert(rom.key);
+  }
+}
+
+void Menu::Impl::UpdateRatings()
+{
+  // A download ended: a new copy means every game's rating again (the panel of Star Ratings says how it went).
+  bool downloaded = false;
+  if (m_rating_download.Finished(&downloaded))
+  {
+    m_rating_copy = Ratings::ReadCopy(m_data_dir);
+    if (downloaded)
+      StartRatings(true);
+  }
+  if (m_panel.open && m_panel.setting == SET_RATINGS)
+    m_panel.lines = RatingsPanelLines();
+  std::unordered_map<std::string, Ratings::Rating> found;
+  if (!m_rating_matcher.Take(&found))
+    return;
+  if (m_rating_rematch)
+  {
+    m_rating_rematch = false;
+    m_rating_asked.clear();
+    StartRatings(true);
+    return;
+  }
+  // (A game renamed while it was matched isn't asked anymore: its old name's rating is dropped, it is matched again.)
+  for (const auto& [key, rating] : found)
+  {
+    if (m_rating_asked.count(key))
+      m_ratings[key] = rating;
+  }
+  m_rating_asked.clear();
+  StartRatings();
+}
+
+bool Menu::Impl::StartRatingsDownload()
+{
+  m_rating_download_tried = true;
+  return m_rating_download.Start(m_data_dir);
+}
+
+std::string Menu::Impl::RatingsDownloadText() const
+{
+  using State = Ratings::Downloader::State;
+  if (m_rating_download.Now() == State::Reading)
+    return "Reading the ratings";
+  if (m_rating_download.Now() != State::Downloading)
+    return "";
+  const int64_t total = m_rating_download.Total();
+  return "Downloading ratings " + std::to_string(m_rating_download.Bytes() >> 20) +
+         (total > 0 ? " / " + std::to_string(total >> 20) : std::string()) + " MB";
+}
+
+// ---- Game Bezels (00.80, src/BezelProject.h) ----
+
+// The consoles with games that The Bezel Project has bezels for, in the tabs' order.
+std::vector<std::string> Menu::Impl::BezelConsoles() const
+{
+  std::vector<std::string> keys;
+  for (SystemId id : ConsoleOrder())
+  {
+    const System& system = GetSystem(id);
+    if (HasSystem(id) && m_console_games[static_cast<size_t>(id)] > 0 && BezelProject::Has(system.key))
+      keys.push_back(system.key);
+  }
+  return keys;
+}
+
+// The download of those consoles' bezels for the games read now (resumed: the start of one a cut stopped).
+bool Menu::Impl::StartBezelDownload(const std::vector<std::string>& consoles, bool resumed)
+{
+  std::vector<Library::Game> games;
+  for (const Game& game : m_games)
+  {
+    if (std::find(consoles.begin(), consoles.end(), GetSystem(game.rom.system).key) != consoles.end())
+      games.push_back(game.rom);
+  }
+  m_bezels_counted = false;
+  return !games.empty() && m_bezel_download.Start(m_data_dir, games, consoles, resumed);
+}
+
+// The Settings row's value: the download as it goes, else the bezels there (counted the first time, and again after a
+// download or a deletion).
+std::string Menu::Impl::BezelsDetail()
+{
+  if (m_bezel_download.Busy())
+  {
+    const BezelProject::Downloader::Progress progress = m_bezel_download.Now();
+    int64_t done = 0, total = 0;
+    for (const auto& console : progress.consoles)
+    {
+      done += console.done;
+      total += console.bytes;
+    }
+    if (progress.paused)
+      return "Waiting while a game runs";
+    return "Downloading bezels: " + std::to_string(done >> 20) + " / " + std::to_string(total >> 20) + " MB";
+  }
+  if (!m_bezels_counted)
+  {
+    m_bezels_counted = true;
+    m_bezels_there.clear();
+    for (const System& system : Systems())
+    {
+      if (BezelProject::Has(system.key) && FileExists(BezelProject::RecordPath(m_data_dir, system.key)))
+        m_bezels_there[system.key] = BezelProject::Count(m_data_dir, system.key);
+    }
+  }
+  int files = 0;
+  for (const auto& [key, there] : m_bezels_there)
+    files += there.files;
+  return files > 0 ? std::to_string(files) + " bezels downloaded" : std::string("The Bezel Project's, for your games");
+}
+
+void Menu::Impl::OpenBezelsPanel()
+{
+  m_panel = {};
+  m_panel.open = true;
+  m_panel.setting = SET_BEZELS;
+  m_panel.title = "Game Bezels";
+  BuildBezelRows();
+}
+
+// The page: what the bezels are, how the download goes, Download for All Consoles (Stop the Download while it runs),
+// each console with games (Cross: its bezels only) and what it has, Delete Downloaded Bezels.
+void Menu::Impl::BuildBezelRows()
+{
+  using Step = BezelProject::Downloader::Step;
+  BezelsDetail();  // (what is there, counted once)
+  const BezelProject::Downloader::Progress progress = m_bezel_download.Now();
+  m_bezel_serial = progress.serial;
+  const bool running = m_bezel_download.Busy();
+  std::vector<SettingRow> rows;
+  // A note over header lines of the panel's width (the text translated here).
+  auto note = [&](const std::string& english) {
+    std::string wrapped = WrapText(m_bold, 26, PS4Lang::T(english), 880.0f - 120.0f);
+    for (size_t start = 0; start <= wrapped.size();)
+    {
+      const size_t end = std::min(wrapped.find('\n', start), wrapped.size());
+      rows.push_back({wrapped.substr(start, end - start), "", "", true});
+      start = end + 1;
+    }
+  };
+  note("Bezels made for each game by The Bezel Project (github.com/thebezelproject), downloaded from GitHub for the "
+       "games you have, found by their names as their covers are. A game shows its own with Video -> Bezel: Per Game "
+       "(The Bezel Project).");
+  int64_t done = 0, total = 0;
+  bool listing = false;
+  for (const auto& console : progress.consoles)
+  {
+    done += console.done;
+    total += console.bytes;
+    listing = listing || console.step == Step::Listing;
+  }
+  if (running && progress.paused)
+    note("Waiting while a game runs: it goes on afterwards.");
+  else if (running && listing)
+    note("Asking GitHub for The Bezel Project's lists...");
+  else if (running)
+    note("Downloading " + std::to_string(done >> 20) + " of " + std::to_string(total >> 20) + " MB: " +
+         (progress.game.empty() ? std::string("...") : progress.game));
+  else if (!progress.error.empty())
+    note(progress.error);
+  SettingRow all{running ? "Stop the Download" : "Download for All Consoles", "", "bz:all"};
+  all.help = running ? "Stops it: what came stays, and Download for All Consoles goes on from there." :
+                       "The bezels of every console's games here, those not downloaded yet: in the background, waiting "
+                       "while a game runs; a download cut goes on at the next start.";
+  rows.push_back(all);
+  const std::vector<std::string> consoles = BezelConsoles();
+  rows.push_back(
+      {consoles.empty() ? "No games here that The Bezel Project has bezels for" : "Your Consoles", "", "", true});
+  for (const std::string& key : consoles)
+  {
+    const System* system = SystemByKey(key);
+    const auto there = m_bezels_there.find(key);
+    const int files = there == m_bezels_there.end() ? 0 : there->second.files;
+    std::string value = files == 1 ? std::string("1 bezel") :
+                        files > 1  ? std::to_string(files) + " bezels" :
+                                     std::string("Not downloaded");
+    std::string error;
+    for (const auto& console : progress.consoles)
+    {
+      if (console.key != key)
+        continue;
+      if (console.step == Step::Waiting && running)
+        value = "Waiting";
+      else if (console.step == Step::Listing)
+        value = "Looking...";
+      else if (console.step == Step::Downloading)
+        value = std::to_string(console.downloaded + console.failed) + " / " +
+                std::to_string(console.matched - console.already);
+      else if (console.step == Step::Done && console.matched == 0)
+        value = "None for these games";
+      else if (console.step == Step::Failed)
+      {
+        value = "Failed";
+        error = console.error;
+      }
+    }
+    SettingRow row{system ? system->name : key, value, "bz:console:" + key};
+    row.help = "This console's bezels only, those not downloaded yet.";
+    rows.push_back(row);
+    if (!error.empty())
+      note(error);
+  }
+  int files = 0;
+  int64_t bytes = 0;
+  for (const auto& [key, there] : m_bezels_there)
+  {
+    files += there.files;
+    bytes += there.bytes;
+  }
+  SettingRow erase{"Delete Downloaded Bezels", files > 0 ? std::to_string((bytes + (1 << 19)) >> 20) + " MB" : "",
+                   "bz:delete"};
+  erase.help = "Deletes the bezels downloaded from The Bezel Project. Your own bezels in the same folders stay.";
+  rows.push_back(erase);
+  const int selected = m_panel.selected;
+  m_panel.rows = std::move(rows);
+  m_panel.selected = std::clamp(selected, 0, std::max(0, static_cast<int>(m_panel.rows.size()) - 1));
+  if (m_panel.rows[m_panel.selected].header)
+    MoveSettingRow(1);
+}
+
+// Every frame: the download's progress on the page and in the Settings row, its end (a toast).
+void Menu::Impl::UpdateBezelDownload()
+{
+  const bool ended = m_bezel_download.Finished();
+  if (!ended && m_bezel_download.Serial() == m_bezel_serial)
+    return;
+  if (ended)
+  {
+    m_bezels_counted = false;
+    const BezelProject::Downloader::Progress progress = m_bezel_download.Now();
+    int downloaded = 0;
+    int64_t bytes = 0;
+    for (const auto& console : progress.consoles)
+    {
+      downloaded += console.downloaded;
+      bytes += console.done;
+    }
+    if (!progress.stopped)
+    {
+      ShowToast(progress.error.empty() ? "Game bezels: " + std::to_string(downloaded) + " new (" +
+                                             std::to_string((bytes + (1 << 19)) >> 20) + " MB)" :
+                                         progress.error,
+                0);
+    }
+  }
+  m_bezel_serial = m_bezel_download.Serial();
+  for (Item& item : m_items[static_cast<int>(Category::Settings)])
+  {
+    if (item.setting == SET_BEZELS)
+      item.detail = BezelsDetail();
+  }
+  if (m_panel.open && m_panel.setting == SET_BEZELS)
+    BuildBezelRows();
+}
+
+std::vector<std::string> Menu::Impl::RatingLines(const Game& game) const
+{
+  const Ratings::Rating& rating = game.rating;
+  if (rating.half_stars < 0)
+  {
+    if (!m_rating_copy.there && m_rating_download.Busy())
+      return {"Rating: being downloaded now"};
+    if (!m_rating_copy.there)
+      return {"Rating: not downloaded yet", "(Settings: Star Ratings)"};
+    if (m_ratings.count(game.rom.key) == 0)
+      return {"Rating: still being looked up"};
+    return {std::string("Rating: none in the ") + Ratings::SOURCE};
+  }
+  char stars[16];
+  snprintf(stars, sizeof(stars), "%d.%d", rating.half_stars / 2, rating.half_stars % 2 == 0 ? 0 : 5);
+  std::string line = std::string("Rating: ") + stars + " of 5";
+  if (rating.votes == 1)
+    line += " from 1 vote";
+  else if (rating.votes > 1)
+    line += " from " + std::to_string(rating.votes) + " votes";
+  return {line, std::string("By the players of the ") + Ratings::SOURCE};
+}
+
+std::vector<std::string> Menu::Impl::RatingsPanelLines()
+{
+  using State = Ratings::Downloader::State;
+  std::vector<std::string> lines = {"", "Stars under each cover: the game's", "rating by the players of the",
+                                    std::string(Ratings::SOURCE) + ",", "in half stars (none for a game",
+                                    "they didn't rate).", ""};
+  const State state = m_rating_download.Now();
+  if (state == State::Downloading || state == State::Reading)
+  {
+    lines.push_back(RatingsDownloadText() + "...");
+  }
+  else if (state == State::Failed)
+  {
+    // Why, in as many lines as the panel needs (Net's plain words, translated here).
+    lines.push_back("The download failed:");
+    std::istringstream why(WrapText(m_font, 28, PS4Lang::T(m_rating_download.Reason()), 540));
+    for (std::string line; std::getline(why, line);)
+      lines.push_back(line);
+  }
+  if (m_rating_copy.there && state != State::Downloading && state != State::Reading)
+  {
+    lines.push_back("LaunchBox's ratings of " + m_rating_copy.date);
+    lines.push_back(std::to_string(m_rating_copy.games) + " games, downloaded " + DateText(m_rating_copy.made));
+  }
+  else if (!m_rating_copy.there && state != State::Downloading && state != State::Reading)
+  {
+    lines.push_back("Not downloaded yet: about 110 MB,");
+    lines.push_back("from LaunchBox, kept 60 days.");
+  }
+  lines.push_back("");
+  lines.push_back("Information (Triangle) says it");
+  lines.push_back("in numbers, with its votes.");
+  return lines;
 }
 
 void Menu::Impl::StartCoverDownload(bool closest)
@@ -1964,6 +2594,7 @@ void Menu::Impl::UpdateCoverDownload()
   for (const auto& [key, path] : saved)
   {
     m_cover_files[Lower(key)] = path;
+    m_cover_why.erase(key);
     for (size_t i = 0; i < m_games.size(); i++)
     {
       if (m_games[i].rom.key != key)
@@ -2011,6 +2642,8 @@ void Menu::Impl::UpdateCoverDownload()
     result = m_dl_result;
   }
   result.already += m_dl_skipped;  // (left out at the start: they had a cover)
+  for (const auto& [key, why] : result.why)
+    m_cover_why[key] = why;
   if (shown)
   {
     m_panel.lines = {"", "Downloaded: " + std::to_string(result.downloaded),
@@ -2019,11 +2652,15 @@ void Menu::Impl::UpdateCoverDownload()
     if (result.failed > 0)
     {
       m_panel.lines.push_back("Failed: " + std::to_string(result.failed));
-      m_panel.lines.push_back(result.error);
+      // Why, in plain words (00.68; curl's own in the log), over the lines it takes.
+      std::istringstream lines(WrapText(m_font, 28, PS4Lang::T(result.reason.empty() ? result.error : result.reason),
+                                        550.0f));
+      for (std::string line; std::getline(lines, line);)
+        m_panel.lines.push_back(line);
     }
     m_panel.lines.push_back("");
-    if (result.not_found > 0)
-      m_panel.lines.push_back("The rest, one by one: Games Without Cover");
+    if (result.not_found > 0 || result.failed > 0)
+      m_panel.lines.push_back("Why, game by game: Games Without Cover");
     m_panel.lines.push_back("Your own pictures: " + CoversSaveDir(false));
     Play(result.failed > 0 && result.downloaded == 0 ? "error" : "confirm");
   }
@@ -2536,6 +3173,8 @@ void Menu::Impl::BuildItems()
   // Each console's buttons (its normal layout); a game's own from the game: Triangle -> Controls, or the in-game
   // menu's Controls.
   settings.push_back({"Controls", "Each console's buttons on the DualShock 4", -1, -1, SET_CONTROLS});
+  // RetroAchievements (00.73, src/Achievements.h): the account (Casual only, 00.78).
+  settings.push_back({"RetroAchievements", AchievementsDetail(), -1, -1, SET_ACHIEVEMENTS});
   // The emulation settings (Video, Graphics, Performance, Emulation, System) are set from a game
   // (Triangle -> Game Settings: for that game, its console or all games), not here.
   settings.push_back({"Game Folders", "A folder for each console's games", -1, -1, SET_FOLDERS});
@@ -2551,18 +3190,15 @@ void Menu::Impl::BuildItems()
                       SET_DOWNLOAD});
   settings.push_back({"Games Without Cover", NoCoverDetail(), -1, -1, SET_NO_COVER});
   settings.push_back({"Covers Saved On", CoversDetail(), -1, -1, SET_COVERS});
+  settings.push_back({"Game Bezels", BezelsDetail(), -1, -1, SET_BEZELS});  // (00.80: The Bezel Project's)
+  settings.push_back({"Star Ratings", m_prefs.ratings ? "On" : "Off", -1, -1, SET_RATINGS});
   settings.push_back({"Sound Effects", m_prefs.sounds ? "On" : "Off", -1, -1, SET_SOUNDS});
   settings.push_back({"Volume", std::to_string(m_prefs.volume), -1, -1, SET_VOLUME});
   settings.push_back({"Menu Style", Library() ? "Library" : "XMB", -1, -1, SET_STYLE});
   settings.push_back({"Clock", m_prefs.clock ? "On" : "Off", -1, -1, SET_CLOCK});
   settings.push_back({"Reset All Settings", "Every setting back to the defaults", -1, -1,
                       SET_RESET_ALL});
-#ifdef EMUSUNI_SATURN
-  // The Saturn's speed test: only with the file /data/EmuSuNi/saturn-test (src/SaturnTest.h).
-  if (SaturnTest::Enabled())
-    settings.push_back({"Saturn (speed test)", "Measures the Saturn emulator on this PS4 (no picture)", -1, -1,
-                        SET_SATURN_TEST});
-#endif
+  settings.push_back({"Check for Updates", UpdatesDetail(Update::Get()), -1, -1, SET_UPDATES});
   settings.push_back({"About", "", -1, -1, SET_ABOUT});
 
   auto& games = m_items[static_cast<int>(Category::Games)];
@@ -2609,6 +3245,11 @@ void Menu::Impl::BuildItems()
   // covered[c]: list c lost a game (found by the search) for its cover.
   const bool nocover = m_prefs.sort == "nocover";
   bool covered[CATEGORY_COUNT] = {};
+  // RetroAchievements' filter (00.80, Touchpad): only the games whose file has achievements - its second step, those
+  // with achievements begun and not all unlocked -; a game not checked yet stays out meanwhile. Each list's counts.
+  const bool ra_filter = RaFilterOn();
+  for (auto& count : m_ra_count)
+    count = {};
   for (const int i : order)
   {
     const Game& game = m_games[i];
@@ -2628,6 +3269,22 @@ void Menu::Impl::BuildItems()
         covered[static_cast<int>(Category::Favorites)] = true;
       continue;
     }
+    if (ra_filter)
+    {
+      const uint32_t console = Achievements::ConsoleId(game.rom.system);
+      const bool has = console != 0 && game.rom.system != SystemId::THREEDS;  // (a console RetroAchievements has)
+      for (const int c : {static_cast<int>(Category::Games), ListOfSystem(game.rom.system),
+                          m_favorites.count(game.rom.key) ? static_cast<int>(Category::Favorites) : -1})
+      {
+        if (c < 0)
+          continue;
+        m_ra_count[c].total++;
+        m_ra_count[c].files += has ? 1 : 0;
+        m_ra_count[c].unchecked += has && game.ra.state == Achievements::LibraryInfo::State::Unchecked ? 1 : 0;
+      }
+      if (!RaFilterPasses(game))
+        continue;
+    }
     std::string detail = game.rom.region;
     if (!game.rom.tags.empty())
       detail += (detail.empty() ? "" : "  -  ") + game.rom.tags;
@@ -2646,6 +3303,13 @@ void Menu::Impl::BuildItems()
     if (m_all_covered[c])
       m_items[c].push_back({m_search.empty() ? "Every game has a cover" : "Every game found has a cover",
                             "Options shows every game again"});
+    // (00.80) A list the RetroAchievements filter emptied (its games still being checked, or none with achievements).
+    m_ra_emptied[c] = ra_filter && m_ra_count[c].total > 0 && m_items[c].empty();
+    if (m_ra_emptied[c])
+      m_items[c].push_back({m_prefs.ra_filter == "progress" ? "No achievements in progress here" :
+                                                              "No games with achievements here",
+                            m_ra_count[c].unchecked > 0 ? "Still checking the files: they show here as they're found" :
+                                                          "Touchpad shows every game again"});
   }
   if (games.empty() && !m_search.empty())
     games.push_back({"No games match \"" + m_search + "\"", "Circle clears the search"});
@@ -2706,6 +3370,7 @@ void Menu::Impl::SetLanguage(const std::string& code)
 {
   Settings::Set("language", code);
   PS4Lang::Load(m_assets_dir, code);
+  Achievements::SetLanguage(code);  // (00.76: the achievements' texts translated to it)
   Log("language: " + code);
   BuildItems();
 }
@@ -2840,6 +3505,12 @@ void Menu::Impl::OpenSettingPanel(int setting)
     m_panel.options = {"On", "Off"};
     m_panel.selected = m_prefs.clock ? 0 : 1;
     break;
+  case SET_RATINGS:
+    m_panel.title = "Star Ratings";
+    m_panel.options = {"On", "Off", m_rating_copy.there ? "Download Again" : "Download Now"};
+    m_panel.selected = m_prefs.ratings ? 0 : 1;
+    m_panel.lines = RatingsPanelLines();  // (UpdateRatings keeps them current while the panel is open)
+    break;
   case SET_CONTROLS:
     OpenControlsMenu();
     return;
@@ -2865,15 +3536,24 @@ void Menu::Impl::OpenSettingPanel(int setting)
                      "New covers go there (downloaded or chosen);",
                      "the ones in both places are shown.",
                      "",
-                     "Your own: a PNG per game, named like",
-                     "its file or its title, in a folder per",
-                     "console (covers/nes, covers/psp...;",
-                     "the Super Nintendo's right in covers).",
+                     "Your own: a PNG or JPEG per game,",
+                     "named like its file or its title,",
+                     "in a folder per console (covers/snes,",
+                     "covers/nes, covers/md, covers/psp...).",
                      "Square in the Library reads them again."};
     break;
   }
   case SET_CONSOLES_SHOWN:
     OpenConsolesShown();
+    return;
+  case SET_ACHIEVEMENTS:
+    OpenAchievementsPanel();
+    return;
+  case SET_BEZELS:
+    OpenBezelsPanel();
+    return;
+  case SET_UPDATES:
+    OpenUpdatePanel(false);
     return;
   case SET_DOWNLOAD:
     m_panel.title = "Download Covers";
@@ -2893,16 +3573,10 @@ void Menu::Impl::OpenSettingPanel(int setting)
     break;
   case SET_ABOUT:
     m_panel.title = "About";
-    m_panel.lines = {"EmuSuNi", "", "Created by Arturo Fuentes", std::string("Version ") + App::VERSION};
+    m_panel.lines = {"EmuSuNi", "", "Created by Arturo Fuentes", std::string("Version ") + App::VERSION, "",
+                     "Star ratings by the players of the", "LaunchBox Games Database", "",
+                     "Game bezels by The Bezel Project", "(github.com/thebezelproject)"};
     break;
-#ifdef EMUSUNI_SATURN
-  case SET_SATURN_TEST:
-    // No panel: Run hands its stand-in to main.cpp, which runs the test (src/SaturnTest.cpp) instead of a game.
-    m_panel.open = false;
-    m_saturn_test = true;
-    Log("saturn test: chosen in Settings");
-    return;
-#endif
   default:
     if (setting >= SET_GROUP && setting < SET_GROUP + static_cast<int>(Settings::Categories().size()))
     {
@@ -2945,16 +3619,10 @@ void Menu::Impl::BuildSettingRows()
     if (scope == Settings::Scope::Game)
       rows.push_back({"Use for All Games", "", "__toall__"});
   }
-  // One fixed quality level, Standard, for Flycast's consoles (Emulator.cpp BuildDcVariables); the 3DS at its own
-  // resolution only, 1x (Build3dsVariables: no Quality levels since 00.64).
-  if (m_panel.system >= 0 && IsFlycast(static_cast<SystemId>(m_panel.system)))
-    rows.push_back({std::string(GetSystem(static_cast<SystemId>(m_panel.system)).name) + ": Standard quality only", "",
-                    "", true});
+  // (The 3DS: its own resolution only, 1x, from 00.64 to 00.70, which a second row said; the Quality levels again since
+  // 00.71. Flycast's consoles had one fixed level, Standard, from 00.53 to 00.67: the Quality levels again since 00.68.)
   if (m_panel.system == static_cast<int>(SystemId::THREEDS))
-  {
     rows.push_back({"Nintendo 3DS: experimental", "", "", true});
-    rows.push_back({"3DS: the console's own resolution only", "", "", true});
-  }
   for (const char* category : Settings::Categories())
   {
     if (!m_panel.category.empty() && m_panel.category != category)
@@ -2989,16 +3657,18 @@ void Menu::Impl::BuildSettingRows()
   m_panel.rows = std::move(rows);
 }
 
-// Moves the selection by direction (0: onto the nearest selectable row), skipping headers.
-void Menu::Impl::MoveSettingRow(int direction)
+// Moves the selection by direction (0: onto the nearest selectable row), skipping headers. Past the first or the last
+// row: round to the other end with `wrap` (a fresh press, 00.76), the list's scroll jumping there; else it stays.
+void Menu::Impl::MoveSettingRow(int direction, bool wrap)
 {
   const int count = static_cast<int>(m_panel.rows.size());
-  int row = std::clamp(m_panel.selected + direction, 0, std::max(0, count - 1));
-  const int step = direction < 0 ? -1 : 1;
-  while (row >= 0 && row < count && m_panel.rows[row].header)
-    row += step;
-  if (row >= 0 && row < count)
-    m_panel.selected = row;
+  const int from = m_panel.selected;
+  const int row = MenuNav::Step(from, direction, count, wrap, [this](int i) { return !m_panel.rows[i].header; });
+  if (row < 0 || row >= count)
+    return;
+  m_panel.selected = row;
+  if (direction != 0 && row != from && (direction > 0) != (row > from))
+    m_panel.snap = true;
 }
 
 void Menu::Impl::ChangeSettingRow(int direction)
@@ -3062,13 +3732,16 @@ void Menu::Impl::ChangeSettingRow(int direction)
       return;
     if (row.key == "find:query")
     {
-      AskText("Look For", m_find_query, [this](const std::string& text) {
-        if (!m_panel.open || m_panel.setting != SET_FIND_COVER)
-          return;  // the cover was saved meanwhile: back in Games Without Cover
-        if (!text.empty())
-          m_find_query = text;
-        StartFind();
-      });
+      AskText(
+          "Look For", m_find_query,
+          [this](const std::string& text) {
+            if (!m_panel.open || m_panel.setting != SET_FIND_COVER)
+              return;  // the cover was saved meanwhile: back in Games Without Cover
+            if (!text.empty())
+              m_find_query = text;
+            StartFind();
+          },
+          100, TextKeyboard::Mode::Text, "The game's name in English often finds more.");
     }
     else if (row.key == "find:kind")
     {
@@ -3077,11 +3750,14 @@ void Menu::Impl::ChangeSettingRow(int direction)
     }
     else if (row.key.rfind("pick:", 0) == 0)
     {
-      // The picture as the game's cover (covers/<key>.png): over its cover of that name where it is (the
-      // internal storage or a USB drive), else where new covers go (Covers Saved On).
+      // The picture as the game's cover (covers/<console>/<file name>.png): over its cover of that name where it is
+      // (the internal storage or a USB drive; a JPEG of the player's own stays, the new PNG beside it is newer, so it
+      // wins), else where new covers go (Covers Saved On).
       const auto old = m_cover_files.find(Lower(m_find_key));
-      const std::string target =
-          old != m_cover_files.end() ? old->second : CoversSaveDir(true) + "/" + m_find_key + ".png";
+      std::string target = old != m_cover_files.end() ? old->second :
+                                                        CoverFiles::NewFile(CoversSaveDir(true), m_find_key);
+      if (Lower(target.substr(target.rfind('.'))) != ".png")
+        target = target.substr(0, target.rfind('.')) + ".png";
       {
         std::lock_guard lock(m_find_mutex);
         m_find_jobs.push_back({2, m_find_system, m_find_titles, m_find_key, row.label, target});
@@ -3122,6 +3798,150 @@ void Menu::Impl::ChangeSettingRow(int direction)
     }
     return;
   }
+  if (m_panel.setting == SET_ACHIEVEMENTS)
+  {
+    // RetroAchievements (00.73): log in (the user name, then the password, on the keyboard: only the token the
+    // site gives back is kept), log out. (00.78: no Hardcore Mode - Casual only.) (00.79) What is RetroAchievements?
+    if (row.key == "ra:about" && direction > 0)
+    {
+      OpenAboutPanel();
+      Play("menu");
+    }
+    else if (row.key == "ra:login" && direction > 0)
+    {
+      AskText(
+          "RetroAchievements: User Name", m_ra_user.empty() ? Achievements::GetAccount().user : m_ra_user,
+          [this](const std::string& user) {
+            if (user.empty())
+              return;
+            m_ra_user = user;
+            m_ra_ask_password = 3;  // (UpdateAchievements, a few frames later)
+          },
+          64, TextKeyboard::Mode::Plain, "Your user name at retroachievements.org.");
+    }
+    else if (row.key == "ra:logout" && direction > 0)
+    {
+      Achievements::LogOut();
+      m_ra_login = Achievements::Login::Out;
+      BuildItems();
+      BuildAchievementsRows();
+      ShowToast("Logged out of RetroAchievements", 0);
+      Play("confirm");
+    }
+    else if (row.key == "ra:history" && direction > 0)
+    {
+      OpenHistoryPanel();  // (00.75)
+      Play("menu");
+    }
+    else if (row.key == "ra:translate")
+    {
+      // (00.76) The achievements' texts in the app's language (machine translations: Google's, else MyMemory's, 00.79)
+      // or as RetroAchievements has them.
+      Achievements::SetTranslateSetting(!Achievements::TranslateSetting());
+      BuildAchievementsRows();
+      Play("confirm");
+    }
+    else if (row.key == "ra:marks")
+    {
+      // (00.77) The "RA" marks on the games: hidden (nothing hashed then), or shown (the games handed over again).
+      Achievements::SetMarksSetting(!m_ra_marks);
+      StartAchievementMarks();
+      if (m_prefs.ra_filter != "off")
+        RebuildGameLists(true);  // (00.80: the filter works with the marks only)
+      BuildAchievementsRows();
+      Play("confirm");
+    }
+    return;
+  }
+  if (m_panel.setting == SET_RA_HISTORY)
+  {
+    // My Achievements (00.75): Update Now asks retroachievements.org for the account's games again; a game (00.76)
+    // shows every achievement of it.
+    if (row.key == "ra:sync" && direction > 0)
+    {
+      Achievements::UpdateHistory(true);
+      BuildHistoryRows();
+      Play("confirm");
+    }
+    else if (row.key.rfind("ra:game:", 0) == 0 && direction > 0)
+    {
+      OpenGameAchievements(static_cast<uint32_t>(std::strtoul(row.key.c_str() + 8, nullptr, 10)));
+      Play("menu");
+    }
+    return;
+  }
+  if (m_panel.setting == SET_BEZELS)
+  {
+    // Game Bezels (00.80): the download for every console or one (Stop the Download while it runs), the deletion.
+    if (direction <= 0)
+      return;
+    if (row.key == "bz:all" && m_bezel_download.Busy())
+    {
+      m_bezel_download.Stop(true);  // (the player's: not resumed at the next start either)
+      m_bezels_counted = false;
+      ShowToast("The bezels' download was stopped", 0);
+      UpdateBezelDownload();
+      BuildBezelRows();
+      Play("back");
+      return;
+    }
+    if (row.key == "bz:all" || row.key.rfind("bz:console:", 0) == 0)
+    {
+      if (m_bezel_download.Busy())
+      {
+        ShowToast("A download is under way", 0);
+        Play("error");
+        return;
+      }
+      const std::vector<std::string> consoles =
+          row.key == "bz:all" ? BezelConsoles() : std::vector<std::string>{row.key.substr(11)};
+      if (consoles.empty() || !StartBezelDownload(consoles, false))
+      {
+        ShowToast("No games here that The Bezel Project has bezels for", 0);
+        Play("error");
+        return;
+      }
+      ShowToast("Downloading the bezels of your games", 0);
+      UpdateBezelDownload();
+      BuildBezelRows();
+      Play("confirm");
+      return;
+    }
+    if (row.key == "bz:delete")
+    {
+      if (m_bezel_download.Busy())
+      {
+        ShowToast("A download is under way", 0);
+        Play("error");
+        return;
+      }
+      BezelsDetail();  // (what is there)
+      int files = 0;
+      int64_t bytes = 0;
+      for (const auto& [key, there] : m_bezels_there)
+      {
+        files += there.files;
+        bytes += there.bytes;
+      }
+      if (files == 0)
+      {
+        ShowToast("No bezels downloaded", 0);
+        Play("error");
+        return;
+      }
+      m_panel = {};
+      m_panel.open = true;
+      m_panel.setting = SET_BEZELS_DELETE;
+      m_panel.title = "Delete Downloaded Bezels";
+      m_panel.options = {"Cancel", "Delete"};
+      m_panel.lines = {"", std::to_string(files) + " bezels (" + std::to_string((bytes + (1 << 19)) >> 20) + " MB)",
+                       "downloaded from The Bezel Project are deleted.", "", "Your own bezels stay."};
+      Play("menu");
+    }
+    return;
+  }
+  if (m_panel.setting == SET_RA_GAME || m_panel.setting == SET_RA_VERSIONS || m_panel.setting == SET_RA_ABOUT)
+    return;  // (their rows say things; Circle goes back)
   if (m_panel.setting == SET_CONSOLES_SHOWN)
   {
     // (Global values of settings.ini, as the language; the tour's "set consoles_shown games" shows them too.)
@@ -3166,6 +3986,16 @@ void Menu::Impl::ChangeSettingRow(int direction)
   }
   if (m_panel.setting == SET_CONTROLS)
   {
+    if (row.key == "menu_buttons")
+    {
+      // The in-game menu's buttons (00.68), every game's: Left / Right, or Cross, the next choice.
+      if (const Settings::Setting* setting = Settings::Find("menu_buttons"))
+      {
+        Settings::Set("menu_buttons", Settings::Step(*setting, Settings::Get("menu_buttons"), direction));
+        m_panel.rows[m_panel.selected].value = Settings::LabelOf(*setting, Settings::Get("menu_buttons"));
+      }
+      return;
+    }
     const System* system = row.key.rfind("ctlsys:", 0) == 0 ? SystemByKey(row.key.substr(7)) : nullptr;
     if (direction > 0 && system)
       OpenControlsList({}, system->id);
@@ -3374,6 +4204,13 @@ void Menu::Impl::OpenControlsMenu()
   m_panel.open = true;
   m_panel.setting = SET_CONTROLS;
   m_panel.title = "Controls";
+  // The buttons that open the in-game menu (00.68), for every game; then each console's controls.
+  if (const Settings::Setting* menu_buttons = Settings::Find("menu_buttons"))
+  {
+    m_panel.rows.push_back({"Every Game", "", "", true});
+    m_panel.rows.push_back({menu_buttons->label, Settings::LabelOf(*menu_buttons, Settings::Get("menu_buttons")),
+                            "menu_buttons"});  // (its help: the setting's, under the list)
+  }
   m_panel.rows.push_back({"Consoles", "", "", true});
   for (const System& system : Systems())
     m_panel.rows.push_back({system.name, "", std::string("ctlsys:") + system.key});
@@ -3503,14 +4340,20 @@ void Menu::Impl::BuildCheatRows()
     m_panel.title = "Find Cheats Online";
     const State state = m_finder.GetState();
     if (state == State::Downloading)
-      rows.push_back({"Downloading the cheat collection: " + std::to_string(m_finder.DownloadedMb()) + " MB", "", "",
-                      true});
+      rows.push_back({"Downloading the cheat collection: " + std::to_string(m_finder.DownloadedMb()) +
+                          (m_finder.TotalMb() > 0 ? " of " + std::to_string(m_finder.TotalMb()) : std::string()) + " MB",
+                      "", "", true});
     else if (state == State::Searching || state == State::Idle)
       rows.push_back({"Looking for this game's cheats...", "", "", true});
     else if (state == State::Failed)
     {
       rows.push_back({m_finder.Error(), "", "", true});
-      rows.push_back({"Check the PS4's internet connection", "", "", true});
+      // Why (00.68: the plain reason), over as many lines as it takes; Find Cheats Online again tries again.
+      const std::string reason = m_finder.Reason().empty() ? std::string() : PS4Lang::T("Why: " + m_finder.Reason());
+      std::istringstream lines(WrapText(m_bold, 26, reason, 580.0f));
+      for (std::string line; std::getline(lines, line);)
+        rows.push_back({line, "", "", true});
+      rows.push_back({"Circle, then Find Cheats Online: another try", "", "", true});
     }
     else if (m_finder.Results().empty())
       rows.push_back({"No cheats found for this game", "", "", true});
@@ -3590,7 +4433,12 @@ bool Menu::Impl::CheatPanelBack()
 void Menu::Impl::OpenGameOptions()
 {
   const auto& items = m_items[m_category];
-  const int index = items[m_selected[m_category]].game;
+  const int index = items.empty() ? -1 : items[m_selected[m_category]].game;
+  if (index < 0 || index >= static_cast<int>(m_games.size()))
+  {
+    m_panel = {};  // (no game there any more: a list made again meanwhile - 00.80's filter)
+    return;
+  }
   const Game& game = m_games[index];
   m_panel = {};
   m_panel.open = true;
@@ -3610,6 +4458,14 @@ void Menu::Impl::OpenGameOptions()
   // later version: libretro's don't fit it; Azahar's libretro core takes none.)
   if (IsFlycast(game.rom.system) || game.rom.system == SystemId::ARCADE || game.rom.system == SystemId::THREEDS)
     m_panel.options.erase(std::find(m_panel.options.begin(), m_panel.options.end(), "Cheats"));
+  // RetroAchievements (00.79): the game's achievements (a file it has achievements for), or the files it knows of the
+  // game (one it doesn't know, or another version). (00.80) For every game of a console it has achievements for, the
+  // marks on or off: a file not checked yet is checked when it opens; the 3DS (none yet) has no entry.
+  if (Achievements::ConsoleId(game.rom.system) != 0 && game.rom.system != SystemId::THREEDS)
+  {
+    const auto info = std::find(m_panel.options.begin(), m_panel.options.end(), "Information");
+    m_panel.options.insert(info, "Achievements");
+  }
   Play("menu");
 }
 
@@ -3625,6 +4481,18 @@ void Menu::Impl::ApplySettingOption(int setting, int option)
     break;
   case SET_CLOCK:
     m_prefs.clock = option == 0;
+    break;
+  case SET_RATINGS:
+    if (option == 2)
+    {
+      // Download Now / Again: LaunchBox's ratings of today (in the background; the Library's title line says how far).
+      const bool started = !m_rating_download.Busy() && StartRatingsDownload();
+      ShowToast(started ? "Downloading LaunchBox's ratings" : "The ratings are being downloaded already", 0);
+      return;
+    }
+    m_prefs.ratings = option == 0;
+    if (m_prefs.ratings && !m_rating_download_tried && Ratings::CopyOld(m_rating_copy))
+      StartRatingsDownload();  // (turned on without ratings: they come now)
     break;
   case SET_LANGUAGE:
     if (option >= 0 && option < static_cast<int>(PS4Lang::All().size()))
@@ -3690,9 +4558,67 @@ void Menu::Impl::HandleInput(uint32_t pressed)
     {
       if (m_first_language && m_panel.setting == SET_LANGUAGE)
         ApplySettingOption(SET_LANGUAGE, m_panel.selected);
+      if (m_panel.setting == SET_RA_HISTORY)
+      {
+        // (My Achievements, 00.75: back to Settings -> RetroAchievements, on its row.)
+        OpenAchievementsPanel();
+        for (size_t i = 0; i < m_panel.rows.size(); i++)
+        {
+          if (m_panel.rows[i].key == "ra:history")
+            m_panel.selected = static_cast<int>(i);
+        }
+        Play("back");
+        return;
+      }
+      if (m_panel.setting == SET_RA_ABOUT)
+      {
+        // (What is RetroAchievements?, 00.79: back to Settings -> RetroAchievements, on its row.)
+        OpenAchievementsPanel();
+        for (size_t i = 0; i < m_panel.rows.size(); i++)
+        {
+          if (m_panel.rows[i].key == "ra:about")
+            m_panel.selected = static_cast<int>(i);
+        }
+        Play("back");
+        return;
+      }
+      if (m_panel.setting == SET_RA_VERSIONS || (m_panel.setting == SET_RA_GAME && m_ra_from_game))
+      {
+        // (A game's Triangle -> Achievements, 00.79: back to its options, on that one.)
+        m_ra_from_game = false;
+        OpenGameOptions();
+        const auto at = std::find(m_panel.options.begin(), m_panel.options.end(), "Achievements");
+        m_panel.selected = at == m_panel.options.end() ? 0 : static_cast<int>(at - m_panel.options.begin());
+        return;  // (OpenGameOptions' own sound)
+      }
+      if (m_panel.setting == SET_RA_GAME)
+      {
+        // (A game's achievements, 00.76: back to My Achievements, on the game's row.)
+        OpenHistoryPanel();
+        const std::string key = "ra:game:" + std::to_string(m_ra_game);
+        for (size_t i = 0; i < m_panel.rows.size(); i++)
+        {
+          if (m_panel.rows[i].key == key)
+            m_panel.selected = static_cast<int>(i);
+        }
+        Play("back");
+        return;
+      }
       if (m_panel.setting == SET_DELETE)
       {
         OpenSavesPanel(m_saves_panel);
+        Play("back");
+        return;
+      }
+      if (m_panel.setting == SET_BEZELS_DELETE)
+      {
+        // (Delete Downloaded Bezels' "Delete?", 00.80: back to Game Bezels, on that row.)
+        OpenBezelsPanel();
+        for (size_t i = 0; i < m_panel.rows.size(); i++)
+        {
+          if (m_panel.rows[i].key == "bz:delete")
+            m_panel.selected = static_cast<int>(i);
+        }
         Play("back");
         return;
       }
@@ -3715,14 +4641,15 @@ void Menu::Impl::HandleInput(uint32_t pressed)
     }
     if (!m_panel.rows.empty())
     {
+      // (00.76: round from the first row to the last and back on a fresh press; a held arrow stops at the end.)
       if (pressed & BTN_UP)
       {
-        MoveSettingRow(-1);
+        MoveSettingRow(-1, Fresh(BTN_UP));
         Play("move");
       }
       if (pressed & BTN_DOWN)
       {
-        MoveSettingRow(1);
+        MoveSettingRow(1, Fresh(BTN_DOWN));
         Play("move");
       }
       if (pressed & (BTN_LEFT | BTN_RIGHT | BTN_CROSS))
@@ -3742,15 +4669,15 @@ void Menu::Impl::HandleInput(uint32_t pressed)
       return;
     }
     const int count = static_cast<int>(m_panel.options.size());
-    if ((pressed & BTN_UP) && m_panel.selected > 0)
+    for (const uint32_t arrow : {BTN_UP, BTN_DOWN})
     {
-      m_panel.selected--;
-      Play("move");
-    }
-    if ((pressed & BTN_DOWN) && m_panel.selected < count - 1)
-    {
-      m_panel.selected++;
-      Play("move");
+      // (00.76: round on a fresh press, as the lists.)
+      const int next = MenuNav::Step(m_panel.selected, arrow == BTN_UP ? -1 : 1, count, Fresh(arrow));
+      if ((pressed & arrow) && next != m_panel.selected)
+      {
+        m_panel.selected = next;
+        Play("move");
+      }
     }
     if (!(pressed & BTN_CROSS))
       return;
@@ -3794,6 +4721,44 @@ void Menu::Impl::HandleInput(uint32_t pressed)
       else
         Play("back");
       m_pending_delete.clear();
+      return;
+    }
+    if (m_panel.setting == SET_BEZELS_DELETE)
+    {
+      // Delete Downloaded Bezels (00.80): only the files the downloads wrote (their records say which), then back to
+      // Game Bezels.
+      const bool go = m_panel.options[m_panel.selected] == "Delete" && !m_bezel_download.Busy();
+      if (go)
+      {
+        std::vector<std::string> keys;
+        for (const System& system : Systems())
+        {
+          if (BezelProject::Has(system.key))
+            keys.push_back(system.key);
+        }
+        const BezelProject::Downloaded deleted = BezelProject::DeleteAll(m_data_dir, keys);
+        m_bezels_counted = false;
+        ShowToast("Bezels deleted: " + std::to_string(deleted.files) + " (" +
+                      std::to_string((deleted.bytes + (1 << 19)) >> 20) + " MB)",
+                  0);
+        for (Item& item : m_items[static_cast<int>(Category::Settings)])
+        {
+          if (item.setting == SET_BEZELS)
+            item.detail = BezelsDetail();
+        }
+      }
+      OpenBezelsPanel();
+      for (size_t i = 0; i < m_panel.rows.size(); i++)
+      {
+        if (m_panel.rows[i].key == "bz:delete")
+          m_panel.selected = static_cast<int>(i);
+      }
+      Play(go ? "confirm" : "back");
+      return;
+    }
+    if (m_panel.setting == SET_UPDATES || m_panel.setting == SET_UPDATE_NOTICE)
+    {
+      UpdatePanelChoice();
       return;
     }
     if (m_panel.setting >= 0)
@@ -3844,12 +4809,31 @@ void Menu::Impl::HandleInput(uint32_t pressed)
       {
         const std::string key = game.rom.key;
         m_panel.open = false;
-        AskText("Rename", game.rom.title, [this, key](const std::string& name) { RenameGame(key, name); });
+        AskText(
+            "Rename", game.rom.title, [this, key](const std::string& name) { RenameGame(key, name); }, 100,
+            TextKeyboard::Mode::Text, "Left empty, the game takes its file's own name again.");
         return;
       }
       if (choice == "Find Cover")
       {
         OpenFindCover(item.game);
+        return;
+      }
+      if (choice == "Achievements")
+      {
+        // RetroAchievements (00.79): the page My Achievements has for the game (every achievement, its progress, in
+        // the app's language), or - a file it doesn't know - the files it knows of the game. (00.80) A file the marks
+        // haven't checked (or with them off): checked now, on that page ("Checking this file...").
+        if (m_ra_marks && game.ra.state == Achievements::LibraryInfo::State::Known)
+        {
+          OpenGameAchievements(game.ra.game_id);
+          m_ra_from_game = true;
+        }
+        else
+        {
+          OpenVersionsPanel(game);
+        }
+        Play("menu");
         return;
       }
       if (choice == "Game Settings")
@@ -3942,6 +4926,22 @@ void Menu::Impl::HandleInput(uint32_t pressed)
             }
           }
         }
+        // Its rating (src/Ratings.h) after when it was played: its stars on the first line, then where it is from.
+        {
+          const std::vector<std::string> rating = RatingLines(game);
+          auto at = std::find(m_panel.lines.begin(), m_panel.lines.end(), PlayedText(game.played));
+          at = at == m_panel.lines.end() ? m_panel.lines.end() : at + 1;
+          m_panel.lines.insert(at, rating.begin(), rating.end());
+          m_panel.stars = game.rating.half_stars;
+          m_panel.stars_line = rating.front();
+          // RetroAchievements (00.77): its achievements and the player's progress, after the rating.
+          if (m_ra_marks)
+          {
+            auto after = std::find(m_panel.lines.begin(), m_panel.lines.end(), rating.back());
+            after = after == m_panel.lines.end() ? m_panel.lines.end() : after + 1;
+            m_panel.lines.insert(after, AchievementLine(game));
+          }
+        }
       }
       else
       {
@@ -3973,20 +4973,17 @@ void Menu::Impl::HandleInput(uint32_t pressed)
   // XMB: Left / Right switch the columns, Up / Down the items, L1 / R1 jump five.
   // Library: L1 / R1 switch the tabs; the games scroll sideways, the other tabs up and down.
   // (A page of Settings is where Settings is.)
-  const auto& columns = Columns();
-  const int column = ColumnIndex(m_category);
-  int prev_category = column > 0 ? columns[column - 1] : -1;
-  int next_category = column + 1 < static_cast<int>(columns.size()) ? columns[column + 1] : -1;
+  // (00.76) Every one of these goes round on a fresh press - the first tab or column to the last, the first item to
+  // the last and back -, while a held button (the arrows, L1 / R1: they repeat) stops at the end once
+  // (src/MenuNav.h). The Library's tabs went round before too, held or not. L2 (Favorite) and R2 (Search) stay one
+  // press each: they act, they don't move.
+  const auto& columns = Library() ? Tabs() : Columns();
+  const int column = Library() ? LibraryTab() : ColumnIndex(m_category);
+  const int column_count = static_cast<int>(columns.size());
   uint32_t prev_tab = BTN_LEFT, next_tab = BTN_RIGHT, prev_item = BTN_UP, next_item = BTN_DOWN;
   uint32_t prev_page = BTN_L1, next_page = BTN_R1;
   if (Library())
   {
-    // The tabs go round: R1 on the last one is the first again.
-    const auto& tabs = Tabs();
-    const int tab = LibraryTab();
-    const int tab_count = static_cast<int>(tabs.size());
-    prev_category = tabs[(tab + tab_count - 1) % tab_count];
-    next_category = tabs[(tab + 1) % tab_count];
     prev_tab = BTN_L1;
     next_tab = BTN_R1;
     prev_item = games ? BTN_LEFT : BTN_UP;
@@ -3996,39 +4993,53 @@ void Menu::Impl::HandleInput(uint32_t pressed)
     next_page = games ? BTN_DOWN : 0;
   }
   const int page = Library() ? 10 : 5;
-  if ((pressed & prev_tab) && prev_category >= 0)
-  {
-    m_category = prev_category;
-    Play("category");
-    if (IsGameList(m_category))
-      CheckPlaces(false);  // a drive plugged in since: its games come
-  }
-  else if ((pressed & next_tab) && next_category >= 0)
-  {
-    m_category = next_category;
-    Play("category");
-    if (IsGameList(m_category))
-      CheckPlaces(false);
-  }
-  else if ((pressed & prev_item) && selected > 0)
-  {
-    selected--;
+  // The item `to` selected: a move round the list (the first to the last) jumps there at once, so the covers between
+  // aren't drawn - and loaded - on the way.
+  const auto select = [&](int to) {
+    const bool round = std::abs(to - selected) > page;
+    selected = to;
+    if (round)
+      m_item_pos[m_category] = static_cast<float>(to);
     Play("move");
-  }
-  else if ((pressed & next_item) && selected < count - 1)
+  };
+  if (pressed & (prev_tab | next_tab))
   {
-    selected++;
-    Play("move");
+    const uint32_t button = (pressed & prev_tab) ? prev_tab : next_tab;
+    const int to = MenuNav::Step(column, button == prev_tab ? -1 : 1, column_count, Fresh(button));
+    if (to != column && to >= 0 && to < column_count)
+    {
+      m_category = columns[to];
+      Play("category");
+      // Its covers and a look at the drives (a drive plugged in since: its games come) once the tabs settle
+      // (UpdateTabs): holding L1 / R1 through them loads nothing on the way.
+      m_tab_changed = m_time;
+      if (IsGameList(m_category))
+        m_places_waiting = true;
+    }
   }
-  else if (prev_page && (pressed & prev_page) && selected > 0)
+  else if ((pressed & prev_item) && count > 0)
   {
-    selected = std::max(0, selected - page);
-    Play("move");
+    const int to = MenuNav::Step(selected, -1, count, Fresh(prev_item));
+    if (to != selected)
+      select(to);
   }
-  else if (next_page && (pressed & next_page) && selected < count - 1)
+  else if ((pressed & next_item) && count > 0)
   {
-    selected = std::min(count - 1, selected + page);
-    Play("move");
+    const int to = MenuNav::Step(selected, 1, count, Fresh(next_item));
+    if (to != selected)
+      select(to);
+  }
+  else if (prev_page && (pressed & prev_page) && count > 0)
+  {
+    const int to = MenuNav::Jump(selected, -page, count, Fresh(prev_page));
+    if (to != selected)
+      select(to);
+  }
+  else if (next_page && (pressed & next_page) && count > 0)
+  {
+    const int to = MenuNav::Jump(selected, page, count, Fresh(next_page));
+    if (to != selected)
+      select(to);
   }
   else if (pressed & BTN_CROSS)
   {
@@ -4074,6 +5085,26 @@ void Menu::Impl::HandleInput(uint32_t pressed)
       ShowToast(SortName(), 0);  // the XMB shows the order nowhere else
     Play("category");
   }
+  else if ((pressed & BTN_TOUCHPAD) && games)
+  {
+    // RetroAchievements' filter (00.80): every game, those with achievements, those with achievements in progress -
+    // as the marks found them (Settings -> RetroAchievements -> Marks on the Games); kept in xmb.ini.
+    if (!m_ra_marks)
+    {
+      ShowToast("The filter needs Settings -> RetroAchievements -> Marks on the Games", 0);
+      Play("error");
+    }
+    else
+    {
+      m_prefs.ra_filter = m_prefs.ra_filter == "off" ? "known" : m_prefs.ra_filter == "known" ? "progress" : "off";
+      m_prefs.Save(m_data_dir + "/xmb.ini");
+      RebuildGameLists(true);
+      m_sort_shown = 2.5f;
+      if (!Library())
+        ShowToast(RaFilterOn() ? RaFilterLine(m_category) : std::string("Every game"), 0);  // (the XMB's own line)
+      Play("category");
+    }
+  }
   else if (pressed & BTN_TRIANGLE)
   {
     if (!items.empty() && items[selected].game >= 0)
@@ -4088,6 +5119,7 @@ void Menu::Impl::HandleInput(uint32_t pressed)
   }
   else if ((pressed & BTN_R2) && games)
   {
+    m_board.Open(TextKeyboard::Mode::Search, m_search, SEARCH_MAX);
     m_keyboard = true;
     Play("menu");
   }
@@ -4210,154 +5242,114 @@ void Menu::Impl::SetSearch(const std::string& text)
   RebuildGameLists(false);
 }
 
-// A key of the keyboard: a character, "Space", "Delete", "Clear All" or "Done".
-void Menu::Impl::EditSearch(const std::string& key)
+// The keyboard (00.80, src/TextKeyboard.h): the search's (R2 in the games) or a text asked for (AskText). Its buttons
+// are the menu's in both: Cross types the selected key, Circle goes back (the search: closed, as typed; a text asked
+// for: Cancel), Square deletes, Triangle types a space; the others are on the keys they do the same as.
+void Menu::Impl::HandleKeyboard(uint32_t pressed)
 {
-  if (m_keyboard_ask)
+  using TextKeyboard::Button;
+  const TextKeyboard::Mode mode = m_board.GetMode();
+  if (mode == TextKeyboard::Mode::Search)
+    m_board.SetText(m_search);  // (the search may have changed without the keyboard: the tour)
+  // (00.76: the rows and the keys go round on a fresh press - as they always did -, a held arrow stops at the edge.)
+  if (pressed & (BTN_UP | BTN_DOWN))
   {
-    // A name: capitals at the start of each word, small letters after.
-    if (key == "Done")
-    {
-      m_keyboard = false;
-      m_keyboard_ask = false;
-      auto done = std::move(m_ask_done);
-      m_ask_done = nullptr;
-      if (done)
-        done(m_ask_text);
-      return;
-    }
-    if (key == "Clear All")
-      m_ask_text.clear();
-    else if (key == "Delete")
-    {
-      while (!m_ask_text.empty() && (static_cast<unsigned char>(m_ask_text.back()) & 0xC0) == 0x80)
-        m_ask_text.pop_back();
-      if (!m_ask_text.empty())
-        m_ask_text.pop_back();
-    }
-    else if (key == "Space")
-      m_ask_text += ' ';
-    else if (m_ask_text.size() < 100)
-    {
-      const bool start = m_ask_text.empty() || m_ask_text.back() == ' ';
-      m_ask_text += start ? key : Lower(key);
-    }
-    Play(key == "Delete" || key == "Clear All" ? "back" : "category");
+    const uint32_t arrow = (pressed & BTN_UP) ? BTN_UP : BTN_DOWN;
+    if (m_board.Move(arrow == BTN_UP ? -1 : 1, 0, Fresh(arrow)))
+      Play("move");
     return;
   }
-  if (key == "Done")
+  if (pressed & (BTN_LEFT | BTN_RIGHT))
   {
-    m_keyboard = false;
-    Play("confirm");
+    const uint32_t arrow = (pressed & BTN_LEFT) ? BTN_LEFT : BTN_RIGHT;
+    if (m_board.Move(0, arrow == BTN_LEFT ? -1 : 1, Fresh(arrow)))
+      Play("move");
+    return;
   }
-  else if (key == "Clear All")
+  if (pressed & BTN_CROSS)
   {
-    Play(m_search.empty() ? "error" : "back");
-    SetSearch("");
+    KeyboardDid(m_board.Press(), 1, BTN_CROSS);
+    return;
   }
-  else if (key == "Delete")
+  static constexpr std::pair<uint32_t, Button> BUTTONS[] = {
+      {BTN_L2, Button::L2},         {BTN_L1, Button::L1}, {BTN_R1, Button::R1},           {BTN_SQUARE, Button::Square},
+      {BTN_TRIANGLE, Button::Triangle}, {BTN_R2, Button::R2}, {BTN_OPTIONS, Button::Options}, {BTN_CIRCLE, Button::Circle}};
+  for (const auto& [bit, button] : BUTTONS)
   {
-    if (m_search.empty())
-    {
-      Play("error");
-      return;
-    }
-    SetSearch(m_search.substr(0, m_search.size() - 1));
-    Play("back");
-  }
-  else if (key == "Space")
-  {
-    if (m_search.empty() || m_search.back() == ' ' || m_search.size() >= SEARCH_MAX)
-    {
-      Play("error");
-      return;
-    }
-    m_search += ' ';  // the same games: no new lists
-    Play("move");
-  }
-  else
-  {
-    if (m_search.size() >= SEARCH_MAX)
-    {
-      Play("error");
-      return;
-    }
-    SetSearch(m_search + key);
-    Play("category");
+    if (!(pressed & bit))
+      continue;
+    // (L1 / R1 held: the pages or the games one after another, round only on a fresh press.)
+    const int direction = button == Button::L1 ? -1 : 1;
+    KeyboardDid(m_board.Do(TextKeyboard::ButtonAction(mode, button), direction, Fresh(bit)), direction, bit);
+    return;
   }
 }
 
-void Menu::Impl::HandleKeyboard(uint32_t pressed)
+// What a key or a button did: its sound, the search's lists, the text asked for to whom asked (OK) or forgotten.
+void Menu::Impl::KeyboardDid(TextKeyboard::Result result, int direction, uint32_t button)
 {
-  if (pressed & BTN_UP)
+  using TextKeyboard::Result;
+  const bool search = m_board.GetMode() == TextKeyboard::Mode::Search;
+  switch (result)
   {
-    m_key_row = (m_key_row + KEY_ROW_COUNT - 1) % KEY_ROW_COUNT;
+  case Result::Typed:
+  case Result::Erased:
+    if (search)
+      SetSearch(m_board.Text());
+    Play(result == Result::Typed ? "category" : "back");
+    break;
+  case Result::Toggled:
     Play("move");
-  }
-  else if (pressed & BTN_DOWN)
+    break;
+  case Result::Refused:
+    Play("error");
+    break;
+  case Result::Browse:
   {
-    m_key_row = (m_key_row + 1) % KEY_ROW_COUNT;
-    Play("move");
-  }
-  else if (pressed & (BTN_LEFT | BTN_RIGHT))
-  {
-    const int step = (pressed & BTN_LEFT) ? -1 : 1;
-    if (m_key_row == KEY_ROW_COUNT - 1)
-    {
-      const int count = static_cast<int>(std::size(WIDE_KEYS));
-      m_key_col = WIDE_KEYS[(WideKeyAt(m_key_col) + step + count) % count].first;
-    }
-    else
-    {
-      m_key_col = (m_key_col + step + KEY_COLUMNS) % KEY_COLUMNS;
-    }
-    Play("move");
-  }
-  else if (pressed & BTN_CROSS)
-  {
-    if (m_key_row == KEY_ROW_COUNT - 1)
-      EditSearch(WIDE_KEYS[WideKeyAt(m_key_col)].label);
-    else
-      EditSearch(std::string(1, KEY_ROWS[m_key_row][m_key_col]));
-  }
-  else if (pressed & BTN_L2)
-  {
-    EditSearch("Clear All");
-  }
-  else if (pressed & (BTN_L1 | BTN_R1))
-  {
-    // The games found, one by one, without leaving the keyboard.
+    // The games found, one by one, without leaving the keyboard (00.76: held, one after another; round on a fresh
+    // press).
     const auto& items = m_items[m_category];
     int& selected = m_selected[m_category];
-    const int next = selected + ((pressed & BTN_L1) ? -1 : 1);
-    if (!m_keyboard_ask && IsGameList(m_category) && !items.empty() && items[0].game >= 0 && next >= 0 &&
-        next < static_cast<int>(items.size()))
+    const int count = static_cast<int>(items.size());
+    const int next = MenuNav::Step(selected, direction, count, Fresh(button));
+    if (IsGameList(m_category) && !items.empty() && items[0].game >= 0 && next != selected && next >= 0 &&
+        next < count)
     {
+      if (std::abs(next - selected) > 1)
+        m_item_pos[m_category] = static_cast<float>(next);  // (round: there at once, no covers on the way)
       selected = next;
       Play("move");
     }
+    break;
   }
-  else if (pressed & BTN_SQUARE)
-  {
-    EditSearch("Delete");
-  }
-  else if (pressed & BTN_TRIANGLE)
-  {
-    EditSearch("Space");
-  }
-  else if (pressed & (BTN_R2 | BTN_OPTIONS))
-  {
-    EditSearch("Done");
-  }
-  else if (pressed & BTN_CIRCLE)
-  {
+  case Result::Done:
     m_keyboard = false;
-    if (m_keyboard_ask)
+    Play("confirm");
+    break;
+  case Result::Ok:
+  {
+    // (Taken from the keyboard first: what OK does may ask for another text - the password after the user name.)
+    m_keyboard = false;
+    auto done = std::move(m_ask_done);
+    m_ask_done = nullptr;
+    std::string text = m_board.Take();
+    Play("confirm");
+    if (done)
+      done(text);
+    std::fill(text.begin(), text.end(), '\0');
+    break;
+  }
+  case Result::Cancel:
+    m_keyboard = false;
+    if (!search)
     {
-      m_keyboard_ask = false;
       m_ask_done = nullptr;
+      m_board.Take();  // (nothing of it kept: a password)
     }
     Play("back");
+    break;
+  default:
+    break;
   }
 }
 
@@ -4457,46 +5449,676 @@ void Menu::Impl::RenameGame(const std::string& key, const std::string& typed)
     m_names[key] = name;
   SaveNames();
   Log("renamed " + key + " -> " + (name.empty() ? own : name));
+  m_ratings.erase(key);  // (its rating by its new name: StartRatings)
+  m_rating_asked.erase(key);
   RefreshGames();
-  ShowToast(name.empty() || name == own ? "Its own name again" : "Renamed", 0);
-  Play("confirm");
+  ShowToast(name.empty() || name == own ? "Its own name again" : "Renamed", 0);  // (the keyboard's OK: its sound)
 }
 
 void Menu::Impl::AskText(const std::string& title, const std::string& text,
-                         std::function<void(const std::string&)> done)
+                         std::function<void(const std::string&)> done, uint32_t max_length, TextKeyboard::Mode mode,
+                         const std::string& hint)
 {
+  // (00.80: always the app's keyboard - with the menu's buttons. The PS4's, until 00.79, chose its keys with the
+  // console's Enter button, Circle on some consoles, and can't be told otherwise.)
   m_ask_done = std::move(done);
-  if (SystemKeyboard::Open(PS4Lang::T(title), text))
-  {
-    m_asking = true;
-    Play("menu");
-    return;
-  }
-  // The menu's own keyboard (capitals at the start of each word, as in a name).
-  m_keyboard_ask = true;
   m_ask_title = title;
-  m_ask_text = text;
+  m_ask_hint = hint;
+  m_board.Open(mode == TextKeyboard::Mode::Search ? TextKeyboard::Mode::Text : mode, text, max_length);
   m_keyboard = true;
   Play("menu");
 }
 
-// The PS4's keyboard, each frame while it is open.
-void Menu::Impl::UpdateAsk()
+// ---------------------------------------------------------------------------------------------
+// RetroAchievements (00.73, src/Achievements.h): Settings -> RetroAchievements.
+
+std::string Menu::Impl::AchievementsDetail() const
 {
-  if (!m_asking)
+  // (00.75: the session's state, short.)
+  const Achievements::Status status = Achievements::GetStatus();
+  switch (status.session)
+  {
+  case Achievements::Session::Connected:
+    return "Connected as " + status.user;
+  case Achievements::Session::Connecting:
+    return "Connecting...";
+  case Achievements::Session::Offline:
+    return "No connection (trying again)";
+  case Achievements::Session::Failed:
+    return "The login failed";
+  default:
+    return "Not logged in";
+  }
+}
+
+void Menu::Impl::OpenAchievementsPanel()
+{
+  m_panel = {};
+  m_panel.open = true;
+  m_panel.setting = SET_ACHIEVEMENTS;
+  m_panel.title = "RetroAchievements";
+  m_ra_login = Achievements::GetAccount().state;
+  BuildAchievementsRows();
+  m_panel.selected = 0;
+  MoveSettingRow(0);
+}
+
+void Menu::Impl::BuildAchievementsRows()
+{
+  const Achievements::Account account = Achievements::GetAccount();
+  std::vector<SettingRow> rows;
+  // A note over header lines of the panel's width (the text translated here).
+  auto note = [&](const std::string& english) {
+    std::string wrapped = WrapText(m_bold, 26, PS4Lang::T(english), 880.0f - 120.0f);
+    for (size_t start = 0; start <= wrapped.size();)
+    {
+      const size_t end = std::min(wrapped.find('\n', start), wrapped.size());
+      rows.push_back({wrapped.substr(start, end - start), "", "", true});
+      start = end + 1;
+    }
+  };
+  // The session's state first (00.75: connected or not, live - UpdateAchievements).
+  const Achievements::Status status = Achievements::GetStatus();
+  m_ra_status = Achievements::StatusLine(status);
+  note(m_ra_status);
+  rows.push_back({"What is RetroAchievements?", "", "ra:about"});  // (00.79: how to start, what it is)
+  if (account.state == Achievements::Login::In)
+  {
+    rows.push_back({"Points", std::to_string(status.points + status.casual_points), "ra:points"});
+  }
+  else if (account.state != Achievements::Login::Working)
+  {
+    rows.push_back({"Log In", "", "ra:login"});
+  }
+  rows.push_back({"My Achievements", "", "ra:history"});
+  // (00.76) The achievements' texts in the app's language: not for English, which RetroAchievements has.
+  if (PS4Lang::Current().code != std::string("en"))
+    rows.push_back({"Translate Achievements", Achievements::TranslateSetting() ? "On" : "Off", "ra:translate"});
+  rows.push_back({"Marks on the Games", m_ra_marks ? "On" : "Off", "ra:marks"});  // (00.77)
+  if (account.state == Achievements::Login::In || account.saved_token)
+    rows.push_back({"Log Out", "", "ra:logout"});
+  const int selected = m_panel.selected;
+  m_panel.rows = std::move(rows);
+  m_panel.selected = std::clamp(selected, 0, std::max(0, static_cast<int>(m_panel.rows.size()) - 1));
+  if (m_panel.rows[m_panel.selected].header)
+    MoveSettingRow(1);
+}
+
+// What a game's achievements page is made from (made again when it changes): its state, its counts, the translations
+// that came and how they go (00.79).
+static std::string GamePageKey(const Achievements::GameDetail& d)
+{
+  return std::to_string(static_cast<int>(d.state)) + "|" + std::to_string(d.entries.size()) + "|" +
+         std::to_string(d.unlocked) + "|" + d.error + "|" + std::to_string(Achievements::TranslationsVersion()) + "|" +
+         Achievements::TranslationLine(Achievements::GetTranslationState(d.title));
+}
+
+// Every frame: rc_client's waiting work (an unlock retried, the session's pings), the password's keyboard after the
+// user name's, and the login's progress (the panel and the Settings row follow it).
+void Menu::Impl::UpdateAchievements(float dt)
+{
+  Achievements::Idle();
+  // (00.77) The games' marks as the module's thread finds them: once a second at most, when something changed.
+  m_ra_lib_time -= dt;
+  if (m_ra_marks && m_ra_lib_time <= 0.0f)
+  {
+    m_ra_lib_time = 1.0f;
+    RefreshAchievementMarks();
+  }
+  // (00.80) The filter's lists made again once the panel or the keyboard that held them back is gone.
+  if (m_ra_rebuild && !m_panel.open && !m_keyboard)
+  {
+    m_ra_rebuild = false;
+    if (RaFilterOn())
+      RebuildGameLists(true);
+  }
+  if (m_ra_ask_password > 0 && !m_keyboard && --m_ra_ask_password == 0)
+  {
+    const std::string user = m_ra_user;
+    AskText(
+        "RetroAchievements: Password", "",
+        [this, user](const std::string& password) {
+          if (password.empty())
+            return;
+          Achievements::LogIn(user, password);
+          m_ra_login = Achievements::Login::Working;
+          BuildItems();
+          if (m_panel.open && m_panel.setting == SET_ACHIEVEMENTS)
+            BuildAchievementsRows();
+        },
+        128, TextKeyboard::Mode::Password, "Sent once to log in: EmuSuNi keeps only the key the site gives back.");
+  }
+  m_ra_refresh -= dt;
+  if (m_ra_refresh > 0.0f)
     return;
-  std::string text;
-  const SystemKeyboard::Result result = SystemKeyboard::Poll(&text);
-  if (result == SystemKeyboard::Result::Running)
+  m_ra_refresh = 0.25f;
+  const bool shown = m_panel.open && m_panel.setting == SET_ACHIEVEMENTS;
+  const bool history = m_panel.open && m_panel.setting == SET_RA_HISTORY;
+  const bool game_page = m_panel.open && m_panel.setting == SET_RA_GAME;
+  // (00.75) While a RetroAchievements panel shows: the connection checked now and then (the module: once a minute at
+  // most), and the panel made again when the session's state or the history changes (00.76: or translations came).
+  if (shown || history || game_page)
+    Achievements::CheckConnection();
+  if (history)
+  {
+    const Achievements::History h = Achievements::GetHistory();
+    const std::string key = Achievements::StatusLine(Achievements::GetStatus()) + "|" + (h.syncing ? "1" : "0") + "|" +
+                            std::to_string(h.synced) + "|" + h.sync_error + "|" + std::to_string(h.unlocks.size()) +
+                            "|" + std::to_string(h.games.size()) + "|" +
+                            std::to_string(Achievements::TranslationsVersion());
+    if (key != m_ra_history_shown)
+      BuildHistoryRows();
+  }
+  if (game_page)
+  {
+    if (GamePageKey(Achievements::GetGameDetail()) != m_ra_game_shown)
+      BuildGameAchievementRows();
+    // (00.79) The achievements on screen translated first: the selected one, then those around it.
+    std::vector<uint32_t> ids;
+    auto add = [&](int i) {
+      if (i >= 0 && i < static_cast<int>(m_panel.rows.size()) && m_panel.rows[i].key.rfind("ra:ach:", 0) == 0)
+        ids.push_back(static_cast<uint32_t>(std::strtoul(m_panel.rows[i].key.c_str() + 7, nullptr, 10)));
+    };
+    add(m_panel.selected);
+    for (int d = 1; d <= 10; d++)
+    {
+      add(m_panel.selected + d);
+      if (d <= 5)
+        add(m_panel.selected - d);
+    }
+    Achievements::TranslateFirst(ids);
+  }
+  if (m_panel.open && m_panel.setting == SET_RA_VERSIONS)
+  {
+    const Achievements::Versions v = Achievements::GetVersions();
+    if (v.state == Achievements::Versions::State::Ready && v.file_state == Achievements::LibraryInfo::State::Known &&
+        v.game_id != 0)
+    {
+      // (00.80) The file checked now has achievements: the game's page (Circle goes back to its options).
+      OpenGameAchievements(v.game_id);
+      m_ra_from_game = true;
+    }
+    else if (std::to_string(static_cast<int>(v.state)) + "|" + std::to_string(v.names.size()) != m_ra_versions_shown)
+    {
+      BuildVersionsRows();
+    }
+  }
+  const Achievements::Login now = Achievements::GetAccount().state;
+  const std::string status = Achievements::StatusLine(Achievements::GetStatus());
+  if (now == m_ra_login && status == m_ra_status)
     return;
-  m_asking = false;
-  auto done = std::move(m_ask_done);
-  m_ask_done = nullptr;
-  m_input.Poll(0.0f);  // the press that closed it
-  if (result == SystemKeyboard::Result::Done && done)
-    done(text);
+  const Achievements::Login before = m_ra_login;
+  m_ra_login = now;
+  m_ra_status = status;
+  // (The Settings row's short state: the items made again only when it changes - not each second of a countdown.)
+  static std::string detail_shown;
+  if (const std::string detail = AchievementsDetail(); detail != detail_shown)
+  {
+    detail_shown = detail;
+    BuildItems();
+  }
+  if (shown)
+    BuildAchievementsRows();
+  if (before == Achievements::Login::Working && now == Achievements::Login::In && shown)
+  {
+    ShowToast("Logged in to RetroAchievements", 0);
+    Play("confirm");
+  }
+  else if (before == Achievements::Login::Working && now == Achievements::Login::Failed && shown)
+  {
+    Play("error");
+  }
+}
+
+// An achievement's date in the app's language (00.76): "Oct 23, 2026  14:05" in English, "23/10/2026  14:05" else (the
+// months' names are English ones).
+static std::string AchievementDate(int64_t when)
+{
+  if (when <= 0)
+    return "";
+  if (PS4Lang::Current().code == std::string("en"))
+    return DateText(when);
+  const std::time_t then = static_cast<std::time_t>(when);
+  std::tm day = {};
+  localtime_r(&then, &day);
+  char text[48];
+  std::strftime(text, sizeof(text), "%d/%m/%Y  %H:%M", &day);
+  return text;
+}
+
+// Settings -> RetroAchievements -> My Achievements (00.75): the achievements unlocked in EmuSuNi (kept on the PS4:
+// shown offline too), the newest first, then the games - those played in EmuSuNi, the last one first, then the
+// account's others (retroachievements.org, updated when older than 10 minutes) - each with its picture.
+void Menu::Impl::OpenHistoryPanel()
+{
+  m_panel = {};
+  m_panel.open = true;
+  m_panel.setting = SET_RA_HISTORY;
+  m_panel.title = "My Achievements";
+  Achievements::UpdateHistory(false);
+  BuildHistoryRows();
+  m_panel.selected = 0;
+  MoveSettingRow(0);
+}
+
+void Menu::Impl::BuildHistoryRows()
+{
+  const Achievements::Status status = Achievements::GetStatus();
+  const Achievements::History history = Achievements::GetHistory();
+  std::vector<SettingRow> rows;
+  // (A note over header lines of the panel's width, translated here, as Settings -> RetroAchievements' own.)
+  auto note = [&](const std::string& english) {
+    std::string wrapped = WrapText(m_bold, 26, PS4Lang::T(english), 880.0f - 120.0f);
+    for (size_t start = 0; start <= wrapped.size();)
+    {
+      const size_t end = std::min(wrapped.find('\n', start), wrapped.size());
+      rows.push_back({wrapped.substr(start, end - start), "", "", true});
+      start = end + 1;
+    }
+  };
+  const std::string status_line = Achievements::StatusLine(status);
+  note(status_line);
+  if (history.syncing)
+    note("Updating your account's games from retroachievements.org...");
+  else if (!history.sync_error.empty())
+    note("Your account's games couldn't be updated: " + history.sync_error);
+  else if (history.synced > 0)
+    note("Your account's games: updated " + AchievementDate(history.synced));
   else
-    Play("back");
+    note("Your account's games come from retroachievements.org once connected");
+  if (status.session == Achievements::Session::Connected && !history.syncing)
+    rows.push_back({"Update Now", "", "ra:sync"});
+  // The achievements unlocked in EmuSuNi.
+  rows.push_back({"Recently Unlocked", std::to_string(history.unlocks.size()), "", true});
+  if (history.unlocks.empty())
+    note("None unlocked in EmuSuNi yet");
+  for (const Achievements::HistoryUnlock& unlock : history.unlocks)
+  {
+    SettingRow row;
+    row.label = Achievements::Translated(unlock.title);  // (the app's language once translated, 00.76)
+    row.value = unlock.points == 1 ? std::string("1 point") : std::to_string(unlock.points) + " points";
+    row.key = "ra:unlock";
+    row.picture = unlock.badge;
+    row.help = unlock.game + "\n" + PS4Lang::T("Unlocked " + AchievementDate(unlock.time)) +
+               (unlock.description.empty() ? std::string() : "\n" + Achievements::Translated(unlock.description));
+    rows.push_back(std::move(row));
+  }
+  // The games: unlocked of all, in EmuSuNi or anywhere on the account.
+  rows.push_back({"Games", std::to_string(history.games.size()), "", true});
+  if (history.games.empty())
+    note("No games yet");
+  for (const Achievements::HistoryGame& game : history.games)
+  {
+    SettingRow row;
+    row.label = game.title.empty() ? "#" + std::to_string(game.game_id) : game.title;
+    row.value = std::to_string(game.unlocked) + " / " + std::to_string(game.total);
+    row.key = "ra:game:" + std::to_string(game.game_id);  // (Cross: all its achievements, 00.76)
+    row.picture = game.badge;
+    row.help = Achievements::ConsoleName(game.console) + "\n" +
+               PS4Lang::T(std::to_string(game.unlocked) + " of " + std::to_string(game.total) + " achievements") + "\n" +
+               (game.played > 0 ? PS4Lang::T("Played in EmuSuNi " + AchievementDate(game.played)) :
+                                  PS4Lang::T(std::string("On your retroachievements.org account"))) +
+               "\n" + PS4Lang::T(std::string("Cross: all its achievements"));
+    rows.push_back(std::move(row));
+  }
+  m_ra_history_shown = status_line + "|" + (history.syncing ? "1" : "0") + "|" + std::to_string(history.synced) + "|" +
+                       history.sync_error + "|" + std::to_string(history.unlocks.size()) + "|" +
+                       std::to_string(history.games.size()) + "|" + std::to_string(Achievements::TranslationsVersion());
+  const int selected = m_panel.selected;
+  m_panel.rows = std::move(rows);
+  m_panel.selected = std::clamp(selected, 0, std::max(0, static_cast<int>(m_panel.rows.size()) - 1));
+  if (m_panel.rows[m_panel.selected].header)
+    MoveSettingRow(1);
+}
+
+// My Achievements -> a game (00.76): every achievement of it, locked (its grey picture) then unlocked, as the in-game
+// page shows them - points, the progress of the last session in EmuSuNi, when unlocked, rarity - from the PS4's copy at
+// once, then from retroachievements.org.
+void Menu::Impl::OpenGameAchievements(uint32_t game_id)
+{
+  m_ra_game = game_id;
+  m_ra_from_game = false;  // (a game's Triangle -> Achievements sets it after)
+  Achievements::OpenGame(game_id);
+  m_panel = {};
+  m_panel.open = true;
+  m_panel.setting = SET_RA_GAME;
+  m_panel.title = Achievements::GetGameDetail().title;
+  m_ra_game_shown.clear();
+  BuildGameAchievementRows();
+  m_panel.selected = 0;
+  MoveSettingRow(0);
+}
+
+void Menu::Impl::BuildGameAchievementRows()
+{
+  const Achievements::GameDetail detail = Achievements::GetGameDetail();
+  std::vector<SettingRow> rows;
+  auto note = [&](const std::string& english) {
+    std::string wrapped = WrapText(m_bold, 26, PS4Lang::T(english), 880.0f - 120.0f);
+    for (size_t start = 0; start <= wrapped.size();)
+    {
+      const size_t end = std::min(wrapped.find('\n', start), wrapped.size());
+      rows.push_back({wrapped.substr(start, end - start), "", "", true});
+      start = end + 1;
+    }
+  };
+  if (!detail.title.empty())
+    m_panel.title = detail.title;
+  using State = Achievements::GameDetail::State;
+  if (!detail.entries.empty())
+  {
+    note(std::to_string(detail.unlocked) + " of " + std::to_string(detail.entries.size()) + " achievements  -  " +
+         std::to_string(detail.points) + " of " + std::to_string(detail.total_points) + " points");
+    // (00.79) The texts still in English, said: being translated, or waiting for the next day.
+    if (const std::string line = Achievements::TranslationLine(Achievements::GetTranslationState(detail.title));
+        !line.empty())
+      note(line);
+  }
+  if (detail.state == State::Loading)
+    note(detail.entries.empty() ? std::string("Asking retroachievements.org for this game's achievements...") :
+                                  std::string("Updating from retroachievements.org..."));
+  else if (detail.state == State::Offline || detail.state == State::Failed)
+  {
+    if (detail.entries.empty() && detail.error == "Not logged in")
+      note("Not logged in: its achievements show here once you log in (Settings -> RetroAchievements -> Log In)");
+    else if (detail.entries.empty())
+      note(detail.error.empty() ? std::string("No connection to RetroAchievements") : detail.error);
+    else
+      note("As last seen on this PS4: " + AchievementDate(detail.updated));
+  }
+  std::string group;
+  for (const Achievements::Entry& entry : detail.entries)
+  {
+    if (entry.group != group)
+    {
+      group = entry.group;
+      rows.push_back({group, "", "", true});  // ("Locked", "Unlocked": translated as drawn)
+    }
+    SettingRow row;
+    row.label = entry.title;  // (translated by the module once its translation came)
+    row.value = entry.points == 1 ? std::string("1 point") : std::to_string(entry.points) + " points";
+    row.key = "ra:ach:" + std::to_string(entry.id);  // (its id: those on screen translated first, 00.79)
+    row.picture = entry.badge;  // (the grey one while locked)
+    row.help = entry.description;
+    if (!entry.unlocked && !entry.progress.empty())
+      row.help += "\n" + PS4Lang::T("Progress: " + entry.progress);
+    if (entry.unlocked)
+      row.help += "\n" + (entry.unlock_time > 0 ? PS4Lang::T("Unlocked " + AchievementDate(entry.unlock_time)) :
+                                                  PS4Lang::T(std::string("Unlocked on your account")));
+    if (entry.rarity > 0.0f)
+    {
+      char rarity[32];
+      std::snprintf(rarity, sizeof(rarity), "%.1f", entry.rarity);
+      row.help += "\n" + PS4Lang::T(std::string(rarity) + "% of the players have it");
+    }
+    rows.push_back(std::move(row));
+  }
+  m_ra_game_shown = GamePageKey(detail);
+  const int selected = m_panel.selected;
+  m_panel.rows = std::move(rows);
+  m_panel.selected = std::clamp(selected, 0, std::max(0, static_cast<int>(m_panel.rows.size()) - 1));
+  if (!m_panel.rows.empty() && m_panel.rows[m_panel.selected].header)
+    MoveSettingRow(1);
+}
+
+// A game's Triangle -> Achievements on a file RetroAchievements doesn't know (00.79): its game of that name (or of that
+// other version), the files it supports for it - named after No-Intro's list where it has them -, the player's own.
+void Menu::Impl::OpenVersionsPanel(const Game& game)
+{
+  Achievements::OpenVersions({game.rom.key, game.rom.discs.empty() ? game.rom.path : game.rom.discs.front(),
+                              game.rom.system},
+                             game.rom.title);
+  m_panel = {};
+  m_panel.open = true;
+  m_panel.setting = SET_RA_VERSIONS;
+  m_panel.title = "Achievements";
+  m_ra_versions_shown.clear();
+  BuildVersionsRows();
+  m_panel.selected = 0;
+  MoveSettingRow(0);
+}
+
+void Menu::Impl::BuildVersionsRows()
+{
+  const Achievements::Versions v = Achievements::GetVersions();
+  std::vector<SettingRow> rows;
+  auto note = [&](const std::string& english) {
+    std::string wrapped = WrapText(m_bold, 26, PS4Lang::T(english), 880.0f - 120.0f);
+    for (size_t start = 0; start <= wrapped.size();)
+    {
+      const size_t end = std::min(wrapped.find('\n', start), wrapped.size());
+      rows.push_back({wrapped.substr(start, end - start), "", "", true});
+      start = end + 1;
+    }
+  };
+  // (A file's name: a row of its own, selectable - a long list scrolls with the selection.)
+  auto file = [&](const std::string& name, const char* key) {
+    SettingRow row;
+    row.label = name;
+    row.key = key;
+    rows.push_back(std::move(row));
+  };
+  using FileState = Achievements::LibraryInfo::State;
+  if (v.state != Achievements::Versions::State::Ready)
+  {
+    // (00.80) The file checked now: hashed, the console's list, its state.
+    note("Checking this file: \"" + v.file_name + "\"...");
+  }
+  else if (v.file_state == FileState::Unchecked)
+  {
+    note("RetroAchievements' list of this console didn't come (no connection?): try again later.");
+  }
+  else if (v.file_state == FileState::NoAchievements)
+  {
+    note("RetroAchievements knows this game, \"" + v.title + "\", but it has no achievements for it yet.");
+  }
+  else if (v.file_state == FileState::Known)
+  {
+    note("Checking this file: \"" + v.file_name + "\"...");  // (its achievements' page comes next)
+  }
+  else
+  {
+    // A file it doesn't take: its game (by this other version, else by the name), the files it does take.
+    if (v.other_version)
+      note("RetroAchievements knows this file, \"" + v.file_name + "\", as a version of \"" + v.title +
+           "\" whose achievements don't work with it.");
+    else
+      note("RetroAchievements doesn't know this file: \"" + v.file_name + "\".");
+    if (v.game_id == 0)
+    {
+      note("It has no achievements for a game of that name on this console.");
+    }
+    else
+    {
+      note("\"" + v.title + "\" has " + std::to_string(v.achievements) + " achievements with these files:");
+      for (const std::string& name : v.names)
+        file(name, "ra:file");
+      if (v.unnamed > 0)
+      {
+        note(v.names.empty() ? std::to_string(v.unnamed) + " files; their names aren't known here: "
+                                                            "retroachievements.org lists them (the game's page -> "
+                                                            "Supported Game Files)." :
+                               "And " + std::to_string(v.unnamed) + " more, whose names aren't known here "
+                                                                      "(retroachievements.org: the game's page -> "
+                                                                      "Supported Game Files).");
+      }
+      if (!v.yours.empty())
+      {
+        note("In your games already (they have the \"RA\" mark):");
+        for (const std::string& name : v.yours)
+          file(name, "ra:yours");
+      }
+      note("A file of one of those (the same dump: a translation or a hack isn't) gets the \"RA\" mark once it is "
+           "with your games.");
+    }
+  }
+  m_ra_versions_shown = std::to_string(static_cast<int>(v.state)) + "|" + std::to_string(v.names.size());
+  const int selected = m_panel.selected;
+  m_panel.rows = std::move(rows);
+  m_panel.selected = std::clamp(selected, 0, std::max(0, static_cast<int>(m_panel.rows.size()) - 1));
+  if (!m_panel.rows.empty() && m_panel.rows[m_panel.selected].header)
+    MoveSettingRow(1);
+}
+
+// Settings -> RetroAchievements -> What is RetroAchievements? (00.79): each subject a row, its words under it.
+void Menu::Impl::OpenAboutPanel()
+{
+  m_panel = {};
+  m_panel.open = true;
+  m_panel.setting = SET_RA_ABOUT;
+  m_panel.title = "What is RetroAchievements?";
+  std::vector<SettingRow> rows;
+  auto note = [&](const std::string& english) {
+    std::string wrapped = WrapText(m_bold, 26, PS4Lang::T(english), 880.0f - 120.0f);
+    for (size_t start = 0; start <= wrapped.size();)
+    {
+      const size_t end = std::min(wrapped.find('\n', start), wrapped.size());
+      rows.push_back({wrapped.substr(start, end - start), "", "", true});
+      start = end + 1;
+    }
+  };
+  auto subject = [&](const char* title, const std::string& text) {
+    SettingRow row;
+    row.label = title;
+    row.key = "ra:about:subject";
+    rows.push_back(std::move(row));
+    note(text);
+  };
+  // The consoles it has achievements for: the app's, in the order of its own list.
+  std::string consoles;
+  for (const System& system : Systems())
+  {
+    const uint32_t console = Achievements::ConsoleId(system.id);
+    if (console == 0 || system.id == SystemId::THREEDS)
+      continue;
+    consoles += (consoles.empty() ? "" : ", ") + std::string(system.name);
+  }
+  subject("What it is",
+          "RetroAchievements (retroachievements.org) adds achievements to classic games: goals inside each game - beat "
+          "a boss, find a secret, finish a level fast - unlocked as you play, each with its points. It's free, made by "
+          "its players.");
+  subject("1. A free account",
+          "Make one at retroachievements.org, on a phone or a computer, and confirm the e-mail it sends you: until then "
+          "it refuses the login.");
+  subject("2. Log in here",
+          "Settings -> RetroAchievements -> Log In: the keyboard asks for your user name, then your password. "
+          "EmuSuNi keeps only the key the site gives back (never the password) and logs in again by itself at each "
+          "start.");
+  subject("3. Play",
+          "A game with achievements says so when it starts; each unlock shows a picture. The in-game menu's "
+          "Achievements lists them with your progress; My Achievements keeps what you unlocked; Triangle -> "
+          "Achievements on a game shows them all.");
+  subject("Casual and points",
+          "EmuSuNi plays in RetroAchievements' Casual mode: save states, cheats and any speed are allowed, and the "
+          "points go to your account. (Its Hardcore mode waits until RetroAchievements approves EmuSuNi.)");
+  subject("The consoles", "With achievements: " + consoles + ". Not yet: Nintendo 3DS.");
+  subject("Which files",
+          "RetroAchievements knows certain files of each game - most often the usual dumps of its American, European "
+          "or Japanese version (No-Intro's for cartridges, Redump's for discs); not translations or hacks. The \"RA\" "
+          "mark on a cover says the file is known; Triangle -> Achievements on a game without it shows the files it "
+          "knows.");
+  subject("Only the games with achievements",
+          "On the games, the touchpad shows only those whose file has achievements, then those with achievements "
+          "begun and not finished, then every game again (with Marks on the Games on).");
+  subject("Without a connection",
+          "The game plays as always. Unlocks made offline wait and are sent when the connection comes back, while "
+          "EmuSuNi stays open; My Achievements shows what this PS4 kept.");
+  m_panel.rows = std::move(rows);
+  m_panel.selected = 0;
+  MoveSettingRow(0);
+}
+
+// RetroAchievements' marks on the games (00.77): the games to the module (it hashes them on its own thread, once per
+// file, waiting while a game runs), their states back.
+void Menu::Impl::StartAchievementMarks()
+{
+  m_ra_marks = Achievements::MarksSetting();
+  m_ra_lib_version = -1;
+  if (!m_ra_marks)
+    return;  // (hidden: nothing hashed either)
+  std::vector<Achievements::LibraryFile> files;
+  files.reserve(m_games.size());
+  for (const Game& game : m_games)
+    files.push_back({game.rom.key, game.rom.discs.empty() ? game.rom.path : game.rom.discs.front(), game.rom.system});
+  Achievements::SetLibrary(files);
+  RefreshAchievementMarks();
+}
+
+void Menu::Impl::RefreshAchievementMarks()
+{
+  const int version = Achievements::LibraryVersion();
+  if (version == m_ra_lib_version)
+    return;
+  m_ra_lib_version = version;
+  const std::map<std::string, Achievements::LibraryInfo> infos = Achievements::GetLibraryInfos();
+  bool changed = false;
+  for (Game& game : m_games)
+  {
+    const auto it = infos.find(game.rom.key);
+    const Achievements::LibraryInfo info = it != infos.end() ? it->second : Achievements::LibraryInfo{};
+    changed = changed || info.state != game.ra.state || info.progress != game.ra.progress ||
+              info.unlocked != game.ra.unlocked || info.achievements != game.ra.achievements;
+    game.ra = info;
+  }
+  // (00.80) The RetroAchievements filter follows the games as they're checked (each list keeps its selected game) -
+  // not under an open panel or the keyboard, whose game must stay where it is: after them (UpdateAchievements).
+  if (changed && RaFilterOn())
+  {
+    if (m_panel.open || m_keyboard)
+      m_ra_rebuild = true;
+    else
+      RebuildGameLists(true);
+  }
+}
+
+// (00.80) The RetroAchievements filter: a game whose file has achievements; in its second step, begun and not all
+// unlocked.
+bool Menu::Impl::RaFilterPasses(const Game& game) const
+{
+  const Achievements::LibraryInfo& info = game.ra;
+  if (info.state != Achievements::LibraryInfo::State::Known)
+    return false;
+  return m_prefs.ra_filter != "progress" ||
+         (info.progress && info.unlocked > 0 && info.unlocked < info.achievements);
+}
+
+// The filter's line under a list's title: its count, and the check still going on ("checking 1200 of 3585...").
+std::string Menu::Impl::RaFilterLine(int c) const
+{
+  if (!RaFilterOn() || c < 0 || c >= CATEGORY_COUNT)
+    return {};
+  const RaCount& n = m_ra_count[c];
+  const int shown = m_ra_emptied[c] ? 0 : static_cast<int>(m_items[c].size());
+  std::string line = (m_prefs.ra_filter == "progress" ? "Achievements in progress: " : "With achievements: ") +
+                     std::to_string(shown) + " of " + std::to_string(n.total);
+  if (n.unchecked > 0)
+    line += "  -  checking " + std::to_string(n.files - n.unchecked) + " of " + std::to_string(n.files) + "...";
+  return line;
+}
+
+std::string Menu::Impl::AchievementLine(const Game& game) const
+{
+  using State = Achievements::LibraryInfo::State;
+  const Achievements::LibraryInfo& info = game.ra;
+  switch (info.state)
+  {
+  case State::Unchecked:
+    return "RetroAchievements: not checked yet";
+  case State::NotKnown:
+    return "RetroAchievements: this file isn't known";
+  case State::NoAchievements:
+    return "RetroAchievements: no achievements for this game yet";
+  case State::OtherVersion:
+    return "RetroAchievements: another version of this game has achievements";
+  case State::Known:
+    break;
+  }
+  const std::string count = std::to_string(info.achievements);
+  if (!info.progress)
+    return "RetroAchievements: " + count + " achievements";
+  if (info.unlocked >= info.achievements)
+    return "RetroAchievements: " + count + " achievements (completed)";
+  return "RetroAchievements: " + count + " achievements (" + std::to_string(info.unlocked) + " unlocked)";
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -4581,7 +6203,7 @@ void Menu::Impl::UpdateFind(float dt)
       m_find_names = std::move(result.names);
       m_find_status = !m_find_names.empty() ? "" :
                       result.ok             ? "No pictures with that name: Look For another" :
-                                              "libretro's list can't be read: " + result.error;
+                                              "libretro's list can't be read: " + Net::Plain(0, result.error);
       if (shown)
       {
         const int selected = m_panel.selected;
@@ -4874,6 +6496,11 @@ void Menu::Impl::OpenCleanUp()
       continue;
     std::string key = SearchText(m_games[i].rom.title);
     key.erase(std::remove(key.begin(), key.end(), ' '), key.end());
+    // (A game's discs are no copies of each other: the Saturn's, each its own game - "(Disc 1)", "(Disc 2)".)
+    std::string base;
+    const int disc = Library::DiscNumber(m_games[i].rom.id, &base);
+    if (disc > 0)
+      key += "|disc" + std::to_string(disc);
     if (!key.empty())
       groups[std::string(GetSystem(m_games[i].rom.system).key) + "|" + key].push_back(static_cast<int>(i));
   }
@@ -5064,6 +6691,8 @@ std::string Menu::Impl::OptionHelp(const std::string& option) const
       {"Cheats", "Turns this game's cheat codes on and off."},
       {"Controls", "Which DualShock 4 button does what, for all games or only this one."},
       {"Information", "The game's file, size, region and when you last played it."},
+      {"Achievements", "RetroAchievements: every achievement of the game, unlocked or not, with your progress; for a file "
+                       "it doesn't know, the files of the game it knows."},
       {"Rename", "A name of your own for the game (it is found by it too, covers included). Empty: its own name again."},
       {"Find Cover", "Choose the game's cover from libretro's pictures: the ones most like its name, or another name."},
       {"Set as Default Game", "This game starts by itself when EmuSuNi opens (hold L1 to get the menu)."},
@@ -5075,9 +6704,265 @@ std::string Menu::Impl::OptionHelp(const std::string& option) const
       {"Internal Storage", "New covers are saved in the PS4's own storage, as before."},
       {"USB Drive", "New covers are saved on the USB drive (EmuSuNi/covers): the PS4's storage stays free. "
                     "Without the drive they go to the internal storage."},
+      // (Updates, 00.73.)
+      {"Update Now", "Downloads the new version, checks it and hands it to the PS4, which installs it (its notifications "
+                 "show it). Games can be played meanwhile."},
+      {"Later", "Closes this until EmuSuNi starts again."},
+      {"Check Again", "Asks GitHub for the newest version again."},
+      {"Stop the Download", "Stops it; Update goes on from there next time."},
+      {"Include Test Versions: Off", "Also the test versions the creator publishes on GitHub (pre-releases): newer, "
+                                     "but they may have problems."},
+      {"Include Test Versions: On", "Only the published versions again."},
+      {"Close EmuSuNi", "Closes the app so that the PS4 finishes installing the update; open EmuSuNi again "
+                        "afterwards."},
+      // (Star Ratings, 00.73.)
+      {"Download Now", "Downloads LaunchBox's database (about 110 MB, in the background) and keeps its ratings of "
+                       "your consoles' games (a few MB). Again after 60 days."},
+      {"Download Again", "Downloads LaunchBox's database again (about 110 MB) for its newest ratings."},
   };
   const auto it = HELP.find(option);
   return it == HELP.end() ? std::string() : it->second;
+}
+
+// ---- Updates (00.73, src/Update.h) ----
+
+std::string Menu::Impl::UpdatesDetail(const Update::Status& status) const
+{
+  if (status.newer)
+    return "Version " + status.newest.version + " is available";
+  return std::string("This version: ") + App::VERSION;
+}
+
+// Settings -> Check for Updates (a check now, unless one ran in the last two minutes or a download runs), or the
+// start's notice of a newer version (shown once a session: Later only closes it).
+void Menu::Impl::OpenUpdatePanel(bool notice)
+{
+  m_panel = {};
+  m_panel.open = true;
+  m_panel.setting = notice ? SET_UPDATE_NOTICE : SET_UPDATES;
+  if (notice)
+  {
+    Update::NoticeShown();
+  }
+  else
+  {
+    const Update::Status status = Update::Get();
+    // (Nor over an update under way or one ready to finish: its page shows.)
+    const bool working = status.busy || status.phase == Update::Phase::Checking ||
+                         status.phase == Update::Phase::Downloading || status.phase == Update::Phase::Verifying ||
+                         status.phase == Update::Phase::Installing || status.phase == Update::Phase::Installed ||
+                         status.phase == Update::Phase::Saved;
+    const bool recent = status.phase == Update::Phase::Checked && status.message.find("failed") == std::string::npos &&
+                        std::time(nullptr) - status.checked_at < 120;
+    if (!working && !recent)
+      Update::Check();
+  }
+  m_update_serial = -1;
+  BuildUpdatePanel();
+  Play("menu");
+}
+
+void Menu::Impl::BuildUpdatePanel()
+{
+  const Update::Status s = Update::Get();
+  m_update_serial = s.serial;
+  const bool notice = m_panel.setting == SET_UPDATE_NOTICE;
+  const std::string running = App::VERSION;
+  std::vector<std::string> options, lines;
+  // A text in the panel's lines, translated first and wrapped to its width; at most `most` lines of it.
+  auto add = [&](const std::string& text, size_t most) {
+    std::istringstream in(WrapText(m_font, 28, PS4Lang::T(text), 550.0f));
+    size_t count = 0;
+    for (std::string line; std::getline(in, line) && count < most; count++)
+      lines.push_back(line);
+  };
+  // The release notes' first lines, `most` lines of the panel in all (clear of the help text at the bottom).
+  auto notes = [&](size_t most) {
+    const size_t end = lines.size() + most;
+    for (const std::string& note : Update::NoteLines(s.newest.notes, most))
+    {
+      if (lines.size() >= end)
+        break;
+      add(note, std::min<size_t>(2, end - lines.size()));
+    }
+  };
+  if (notice)
+  {
+    m_panel.title = s.important ? "Important Update" : "Update Available";
+    options = {"Update Now", "Later"};
+    lines.push_back("");
+    add("EmuSuNi " + s.newest.version + " is out (you have " + running + ").", 2);
+    if (s.important)
+      add("This update is important: please install it.", 2);
+    lines.push_back("");
+    notes(7);
+  }
+  else
+  {
+    m_panel.title = "Check for Updates";
+    lines.push_back("");
+    lines.push_back("This version: " + running);
+    if (!s.newest.tag.empty())
+      lines.push_back("Newest: " + s.newest.version + (s.newest.prerelease ? " (test version)" : ""));
+    lines.push_back("");
+    const std::string tests = s.tests ? "Include Test Versions: On" : "Include Test Versions: Off";
+    char progress[96] = "";
+    if (s.total > 0)
+    {
+      snprintf(progress, sizeof(progress), "%.1f|%.1f|%d", static_cast<double>(s.done) / (1024.0 * 1024.0),
+               static_cast<double>(s.total) / (1024.0 * 1024.0),
+               static_cast<int>(std::clamp<int64_t>(s.done * 100 / s.total, 0, 100)));
+    }
+    std::string done_mb, total_mb, percent;
+    {
+      std::istringstream parts(progress);
+      std::getline(parts, done_mb, '|');
+      std::getline(parts, total_mb, '|');
+      std::getline(parts, percent, '|');
+    }
+    switch (s.phase)
+    {
+    case Update::Phase::Idle:
+    case Update::Phase::Checking:
+      lines.push_back("Checking for updates...");
+      break;
+    case Update::Phase::Downloading:
+      add(s.message, 2);
+      if (!percent.empty())
+        lines.push_back("Downloaded: " + done_mb + " of " + total_mb + " MB (" + percent + "%)");
+      if (!s.saved.empty())
+        add("File: " + s.saved, 2);
+      lines.push_back("");
+      lines.push_back("Circle closes this; the download goes on.");
+      options = {"Stop the Download"};
+      break;
+    case Update::Phase::Verifying:
+      add(s.message, 2);
+      if (!percent.empty())
+        lines.push_back("Checked: " + percent + "%");
+      break;
+    case Update::Phase::Installing:
+      add(s.message, 3);
+      if (!percent.empty())
+        lines.push_back("Copied by the PS4: " + percent + "%");
+      if (!s.detail.empty())
+        add(s.detail, 3);
+      break;
+    case Update::Phase::Installed:
+      add(s.message, 2);
+      if (!s.detail.empty())
+        add(s.detail, 3);
+      options = {"Close EmuSuNi"};
+      break;
+    case Update::Phase::Saved:
+    case Update::Phase::Failed:
+      add(s.message, 2);
+      if (!s.detail.empty())
+        add(s.detail, 4);
+      if (s.phase == Update::Phase::Failed && s.newer)
+        options = {"Update Now", "Check Again", tests};
+      else
+        options = {"Check Again", tests};
+      break;
+    case Update::Phase::Checked:
+      add(s.message.empty() ? std::string(s.newer ? "A newer version is available" : "You have the newest version") :
+                              s.message,
+          2);
+      if (s.newer)
+      {
+        if (s.important)
+          add("This update is important: please install it.", 2);
+        notes(3);
+        options = {"Update Now", "Check Again", tests};
+      }
+      else
+      {
+        options = {"Check Again", tests};
+      }
+      break;
+    }
+  }
+  if (options != m_panel.options)
+  {
+    m_panel.options = options;
+    m_panel.selected = 0;
+  }
+  m_panel.lines = lines;
+}
+
+// Cross on one of the update panels' options.
+void Menu::Impl::UpdatePanelChoice()
+{
+  if (m_panel.selected < 0 || m_panel.selected >= static_cast<int>(m_panel.options.size()))
+    return;
+  const std::string choice = m_panel.options[m_panel.selected];
+  if (choice == "Later")
+  {
+    Log("update: the player chose Later");
+    m_panel.open = false;
+    Play("back");
+    return;
+  }
+  if (choice == "Update Now")
+  {
+    Update::StartUpdate();
+    m_panel.setting = SET_UPDATES;  // (the notice becomes the download's page)
+    BuildUpdatePanel();
+    Play("confirm");
+    return;
+  }
+  if (choice == "Check Again")
+  {
+    Update::Check();
+    BuildUpdatePanel();
+    Play("confirm");
+    return;
+  }
+  if (choice == "Stop the Download")
+  {
+    Update::Cancel();
+    Play("back");
+    return;
+  }
+  if (choice == "Close EmuSuNi")
+  {
+    // The PS4 finishes installing the update once the app is closed (as with a game's update).
+    Log("update: the player closes EmuSuNi to finish the update");
+    LogSync();
+    sceSystemServiceLoadExec("exit", nullptr);
+    return;
+  }
+  if (choice.rfind("Include Test Versions", 0) == 0)
+  {
+    Update::SetTests(!Update::Get().tests);
+    BuildUpdatePanel();
+    Play("confirm");
+  }
+}
+
+// Every frame: the update panel and the Settings row follow the updater; the start's notice when a newer version is
+// known - in the menu, with nothing else open (not over the first start's language list, the tour or a keyboard).
+void Menu::Impl::UpdateUpdater()
+{
+  if (!m_update_started)
+    return;
+  const int serial = Update::Serial();
+  if (serial != m_update_serial)
+  {
+    if (m_panel.open && (m_panel.setting == SET_UPDATES || m_panel.setting == SET_UPDATE_NOTICE))
+      BuildUpdatePanel();
+    else
+      m_update_serial = serial;
+    const std::string detail = UpdatesDetail(Update::Get());
+    for (Item& item : m_items[static_cast<int>(Category::Settings)])
+    {
+      if (item.setting == SET_UPDATES)
+        item.detail = detail;
+    }
+  }
+  if (!m_panel.open && !m_intro && !m_keyboard && !m_capture && m_launch < 0 && !Tour::Active() &&
+      Update::NoticeWanted())
+    OpenUpdatePanel(true);
 }
 
 // A command of the screenshot tour (Tour.h).
@@ -5125,6 +7010,7 @@ void Menu::Impl::TourCommand(const std::string& command)
   else if (word == "search")
   {
     SetSearch(rest);
+    m_board.Open(TextKeyboard::Mode::Search, m_search, SEARCH_MAX);
     m_keyboard = !rest.empty();
   }
   else if (word == "settings")
@@ -5187,6 +7073,8 @@ void Menu::Impl::TourCommand(const std::string& command)
     const int setting = rest == "consoles" ? SET_CONSOLES_SHOWN : rest == "covers" ? SET_COVERS :
                         rest == "folders"  ? SET_FOLDERS :
                         rest == "controls" ? SET_CONTROLS :
+                        rest == "nocover"  ? SET_NO_COVER :  // (00.68: each game's reason under the list)
+                        rest == "bezels"   ? SET_BEZELS :    // (00.80: Game Bezels)
                                              -1;
     if (setting < 0)
       Log("tour: nothing to open called " + rest);
@@ -5821,6 +7709,41 @@ void Menu::Impl::DrawCategoryIcon(ImDrawList* dl, Category category, ImVec2 c, f
     dl->AddPolyline(wave, 25, hole, ImDrawFlags_None, r * 0.17f);
     break;
   }
+  case Category::SaturnGames:
+  {
+    // The Saturn's planet: a ball with its ring across it, tilted (the console's logo).
+    const ImU32 hole = IM_COL32(0, 0, 0, 130);
+    dl->AddCircleFilled(c, r * 0.62f, color, 40);
+    ImVec2 ring[33];
+    for (int k = 0; k < 33; k++)
+    {
+      const float t = static_cast<float>(k) / 32.0f * IM_PI * 2.0f;
+      const float x = std::cos(t) * r * 1.0f, y = std::sin(t) * r * 0.28f;
+      ring[k] = ImVec2(c.x + x * 0.94f - y * 0.34f, c.y + x * 0.34f + y * 0.94f);
+    }
+    dl->AddPolyline(ring, 33, hole, ImDrawFlags_None, r * 0.2f);
+    dl->AddPolyline(ring, 33, color, ImDrawFlags_None, r * 0.1f);
+    break;
+  }
+  case Category::PceGames:
+  {
+    // The PC Engine seen from above: the small square body, the HuCard half out of its slot at the front, the
+    // expansion port's grille at the back and the power switch (no overlap: the colour can be see-through).
+    const ImU32 hole = IM_COL32(0, 0, 0, 130);
+    const ImVec2 p0(c.x - r * 0.88f, c.y - r * 0.5f), p1(c.x + r * 0.88f, c.y + r * 0.92f);
+    dl->AddRectFilled(p0, p1, color, r * 0.1f);
+    dl->AddRectFilled(ImVec2(c.x - r * 0.42f, c.y - r * 0.96f), ImVec2(c.x + r * 0.42f, c.y - r * 0.58f), color,
+                      r * 0.05f, ImDrawFlags_RoundCornersTop);  // the HuCard
+    dl->AddRectFilled(ImVec2(c.x - r * 0.52f, p0.y + r * 0.06f), ImVec2(c.x + r * 0.52f, p0.y + r * 0.14f), hole);
+    for (int k = 0; k < 4; k++)
+    {
+      const float y = c.y + r * (0.2f + k * 0.16f);
+      dl->AddRectFilled(ImVec2(c.x - r * 0.62f, y), ImVec2(c.x + r * 0.3f, y + r * 0.07f), hole);
+    }
+    dl->AddRectFilled(ImVec2(c.x + r * 0.5f, c.y + r * 0.2f), ImVec2(c.x + r * 0.7f, c.y + r * 0.42f), hole,
+                      r * 0.03f);
+    break;
+  }
   case Category::Favorites:
     DrawStar(dl, c, r * 0.95f, color);
     break;
@@ -5922,6 +7845,21 @@ void Menu::Impl::DrawItem(ImDrawList* dl, const Item& item, float y, bool select
       DrawStar(dl, ImVec2(sx + 12, sub_y + 17), 16.0f, Rgba(0xFFD34D, alpha), Rgba(0x7A5A00, alpha));
       sx += 44;
     }
+    // Its rating (Settings -> Star Ratings): five small stars beside the badge.
+    if (m_prefs.ratings && game.rating.half_stars >= 0)
+    {
+      constexpr float R = 11.0f;
+      DrawRating(dl, m_star, ImVec2(sx + RatingWidth(R) * 0.5f, sub_y + 17), R, game.rating.half_stars,
+                 Rgba(theme.text, alpha * 0.30f), alpha);
+      sx += RatingWidth(R) + 18;
+    }
+    // RetroAchievements' mark (00.77): its achievements' "RA" after them.
+    if (m_ra_marks && game.ra.state == Achievements::LibraryInfo::State::Known)
+    {
+      constexpr float MARK_H = 26.0f;
+      DrawAchievementMark(dl, m_bold, ImVec2(sx + MARK_H * 1.75f, sub_y + 4 + MARK_H), MARK_H, game.ra, alpha);
+      sx += MARK_H * 1.75f + 16;
+    }
   }
   if (!item.detail.empty())
     Text(dl, m_font, 26.0f, ImVec2(sx, sub_y + 1), Rgba(theme.text, alpha * 0.75f), item.detail);
@@ -5985,7 +7923,16 @@ void Menu::Impl::DrawSidePanel(ImDrawList* dl, float dt)
   const float line_step = m_panel.lines.size() > 18 ? 38.0f : 42.0f;
   for (const std::string& line : m_panel.lines)
   {
-    Text(dl, m_font, 28, ImVec2(x0 + 50, y), text, Fit(m_font, 28, line, width - 90));
+    // Information's rating: its stars at the line's end.
+    constexpr float STAR_R = 12.0f;
+    const bool stars = m_panel.stars >= 0 && line == m_panel.stars_line;
+    const float room = stars ? RatingWidth(STAR_R) + 20.0f : 0.0f;
+    Text(dl, m_font, 28, ImVec2(x0 + 50, y), text, Fit(m_font, 28, line, width - 90 - room));
+    if (stars)
+    {
+      DrawRating(dl, m_star, ImVec2(x0 + width - 40 - RatingWidth(STAR_R) * 0.5f, y + 17), STAR_R, m_panel.stars,
+                 Rgba(theme.text, 0.30f * m_panel.slide), m_panel.slide);
+    }
     y += line_step;
   }
   if (!m_panel.rows.empty())
@@ -5996,6 +7943,9 @@ void Menu::Impl::DrawSidePanel(ImDrawList* dl, float dt)
     const float target =
         std::clamp(static_cast<float>(m_panel.selected) - visible * 0.5f + 1.0f, 0.0f,
                    std::max(0.0f, static_cast<float>(m_panel.rows.size()) - visible));
+    if (m_panel.snap)
+      m_panel.scroll = target;  // (the list went round: there at once, not through every row's pictures)
+    m_panel.snap = false;
     Approach(m_panel.scroll, target, 16.0f, dt);
     dl->PushClipRect(ImVec2(x0, top - 8), ImVec2(W, bottom + 8), true);
     for (size_t i = 0; i < m_panel.rows.size(); i++)
@@ -6031,6 +7981,15 @@ void Menu::Impl::DrawSidePanel(ImDrawList* dl, float dt)
       {
         dl->AddImage(ImTextureRef(row.icon), ImVec2(label_x, ry + 1), ImVec2(label_x + 52, ry + 46),
                      ImVec2(0, 0), ImVec2(1, 1), IM_COL32(255, 255, 255, static_cast<int>(255 * m_panel.slide)));
+        label_x += 66;
+      }
+      else if (!row.picture.empty())
+      {
+        // RetroAchievements' pictures (00.75): those of the rows shown, square, once downloaded (their room kept).
+        const ImTextureID picture = AchievementsUi::Picture(m_display, row.picture);
+        if (picture != ImTextureID{})
+          dl->AddImage(ImTextureRef(picture), ImVec2(label_x + 3, ry + 1), ImVec2(label_x + 49, ry + 47), ImVec2(0, 0),
+                       ImVec2(1, 1), IM_COL32(255, 255, 255, static_cast<int>(255 * m_panel.slide)));
         label_x += 66;
       }
       constexpr float GLYPH_H = 38.0f;
@@ -6070,6 +8029,8 @@ void Menu::Impl::DrawSidePanel(ImDrawList* dl, float dt)
       std::string help;
       if (m_capture)
         help = "Press the DualShock 4 button for " + row.label + "...  (5 s: cancel)";
+      else if (!row.help.empty())
+        help = row.help;  // (made with the row: RetroAchievements' history, 00.75)
       else if (row.key.rfind("ctl:", 0) == 0)
       {
         // The Arcade's buttons are FinalBurn Neo's generic ones (Buttons 1 to 10): which of them a Neo Geo
@@ -6126,7 +8087,13 @@ void Menu::Impl::DrawSidePanel(ImDrawList* dl, float dt)
         help = "Downloads for each game here its libretro picture, or else the one most like its name when "
                "it is sure of it. The doubtful ones stay here: Find Cover shows them first, with a preview.";
       else if (row.key.rfind("nocover:", 0) == 0)
+      {
         help = "Cross: choose this game's cover (Find Cover). Circle there brings you back here.";
+        // Why the last download left it without one (00.68: no picture named like it, the closest one unsure, the
+        // list or the picture not downloaded and why).
+        if (const auto why = m_cover_why.find(row.key.substr(8)); why != m_cover_why.end())
+          help += "\n" + why->second;
+      }
       else if (row.key.rfind("folder:", 0) == 0)
         help = "Cross: choose a folder of this console's games (its subfolders count too). Roms/<console> on a "
                "USB drive and in /data/EmuSuNi are looked in anyway.";
@@ -6155,6 +8122,34 @@ void Menu::Impl::DrawSidePanel(ImDrawList* dl, float dt)
         help = "Cross: this console's buttons on the DualShock 4.";
       else if (row.key == "usedir")
         help = "Cross: look for games in this folder and its subfolders.";
+      // RetroAchievements (00.73).
+      else if (row.key == "ra:about")
+        help = "How to start (a free account, the login here), what achievements and points are, the consoles and the "
+               "files it knows.";
+      else if (row.key == "ra:file")
+        help = "A file's name in No-Intro's list (the usual dump): the same file, renamed as you like, works.";
+      else if (row.key == "ra:yours")
+        help = "One of your files RetroAchievements has achievements for: start it from your games.";
+      else if (row.key == "ra:login")
+        help = "Your account of retroachievements.org (free). The keyboard asks for the user name, then the "
+               "password, which is sent once to log in: EmuSuNi keeps only the token the site gives back.";
+      else if (row.key == "ra:logout")
+        help = "Forgets the login on this PS4. What you unlocked stays on your account.";
+      else if (row.key == "ra:points")
+        help = "Your account's points on retroachievements.org.";
+      else if (row.key == "ra:history")
+        help = "The achievements you unlocked in EmuSuNi (kept on this PS4, shown offline too) and your account's "
+               "games with their progress, with their pictures.";
+      else if (row.key == "ra:sync")
+        help = "Asks retroachievements.org for your account's games and their progress again.";
+      else if (row.key == "ra:translate")
+        help = "On: the achievements' names and descriptions in your language, machine-translated - by Google's "
+               "translator, a whole game at once, or MyMemory when Google can't (about 5000 characters a day) - each "
+               "game's once, kept on this PS4. Off: as RetroAchievements has them (English).";
+      else if (row.key == "ra:marks")
+        help = "On: \"RA\" on the covers of the games whose file RetroAchievements has achievements for (gold when "
+               "you unlocked them all, a line for what you unlocked), found in the background - no account needed. "
+               "Off: none, and the games' files aren't read for it.";
       else if (row.key.rfind("del:", 0) == 0)
         help = "Cross: delete it.";
       else if (row.key.rfind("cheat:", 0) == 0 || row.key.rfind("cheatall:", 0) == 0)
@@ -6232,26 +8227,38 @@ void Menu::Impl::DrawHints(ImDrawList* dl)
     PS4Glyphs::Draw(dl, m_bold, glyph, x, y, 36, 0.9f);
     x -= 40;
   };
-  if (m_panel.open)
+  if (m_keyboard)
+  {
+    // (00.80) The keyboard's buttons (src/TextKeyboard.h), from the right - over a panel too (a text asked for from
+    // it: the keyboard has the buttons).
+    const auto hints = TextKeyboard::Hints(m_board.GetMode());
+    for (const TextKeyboard::Hint& h : hints)
+    {
+      if (h.right)
+        hint(h.label, h.glyph);
+    }
+    for (auto it = hints.rbegin(); it != hints.rend(); ++it)
+    {
+      if (it->right || std::string(it->glyph) == "D-Pad")
+        continue;
+      if (std::string(it->glyph) != "L1/R1")
+      {
+        hint(it->label, it->glyph);
+        continue;
+      }
+      hint(it->label, "R1");
+      x += 32.0f - PS4Glyphs::Width("L1", 36);
+      PS4Glyphs::Draw(dl, m_bold, "L1", x, y, 36, 0.9f);
+      x -= 40.0f;
+    }
+  }
+  else if (m_panel.open)
   {
     hint("Back", "Circle");
     if (!m_panel.options.empty())
       hint("Select", "Cross");
     if (!m_panel.rows.empty())
       hint(m_panel.setting == SET_NO_COVER ? "Select" : "Change", "Cross");
-  }
-  else if (m_keyboard)
-  {
-    hint("Done", "R2");
-    hint("Clear All", "L2");
-    hint("Space", "Triangle");
-    hint("Delete", "Square");
-    hint("Close", "Circle");
-    hint("Browse Games", "R1");
-    x += 32.0f - PS4Glyphs::Width("L1", 36);
-    PS4Glyphs::Draw(dl, m_bold, "L1", x, y, 36, 0.9f);
-    x -= 40.0f;
-    hint("Type", "Cross");
   }
   else
   {
@@ -6266,6 +8273,8 @@ void Menu::Impl::DrawHints(ImDrawList* dl)
         hint("Favorite", "L2");
       hint("Refresh", "Square");
       hint("Sort", "Options");
+      if (m_ra_marks)
+        hint("RA Filter", "Touchpad");  // (00.80)
     }
     if (IsSettingsPage(m_category))
       hint("Back", "Circle");
@@ -6539,7 +8548,8 @@ void Menu::Impl::Draw(float dt)
          version, false);
   }
 
-  if (m_keyboard_ask)
+  // (A text asked for from a panel - Rename, Look For, the login -: the keyboard over it; the search's under one.)
+  if (m_board.GetMode() != TextKeyboard::Mode::Search)
   {
     DrawSidePanel(dl, dt);
     DrawKeyboard(dl, dt);
@@ -6793,7 +8803,7 @@ float Menu::Impl::DrawBadge(ImDrawList* dl, const Library::Game& rom, ImVec2 at,
 // quad a-b-c-d (top left, top right, bottom right, bottom left), with its reflection on the floor
 // and the console's badge. focus: 2 = the selected game, 1 = the others.
 void Menu::Impl::DrawCover(ImDrawList* dl, int index, ImVec2 a, ImVec2 b, ImVec2 c, ImVec2 d,
-                           float alpha, int focus)
+                           float alpha, int focus, float stars_x)
 {
   const Theme& theme = CurrentTheme();
   const Game& game = m_games[index];
@@ -6865,6 +8875,26 @@ void Menu::Impl::DrawCover(ImDrawList* dl, int index, ImVec2 a, ImVec2 b, ImVec2
     const ImVec2 sc(b.x - sr * 1.35f, b.y + sr * 1.35f);
     dl->AddCircleFilled(sc, sr * 1.25f, IM_COL32(0, 0, 0, a255 * 55 / 100), 24);
     DrawStar(dl, sc, sr, Rgba(0xFFD34D, alpha), Rgba(0x7A5A00, alpha));
+  }
+  // Its rating under it (Settings -> Star Ratings; none for a game without one): five stars as big as the cover
+  // (27 pixels wide for the selected one) on its reflection's top, under the part of it in view (stars_x), following
+  // its tilted bottom edge; gone while the search keyboard is up (the title is under the covers then).
+  const float rating_alpha = alpha * (1.0f - m_keyboard_slide);
+  if (m_prefs.ratings && game.rating.half_stars >= 0 && rating_alpha > 0.01f)
+  {
+    const float r = std::clamp(h * 0.032f, 7.0f, 14.0f);
+    const float x = stars_x >= 0.0f ? stars_x : (c.x + d.x) * 0.5f;
+    const float edge = c.x - d.x > 1.0f ? d.y + (c.y - d.y) * std::clamp((x - d.x) / (c.x - d.x), 0.0f, 1.0f) : c.y;
+    DrawRating(dl, m_star, ImVec2(x, edge + 9.0f + r), r, game.rating.half_stars, Rgba(theme.text, rating_alpha * 0.30f),
+               rating_alpha);
+  }
+  // RetroAchievements' mark (00.77): "RA" in the cover's bottom right corner for a game with achievements (gold when
+  // completed), as big as the cover (30 pixels tall for the selected one).
+  if (m_ra_marks && game.ra.state == Achievements::LibraryInfo::State::Known)
+  {
+    const float mark_h = std::clamp(h * 0.075f, 12.0f, 30.0f);
+    const float inset = std::max(4.0f, h * 0.025f);
+    DrawAchievementMark(dl, m_bold, ImVec2(c.x - inset, c.y - inset), mark_h, game.ra, alpha);
   }
 }
 
@@ -6974,6 +9004,8 @@ void Menu::Impl::DrawLibrary(ImDrawList* dl, float dt)
   case Category::ThreedsGames:
   case Category::NaomiGames:
   case Category::AtomiswaveGames:
+  case Category::SaturnGames:
+  case Category::PceGames:
   case Category::Favorites:
     DrawLibraryGames(dl, alpha, m_category);
     break;
@@ -7001,7 +9033,9 @@ void Menu::Impl::DrawLibraryGames(ImDrawList* dl, float alpha, int c)
                                  list_system >= 0 ? GetSystem(static_cast<SystemId>(list_system)).name :
                                                     "Your games";
   std::string sub;
-  if (any)
+  if (RaFilterOn() && (any || m_ra_emptied[c]))
+    sub = RaFilterLine(c) + "  -  " + SortName();  // (00.80: "With achievements: 438 of 793  -  A-Z")
+  else if (any)
     sub = std::to_string(count) + (count == 1 ? " game" : " games") + "  -  " + SortName();
   else if (m_all_covered[c])
     sub = "0 games  -  " + SortName();
@@ -7016,6 +9050,12 @@ void Menu::Impl::DrawLibraryGames(ImDrawList* dl, float alpha, int c)
     sub += "  -  Downloading covers " + std::to_string(m_dl_progress.load()) + " / " +
            std::to_string(m_dl_total.load());
   }
+  if (m_prefs.ratings)
+  {
+    const std::string ratings = RatingsDownloadText();  // (LaunchBox's ratings: "Downloading ratings 45 / 109 MB")
+    if (!ratings.empty())
+      sub += "  -  " + ratings;
+  }
   DrawPageTitle(dl, static_cast<Category>(c), page_title, sub, alpha,
                 alpha * (m_sort_shown > 0.0f ? 1.0f : 0.85f));
   if (!any)
@@ -7026,6 +9066,13 @@ void Menu::Impl::DrawLibraryGames(ImDrawList* dl, float alpha, int c)
     {
       line1 = m_search.empty() ? "Every game has a cover" : "Every game found has a cover";
       lines = {"Options shows every game again"};
+    }
+    else if (m_ra_emptied[c])
+    {
+      // (00.80) The RetroAchievements filter left none (yet: the files still being checked show as they're found).
+      line1 = m_prefs.ra_filter == "progress" ? "No achievements in progress here" : "No games with achievements here";
+      lines = {m_ra_count[c].unchecked > 0 ? "Still checking the files: they show here as they're found" :
+                                             "Touchpad shows every game again"};
     }
     else if (!m_search.empty())
     {
@@ -7081,7 +9128,7 @@ void Menu::Impl::DrawLibraryGames(ImDrawList* dl, float alpha, int c)
       lines.push_back("then press Square to look again (or pick the folders in Settings).");
     }
     const float y = 470.0f - 160.0f * k;
-    if (favorites && m_search.empty() && !m_all_covered[c])
+    if (favorites && m_search.empty() && !m_all_covered[c] && !m_ra_emptied[c])
       DrawStar(dl, ImVec2(W * 0.5f, y - 80.0f), 46.0f, Rgba(0xFFD34D, alpha * 0.9f), Rgba(0x7A5A00, alpha));
     Text(dl, m_bold, 36, ImVec2(W * 0.5f - TextWidth(m_bold, 36, line1) * 0.5f, y), Rgba(theme.text, alpha),
          line1);
@@ -7116,6 +9163,16 @@ void Menu::Impl::DrawLibraryGames(ImDrawList* dl, float alpha, int c)
   }
   std::sort(order.begin(), order.end(), [](const auto& x, const auto& y) { return x.first > y.first; });
   float selected_top = FLOOR_Y - BASE_H;
+  // Each cover's place first (its stars go under the part of it in view: the nearer covers, drawn after it, hide its
+  // inner side), then the covers, the farthest first.
+  struct Placed
+  {
+    int index, game;
+    float d, ad;
+    ImVec2 a, b, cc, dd;
+    float alpha;
+  };
+  std::vector<Placed> placed;
   for (const auto& [ad, i] : order)
   {
     const int game = items[i].game;
@@ -7147,9 +9204,26 @@ void Menu::Impl::DrawLibraryGames(ImDrawList* dl, float alpha, int c)
     }
     const float fade = std::clamp((6.0f - ad) / 1.5f, 0.0f, 1.0f);
     const float dim = 1.0f - 0.22f * near;
-    DrawCover(dl, game, a, b, cc, dd, alpha * fade * dim, i == selected && ad < 0.5f ? 2 : 1);
+    placed.push_back({i, game, d, ad, a, b, cc, dd, alpha * fade * dim});
     if (i == selected)
       selected_top = a.y;
+  }
+  for (const Placed& p : placed)
+  {
+    float lo = std::min(p.a.x, p.dd.x), hi = std::max(p.b.x, p.cc.x);
+    for (const Placed& q : placed)
+    {
+      if (q.ad >= p.ad)
+        continue;
+      if (p.d < 0.0f)
+        hi = std::min(hi, std::min(q.a.x, q.dd.x));
+      else
+        lo = std::max(lo, std::max(q.b.x, q.cc.x));
+    }
+    lo = std::max(lo, 0.0f);
+    hi = std::min(hi, W);
+    DrawCover(dl, p.game, p.a, p.b, p.cc, p.dd, p.alpha, p.index == selected && p.ad < 0.5f ? 2 : 1,
+              hi > lo ? (lo + hi) * 0.5f : -1.0f);
   }
   const float info_alpha = alpha * (1.0f - k);
   // The console's box at the bottom left, over the covers' reflections (it fades out under the keyboard).
@@ -7159,10 +9233,57 @@ void Menu::Impl::DrawLibraryGames(ImDrawList* dl, float alpha, int c)
   const float gw = PS4Glyphs::Width("Triangle", 40);
   if (info_alpha > 0.01f)
     PS4Glyphs::Draw(dl, m_bold, "Triangle", W * 0.5f - gw * 0.5f, selected_top - 44, 40, info_alpha * pulse);
+  // The 3DS's tip at the bottom right (00.79, the owner: "si no les carga un juego a la primera, pueden apretar L3 y R3
+  // y reiniciar el juego hasta que cargue"): a 3DS game that doesn't start the first time does after the in-game menu's
+  // Reset Game, so the box says how, with the player's own In-Game Menu buttons (a touchpad's choice is L3 + R3 on the
+  // 3DS, Controls::MenuButtonsFor). Over the reflections as the console's box on the other side, with its look: below
+  // the covers, their stars (about 756 px down at most) and their RA marks (in the covers' corners) - its top is at
+  // 849 px with its three lines (every label, English and Spanish), 819 px with four -, above the hints' line (972 px);
+  // it fades out under the search keyboard and a side panel.
+  float tip_left = W;
+  if (list_system == static_cast<int>(SystemId::THREEDS) && info_alpha > 0.01f)
+  {
+    constexpr float RIGHT = W - 64.0f, BOTTOM = 962.0f, BOX_W = 400.0f, PAD = 14.0f, HEAD = 26.0f, SIZE = 25.0f,
+                    LINE = 30.0f;
+    std::string choice = Settings::Get("menu_buttons");
+    if (Controls::MenuButtonsFor(choice, SystemId::THREEDS).mask == (ORBIS_PAD_BUTTON_L3 | ORBIS_PAD_BUTTON_R3))
+      choice = "l3r3";
+    const Settings::Setting* setting = Settings::Find("menu_buttons");
+    const std::string keys = setting ? PS4Lang::T(Settings::LabelOf(*setting, choice)) : std::string("L3 + R3");
+    // (es.ini: "Open the menu with {} and choose Reset Game until it loads." - the buttons as the setting names them.)
+    auto lines_of = [this](ImFont* font, float size, const std::string& text) {
+      std::vector<std::string> lines;
+      std::stringstream wrapped(WrapText(font, size, PS4Lang::T(text), BOX_W - PAD * 2));
+      for (std::string line; std::getline(wrapped, line);)
+        lines.push_back(line);
+      return lines;
+    };
+    const auto head = lines_of(m_bold, HEAD, "A game doesn't load the first time?");
+    const auto body = lines_of(m_font, SIZE, "Open the menu with " + keys + " and choose Reset Game until it loads.");
+    const float top = BOTTOM - PAD * 2 - static_cast<float>(head.size() + body.size()) * LINE + (LINE - SIZE);
+    const bool light = theme.text != 0xFFFFFF;
+    const float tip_alpha = info_alpha * (1.0f - m_panel.slide);  // (under a side panel too, as the counter)
+    tip_left = RIGHT - BOX_W;
+    dl->AddRectFilled(ImVec2(tip_left, top), ImVec2(RIGHT, BOTTOM),
+                      light ? Rgba(0xFFFFFF, 0.6f * tip_alpha) : Rgba(0x000000, 0.4f * tip_alpha), 14.0f);
+    dl->AddRect(ImVec2(tip_left, top), ImVec2(RIGHT, BOTTOM), Rgba(theme.wave, 0.45f * tip_alpha), 14.0f, 0, 1.5f);
+    float y = top + PAD;
+    for (const std::string& line : head)
+    {
+      dl->AddText(m_bold, HEAD, ImVec2(tip_left + PAD, y - 1.0f), Rgba(theme.wave, tip_alpha), line.c_str());
+      y += LINE;
+    }
+    for (const std::string& line : body)
+    {
+      dl->AddText(m_font, SIZE, ImVec2(tip_left + PAD, y), Rgba(theme.text, 0.92f * tip_alpha), line.c_str());
+      y += LINE;
+    }
+  }
   // The title stays in view above the keyboard: the game found. (Two sizes only: every font size
   // drawn is one more set of glyphs in the font atlas.) Centred, unless that would put it over the
-  // console's box: then just right of it (and the line under it too).
-  const float left = box_right > 0.0f && k < 0.5f ? box_right + 24.0f : 80.0f, right = W - 80.0f;
+  // console's box: then just right of it (and the line under it too) - and left of the 3DS's tip (00.79).
+  const float left = box_right > 0.0f && k < 0.5f ? box_right + 24.0f : 80.0f;
+  const float right = tip_left < W && k < 0.5f ? tip_left - 24.0f : W - 80.0f;
   const Game& game = m_games[items[selected].game];
   const float title_size =
       k > 0.5f ? 34.0f : TextWidth(m_bold, 46, game.rom.title) > right - left - 40.0f ? 36.0f : 46.0f;
@@ -7179,6 +9300,8 @@ void Menu::Impl::DrawLibraryGames(ImDrawList* dl, float alpha, int c)
   info += "  -  " + PlayedText(game.played);
   if (!m_prefs.default_game.empty() && game.rom.path == m_prefs.default_game)
     info += "  -  Starts when EmuSuNi opens";
+  if (TextWidth(m_font, 26, info) > right - left)
+    info = Fit(m_font, 26, info, right - left);  // (only a line too long for the place between the boxes)
   const float iw = TextWidth(m_font, 26, info);
   Text(dl, m_font, 26, ImVec2(std::max(left, W * 0.5f - iw * 0.5f), 860), Rgba(theme.text, info_alpha * 0.72f), info);
   const float bw = 210.0f, bh = 62.0f, by = 908.0f;
@@ -7192,8 +9315,9 @@ void Menu::Impl::DrawLibraryGames(ImDrawList* dl, float alpha, int c)
   Text(dl, m_bold, 32, ImVec2(px + cw + 14, by + 12), Rgba(theme.text, info_alpha), "Play");
 }
 
-// The search keyboard: a field with what is typed and how many games match, and the keys. It
-// slides up from the bottom (both menu styles).
+// The keyboard (00.80, src/TextKeyboard.h): the search's - a field with what is typed and how many games match - or a
+// text asked for - its title and length, the field (a password as dots), the line under it -, then the keys. It slides
+// up from the bottom (both menu styles); a text asked for dims what is behind it.
 void Menu::Impl::DrawKeyboard(ImDrawList* dl, float dt)
 {
   Approach(m_keyboard_slide, m_keyboard ? 1.0f : 0.0f, 14.0f, dt);
@@ -7202,83 +9326,156 @@ void Menu::Impl::DrawKeyboard(ImDrawList* dl, float dt)
   const Theme& theme = CurrentTheme();
   const bool light = theme.text != 0xFFFFFF;
   const float a = std::min(1.0f, m_keyboard_slide * 1.5f);
-  constexpr float KEY_W = 96.0f, KEY_H = 50.0f, GAP = 8.0f, PAD = 20.0f, FIELD_H = 60.0f;
-  const float panel_w = KEY_COLUMNS * KEY_W + (KEY_COLUMNS - 1) * GAP + PAD * 2;
-  const float panel_h = PAD + FIELD_H + 14.0f + KEY_ROW_COUNT * KEY_H + (KEY_ROW_COUNT - 1) * GAP + PAD;
+  const bool search = m_board.GetMode() == TextKeyboard::Mode::Search;
+  constexpr float KEY_W = 96.0f, KEY_H = 50.0f, GAP = 8.0f, PAD = 20.0f, FIELD_H = 60.0f, TITLE_H = 46.0f,
+                  HINT_H = 36.0f;
+  const int rows = m_board.Rows();
+  const float panel_w = TextKeyboard::COLUMNS * KEY_W + (TextKeyboard::COLUMNS - 1) * GAP + PAD * 2;
+  const float panel_h = PAD + (search ? 0.0f : TITLE_H) + FIELD_H + (search ? 0.0f : HINT_H) + 14.0f +
+                        static_cast<float>(rows) * KEY_H + static_cast<float>(rows - 1) * GAP + PAD;
   const float bottom = H - 112.0f;  // above the hints
   const float x0 = W * 0.5f - panel_w * 0.5f;
   const float y0 = H + (bottom - panel_h - H) * m_keyboard_slide;
+  if (!search)
+    dl->AddRectFilled(ImVec2(0, 0), ImVec2(W, H), Rgba(0x000000, 0.45f * a));
   dl->AddRectFilled(ImVec2(x0, y0), ImVec2(x0 + panel_w, y0 + panel_h),
                     light ? Rgba(0xFFFFFF, 0.94f * a) : Rgba(0x0B0A14, 0.90f * a), 22.0f);
   dl->AddRect(ImVec2(x0, y0), ImVec2(x0 + panel_w, y0 + panel_h), Rgba(theme.wave, 0.9f * a), 22.0f, 0, 2.5f);
 
-  // The field: a magnifying glass, the text (as typed, not translated) and a blinking cursor.
-  const ImVec2 f0(x0 + PAD, y0 + PAD), f1(x0 + panel_w - PAD, y0 + PAD + FIELD_H);
+  // A text asked for: its title, and its length of how many characters at most.
+  float top = y0 + PAD;
+  if (!search)
+  {
+    Text(dl, m_bold, 30, ImVec2(x0 + PAD + 6, top + 2), Rgba(theme.wave, a), m_ask_title, false);
+    char length[32];
+    snprintf(length, sizeof(length), "%zu / %zu", m_board.Length(), m_board.Max());
+    const float lw = m_font->CalcTextSizeA(26, FLT_MAX, 0.0f, length).x;
+    dl->AddText(m_font, 26, ImVec2(x0 + panel_w - PAD - 6 - lw, top + 6), Rgba(theme.text, 0.6f * a), length);
+    top += TITLE_H;
+  }
+
+  // The field: the search's magnifying glass, the text (as typed, never translated; its end in view when it's longer
+  // than the field) and a blinking cursor; the search's games found at its right.
+  const ImVec2 f0(x0 + PAD, top), f1(x0 + panel_w - PAD, top + FIELD_H);
   dl->AddRectFilled(f0, f1, light ? Rgba(0x000000, 0.08f * a) : Rgba(0x000000, 0.45f * a), 12.0f);
   dl->AddRect(f0, f1, Rgba(theme.wave, 0.6f * a), 12.0f, 0, 1.5f);
-  const ImVec2 mc(f0.x + 34, f0.y + FIELD_H * 0.5f - 4);
-  dl->AddCircle(mc, 12.0f, Rgba(theme.text, 0.85f * a), 20, 3.0f);
-  dl->AddLine(ImVec2(mc.x + 9, mc.y + 9), ImVec2(mc.x + 19, mc.y + 19), Rgba(theme.text, 0.85f * a), 4.0f);
-  const float tx = f0.x + 66;
-  float cursor_x = tx;
-  const std::string& typed = m_keyboard_ask ? m_ask_text : m_search;
-  if (typed.empty())
+  float tx = f0.x + 22.0f;
+  std::string found;
+  if (search)
   {
-    Text(dl, m_font, 30, ImVec2(tx, f0.y + 13), Rgba(theme.text, 0.45f * a),
-         m_keyboard_ask ? m_ask_title : std::string("Type a game's name"), false);
+    const ImVec2 mc(f0.x + 34, f0.y + FIELD_H * 0.5f - 4);
+    dl->AddCircle(mc, 12.0f, Rgba(theme.text, 0.85f * a), 20, 3.0f);
+    dl->AddLine(ImVec2(mc.x + 9, mc.y + 9), ImVec2(mc.x + 19, mc.y + 19), Rgba(theme.text, 0.85f * a), 4.0f);
+    tx = f0.x + 66;
+    if (!m_search.empty())
+    {
+      const auto& items = m_items[IsGameList(m_category) ? m_category : static_cast<int>(Category::Games)];
+      const int count = !items.empty() && items[0].game >= 0 ? static_cast<int>(items.size()) : 0;
+      found = std::to_string(count) + (count == 1 ? " game" : " games");
+    }
   }
-  else
+  auto width = [this](const std::string& text) { return m_bold->CalcTextSizeA(36, FLT_MAX, 0.0f, text.c_str()).x; };
+  std::string typed = search ? m_search : m_board.Display();
+  const float room = f1.x - 24.0f - tx - (found.empty() ? 0.0f : TextWidth(m_bold, 28, found) + 24.0f);
+  const float dots_w = width("...");
+  bool cut = false;
+  while (!typed.empty() && width(typed) > room - (cut ? dots_w : 0.0f))
   {
-    dl->AddText(m_bold, 36, ImVec2(tx, f0.y + 10), Rgba(theme.text, a), typed.c_str());
-    cursor_x += m_bold->CalcTextSizeA(36, FLT_MAX, 0.0f, typed.c_str()).x;
+    typed.erase(0, std::min(typed.size(), TextKeyboard::CharBytes(static_cast<unsigned char>(typed[0]))));
+    cut = true;
+  }
+  float cursor_x = tx;
+  if (typed.empty() && search)
+  {
+    Text(dl, m_font, 30, ImVec2(tx, f0.y + 13), Rgba(theme.text, 0.45f * a), "Type a game's name", false);
+  }
+  else if (!typed.empty())
+  {
+    if (cut)
+    {
+      dl->AddText(m_bold, 36, ImVec2(tx, f0.y + 10), Rgba(theme.text, 0.5f * a), "...");
+      cursor_x += dots_w;
+    }
+    dl->AddText(m_bold, 36, ImVec2(cursor_x, f0.y + 10), Rgba(theme.text, a), typed.c_str());
+    cursor_x += width(typed);
   }
   if (std::fmod(m_time, 1.0f) < 0.6f)
     dl->AddRectFilled(ImVec2(cursor_x + 3, f0.y + 13), ImVec2(cursor_x + 6, f1.y - 13), Rgba(theme.wave, a));
-  if (m_keyboard_ask)
+  if (!found.empty())
   {
-    const float fw = TextWidth(m_bold, 28, m_ask_title);
-    Text(dl, m_bold, 28, ImVec2(f1.x - 24 - fw, f0.y + 15), Rgba(theme.wave, a), m_ask_title, false);
+    const float fw = TextWidth(m_bold, 28, found);
+    Text(dl, m_bold, 28, ImVec2(f1.x - 24 - fw, f0.y + 15), Rgba(theme.wave, a), found, false);
   }
-  else if (!m_search.empty())
+  // A text asked for: the line under the field (what it's for).
+  float ky = f1.y + 14.0f;
+  if (!search)
   {
-    const auto& items = m_items[IsGameList(m_category) ? m_category : static_cast<int>(Category::Games)];
-    const int found = !items.empty() && items[0].game >= 0 ? static_cast<int>(items.size()) : 0;
-    const std::string text = std::to_string(found) + (found == 1 ? " game" : " games");
-    const float fw = TextWidth(m_bold, 28, text);
-    Text(dl, m_bold, 28, ImVec2(f1.x - 24 - fw, f0.y + 15), Rgba(theme.wave, a), text, false);
+    if (!m_ask_hint.empty())
+    {
+      const std::string hint = Fit(m_font, 25, PS4Lang::T(m_ask_hint), panel_w - PAD * 2 - 12);
+      dl->AddText(m_font, 25, ImVec2(f0.x + 6, f1.y + 6), Rgba(theme.text, 0.72f * a), hint.c_str());
+    }
+    ky += HINT_H;
   }
 
-  // The keys; the wide ones show the button that does the same.
-  auto key = [&](float kx, float ky, float kw, const std::string& label, const char* glyph, bool selected) {
+  // The keys: the characters as Cross types them now (never translated); the wide ones with the button that does the
+  // same, Shift with its state (an arrow: hollow off, filled for the next letter, with a line under it for every one).
+  auto key = [&](float kx, float kw, const std::string& label, bool translate, const char* glyph, bool selected,
+                 float icon_w) {
     const ImVec2 k0(kx, ky), k1(kx + kw, ky + KEY_H);
     dl->AddRectFilled(k0, k1, selected ? Rgba(theme.wave, 0.9f * a) : Rgba(theme.text, 0.10f * a), 10.0f);
     if (selected)
       dl->AddRect(k0, k1, Rgba(0xFFFFFF, 0.9f * a), 10.0f, 0, 2.5f);
-    const float lw = TextWidth(m_bold, 28, label);
+    const std::string shown = translate ? PS4Lang::T(label) : label;
+    const float lw = m_bold->CalcTextSizeA(28, FLT_MAX, 0.0f, shown.c_str()).x;
     const float gw = glyph ? PS4Glyphs::Width(glyph, 30) + 10.0f : 0.0f;
-    const float lx = kx + kw * 0.5f - (lw + gw) * 0.5f;
-    Text(dl, m_bold, 28, ImVec2(lx, ky + 10), selected ? Rgba(0xFFFFFF, a) : Rgba(theme.text, 0.9f * a), label,
-         false);
+    const float lx = kx + kw * 0.5f - (icon_w + lw + gw) * 0.5f + icon_w;
+    dl->AddText(m_bold, 28, ImVec2(lx, ky + 10), selected ? Rgba(0xFFFFFF, a) : Rgba(theme.text, 0.9f * a),
+                shown.c_str());
     if (glyph)
       PS4Glyphs::Draw(dl, m_bold, glyph, lx + lw + 10.0f, ky + KEY_H * 0.5f, 30, a);
+    return lx;
   };
-  float ky = f1.y + 14.0f;
-  for (int row = 0; row < KEY_ROW_COUNT; row++, ky += KEY_H + GAP)
+  for (int row = 0; row < rows; row++, ky += KEY_H + GAP)
   {
-    if (row < KEY_ROW_COUNT - 1)
+    if (row < TextKeyboard::CHAR_ROWS)
     {
-      for (int col = 0; col < KEY_COLUMNS; col++)
-      {
-        key(x0 + PAD + col * (KEY_W + GAP), ky, KEY_W, std::string(1, KEY_ROWS[row][col]), nullptr,
-            row == m_key_row && col == m_key_col);
-      }
+      for (int col = 0; col < TextKeyboard::COLUMNS; col++)
+        key(x0 + PAD + col * (KEY_W + GAP), KEY_W, m_board.Char(row, col), false, nullptr,
+            m_board.IsSelected(row, col), 0.0f);
       continue;
     }
-    for (const WideKey& wide : WIDE_KEYS)
+    int count = 0;
+    const TextKeyboard::WideKey* keys = m_board.WideKeys(row, &count);
+    for (int i = 0; i < count; i++)
     {
-      const bool selected = row == m_key_row && WideKeyAt(m_key_col) == static_cast<int>(&wide - WIDE_KEYS);
-      key(x0 + PAD + wide.first * (KEY_W + GAP), ky, wide.span * KEY_W + (wide.span - 1) * GAP, wide.label,
-          wide.glyph, selected);
+      const TextKeyboard::WideKey& wide = keys[i];
+      const bool selected = m_board.IsSelected(row, wide.first);
+      const bool shift = wide.action == TextKeyboard::Action::Shift;
+      const float lx = key(x0 + PAD + wide.first * (KEY_W + GAP), wide.span * KEY_W + (wide.span - 1) * GAP,
+                           m_board.Label(wide), wide.action != TextKeyboard::Action::Page, wide.glyph, selected,
+                           shift ? 28.0f : 0.0f);
+      if (!shift)
+        continue;
+      const TextKeyboard::Caps caps = m_board.GetCaps();
+      const ImU32 color = selected                           ? Rgba(0xFFFFFF, a) :
+                          caps != TextKeyboard::Caps::Off ? Rgba(theme.wave, a) :
+                                                              Rgba(theme.text, 0.9f * a);
+      const float cx = lx - 18.0f, at = ky + 11.0f;
+      if (caps == TextKeyboard::Caps::Off)
+      {
+        const ImVec2 arrow[7] = {ImVec2(cx, at),          ImVec2(cx + 10, at + 11), ImVec2(cx + 5, at + 11),
+                                 ImVec2(cx + 5, at + 21), ImVec2(cx - 5, at + 21),  ImVec2(cx - 5, at + 11),
+                                 ImVec2(cx - 10, at + 11)};
+        dl->AddPolyline(arrow, 7, color, ImDrawFlags_Closed, 2.0f);
+      }
+      else
+      {
+        dl->AddTriangleFilled(ImVec2(cx, at), ImVec2(cx + 11, at + 12), ImVec2(cx - 11, at + 12), color);
+        dl->AddRectFilled(ImVec2(cx - 5, at + 11), ImVec2(cx + 5, at + 21), color);
+        if (caps == TextKeyboard::Caps::Lock)
+          dl->AddRectFilled(ImVec2(cx - 7, at + 24), ImVec2(cx + 7, at + 27), color);
+      }
     }
   }
 }
@@ -7465,15 +9662,19 @@ void Menu::Impl::DrawLibraryHints(ImDrawList* dl)
   };
   if (m_keyboard)
   {
-    left("D-Pad", "Move");
-    left("Cross", "Type");
-    x += PS4Glyphs::Draw(dl, m_bold, "L1", x, y, 36, 0.9f) + 8;
-    left("R1", "Browse Games");
-    right("R2", "Done");
-    right("L2", "Clear All");
-    right("Triangle", "Space");
-    right("Square", "Delete");
-    right("Circle", "Close");
+    // (00.80) The keyboard's buttons (src/TextKeyboard.h): the search's, or a text asked for.
+    for (const TextKeyboard::Hint& h : TextKeyboard::Hints(m_board.GetMode()))
+    {
+      if (h.right)
+        right(h.glyph, h.label);
+      else if (std::string(h.glyph) == "L1/R1")
+      {
+        x += PS4Glyphs::Draw(dl, m_bold, "L1", x, y, 36, 0.9f) + 8;
+        left("R1", h.label);
+      }
+      else
+        left(h.glyph, h.label);
+    }
     return;
   }
   const bool games = IsGameList(m_category);
@@ -7488,6 +9689,9 @@ void Menu::Impl::DrawLibraryHints(ImDrawList* dl)
   if (games)
   {
     right("Options", "Sort");
+    // (00.80) RetroAchievements' filter: with the marks on (not beside a search's Clear Search: no room).
+    if (m_ra_marks && m_search.empty())
+      right("Touchpad", "RA Filter");
     right("Square", "Refresh");
     right("R2", "Search");
     if (has_game)
@@ -7513,9 +9717,6 @@ bool Menu::Impl::Run(Library::Game* result)
   BuildItems();
   m_launch = -1;
   m_launch_time = 0.0f;
-#ifdef EMUSUNI_SATURN
-  m_saturn_test = false;
-#endif
   m_fade = 1.0f;
   m_panel = {};
   m_controls_open = false;
@@ -7549,6 +9750,17 @@ bool Menu::Impl::Run(Library::Game* result)
   // Box art: the missing covers are downloaded in the background when the app opens (as Dolphin
   // for PS4 gets GameTDB's), paused while a game runs.
   m_dl_pause = false;
+  m_rating_matcher.Pause(false);
+  Achievements::PauseLibrary(false);  // (00.77)
+  m_rating_download.Pause(false);
+  // Star ratings: LaunchBox's, downloaded in the background when there are none or they are 60 days old (once a
+  // session; Settings -> Star Ratings Off: never), paused while a game runs.
+  if (m_prefs.ratings && !m_rating_download_tried && Ratings::CopyOld(m_rating_copy))
+  {
+    Log(std::string("ratings: downloading LaunchBox's ratings in the background (") +
+        (m_rating_copy.there ? "the copy of " + m_rating_copy.date + " is 60 days old" : std::string("none yet")) + ")");
+    StartRatingsDownload();
+  }
   if (!m_dl_auto)
   {
     m_dl_auto = true;
@@ -7557,6 +9769,23 @@ bool Menu::Impl::Run(Library::Game* result)
       Log("covers: downloading the missing ones in the background");
       StartCoverDownload();
     }
+  }
+  // Game Bezels (00.80): nothing comes while a game runs; a download a cut stopped (the app closed, the connection
+  // lost) goes on in the background when the menu first opens.
+  m_bezel_download.Pause(false);
+  if (!m_bezel_resume_tried)
+  {
+    m_bezel_resume_tried = true;
+    const std::vector<std::string> pending = BezelProject::Downloader::Pending(m_data_dir);
+    if (!pending.empty() && !m_bezel_download.Busy())
+      StartBezelDownload(pending, true);
+  }
+  // Updates (00.73): what update.ini remembers, and the day's check of GitHub when one is due (its thread), when the
+  // menu first opens (not before a default game).
+  if (!m_update_started)
+  {
+    m_update_started = true;
+    Update::Start(m_data_dir, App::VERSION);
   }
   // The first start (no language chosen yet): the language list first, on the PS4's own language.
   {
@@ -7641,19 +9870,27 @@ bool Menu::Impl::Run(Library::Game* result)
       if (m_input.Poll(dt) != 0 && !touring)
         m_intro_time = std::max(m_intro_time, 2.1f);
     }
-    else if (m_asking)
-    {
-      UpdateAsk();  // the PS4's keyboard has the controller
-    }
     else if (!m_capture)
     {
       const uint32_t pad = m_input.Poll(dt);
+      m_repeated = touring ? 0u : m_input.Repeated();  // (the tour's presses are fresh ones)
       HandleInput((touring ? 0u : pad) | MenuButtons(tour.buttons));
     }
+    // (00.76) A console tab reached with L1 / R1 (held through the others): the drives' look once the tabs settle.
+    if (m_places_waiting && TabsSettled())
+    {
+      m_places_waiting = false;
+      if (IsGameList(m_category))
+        CheckPlaces(false);
+    }
     UpdateCovers();
+    UpdateRatings();
     UpdateCoverDownload();
+    UpdateBezelDownload();  // (Game Bezels, 00.80)
     UpdateCheatFinder();
+    UpdateAchievements(dt);  // (RetroAchievements, 00.73: the login as it goes, rc_client's waiting work)
     UpdateFind(dt);
+    UpdateUpdater();
     // Without Cover: the games whose covers were just saved leave the lists, each list keeping its
     // place (the next game without a cover). Not while a game's options are open: Cross there acts
     // on the selected item (HandleInput, "Game").
@@ -7684,19 +9921,15 @@ bool Menu::Impl::Run(Library::Game* result)
       picked = true;
       break;
     }
-#ifdef EMUSUNI_SATURN
-    if (m_saturn_test)
-    {
-      *result = SaturnTest::Entry();  // (main.cpp runs the test instead of a game)
-      picked = true;
-      break;
-    }
-#endif
   }
   m_input.Close();
   m_audio.Stop();
   ForgetStatePictures();
   m_dl_pause = true;
+  m_rating_matcher.Pause(true);  // (its games wait while a game runs, and the ratings' download)
+  Achievements::PauseLibrary(true);  // (the RetroAchievements marks' hashing too, 00.77)
+  m_rating_download.Pause(true);
+  m_bezel_download.Pause(true);  // (Game Bezels, 00.80: the file coming stops, its part kept for afterwards)
   if (m_find_thread.joinable())
   {
     {
@@ -7730,6 +9963,11 @@ void Menu::GameEnded(const std::string& error)
 bool Menu::DefaultGame(Library::Game* game)
 {
   return m_impl->DefaultGame(game);
+}
+
+bool Menu::FindGame(const std::string& path, Library::Game* game)
+{
+  return m_impl->FindGame(path, game);
 }
 
 ImFont* Menu::RegularFont() const

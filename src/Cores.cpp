@@ -78,6 +78,9 @@ DECLARE_CORE(azahar)
 #ifdef EMUSUNI_SATURN
 DECLARE_CORE(yabasanshiro)
 #endif
+#ifdef EMUSUNI_PCE
+DECLARE_CORE(beetle_pce)
+#endif
 
 namespace Cores
 {
@@ -112,5 +115,8 @@ const CoreApi AZAHAR = CORE_TABLE(azahar, "Azahar");
 #endif
 #ifdef EMUSUNI_SATURN
 const CoreApi YABASANSHIRO = CORE_TABLE(yabasanshiro, "YabaSanshiro");
+#endif
+#ifdef EMUSUNI_PCE
+const CoreApi BEETLE_PCE = CORE_TABLE(beetle_pce, "Beetle PCE Fast");
 #endif
 }  // namespace Cores

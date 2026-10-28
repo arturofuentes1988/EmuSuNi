@@ -110,10 +110,12 @@ bool GameBoyFamily(const System* system)
   return system && (system->id == SystemId::GB || system->id == SystemId::GBC);
 }
 
-// The PlayStation and the PSP: a .iso, .chd or .pbp can be either's.
+// The consoles of CD images: a .iso, .chd, .cue or .m3u can be the PlayStation's, the PSP's, the Dreamcast's or the
+// Saturn's.
 bool DiscFamily(const System* system)
 {
-  return system && (system->id == SystemId::PS1 || system->id == SystemId::PSP || system->id == SystemId::DC);
+  return system && (system->id == SystemId::PS1 || system->id == SystemId::PSP || system->id == SystemId::DC ||
+                    system->id == SystemId::SATURN);
 }
 
 // The files a list names, beside it unless their path is absolute: an .m3u's discs, a .cue's tracks
@@ -316,6 +318,109 @@ bool IsPspDisc(const std::string& path)
   return psp;
 }
 
+#ifdef EMUSUNI_SATURN
+// A Saturn disc: its first sector begins with "SEGA SEGASATURN " (at 0 in a 2048-byte image, at 16 in a raw 2352-byte
+// one): an .iso's, the first track of a .cue (its first FILE), the .mdf beside an .mds. A .chd is compressed: its
+// folder says (Roms/saturn).
+bool IsSaturnDisc(const std::string& path)
+{
+  std::string image = path;
+  if (HasExtension(path, {".cue"}))
+  {
+    const std::vector<std::string> tracks = ListedFiles(path);
+    if (tracks.empty())
+      return false;
+    image = tracks.front();
+  }
+  else if (HasExtension(path, {".mds"}))
+    image = std::filesystem::path(path).replace_extension(".mdf").string();
+  else if (!HasExtension(path, {".iso"}))
+    return false;
+  FILE* file = fopen(image.c_str(), "rb");
+  if (!file)
+    return false;
+  char b[32] = {};
+  const size_t got = fread(b, 1, sizeof(b), file);
+  fclose(file);
+  static const char SATURN[] = "SEGA SEGASATURN ";
+  return (got >= 16 && std::memcmp(b, SATURN, 16) == 0) || (got >= 32 && std::memcmp(b + 16, SATURN, 16) == 0);
+}
+#endif
+
+// A CD's data track by what the file holds (00.81: a PlayStation .bin left without its .cue - players' games didn't
+// show): data, an ISO 9660 volume descriptor ("\1CD001") in its sector 16 - at 16 * 2352 + 24 in a raw image (2352
+// bytes a sector, each beginning with the sync; Mode 2's user data after its 24 bytes of sync, header and subheader;
+// Mode 1's after 16), at 16 * 2048 in a cooked one (an ISO: the user data only); playstation, that descriptor's system
+// name is "PLAYSTATION" (every PlayStation disc's). A cartridge, a BIOS or a CD's audio track has neither.
+struct CdTrack
+{
+  bool data = false;
+  bool playstation = false;
+};
+CdTrack ReadCdTrack(const std::string& path)
+{
+  CdTrack track;
+  FILE* file = fopen(path.c_str(), "rb");
+  if (!file)
+    return track;
+  static const uint8_t SYNC[12] = {0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00};
+  uint8_t b[24] = {};
+  auto read_at = [&](uint64_t offset, size_t size) {
+    return fseeko(file, static_cast<off_t>(offset), SEEK_SET) == 0 && fread(b, 1, size, file) == size;
+  };
+  const bool raw = read_at(0, 12) && std::memcmp(b, SYNC, 12) == 0;
+  for (const uint64_t at : raw ? std::initializer_list<uint64_t>{16 * 2352 + 24, 16 * 2352 + 16} :
+                                 std::initializer_list<uint64_t>{16 * 2048})
+  {
+    // The descriptor's type (1), "CD001", its version; the system name at 8.
+    if (read_at(at, 6) && std::memcmp(b, "\1CD001", 6) == 0)
+    {
+      track.data = true;
+      track.playstation = read_at(at + 8, 11) && std::memcmp(b, "PLAYSTATION", 11) == 0;
+      break;
+    }
+  }
+  fclose(file);
+  return track;
+}
+
+// A CD track's number in a file's name as Redump writes it - "(Track 1)", "(Track 01)" - and the name without it
+// (base). 0: none.
+int TrackNumber(const std::string& name, std::string* base)
+{
+  const std::string lower = Lower(name);
+  const size_t open = lower.rfind("(track ");
+  if (open == std::string::npos)
+    return 0;
+  size_t at = open + 7;
+  while (at < lower.size() && std::isdigit(static_cast<unsigned char>(lower[at])))
+    at++;
+  if (at == open + 7 || at - (open + 7) > 2 || at >= lower.size() || lower[at] != ')')
+    return 0;
+  const size_t from = open > 0 && name[open - 1] == ' ' ? open - 1 : open;
+  *base = name.substr(0, from) + name.substr(at + 1);
+  while (!base->empty() && base->back() == ' ')
+    base->pop_back();
+  return std::atoi(lower.c_str() + open + 7);
+}
+
+// The files the .cue files in a folder name (their tracks), in lower case: the .bin files that aren't games of their
+// own. (A PlayStation .bin is a game only when no .cue names it: 00.81.)
+std::set<std::string> CueTracks(const std::filesystem::path& folder)
+{
+  std::set<std::string> tracks;
+  std::error_code ec;
+  for (std::filesystem::directory_iterator it(folder, ec), end; !ec && it != end; it.increment(ec))
+  {
+    const std::string path = it->path().string();
+    if (!HasExtension(path, {".cue"}))
+      continue;
+    for (const std::string& track : ListedFiles(path))
+      tracks.insert(Lower(std::filesystem::path(track).lexically_normal().string()));
+  }
+  return tracks;
+}
+
 // Is the file one of the console's games (a ROM, or a .zip with one inside; without open_zips,
 // any .zip)? Without open_zips (the console's folder is its own) a Game Boy game in the Game Boy
 // Color's folder is the Game Boy Color's, and the other way round: the folder says where it goes.
@@ -350,19 +455,44 @@ bool IsGameOf(const std::filesystem::path& path, const System& system, bool open
   }
   if (HasExtension(name, {".zip"}))
     return !system.by_path && (!open_zips || SystemOfZip(path.string()) == &system);  // no zipped CDs
+  // A PlayStation disc's .bin without its .cue (00.81: two players' games didn't show; the core reads it as one data
+  // track, its sector size from what it holds): a CD's data track; in a folder another console shares, a PlayStation
+  // disc's (its volume's system name). Not a BIOS, a CD's audio track or a cartridge. (One a .cue names is that
+  // .cue's track: ScanFolder leaves it out before this.)
+  if (system.id == SystemId::PS1 && HasExtension(name, {".bin"}))
+  {
+    const CdTrack track = ReadCdTrack(path.string());
+    return track.data && (!open_zips || track.playstation);
+  }
+  // (00.82) A PC Engine CD System Card (syscard3.pce, gexpress.pce, a "[BIOS] ..." one) is no HuCard game (00.82's
+  // players were told to put theirs beside the HuCards, in Roms/pce; the PC Engine CD is gone in 00.83).
+  if (system.id == SystemId::PCE)
+  {
+    const std::string lower = Lower(name);
+    if (lower.rfind("syscard", 0) == 0 || lower.rfind("gexpress", 0) == 0 || lower.find("[bios]") != std::string::npos)
+      return false;
+  }
+  // ...and a CD's data track is no Genesis cartridge in a folder they share with the PlayStation.
+  if (system.id == SystemId::MD && open_zips && HasSystem(SystemId::PS1) &&
+      HasExtension(name, {".bin"}) && ReadCdTrack(path.string()).data)
+    return false;
   const System* of = SystemOfFile(name);
   if (DiscFamily(of) && DiscFamily(&system) && HasOwnExtension(system, name))
   {
-    // A disc image's extension of two or three of the PlayStation, the PSP and the Dreamcast: in a
+    // A disc image's extension of two or more of the PlayStation, the PSP, the Dreamcast and the Saturn: in a
     // console's own folder it is that console's; in a shared one what is inside it says.
     int owners = 0;
-    for (SystemId id : {SystemId::PS1, SystemId::PSP, SystemId::DC})
+    for (SystemId id : {SystemId::PS1, SystemId::PSP, SystemId::DC, SystemId::SATURN})
       owners += HasSystem(id) && HasOwnExtension(GetSystem(id), name) ? 1 : 0;
     if (owners < 2 || !open_zips)
       return true;
-    const SystemId disc = HasSystem(SystemId::DC) && IsDreamcastDisc(path.string()) ? SystemId::DC :
-                          HasSystem(SystemId::PSP) && IsPspDisc(path.string())    ? SystemId::PSP :
-                                                                                    SystemId::PS1;
+    SystemId disc = HasSystem(SystemId::DC) && IsDreamcastDisc(path.string()) ? SystemId::DC :
+                    HasSystem(SystemId::PSP) && IsPspDisc(path.string())    ? SystemId::PSP :
+                                                                              SystemId::PS1;
+#ifdef EMUSUNI_SATURN
+    if (disc == SystemId::PS1 && IsSaturnDisc(path.string()))
+      disc = SystemId::SATURN;
+#endif
     return disc == system.id;
   }
   return of == &system || (!open_zips && GameBoyFamily(of) && GameBoyFamily(&system));
@@ -471,6 +601,11 @@ void ScanFolder(const std::filesystem::path& folder, int depth, const System& sy
   // A CD's .cue or .gdi here: its tracks aren't cartridges (below), for a console of .bin files.
   const bool bin = !system.by_path && HasOwnExtension(system, ".bin");
   std::vector<std::string> lists;
+  // The PlayStation's: the .bin files the .cue files here name, which aren't games of their own (00.81: a .bin no .cue
+  // names is one). Without reading a .cue for the usual names - "Name.bin" or "Name (Track N).bin" beside "Name.cue"
+  // (the folder's .cue names, listed at its first .bin) -; the .cue files read only for another .bin (once).
+  bool cue_names_listed = false, cue_tracks_read = false;
+  std::set<std::string> cue_names, cue_tracks;
   std::error_code ec;
   // (Not a range-for: its ++ throws when the drive goes away during the scan; increment(ec) just stops.)
   for (std::filesystem::directory_iterator it(folder, ec), end; !ec && it != end; it.increment(ec))
@@ -491,6 +626,29 @@ void ScanFolder(const std::filesystem::path& folder, int depth, const System& sy
     }
     if (bin && HasExtension(name, {".cue", ".gdi"}))
       lists.push_back(entry.path().string());
+    if (system.id == SystemId::PS1 && HasExtension(name, {".bin"}))
+    {
+      if (!cue_names_listed)
+      {
+        std::error_code list_error;
+        for (std::filesystem::directory_iterator cue(folder, list_error), stop; !list_error && cue != stop;
+             cue.increment(list_error))
+        {
+          if (HasExtension(cue->path().filename().string(), {".cue"}))
+            cue_names.insert(Lower(cue->path().stem().string()));
+        }
+        cue_names_listed = true;
+      }
+      const std::string stem = Lower(entry.path().stem().string());
+      std::string untracked;
+      if (cue_names.count(stem) > 0 || (TrackNumber(stem, &untracked) > 0 && cue_names.count(untracked) > 0))
+        continue;
+      if (!cue_tracks_read && !cue_names.empty())
+        cue_tracks = CueTracks(folder);
+      cue_tracks_read = true;
+      if (cue_tracks.count(Lower(entry.path().lexically_normal().string())) > 0)
+        continue;
+    }
     if (!IsGameOf(entry.path(), system, open_zips))
       continue;
     Game game;
@@ -507,6 +665,12 @@ void ScanFolder(const std::filesystem::path& folder, int depth, const System& sy
       FolderName(folder, depth, stem_disc, &owner, &disc);
       game.id = disc > 0 ? owner + " (Disc " + std::to_string(disc) + ")" : owner;
     }
+    // A PlayStation disc's first track without its .cue (00.81): named as the disc ("Tekken 3 (USA)", not "... (Track
+    // 1)"): the same key, saves and cover as with its .cue.
+    std::string untracked;
+    if (system.id == SystemId::PS1 && HasExtension(name, {".bin"}) && TrackNumber(game.id, &untracked) == 1 &&
+        !untracked.empty())
+      game.id = untracked;
     game.system = system.id;
     game.key = system.prefix + game.id;
     std::error_code size_error;
@@ -622,6 +786,11 @@ void GroupDiscs(const System& system, const std::string& root, std::vector<Game>
     const std::filesystem::path folder = path.parent_path();
     std::string base, folder_base;
     int number = DiscNumber(path.stem().string(), &base);
+    // (A PlayStation disc's first track without its .cue, "X (Disc 1) (Track 1).bin": the game is "X".)
+    std::string untracked;
+    if (number > 0 && system.id == SystemId::PS1 && HasExtension(path.string(), {".bin"}) &&
+        TrackNumber(base, &untracked) == 1 && !untracked.empty())
+      base = untracked;
     const bool alone = in_folder[folder.string()] == 1;
     const int folder_number = alone ? DiscNumber(folder.filename().string(), &folder_base) : 0;
     const int bare_number = alone && folder_number == 0 ? BareDiscLabel(folder.filename().string()) : 0;
@@ -854,7 +1023,18 @@ std::vector<std::string> GameFiles(const Game& game)
   std::vector<std::string> own;
   for (const std::string& file : game.discs.size() > 1 ? game.discs : std::vector<std::string>{game.path})
     own.push_back(std::filesystem::path(file).lexically_normal().string());
-  const std::vector<std::string> reach = NamedFiles(own);
+  // A PlayStation disc's tracks without their .cue (00.81): the other tracks beside its first one are its files too.
+  std::vector<std::string> start = own;
+  if (game.system == SystemId::PS1)
+  {
+    for (const std::string& file : own)
+    {
+      const std::vector<std::string> tracks = LoneTracks(file);
+      for (size_t i = 1; i < tracks.size(); i++)
+        start.push_back(std::filesystem::path(tracks[i]).lexically_normal().string());
+    }
+  }
+  const std::vector<std::string> reach = NamedFiles(start);
   // The other lists beside them (another game's .cue of the same .bin): what they name stays.
   std::set<std::string> folders;
   for (const std::string& file : reach)
@@ -881,6 +1061,33 @@ std::vector<std::string> GameFiles(const Game& game)
   return files;
 }
 
+std::vector<std::string> LoneTracks(const std::string& path)
+{
+  const std::filesystem::path file(path);
+  std::string base;
+  if (!HasExtension(path, {".bin"}) || TrackNumber(file.stem().string(), &base) != 1 || base.empty())
+    return {};
+  // The folder's files by their names in lower case (the USB drive's exFAT doesn't tell the letters' case apart).
+  std::map<std::string, std::string> files;
+  std::error_code ec;
+  for (std::filesystem::directory_iterator it(file.parent_path(), ec), end; !ec && it != end; it.increment(ec))
+    files[Lower(it->path().filename().string())] = it->path().string();
+  const bool two_digits = Lower(file.stem().string()).find("(track 01)") != std::string::npos;
+  std::vector<std::string> tracks = {path};
+  for (int number = 2; number < 100; number++)
+  {
+    char text[8];
+    std::snprintf(text, sizeof(text), two_digits ? "%02d" : "%d", number);
+    const auto found = files.find(Lower(base + " (Track " + text + ").bin"));
+    if (found == files.end())
+      break;
+    tracks.push_back(found->second);
+  }
+  if (tracks.size() < 2)
+    tracks.clear();
+  return tracks;
+}
+
 std::vector<Game> Scan(const std::string& folder, SystemId system, bool open_zips)
 {
   std::vector<Game> games;
@@ -898,11 +1105,16 @@ int CountGames(const std::string& folder, SystemId system)
 {
   int count = 0;
   std::error_code ec;
+  // (A PlayStation .bin a .cue here names is that .cue's track, not a game: 00.81.)
+  const std::set<std::string> cue_tracks =
+      system == SystemId::PS1 ? CueTracks(std::filesystem::path(folder)) : std::set<std::string>();
   for (std::filesystem::directory_iterator it(folder, ec), end; !ec && it != end; it.increment(ec))
   {
     const std::filesystem::directory_entry& entry = *it;
     std::error_code type_error;
     const System& console = GetSystem(system);
+    if (cue_tracks.count(Lower(entry.path().lexically_normal().string())) > 0)
+      continue;
     if (!entry.is_directory(type_error) &&
         (IsGameOf(entry.path(), console) ||
          (GameBoyFamily(&console) && GameBoyFamily(SystemOfFile(entry.path().filename().string())))))

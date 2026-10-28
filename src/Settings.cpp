@@ -26,26 +26,39 @@ namespace
       {"wood", "Wood Panel", "Dark wood and black ribs, as on the consoles of the 1970s."},                          \
       {"carbon", "Carbon", "Carbon fibre with a brushed metal edge."},                                              \
       {"stars", "Starfield", "Deep space: stars and a faint nebula."}
+// (00.80) The game's own bezel from The Bezel Project (src/BezelProject.h: Settings -> Game Bezels downloads them;
+// Emulator.cpp BezelPath, LoadBezel), on every console it has bezels for: all but the PSP.
+#define EMUSUNI_GAME_BEZEL                                                                                           \
+  {"game", "Per Game (The Bezel Project)",                                                                          \
+   "The game's own bezel, made by The Bezel Project, once downloaded (Settings -> Game Bezels). A game without one, " \
+   "or a picture of another shape, shows the console's own."}
 // The categories and their order follow Dolphin for PS4 (Video, Graphics, Performance, System);
 // Emulation holds the consoles' own options. A setting for one console only says which (systems).
 const std::vector<Setting> SETTINGS = {
     // Video
-    // Four levels for every console but Flycast's (the Dreamcast, the NAOMI, the Atomiswave: one fixed level, Standard,
-    // Emulator.cpp BuildDcVariables) and the 3DS (its own resolution only, 1x: Build3dsVariables); their pages say so.
-    // The values: PRESETS; what a level is on one console's or game's page: QualityHelp (these choices' texts are for
-    // a list of every console's settings).
+    // Four levels for every console. Flycast's consoles (the Dreamcast, the NAOMI, the Atomiswave: one fixed level from
+    // 00.53 to 00.67) have them again since 00.68: their resolution and texture sharpness (Emulator.cpp
+    // BuildDcVariables), since 00.69 the GPU Upscaler too (Ultra sharpened). The 3DS (its own resolution only, 1x, from
+    // 00.64 to 00.70) has them again since 00.71: 3DS Resolution and the GPU Upscaler, as the other 3D consoles. The
+    // values: PRESETS; what a level is on one console's or game's page: QualityHelp (these choices' texts are for a list
+    // of every console's settings).
     {"quality", "Quality", "Video",
      {{"custom", "Custom Quality", "Your own choices (they match none of the four levels)."},
       {"low", "Low (fastest)",
-       "Each console's own resolution (the N64, the PlayStation, the PSP and the DS at 1x), no upscaler and no "
-       "filters."},
-      {"medium", "Medium (balanced)", "Smooth Edges; the N64, the PlayStation and the PSP at 2x."},
-      {"high", "High (sharpest)", "Natural HD; the N64 and the PlayStation at 4x, the PSP at 3x."},
-      {"ultra", "Ultra (maximum)", "Natural AI; the N64, the PlayStation and the PSP at 4x."}},
+       "Each console's own resolution (the N64, the PlayStation, the PSP, the DS, the 3DS and the Dreamcast at 1x), "
+       "no upscaler and no filters."},
+      {"medium", "Medium (balanced)",
+       "Smooth Edges; the N64, the PlayStation, the PSP, the 3DS and the Dreamcast at 2x."},
+      {"high", "High (HD)",
+       "Pixel Art HD (the 3D consoles: Smooth Edges); the N64 at 4x, the PlayStation, the PSP, the 3DS and the "
+       "Dreamcast at 3x."},
+      {"ultra", "Ultra (maximum)",
+       "AI (the 3D consoles: sharpened, Natural HD); the N64, the PlayStation, the PSP and the 3DS at 4x, the "
+       "Dreamcast at 3x with the sharpest textures."}},
      "custom", true,
      "The picture in one choice: Low is the console's own; each level above is sharper and more work for the PS4. "
      "Changing one of its settings makes it Custom.",
-     FOR_ALL & ~FOR_FLYCAST & ~FOR_3DS},
+     FOR_ALL},
     {"n64_resolution", "N64 Resolution", "Video",
      {{"1", "Native (240p)", "The N64's own picture: the smoothest."},
       {"2", "2x (480p)", "Twice the size: sharper 3D; heavy scenes can slow down."},
@@ -67,36 +80,66 @@ const std::vector<Setting> SETTINGS = {
      "auto", true,
      "The picture's shape on the TV. 4:3 is how the consoles looked on a TV; the Game Boys keep their "
      "screen's own shape; an arcade game has its board's (a vertical game stands upright)."},
-    {"nds_layout", "DS Screens", "Video",
-     {{"side", "Side by Side",
-       "Both screens the same size, next to each other: the touch screen on the right (R3 swaps them)."},
-      {"big", "Big Screen",
-       "One screen fills the TV (16:9), the other one small beside it: the top screen big (R3: the touch "
-       "screen)."},
-      {"stack", "One Above the Other", "As on the DS: the top screen over the touch screen (R3 swaps them)."},
-      {"single", "One Screen",
-       "Only one screen, as big as the TV allows: the top screen (R3: the touch screen). The touchpad still "
-       "touches the touch screen."}},
-     "side", true,
-     "How the two screens are shown. R3 swaps them. The DualShock 4's touchpad is always the touch screen.",
-     FOR_NDS},
-    // (One Above the Other first and the default since 00.64: the 3DS as it looks, the top screen over the touch
-    // screen.)
-    {"3ds_layout", "3DS Screens", "Video",
-     {{"stack", "One Above the Other", "As on the 3DS: the top screen over the touch screen (R3 swaps them)."},
-      {"side", "Side by Side",
-       "The top screen and the touch screen next to each other, as tall as the TV allows (R3 swaps them)."},
-      {"large", "Big Top Screen",
-       "The top screen big, the touch screen small at the bottom right (R3: the touch screen big)."},
-      {"top", "Top Screen Only",
-       "Only the top screen, as big as the TV allows. The touch screen isn't shown, so it can't be touched (R3: "
-       "the touch screen alone)."},
-      {"bottom", "Touch Screen Only",
-       "Only the touch screen, as big as the TV allows (R3: the top screen alone)."}},
-     "stack", true,
-     "How the two screens are shown. R3 swaps them. The DualShock 4's touchpad is the touch screen, wherever it "
-     "is shown.",
-     FOR_3DS},
+// The DS's and the 3DS's two screens (00.80, the owner: "dejar para ambas consolas las mismas opciones de
+// configuración del tamaño y lugar de las pantallas"): one set of settings, the same names, choices, order and texts on
+// both consoles (this macro), each console with values of its own (nds_*, 3ds_*: a DS game and a 3DS game can be shown
+// differently), drawn one way for both (src/DualScreens.h: the cores give their screens side by side, the app places
+// them, so the touchpad's place on the touch screen never changes). One Above the Other is the default for both - the
+// 3DS's since 00.64, the DS's since 00.80 (Side by Side before). Until 00.79 the DS had Side by Side, Big Screen ("big",
+// now Large Screen + Small at a third, on the right), One Above the Other and One Screen ("single", now Top Screen Only),
+// the 3DS Azahar's own layouts (its Big Top Screen a quarter, at the bottom right: Load's one-time change keeps that).
+// Every one is shown at once: the screens are placed by the app, the cores never change their picture.
+#define EMUSUNI_SCREEN_SETTINGS(PREFIX, SYSTEMS)                                                                       \
+  {PREFIX "layout", "Screen Layout", "Video",                                                                          \
+   {{"stack", "One Above the Other", "The top screen over the touch screen, as on the console."},                      \
+    {"side", "Side by Side", "The two screens next to each other, the top screen on the left."},                       \
+    {"large", "Large Screen + Small",                                                                                  \
+     "The top screen big, the touch screen small beside it or in a corner: Small Screen Size and Small Screen "        \
+     "Position say how."},                                                                                             \
+    {"top", "Top Screen Only",                                                                                         \
+     "Only the top screen, as big as the TV allows. The touchpad still touches the touch screen, unseen."},            \
+    {"bottom", "Touch Screen Only", "Only the touch screen, as big as the TV allows."}},                               \
+   "stack", true,                                                                                                      \
+   "How the two screens are shown. Swap Screens (or R3 in the game) trades their places. The DualShock 4's "           \
+   "touchpad is always the touch screen, wherever it is.",                                                             \
+   SYSTEMS},                                                                                                           \
+  {PREFIX "swap", "Swap Screens", "Video",                                                                             \
+   {{"off", "Off", "The top screen first: above, on the left or big."},                                                \
+    {"on", "On",                                                                                                       \
+     "The touch screen first: above, on the left or big (with one screen only, the other one is shown)."}},            \
+   "off", true, "Trades the two screens' places. R3 swaps them in the game too, for as long as it runs.",              \
+   SYSTEMS},                                                                                                           \
+  {PREFIX "small_size", "Small Screen Size", "Video",                                                                  \
+   {{"2", "Half (1/2)", "The small screen half the size of the big one."},                                             \
+    {"3", "A Third (1/3)", "The small screen a third of the size of the big one."},                                    \
+    {"4", "A Quarter (1/4)", "The small screen a quarter of the size of the big one."}},                               \
+   "3", true, "Large Screen + Small: how big the small screen is next to the big one.", SYSTEMS},                      \
+  {PREFIX "small_position", "Small Screen Position", "Video",                                                          \
+   {{"right", "Right", "Beside the big screen, on its right, in the middle."},                                         \
+    {"right_bottom", "Bottom Right", "On the big screen's right, in the bottom corner."},                              \
+    {"right_top", "Top Right", "On the big screen's right, in the top corner."},                                       \
+    {"left", "Left", "Beside the big screen, on its left, in the middle."},                                            \
+    {"left_bottom", "Bottom Left", "On the big screen's left, in the bottom corner."},                                 \
+    {"left_top", "Top Left", "On the big screen's left, in the top corner."},                                          \
+    {"below", "Below", "Under the big screen, in the middle."},                                                        \
+    {"above", "Above", "Over the big screen, in the middle."}},                                                        \
+   "right", true,                                                                                                      \
+   "Large Screen + Small: where the small screen goes, beside the big one - in the middle of a side, in a "            \
+   "corner, below or above it.",                                                                                       \
+   SYSTEMS},                                                                                                           \
+  {PREFIX "gap", "Gap Between Screens", "Video",                                                                       \
+   {{"none", "None", "The screens touch each other."},                                                                 \
+    {"thin", "Thin (1/16)", "A thin black line between them: a sixteenth of a screen's height."},                      \
+    {"small", "Small (1/8)", "A little black space between them: an eighth of a screen's height."},                    \
+    {"medium", "Medium (1/4)", "A quarter of a screen's height between them."},                                        \
+    {"large", "Large (1/2)", "Half a screen's height between them: about the DS's own hinge."}},                       \
+   "none", true,                                                                                                       \
+   "Black space between the two screens, as the hinge left between them on the console (not with one screen "          \
+   "only).",                                                                                                           \
+   SYSTEMS}
+    EMUSUNI_SCREEN_SETTINGS("nds_", FOR_NDS),
+    EMUSUNI_SCREEN_SETTINGS("3ds_", FOR_3DS),
+#undef EMUSUNI_SCREEN_SETTINGS
     {"ps1_widescreen", "PS1 Widescreen", "Video",
      {{"off", "Off (4:3)", "As the PlayStation drew it."},
       {"on", "On (16:9)", "The 3D drawn wider to fill a widescreen TV (the 2D and some games stay 4:3)."}},
@@ -106,22 +149,30 @@ const std::vector<Setting> SETTINGS = {
       {"2", "2x (544p)", "Twice the size: sharper 3D."},
       {"3", "3x (816p)", "Three times: for 720p TVs and up."},
       {"4", "4x (1088p)", "Four times: Full HD, the sharpest 3D."}},
-     "2", true, "The size the GPU draws PSP games at: real HD 3D, not an enlarged picture.", FOR_PSP},
+     "1", true, "The size the GPU draws PSP games at: real HD 3D, not an enlarged picture.", FOR_PSP},
+    // (Hidden from 00.53 to 00.67, the Dreamcast at 640x480 whatever the Quality; 00.68: the levels' 1x, 2x, 3x. No 4x:
+    // the PS4 shows a 1080p picture, and 2560x1920 made that small only shimmers more than 3x does.)
     {"dc_resolution", "Dreamcast Resolution", "Video",
-     {{"1", "Native (480p)", "The Dreamcast's own 640x480 picture."},
-      {"2", "2x (960p)", "Twice the size: sharper 3D."},
-      {"3", "3x (1440p)", "Three times: the sharpest on a 1080p TV (made smaller for it)."},
-      {"4", "4x (1920p)", "Four times: for 4K TVs (the most GPU time)."}},
-     "2", true, "The size the GPU draws Dreamcast games at: real HD 3D, not an enlarged picture.",
-     0 /* hidden: the Dreamcast plays at Low (Emulator.cpp BuildDcVariables) */},
+     {{"1", "Native (480p)", "The Dreamcast's own 640x480 picture: the lightest."},
+      {"2", "2x (960p)", "Twice the size (1280x960): sharper 3D."},
+      {"3", "3x (1440p)",
+       "Three times (1920x1440), made smaller for a 1080p TV: the sharpest 3D, the smoothest edges."}},
+     "1", false,
+     "The size the GPU draws Dreamcast, NAOMI and Atomiswave games at: real HD 3D, not an enlarged picture. The size "
+     "changes at the next start.",
+     FOR_FLYCAST},
+    // (Hidden from 00.64 to 00.70, the 3DS at 1x whatever the Quality; 00.71: the levels' 1x, 2x, 3x, 4x. A bigger size
+    // costs the emulation thread nothing - PC, Hey! Pikmin and Super Mario 3D Land at 1x to 4x: the same CPU time a
+    // frame - but a game that reads its picture back waits for the GPU's work, which grows with the size.)
     {"3ds_resolution", "3DS Resolution", "Video",
      {{"1", "Native (240p)", "The 3DS's own screens, 400x240 and 320x240: the lightest for the PS4."},
-      {"2", "2x (480p)", "Twice the size: sharper 3D, much more work for the GPU."},
-      {"3", "3x (720p)", "Three times the size: for 720p TVs, the most work for the GPU."}},
+      {"2", "2x (480p)", "Twice the size (800x480): sharper 3D."},
+      {"3", "3x (720p)", "Three times (1200x720): sharper 3D still."},
+      {"4", "4x (960p)", "Four times (1600x960, about Full HD): the sharpest 3D."}},
      "1", false,
-     "The size the GPU draws 3DS games at: real HD 3D, not an enlarged picture. Most 3D games already run slower "
-     "than the 3DS on the PS4: 2x and 3x are for the light ones.",
-     0 /* hidden since 00.64: the 3DS plays at its own resolution, 1x (Emulator.cpp Build3dsVariables) */},
+     "The size the GPU draws 3DS games at: real HD 3D, not an enlarged picture. A bigger size is more work for the "
+     "GPU only, but a game that reads its picture back (a few do, for effects) waits for it and can slow down.",
+     FOR_3DS},
     {"resolution", "Resolution", "Video",
      {{"1", "Native (224p)", "The console's own 256x224 picture, enlarged by the TV (the fastest)."},
       {"2", "2x (448p)", "Redrawn at 512x448 before it is fitted to the TV."},
@@ -155,112 +206,124 @@ const std::vector<Setting> SETTINGS = {
       {"sfc", "Super Famicom", "The Japanese console's light grey and its four colours."},
       {"purple", "Purple Stars", "Deep purple with pixel stars."},
       EMUSUNI_SHARED_FRAMES,
+      EMUSUNI_GAME_BEZEL,
       {"custom", "Your Own",
        "Your own 1920x1080 PNG, see-through where the game goes: /data/EmuSuNi/bezels/snes/ with the "
        "ROM's name (The Bezel Project's names), or bezels/snes.png for every game."}},
-     "off", true, "A frame over the sides of the TV, see-through where the game goes.", FOR_SNES},
+     "console", true, "A frame over the sides of the TV, see-through where the game goes.", FOR_SNES},
     {"nes_bezel", "Bezel", "Video",
      {{"off", "Off", "The picture alone, on black."},
       {"console", "NES", "The NES's light grey and black, with POWER and RESET."},
       {"famicom", "Famicom", "The Famicom's cream, dark red and gold, with the controller's D-pad and buttons."},
       {"black", "Black and Red", "Black with red lines and the controller's buttons."},
       EMUSUNI_SHARED_FRAMES,
+      EMUSUNI_GAME_BEZEL,
       {"custom", "Your Own",
        "Your own 1920x1080 PNG, see-through where the game goes: /data/EmuSuNi/bezels/nes/ with the "
        "ROM's name (The Bezel Project's names), or bezels/nes.png for every game."}},
-     "off", true, "A frame over the sides of the TV, see-through where the game goes.", FOR_NES},
+     "console", true, "A frame over the sides of the TV, see-through where the game goes.", FOR_NES},
     {"n64_bezel", "Bezel", "Video",
      {{"off", "Off", "The picture alone, on black."},
       {"console", "Nintendo 64", "Charcoal grey with the four colours and the stick."},
       {"colors", "Four Colours", "The four colours of the Nintendo 64's logo, as bands."},
       {"atomic", "Atomic Purple", "See-through purple, like the Atomic Purple console."},
       EMUSUNI_SHARED_FRAMES,
+      EMUSUNI_GAME_BEZEL,
       {"custom", "Your Own",
        "Your own 1920x1080 PNG, see-through where the game goes: /data/EmuSuNi/bezels/n64/ with the "
        "ROM's name (The Bezel Project's names), or bezels/n64.png for every game."}},
-     "off", true, "A frame over the sides of the TV, see-through where the game goes.", FOR_N64},
+     "console", true, "A frame over the sides of the TV, see-through where the game goes.", FOR_N64},
     {"gb_bezel", "Bezel", "Video",
      {{"off", "Off", "The picture alone, on black."},
       {"console", "Game Boy", "The first Game Boy's grey, its screen frame, the D-pad and the A and B buttons."},
       {"pocket", "Game Boy Pocket", "The Pocket's silver, slimmer frame and black buttons."},
       {"green", "Dot Matrix", "The green of the Game Boy's screen, with its dots."},
       EMUSUNI_SHARED_FRAMES,
+      EMUSUNI_GAME_BEZEL,
       {"custom", "Your Own",
        "Your own 1920x1080 PNG, see-through where the game goes: /data/EmuSuNi/bezels/gb/ with the "
        "ROM's name (The Bezel Project's names), or bezels/gb.png for every game."}},
-     "off", true, "The handheld around the picture, see-through where the game goes.", FOR_GB},
+     "console", true, "The handheld around the picture, see-through where the game goes.", FOR_GB},
     {"gbc_bezel", "Bezel", "Video",
      {{"off", "Off", "The picture alone, on black."},
       {"console", "Berry", "The Game Boy Color in berry, with COLOR in its five colours."},
       {"teal", "Teal", "The Game Boy Color in teal."},
       {"atomic", "Atomic Purple", "See-through purple, the insides showing."},
       EMUSUNI_SHARED_FRAMES,
+      EMUSUNI_GAME_BEZEL,
       {"custom", "Your Own",
        "Your own 1920x1080 PNG, see-through where the game goes: /data/EmuSuNi/bezels/gbc/ with the "
        "ROM's name (The Bezel Project's names), or bezels/gbc.png for every game."}},
-     "off", true, "The handheld around the picture, see-through where the game goes.", FOR_GBC},
+     "console", true, "The handheld around the picture, see-through where the game goes.", FOR_GBC},
     {"gba_bezel", "Bezel", "Video",
      {{"off", "Off", "The picture alone, on black."},
       {"console", "Indigo", "The Game Boy Advance in indigo, with L and R."},
       {"glacier", "Glacier", "See-through ice blue, the insides showing."},
       {"black", "Black", "A black Game Boy Advance with silver lines."},
       EMUSUNI_SHARED_FRAMES,
+      EMUSUNI_GAME_BEZEL,
       {"custom", "Your Own",
        "Your own 1920x1080 PNG, see-through where the game goes: /data/EmuSuNi/bezels/gba/ with the "
        "ROM's name (The Bezel Project's names), or bezels/gba.png for every game."}},
-     "off", true, "The handheld around the picture, see-through where the game goes.", FOR_GBA},
+     "console", true, "The handheld around the picture, see-through where the game goes.", FOR_GBA},
     {"ps1_bezel", "Bezel", "Video",
      {{"off", "Off", "The picture alone, on black."},
       {"console", "PlayStation", "The PlayStation's grey, with the four symbols and its disc lid."},
       {"psone", "PSone", "The PSone's white and silver, round and slim."},
       {"dark", "Midnight", "Black and deep blue, with the four symbols."},
       EMUSUNI_SHARED_FRAMES,
+      EMUSUNI_GAME_BEZEL,
       {"custom", "Your Own",
        "Your own 1920x1080 PNG, see-through where the game goes: /data/EmuSuNi/bezels/ps1/ with the "
        "ROM's name (The Bezel Project's names), or bezels/ps1.png for every game."}},
-     "off", true, "A frame over the sides of the TV, see-through where the game goes.", FOR_PS1},
+     "console", true, "A frame over the sides of the TV, see-through where the game goes.", FOR_PS1},
     // The Sega consoles (00.63: a design of their own each).
     {"sg1000_bezel", "Bezel", "Video",
      {{"off", "Off", "The picture alone, on black."},
       {"console", "SG-1000", "Black with red and white lines, the joystick and buttons 1 and 2."},
       EMUSUNI_SHARED_FRAMES,
+      EMUSUNI_GAME_BEZEL,
       {"custom", "Your Own",
        "Your own 1920x1080 PNG, see-through where the game goes: /data/EmuSuNi/bezels/sg1000/ with the "
        "ROM's name (The Bezel Project's names), or bezels/sg1000.png for every game."}},
-     "off", true, "A frame over the sides of the TV, see-through where the game goes.", FOR_SG1000},
+     "console", true, "A frame over the sides of the TV, see-through where the game goes.", FOR_SG1000},
     {"sms_bezel", "Bezel", "Video",
      {{"off", "Off", "The picture alone, on black."},
       {"console", "Master System", "Black with red lines and the ribs on top, the pad and buttons 1 and 2."},
       EMUSUNI_SHARED_FRAMES,
+      EMUSUNI_GAME_BEZEL,
       {"custom", "Your Own",
        "Your own 1920x1080 PNG, see-through where the game goes: /data/EmuSuNi/bezels/sms/ with the "
        "ROM's name (The Bezel Project's names), or bezels/sms.png for every game."}},
-     "off", true, "A frame over the sides of the TV, see-through where the game goes.", FOR_SMS},
+     "console", true, "A frame over the sides of the TV, see-through where the game goes.", FOR_SMS},
     {"gg_bezel", "Bezel", "Video",
      {{"off", "Off", "The picture alone, on black."},
       {"console", "Game Gear", "The handheld in black around its screen: the D-pad, START and buttons 1 and 2."},
       EMUSUNI_SHARED_FRAMES,
+      EMUSUNI_GAME_BEZEL,
       {"custom", "Your Own",
        "Your own 1920x1080 PNG, see-through where the game goes: /data/EmuSuNi/bezels/gg/ with the "
        "ROM's name (The Bezel Project's names), or bezels/gg.png for every game."}},
-     "off", true, "A frame over the sides of the TV, see-through where the game goes.", FOR_GG},
+     "console", true, "A frame over the sides of the TV, see-through where the game goes.", FOR_GG},
     {"md_bezel", "Bezel", "Video",
      {{"off", "Off", "The picture alone, on black."},
       {"console", "Genesis", "Black with the round grooves, the D-pad and the A, B and C buttons."},
       EMUSUNI_SHARED_FRAMES,
+      EMUSUNI_GAME_BEZEL,
       {"custom", "Your Own",
        "Your own 1920x1080 PNG, see-through where the game goes: /data/EmuSuNi/bezels/md/ with the "
        "ROM's name (The Bezel Project's names), or bezels/md.png for every game."}},
-     "off", true, "A frame over the sides of the TV, see-through where the game goes.", FOR_MD},
+     "console", true, "A frame over the sides of the TV, see-through where the game goes.", FOR_MD},
     // The Arcade: the shared frames (its own: the Arcade Cabinet), or the user's own (The Bezel Project names its
     // arcade bezels after the romsets, as the games' files are: mslug.png).
     {"arcade_bezel", "Bezel", "Video",
      {{"off", "Off", "The picture alone, on black."},
       EMUSUNI_SHARED_FRAMES,
+      EMUSUNI_GAME_BEZEL,
       {"custom", "Your Own",
        "Your own 1920x1080 PNG, see-through where the game goes: /data/EmuSuNi/bezels/arcade/ with the "
        "romset's name (The Bezel Project's names: mslug.png), or bezels/arcade.png for every game."}},
-     "off", true, "A frame over the sides of the TV, see-through where the game goes.", FOR_ARCADE},
+     "cabinet", true, "A frame over the sides of the TV, see-through where the game goes.", FOR_ARCADE},
     // 00.63: the PSP's, the DS's and the 3DS's (their pictures are wide: a frame makes them smaller, said in the help;
     // the DS's and the 3DS's have a window for each way their screens are shown), the Dreamcast's, the NAOMI's and the
     // Atomiswave's.
@@ -271,7 +334,7 @@ const std::vector<Setting> SETTINGS = {
       {"custom", "Your Own",
        "Your own 1920x1080 PNG, see-through where the game goes: /data/EmuSuNi/bezels/psp/ with the "
        "game's name, or bezels/psp.png for every game."}},
-     "off", true,
+     "console", true,
      "A frame around the picture, see-through where the game goes. The PSP's picture is as wide as the TV: in a frame "
      "it is made smaller (about 83%).",
      FOR_PSP},
@@ -279,10 +342,11 @@ const std::vector<Setting> SETTINGS = {
      {{"off", "Off", "The picture alone, on black."},
       {"console", "Nintendo DS", "The DS in white around its screens, made for each way DS Screens shows them."},
       EMUSUNI_SHARED_FRAMES,
+      EMUSUNI_GAME_BEZEL,
       {"custom", "Your Own",
        "Your own 1920x1080 PNG, see-through where the game goes: /data/EmuSuNi/bezels/nds/ with the "
        "game's name, or bezels/nds.png for every game."}},
-     "off", true,
+     "console", true,
      "A frame around the screens, see-through where they go. Side by side or with the big screen, the picture is made "
      "smaller to fit in it.",
      FOR_NDS},
@@ -290,10 +354,11 @@ const std::vector<Setting> SETTINGS = {
      {{"off", "Off", "The picture alone, on black."},
       {"console", "Nintendo 3DS", "The 3DS in aqua blue around its screens, made for each way 3DS Screens shows them."},
       EMUSUNI_SHARED_FRAMES,
+      EMUSUNI_GAME_BEZEL,
       {"custom", "Your Own",
        "Your own 1920x1080 PNG, see-through where the game goes: /data/EmuSuNi/bezels/3ds/ with the "
        "game's name, or bezels/3ds.png for every game."}},
-     "off", true,
+     "console", true,
      "A frame around the screens, see-through where they go. Side by side, with the big top screen or the top "
      "screen only, the picture is made smaller to fit in it.",
      FOR_3DS},
@@ -301,26 +366,49 @@ const std::vector<Setting> SETTINGS = {
      {{"off", "Off", "The picture alone, on black."},
       {"console", "Dreamcast", "The console's white, its round lid and the controller's four coloured buttons."},
       EMUSUNI_SHARED_FRAMES,
+      EMUSUNI_GAME_BEZEL,
       {"custom", "Your Own",
        "Your own 1920x1080 PNG, see-through where the game goes: /data/EmuSuNi/bezels/dc/ with the "
        "game's name, or bezels/dc.png for every game."}},
-     "off", true, "A frame over the sides of the TV, see-through where the game goes.", FOR_DC},
+     "console", true, "A frame over the sides of the TV, see-through where the game goes.", FOR_DC},
     {"naomi_bezel", "Bezel", "Video",
      {{"off", "Off", "The picture alone, on black."},
       {"console", "NAOMI Cabinet", "A white arcade cabinet with gold trim, its stick and six buttons."},
       EMUSUNI_SHARED_FRAMES,
+      EMUSUNI_GAME_BEZEL,
       {"custom", "Your Own",
        "Your own 1920x1080 PNG, see-through where the game goes: /data/EmuSuNi/bezels/naomi/ with the "
        "romset's name (mvsc2.png), or bezels/naomi.png for every game."}},
-     "off", true, "A frame over the sides of the TV, see-through where the game goes.", FOR_NAOMI},
+     "console", true, "A frame over the sides of the TV, see-through where the game goes.", FOR_NAOMI},
     {"atomiswave_bezel", "Bezel", "Video",
      {{"off", "Off", "The picture alone, on black."},
       {"console", "Atomiswave Cabinet", "A black arcade cabinet with green lights, its stick, buttons and cartridge."},
       EMUSUNI_SHARED_FRAMES,
+      EMUSUNI_GAME_BEZEL,
       {"custom", "Your Own",
        "Your own 1920x1080 PNG, see-through where the game goes: /data/EmuSuNi/bezels/atomiswave/ with the "
        "romset's name (kofxi.png), or bezels/atomiswave.png for every game."}},
-     "off", true, "A frame over the sides of the TV, see-through where the game goes.", FOR_ATOMISWAVE},
+     "console", true, "A frame over the sides of the TV, see-through where the game goes.", FOR_ATOMISWAVE},
+    // 00.69: the Saturn's own (scripts/make-bezels.py saturn-console; a build without the Saturn shows it nowhere).
+    {"saturn_bezel", "Bezel", "Video",
+     {{"off", "Off", "The picture alone, on black."},
+      {"console", "Saturn", "Charcoal black with the round lid, the pad's round D-pad and its six buttons."},
+      EMUSUNI_SHARED_FRAMES,
+      EMUSUNI_GAME_BEZEL,
+      {"custom", "Your Own",
+       "Your own 1920x1080 PNG, see-through where the game goes: /data/EmuSuNi/bezels/saturn/ with the "
+       "game's name, or bezels/saturn.png for every game."}},
+     "console", true, "A frame over the sides of the TV, see-through where the game goes.", FOR_SATURN},
+    // 00.82: the PC Engine's own (scripts/make-bezels.py pce-console).
+    {"pce_bezel", "Bezel", "Video",
+     {{"off", "Off", "The picture alone, on black."},
+      {"console", "PC Engine", "White, the HuCard in its slot and the orange line, the pad's II and I."},
+      EMUSUNI_SHARED_FRAMES,
+      EMUSUNI_GAME_BEZEL,
+      {"custom", "Your Own",
+       "Your own 1920x1080 PNG, see-through where the game goes: /data/EmuSuNi/bezels/pce/ with the "
+       "ROM's name, or bezels/pce.png for every game."}},
+     "console", true, "A frame over the sides of the TV, see-through where the game goes.", FOR_PCE},
     {"overscan", "Crop Overscan", "Video",
      {{"enabled", "On", "224 lines: the empty lines at the top and bottom are hidden."},
       {"disabled", "Off", "Every line (some games show a black stripe or glitches at the edges)."},
@@ -354,16 +442,19 @@ const std::vector<Setting> SETTINGS = {
        "pixels' shapes stay as they are. Light on the GPU. Quality Medium uses it."},
       {"natural", "Natural HD",
        "Smooth Edges, then drawn in HD at the TV's resolution and sharpened (AMD FSR): clearly sharper, "
-       "still natural, never painted. Quality High uses it."},
+       "still natural, never painted."},
       {"natural_ai", "Natural AI",
        "Natural HD's clean edges with an AI network (Anime4K) mixed into the picture, so textures and "
-       "dithering stay: the smoothest look without the waxy one. Quality Ultra uses it."},
+       "dithering stay: the smoothest look without the waxy one."},
+      // (00.69: the levels' High and Ultra, Quality's steps for pixel art; a 3D picture drawn by the GPU gets Smooth
+      // Edges and Natural HD from them, Emulator.cpp GpuMode.)
       {"pixel", "Pixel Art HD (xBRZ)",
-       "SNES and NES redrawn by the GPU at the TV's full resolution: rounded, clean edges without blur; "
-       "frees the CPU. The N64 gets Smooth HD."},
+       "Pixel art redrawn by the GPU at the TV's resolution: rounded, clean edges without blur. Quality High uses it; "
+       "a 3D picture drawn by the GPU gets Smooth Edges."},
       {"ai", "AI (Anime4K)",
-       "xBRZ, then a neural network (Anime4K) at full strength cleans every edge and curve: the "
-       "smoothest, most painted HD look for SNES, NES and the Game Boys. The N64 gets Smooth HD."},
+       "xBRZ, then a neural network (Anime4K) at full strength cleans every edge and curve: the smoothest HD look "
+       "for pixel art. Quality Ultra uses it; a 3D picture drawn by the GPU gets Natural HD (the network would only "
+       "make it smaller)."},
       {"fsr", "Smooth HD (AMD FSR)",
        "AMD FidelityFX Super Resolution: smooth upscaling with sharp edges, made for 3D (the N64 at "
        "Native and 2x; at 4x it sharpens)."},
@@ -373,7 +464,7 @@ const std::vector<Setting> SETTINGS = {
      "off", true,
      "Draws the picture with the GPU's filters at the TV's resolution. Every filter but HD Sharpen "
      "starts from the console's own picture: Resolution and the Upscaling Filter are left out.",
-     FOR_ALL & ~FOR_FLYCAST & ~FOR_3DS},
+     FOR_ALL /* Flycast's consoles too since 00.69 (a vertical NAOMI or Atomiswave game: none), the 3DS since 00.71 */},
     {"filter", "Texture Filtering", "Graphics",
      {{"sharp", "Sharp (nearest)", "Every pixel crisp (at Native some pixels can look wider than others)."},
       {"smooth", "Smooth (linear)", "Soft, blended pixels."}},
@@ -392,8 +483,8 @@ const std::vector<Setting> SETTINGS = {
     {"n64_2d", "N64 2D Graphics", "Graphics",
      {{"native", "Exact", "Text, icons and 2D backgrounds as the N64 drew them: blocky, without seams."},
       {"hd", "Smooth (HD)",
-       "Text, icons and 2D backgrounds at the N64 Resolution: smoother; some games show thin lines "
-       "between their pieces."}},
+       "Text, icons and 2D backgrounds at the N64 Resolution: smoother, but many games show lines or squares "
+       "where their pieces meet (Zelda's pre-drawn rooms, ISS 64's intro)."}},
      "native", true, "How the HUD, text and 2D pictures are drawn above Native resolution.", FOR_N64},
     {"n64_texture_lod", "N64 Distant Textures", "Graphics",
      {{"sharp", "Sharp (HD)", "Far textures as sharp as the N64 Resolution allows."},
@@ -431,7 +522,7 @@ const std::vector<Setting> SETTINGS = {
       {"4", "4x", "Sharper textures far away."},
       {"8", "8x", "Sharper still."},
       {"16", "16x", "The sharpest textures far away."}},
-     "16", true, "How sharp the textures of far, slanted surfaces stay (anisotropic filtering, on the GPU).",
+     "0", true, "How sharp the textures of far, slanted surfaces stay (anisotropic filtering, on the GPU).",
      FOR_PSP},
     {"psp_texture_shader", "PSP Texture Upscaling", "Graphics",
      {{"off", "Off", "The games' own textures."},
@@ -453,8 +544,10 @@ const std::vector<Setting> SETTINGS = {
       {"4", "4x", "Sharper textures far away."},
       {"8", "8x", "Sharper still."},
       {"16", "16x", "The sharpest textures far away."}},
-     "8", true, "How sharp the textures of far, slanted surfaces stay (anisotropic filtering, on the GPU).",
-     0 /* hidden: the Dreamcast plays at Low */},
+     "4", false,
+     "How sharp the textures of far, slanted surfaces stay (anisotropic filtering, on the GPU). It changes at the next "
+     "game start.",
+     FOR_FLYCAST},
     {"dc_sorting", "Dreamcast Transparency", "Graphics",
      {{"triangle", "Normal (per triangle)",
        "Transparent surfaces sorted per triangle: fast; a few games show some in the wrong order."},
@@ -462,7 +555,7 @@ const std::vector<Setting> SETTINGS = {
        "Sorted per pixel, as the Dreamcast did: heavier and about 0.5 GB of GPU memory. Experimental: on "
        "the PS4 the picture can come out in wrong colours (Crazy Taxi did)."}},
      "triangle", false, "How overlapping transparent surfaces (smoke, glass, water) are drawn.",
-     0 /* hidden: the Dreamcast plays at Low */},
+     0 /* hidden: per triangle at every Quality level (Emulator.cpp BuildDcVariables) */},
     {"psp_frame_rate", "PSP Frame Rate (God of War)", "Performance",
      {{"auto", "Auto", "60 FPS while the PS4 keeps up; 30 for the rest of the game once it can't (no slowdown)."},
       {"60", "60 FPS", "The smoothest; heavy fights slow the game down."},
@@ -470,12 +563,14 @@ const std::vector<Setting> SETTINGS = {
      "auto", true, "God of War's frame rate on the PS4 (the God of War games only; others keep theirs).", FOR_PSP},
     {"3ds_clock", "3DS CPU Clock", "Performance",
      {{"100", "100% (as the 3DS)", "The 3DS's own speed."},
-      {"75", "75%", "The game sees a slower 3DS: a quarter less work for the PS4 where the game keeps up."},
-      {"50", "50%", "The game sees a 3DS at half speed: half the work for the PS4, the games that need the speed "
-                    "slow down or stutter."}},
+      // (00.70: a lower clock only stretches the waits of a game that waits for its next picture - Hey! Pikmin and
+      // Super Mario 3D Land on the PC: the same work at 100, 75 and 50% - so the texts no longer promise less work.)
+      {"75", "75%", "The game sees a slower 3DS. Less work for the PS4 only in a game that keeps the processor busy "
+                    "without a break; most wait for their next picture and cost the same."},
+      {"50", "50%", "The game sees a 3DS at half speed: a game that needs the speed slows down or stutters."}},
      "100", true,
-     "How fast the emulated 3DS's processor runs. Lower is lighter for the PS4, which most 3D games need; a game may "
-     "freeze or slow down if it needs the speed.",
+     "How fast the emulated 3DS's processor runs. Most games wait for their next picture, so a lower clock seldom "
+     "saves the PS4 any work (none in the games tried); a game that needs the speed slows down or freezes.",
      FOR_3DS},
     // The Dreamcast's processor (Flycast's SH4 clock, Emulator.cpp BuildDcVariables: read as the game starts, the core
     // counts it into each block of code as it compiles it) and its sound DSP (off, as in Flycast's own default). The
@@ -534,7 +629,8 @@ const std::vector<Setting> SETTINGS = {
     {"sprite_flicker", "Reduce Sprite Flicker", "Graphics",
      {{"disabled", "Off", "As the console: sprites flicker when too many share a line."},
       {"enabled", "On", "More sprites per line than the console could: less flicker (a few games glitch)."}},
-     "disabled", true, "Draws more sprites per line than the console could (less flicker).", FOR_RETRO | FOR_SEGA},
+     "disabled", true, "Draws more sprites per line than the console could (less flicker).",
+     FOR_RETRO | FOR_SEGA | FOR_PCE},
     {"transparency", "Transparency Effects", "Graphics",
      {{"enabled", "On", "Water, shadows and fades as on the console."},
       {"disabled", "Off", "No colour math (to find graphic glitches)."}},
@@ -582,10 +678,12 @@ const std::vector<Setting> SETTINGS = {
       {"400", "400%", "Four times as fast (some scenes may run too fast)."}},
      "100", true, "Faster SuperFX chip: smoother Star Fox, Stunt Race FX, Yoshi's Island.", FOR_SNES},
     {"n64_sync", "N64 Graphics Sync", "Performance",
-     {{"fast", "Fast (asynchronous)", "The GPU draws while the N64 runs: much smoother on the PS4."},
+     {{"fast", "Fast (asynchronous)",
+       "The GPU draws while the N64 runs: much smoother on the PS4. Cruis'n USA, Resident Evil 2 and Ogre Battle 64 "
+       "play Accurate anyway (with Fast the first two stay on a black screen and Ogre Battle's backgrounds break)."},
       {"accurate", "Accurate (synchronous)",
        "The N64 waits for each picture: slower. For the few games whose effects read the screen back "
-       "(camera photos, some pause screens)."}},
+       "(camera photos, some pause screens), or a game that goes black with Fast."}},
      "fast", false, "Whether the N64 waits for the GPU's pictures (ParaLLEl-RDP's Synchronous RDP).", FOR_N64},
     {"n64_cores", "N64 CPU Cores", "Performance",
      {{"fixed", "Fixed", "Each N64 thread on a PS4 core of its own: the emulation on core 2, its graphics "
@@ -631,7 +729,7 @@ const std::vector<Setting> SETTINGS = {
       {"1", "1", "Draws every other frame."},
       {"2", "2", "Draws one frame in three."}},
      "off", true, "Skips drawing some frames when the PS4 can't keep up (the game keeps its speed).",
-     FOR_RETRO | FOR_PSP | FOR_NDS | FOR_FLYCAST | FOR_SEGA | FOR_ARCADE},
+     FOR_RETRO | FOR_PSP | FOR_NDS | FOR_FLYCAST | FOR_SEGA | FOR_ARCADE | FOR_PCE},
     {"frame_pacing", "N64 Frame Pacing", "Performance",
      {{"even", "Even (V-Sync)",
        "Each refresh shows the frame the game should be at when the TV shows it: PAL's 50 frames come out "
@@ -647,6 +745,13 @@ const std::vector<Setting> SETTINGS = {
       {"ntsc", "NTSC (60 Hz)", "As an American or Japanese console."},
       {"pal", "PAL (50 Hz)", "As a European console: the game and its music run slower."}},
      "auto", false, "Auto uses the game's own region.", FOR_RETRO | FOR_PS1 | FOR_SEGA},
+    // The PC Engine's pad (00.82): its two buttons, or NEC's six-button Avenue Pad 6 for the few games made for it
+    // (Beetle PCE Fast's pce_fast_default_joypad_type; its L2 switch between the two is left out of the app's pad).
+    {"pce_pad", "PC Engine Pad", "Emulation",
+     {{"2", "2 Buttons", "The usual pad: I and II, SELECT and RUN."},
+      {"6", "6 Buttons (Avenue Pad 6)",
+       "For the few games made for it (Street Fighter II'): III, IV, V, VI on Square, Triangle, L1 and R1."}},
+     "2", false, "The pad the PC Engine's games see: two buttons, or six for the games made for it.", FOR_PCE},
     {"block_vram", "Block Invalid VRAM Access", "Emulation",
      {{"enabled", "On", "As the console."}, {"disabled", "Off", "For hacks and translations that need it."}},
      "enabled", true, "As the console does. A few hacks and translations need Off.", FOR_SNES},
@@ -709,6 +814,31 @@ const std::vector<Setting> SETTINGS = {
      {{"auto", "Auto", "The DualShock, as the game asks for it (its left stick moves the D-pad in older games)."},
       {"analog", "DualShock (analog)", "The DualShock with its sticks on from the start."}},
      "auto", false, "The PlayStation pad the game sees.", FOR_PS1},
+    // The PSP's stick (00.68, GitHub issue #8: "the dead zone is far too large... pushed all the way, the character
+    // only walks"): PPSSPP's own dead zone and scale over the left stick (its values: the core's options, 0.15 and
+    // 1.00 until 00.68). A worn stick that doesn't reach the edge runs again with a bigger scale.
+    {"psp_deadzone", "PSP Stick Dead Zone", "Emulation",
+     {{"0.0", "0%", "Every movement of the stick counts (a worn stick may drift)."},
+      {"0.05", "5%", "Almost none."},
+      {"0.10", "10%", "Small."},
+      {"0.15", "15%", "The default."},
+      {"0.20", "20%", "Bigger: a drifting stick stays still."},
+      {"0.25", "25%", "Bigger still."},
+      {"0.30", "30%", "The biggest."}},
+     "0.15", true,
+     "How far the left stick moves before the PSP sees it move. The rest of the way is still all of the PSP's stick.",
+     FOR_PSP},
+    {"psp_sensitivity", "PSP Stick Sensitivity", "Emulation",
+     {{"1.00", "100%", "The stick as it is: the PSP's edge at the DualShock 4's."},
+      {"1.10", "110%", "The PSP's edge a little sooner."},
+      {"1.20", "120%", "Sooner: a game that only walks with the stick pushed all the way runs."},
+      {"1.30", "130%", "Sooner still."},
+      {"1.40", "140%", "Much sooner."},
+      {"1.50", "150%", "The most: the PSP's edge at about three quarters of the way."}},
+     "1.00", true,
+     "How much of the PSP's stick a push gives. Higher reaches its edge before the DualShock 4's stick does (for a "
+     "worn stick, or a game that wants it all the way).",
+     FOR_PSP},
     // The touchpad as the DS's and the 3DS's touch screen (src/Touchpad.h): "click", a trackpad (00.64; the finger put
     // the stylus where it landed until then), or "touch", the screen itself.
     {"nds_touch", "DS Touch Screen", "Emulation",
@@ -740,6 +870,40 @@ const std::vector<Setting> SETTINGS = {
      "off", false,
      "Which 3DS is emulated. A New 3DS-only game (Xenoblade Chronicles 3D) says so when it can't start with this Off; "
      "ZL, ZR and the C-stick are the New 3DS's.",
+     FOR_3DS},
+    // (00.81, the players: graphics errors in Pokémon X and Y, Majora's Mask 3D, Metroid: Samus Returns and Castlevania:
+    // Mirror of Fate.) Azahar's shaders_accurate_mul, Off for every game from 00.62 to 00.80 (upstream's default is On;
+    // its Android build has it Off, and there Pokémon X draws Froakie white until it is On: azahar issues #2583,
+    // #1445). Auto: On for the games of Emulator.cpp ThreedsAccurateMulGame (by title ID, every region).
+    {"3ds_accurate_mul", "Accurate Shader Multiplication", "Emulation",
+     {{"auto", "Auto",
+       "On in the games known to need it (the Pokémon games from X and Y to Ultra Sun and Ultra Moon, Majora's Mask "
+       "3D, Metroid: Samus Returns, Castlevania: Mirror of Fate), Off in the others."},
+      {"on", "On",
+       "Multiplies in the shaders exactly as the 3DS does: models, lights and effects drawn right. A little more work "
+       "for the GPU."},
+      {"off", "Off", "The faster multiplication: most games look the same with it."}},
+     "auto", false,
+     "How the GPU's shaders multiply: exactly as the 3DS does, or faster. Without it a few games draw white, too "
+     "bright or black models and effects. (Ocarina of Time 3D and the Mario & Luigi games always use it.)",
+     FOR_3DS},
+    // (00.81) Azahar's "Disable Right Eye Render", on for every game since 00.63 (scripts/build-3ds-core.sh: the PS4
+    // shows no 3D), breaks a few games: Majora's Mask 3D's intro stays black and its blur effects freeze the screen
+    // (azahar #791), Kingdom Hearts 3D and Pokémon Super Mystery Dungeon lose a screen (#1005). Auto: drawn for the
+    // games of Emulator.cpp ThreedsRightEyeGame; the file /data/EmuSuNi/3ds-right-eye still draws it in every game.
+    {"3ds_right_eye", "3DS Right Eye", "Emulation",
+     {{"auto", "Auto",
+       "Not drawn, but drawn in the games known to need it (Majora's Mask 3D, Kingdom Hearts 3D, Pokémon Super "
+       "Mystery Dungeon, Fire Emblem Warriors, Minecraft: New Nintendo 3DS Edition)."},
+      {"skip", "Not Drawn (faster)",
+       "The PS4 shows no 3D, so the right eye's picture is left out: less work in the games that draw both eyes."},
+      {"draw", "Drawn",
+       "As on the 3DS: for a game whose screen stays black, freezes on an effect or is out of place. Slower in the "
+       "games that draw both eyes."}},
+     "auto", false,
+     "3DS games draw a second picture for the 3D effect, the right eye's, which the PS4 never shows. Leaving it out "
+     "is faster (Super Mario 3D Land then draws half as much), but a few games show a black, frozen or misplaced "
+     "screen.",
      FOR_3DS},
     {"ps1_boot", "PS1 Boot Logo", "Emulation",
      {{"on", "On", "The PlayStation's start-up logo and sound (with its BIOS)."},
@@ -776,6 +940,29 @@ const std::vector<Setting> SETTINGS = {
      "The region of the NAOMI board the games run on (its BIOS, in naomi.zip). A game made only for another "
      "region runs on that one.", FOR_NAOMI},
     // System
+    // The in-game menu's buttons (00.68, GitHub issue #5), for every game: in Settings -> Controls and the in-game
+    // menu's Controls, not in the settings lists (Controls::MenuButtonsFor; L3 + R3 always open it too).
+    {"menu_buttons", "In-Game Menu", "System",
+     {{"l3r3", "L3 + R3", "Both sticks pressed at once."},
+      {"r3", "R3 (hold)",
+       "The right stick pressed for a second. A game that uses R3 sees it meanwhile; on the DS and the 3DS, R3 swaps "
+       "the screens when let go sooner."},
+      {"touchpad", "Touchpad (hold)",
+       "The touchpad pressed for a second (a game sees its SELECT meanwhile). On the DS and the 3DS, where it is the "
+       "touch screen: L3 + R3."},
+      {"options_touchpad", "Options + Touchpad",
+       "Both at once: START and SELECT on most consoles. On the DS and the 3DS: L3 + R3."},
+      // (00.69, the idea of pull request #14: both shoulder buttons or both triggers held a second, on every console.)
+      {"l1r1", "L1 + R1 (hold)",
+       "Both held for a second; the game sees them meanwhile (on the DS and the 3DS, its L and R). It can clash with a "
+       "game that holds both together."},
+      {"l2r2", "L2 + R2 (hold)",
+       "Both held for a second; the game sees them meanwhile. It can clash with a game that holds both together (a "
+       "racing game's L2 and R2), or with R2's Fast Forward."}},
+     "l3r3", true,
+     "The buttons that open the menu in a game; L3 + R3 always open it too. In the menu, Circle goes back to the game. "
+     "(The PS button is the PS4's own.)",
+     0},
     {"language", "Language", "System",
      {{"en", "English"},
       {"es", "Español"},
@@ -823,6 +1010,7 @@ const std::vector<Setting> SETTINGS = {
 };
 
 #undef EMUSUNI_SHARED_FRAMES
+#undef EMUSUNI_GAME_BEZEL
 
 const std::vector<const char*> CATEGORIES = {"Video", "Graphics", "Performance", "Emulation",
                                              "System"};
@@ -835,38 +1023,75 @@ struct Preset
   std::vector<std::pair<const char*, const char*>> values;
 };
 // Low is each console's own resolution with no upscaler and no filter (00.63: the PSP without anisotropic filtering,
-// its textures not upscaled). Above it the GPU Upscaler goes one step per level: Medium Smooth Edges,
-// High Natural HD, Ultra Natural AI (each the one before plus more, GpuFilter.h), for every console (Resolution 3x/6x
-// stays the CPU's picture while the GPU's filters compile); the 3D consoles' resolution goes up with it: what the PS4
-// carries at full speed (its logs: the N64 at 4x 96-100% in Mario 64, Banjo-Tooie, Donkey Kong 64, Perfect Dark - the
-// heavy games are as slow at 1x, by the CPU -; the PSP's God of War and Tekken 6 at 4x 94-100% since 00.47; the
-// PlayStation's Gran Turismo 2 and Tekken 3 used a quarter of the GPU at most in 00.33). The 3DS has no levels since
-// 00.64 (its own resolution only, as the Dreamcast has one: most of its 3D games are slow at 1x already, by the CPU;
-// 00.63 set it 1x, 2x, 3x, 3x). The levels leave the player's own look as it is: the picture's size, zoom and shape, the
-// bezels, Tube TV, Scanlines and the NTSC Filter (00.63: the size, zoom and NTSC Filter were set by every level until
-// 00.62, the same at each).
+// its textures not upscaled; 00.69: Low is also what a setting never changed reads, so a new install and Reset All
+// Settings start at Low). Each level above is clearly sharper than the one below (00.69, the owner: "que de verdad se
+// sienta la subida de calidad"; 00.40 to 00.68 went Smooth Edges, Natural HD, Natural AI, three looks hard to tell
+// apart, and on the 3D consoles' HD pictures Natural AI was softer than Natural HD - PC, the filter harness: Tekken 3 at
+// 4x 6.4 against 14.4 of fine detail, GoldenEye at 2x 2.3 against 4.4 - the network only works at about 768x576 to
+// 960x720). The GPU Upscaler, one step per level (GpuFilter.h; Resolution 3x/6x stays the CPU's picture while the GPU's
+// filters compile):
+// - the consoles whose picture is pixels (the CPU's: the 2D consoles, the Arcade, the DS, the Saturn): Medium Smooth
+//   Edges (the jagged edges smoothed, the pixels kept), High Pixel Art HD (xBRZ: the pixels redrawn as clean HD shapes
+//   at the TV's resolution), Ultra AI (xBRZ, then Anime4K's network: the smoothest);
+// - the 3D consoles' pictures, drawn by the GPU (Emulator.cpp GpuMode): Medium and High Smooth Edges (anti-aliased, at
+//   the size drawn), Ultra Natural HD (sharpened: AMD's FSR or RCAS), with their resolution going up: what the PS4
+//   carries at full speed (its logs: the N64 at 4x 96-100% in Mario 64, Banjo-Tooie, Donkey Kong 64, Perfect Dark - the
+//   heavy games are as slow at 1x, by the CPU -; the PSP's God of War and Tekken 6 at 4x 94-100% since 00.47; the
+//   PlayStation's Gran Turismo 2 and Tekken 3 used a quarter of the GPU at most at 4x in 00.33; the Dreamcast at 3x
+//   12-31% busy in 00.68's log, Jet Set Radio and Daytona USA at full speed, the Atomiswave's Dolphin Blue 93-99%): the
+//   N64 1x, 2x, 4x, 4x (its most: 8x would need 512 MiB of GPU memory), the PlayStation and the PSP 1x, 2x, 3x, 4x,
+//   Flycast's consoles 1x, 2x, 3x, 3x (no 4x: made that small for the TV it only shimmers more) with Texture Sharpness
+//   4x, 8x, 8x, 16x (00.68; 00.53 to 00.67 played them at Low only). The N64's 2D stays Exact at every level (00.68:
+//   Smooth HD put seams over pre-drawn backgrounds), Flycast's transparency per triangle.
+// The 3DS (00.71; from 00.64 to 00.70 its own resolution only, 00.63 set it 1x, 2x, 3x, 3x): 3DS Resolution 1x, 2x, 3x,
+// 4x with the 3D consoles' GPU Upscaler steps (Smooth Edges at 2x - SMAA at 800x960 for its screens one above the other
+// -, at 3x the picture bigger than the TV's already, made smaller: supersampled; Ultra sharpened). PC, the filter
+// harness on Hey! Pikmin's and Super Mario 3D Land's pictures as a 1080p TV shows them: each step a clear change (the
+// TV's pixels 3.0 and 2.8 of 255 from Low to Medium, 1.3 and 1.3 to High, 1.9 and 1.1 to Ultra) with more fine detail
+// each time. Not Azahar's texture filters: on the 3D only subtle (ScaleForce, xBRZ, Anime4K; MMPX blocky, Bicubic
+// softer), and their textures at the full size took about twice the GPU memory (224 MiB of blocks at 3x and 4x against
+// 96). A bigger size costs the emulation thread no time in the games tried (PC: the same CPU time a frame at 1x to 4x;
+// GPU memory 32, 32, 96, 96 MiB of blocks); a game that reads its picture back waits for the GPU's work, more at a
+// bigger size. The levels leave the player's own look as it is: the picture's size, zoom and shape, the bezels, Tube
+// TV, Scanlines and the NTSC Filter (00.63: the size, zoom and NTSC Filter were set by every level until 00.62, the
+// same at each).
 const std::vector<Preset> PRESETS = {
     {"low", {{"resolution", "1"}, {"upscaler", "xbrz"}, {"n64_resolution", "1"}, {"n64_sync", "fast"},
              {"n64_2d", "native"}, {"gpu_filter", "off"}, {"ps1_resolution", "1"}, {"ps1_texture_filter", "Nearest"},
              {"ps1_colors", "dither"}, {"ps1_pgxp", "off"}, {"ps1_antialiasing", "1"}, {"psp_resolution", "1"},
              {"psp_anisotropy", "0"}, {"psp_texture_shader", "off"}, {"psp_antialiasing", "1"},
-             {"dc_resolution", "1"}, {"dc_anisotropy", "4"}, {"dc_sorting", "triangle"}}},
+             {"dc_resolution", "1"}, {"dc_anisotropy", "4"}, {"dc_sorting", "triangle"}, {"3ds_resolution", "1"}}},
     {"medium", {{"resolution", "3"}, {"upscaler", "xbrz"}, {"n64_resolution", "2"}, {"n64_sync", "fast"},
                 {"n64_2d", "native"}, {"gpu_filter", "edges"}, {"ps1_resolution", "2"}, {"ps1_texture_filter", "xBR"},
                 {"ps1_colors", "true"}, {"ps1_pgxp", "off"}, {"ps1_antialiasing", "1"}, {"psp_resolution", "2"},
                 {"psp_anisotropy", "8"}, {"psp_texture_shader", "off"}, {"psp_antialiasing", "1"},
-                {"dc_resolution", "2"}, {"dc_anisotropy", "8"}, {"dc_sorting", "triangle"}}},
+                {"dc_resolution", "2"}, {"dc_anisotropy", "8"}, {"dc_sorting", "triangle"}, {"3ds_resolution", "2"}}},
+    // (00.69: the PlayStation 3x, its 4x Ultra's; Pixel Art HD, Smooth Edges for a picture drawn by the GPU.)
+    {"high", {{"resolution", "6"}, {"upscaler", "xbrz"}, {"n64_resolution", "4"}, {"n64_sync", "fast"},
+              {"n64_2d", "native"}, {"gpu_filter", "pixel"}, {"ps1_resolution", "3"}, {"ps1_texture_filter", "xBR"},
+              {"ps1_colors", "true"}, {"ps1_pgxp", "on"}, {"ps1_antialiasing", "1"}, {"psp_resolution", "3"},
+              {"psp_anisotropy", "16"}, {"psp_texture_shader", "off"}, {"psp_antialiasing", "1"},
+              {"dc_resolution", "3"}, {"dc_anisotropy", "8"}, {"dc_sorting", "triangle"}, {"3ds_resolution", "3"}}},
+    // Ultra for the PlayStation: 4x, xBR textures, True Colour, PGXP, 4x MSAA, sharpened (00.34 to 00.68 then Natural
+    // AI: on its 4x picture it was softer than High). The PSP at 4x without MSAA: with it every new pipeline took
+    // ~86 ms to compile on the PS4 (5-19 ms without) and God of War stuttered; a 4x picture gets Natural HD's
+    // sharpening. (00.69: AI, Natural HD for a picture drawn by the GPU.)
+    {"ultra", {{"resolution", "6"}, {"upscaler", "xbrz"}, {"n64_resolution", "4"}, {"n64_sync", "fast"},
+               {"n64_2d", "native"}, {"gpu_filter", "ai"}, {"ps1_resolution", "4"}, {"ps1_texture_filter", "xBR"},
+               {"ps1_colors", "true"}, {"ps1_pgxp", "on"}, {"ps1_antialiasing", "4"}, {"psp_resolution", "4"},
+               {"psp_anisotropy", "16"}, {"psp_texture_shader", "off"}, {"psp_antialiasing", "1"},
+               {"dc_resolution", "3"}, {"dc_anisotropy", "16"}, {"dc_sorting", "triangle"}, {"3ds_resolution", "4"}}},
+};
+// The levels as 00.68 set them (Low and Medium as now, but for the 3DS's size, 00.71's): the one-time changes of Load
+// find a level chosen before by them (dc_levels, levels=00.69).
+const std::vector<Preset> PRESETS_0068_HIGH_ULTRA = {
     {"high", {{"resolution", "6"}, {"upscaler", "xbrz"}, {"n64_resolution", "4"}, {"n64_sync", "fast"},
               {"n64_2d", "native"}, {"gpu_filter", "natural"}, {"ps1_resolution", "4"}, {"ps1_texture_filter", "xBR"},
               {"ps1_colors", "true"}, {"ps1_pgxp", "on"}, {"ps1_antialiasing", "1"}, {"psp_resolution", "3"},
               {"psp_anisotropy", "16"}, {"psp_texture_shader", "off"}, {"psp_antialiasing", "1"},
-              {"dc_resolution", "3"}, {"dc_anisotropy", "16"}, {"dc_sorting", "triangle"}}},
-    // Ultra for the PlayStation: 4x, xBR textures, True Colour, PGXP, 4x MSAA, then Natural AI (the AI
-    // chosen on real Tekken 3 and Gran Turismo 2 frames, mixed with its input: no waxy look). The PSP
-    // at 4x without MSAA: with it every new pipeline took ~86 ms to compile on the PS4 (5-19 ms
-    // without) and God of War stuttered; a 4x picture gets Natural HD's sharpening, not the AI.
+              {"dc_resolution", "3"}, {"dc_anisotropy", "8"}, {"dc_sorting", "triangle"}}},
     {"ultra", {{"resolution", "6"}, {"upscaler", "xbrz"}, {"n64_resolution", "4"}, {"n64_sync", "fast"},
-               {"n64_2d", "hd"}, {"gpu_filter", "natural_ai"}, {"ps1_resolution", "4"}, {"ps1_texture_filter", "xBR"},
+               {"n64_2d", "native"}, {"gpu_filter", "natural_ai"}, {"ps1_resolution", "4"}, {"ps1_texture_filter", "xBR"},
                {"ps1_colors", "true"}, {"ps1_pgxp", "on"}, {"ps1_antialiasing", "4"}, {"psp_resolution", "4"},
                {"psp_anisotropy", "16"}, {"psp_texture_shader", "off"}, {"psp_antialiasing", "1"},
                {"dc_resolution", "3"}, {"dc_anisotropy", "16"}, {"dc_sorting", "triangle"}}},
@@ -949,7 +1174,7 @@ std::string QualityLocked(const std::string& game_id)
   auto all_set = [&](const Preset& preset) {
     for (const auto& [key, value] : preset.values)
     {
-      // (Not the settings no console shows: the Dreamcast's, which it doesn't follow - it plays at Standard.)
+      // (Not the settings no console shows: the Dreamcast's Transparency, per triangle at every level.)
       const Setting* setting = Find(key);
       if (setting && (setting->systems == 0 || (!game_id.empty() && !AppliesTo(*setting, system))))
         continue;
@@ -994,6 +1219,43 @@ void SaveLocked()
       write(name, values);
   }
   WriteTextFile(s_path, file.str());
+}
+
+// The values a game uses now, its Quality level as the level chosen there (QualityLocked): a new place starts from them.
+std::map<std::string, std::string> NowLocked(const std::string& game_id)
+{
+  std::map<std::string, std::string> now;
+  for (const Setting& setting : SETTINGS)
+  {
+    if (std::string(setting.key) != "quality")
+      now[setting.key] = GetLocked(setting.key, game_id);
+  }
+  if (const std::string level = QualityLocked(game_id); level != "custom")
+    now["quality"] = level;
+  return now;
+}
+
+// This Console for the game: its console gets settings of its own, the ones the game uses now when it has none yet.
+void StartConsoleLocked(const std::string& game_id)
+{
+  const std::string console = ConsoleSection(game_id);
+  if (ModeLocked(console) != "on")
+  {
+    const std::map<std::string, std::string> now = NowLocked(game_id);
+    auto& section = s_sections[console];
+    if (section.size() <= 1)  // the console's first settings: the ones its game uses now
+    {
+      const SystemId system = SystemOfKey(game_id).id;
+      for (const Setting& setting : SETTINGS)
+      {
+        const auto value = now.find(setting.key);
+        if (value != now.end() && AppliesTo(setting, system))
+          section[setting.key] = value->second;
+      }
+    }
+    section["custom"] = "on";
+  }
+  s_sections[game_id]["custom"] = "console";
 }
 }  // namespace
 
@@ -1042,10 +1304,26 @@ void Load(const std::string& data_dir)
   // where a level chosen before them is recognised): the PlayStation (00.33; the public 00.19 has
   // none of its values), the PSP (00.36), the Dreamcast (00.48).
   static const char* const NEWER[] = {"ps1_", "psp_", "dc_"};
-  // What the levels set since 00.63 (the PSP's textures not upscaled; the 3DS's resolution, 00.63 only): in no file
-  // of before, so the comparisons with the levels below leave it out (a 3DS's value is never added: its games stay as
-  // they were).
+  // What the levels set since 00.63 (the PSP's textures not upscaled; the 3DS's resolution, in 00.63 and since 00.71):
+  // in no file of before, so the comparisons with the levels below leave it out (a 3DS's value is never added here: its
+  // own change, 3ds_levels=00.71, is the last below).
   auto since_0063 = [](const std::string& key) { return key == "psp_texture_shader" || key == "3ds_resolution"; };
+  // 00.68: Ultra draws the N64's 2D Exact, as the other levels (its Smooth HD 2D put lines and squares over Zelda:
+  // Ocarina of Time's pre-drawn rooms and ISS 64's intro: GitHub issue #1). An Ultra chosen before - N64 Resolution 4x,
+  // 2D Smooth HD and Natural AI (the AI before 00.40) - stays Ultra with it, once ([global] n64_2d_ultra=00.68). First,
+  // so the comparisons with the levels below find Ultra again.
+  if (s_sections["global"]["n64_2d_ultra"] != "00.68")
+  {
+    for (auto& [name, values] : s_sections)
+    {
+      const auto two_d = values.find("n64_2d"), size = values.find("n64_resolution"), gpu = values.find("gpu_filter");
+      if (two_d != values.end() && two_d->second == "hd" && size != values.end() && size->second == "4" &&
+          gpu != values.end() && (gpu->second == "natural_ai" || gpu->second == "ai"))
+        two_d->second = "native";
+    }
+    s_sections["global"]["n64_2d_ultra"] = "00.68";
+    SaveLocked();
+  }
   // 00.40: the levels' GPU Upscaler went from Off, Off, AI (Medium, High, Ultra) to Smooth Edges,
   // Natural HD, Natural AI. A level chosen before stays that level, once ([global] presets=2). First,
   // so the consoles' values below find the level again.
@@ -1124,6 +1402,135 @@ void Load(const std::string& data_dir)
     s_sections["global"]["quality_levels"] = "00.63";
     SaveLocked();
   }
+  // 00.68: Flycast's consoles follow the Quality levels again (from 00.53 to 00.67 they played at Low whatever the
+  // level, the levels' values for them written but not used): a level chosen before is theirs too, and still shows as
+  // that level. High's texture sharpness for them is 8x now (16x is Ultra's, its one difference from High there): a
+  // section at High from before - its other values High's - gets 8x, once ([global] dc_levels=00.68); Low's, Medium's
+  // and Ultra's values are their own already.
+  if (s_sections["global"]["dc_levels"] != "00.68")
+  {
+    // (High as 00.68 set it: its GPU Upscaler and PlayStation size changed in 00.69, below.)
+    const Preset* high = nullptr;
+    for (const Preset& preset : PRESETS_0068_HIGH_ULTRA)
+    {
+      if (std::string(preset.name) == "high")
+        high = &preset;
+    }
+    for (auto& [name, values] : s_sections)
+    {
+      const auto anisotropy = values.find("dc_anisotropy");
+      if (high == nullptr || anisotropy == values.end() || anisotropy->second != "16")
+        continue;
+      bool at_high = true, any = false;
+      for (const auto& [key, value] : high->values)
+      {
+        const auto it = values.find(key);
+        if (std::string(key).rfind("dc_", 0) == 0 || it == values.end())
+          continue;
+        any = true;
+        at_high = at_high && it->second == value;
+      }
+      if (any && at_high)
+        anisotropy->second = "8";
+    }
+    s_sections["global"]["dc_levels"] = "00.68";
+    SaveLocked();
+  }
+  // 00.69: High's and Ultra's new looks (PRESETS: High Pixel Art HD and the PlayStation at 3x, Ultra AI). Where a
+  // section is a level of 00.68 for a console whose games read it - the values it holds of that console's part of the
+  // level, its size among them (Resolution, N64 Resolution...; the Saturn has the GPU Upscaler alone), are all that
+  // level's - those values become the level's of 00.69, once ([global] levels=00.69): a level chosen before is still
+  // that level, with its new look. A console's own value changed by hand (that console no level) stays as it is. A
+  // section only Flycast's games read (the Dreamcast's, the NAOMI's or the Atomiswave's settings, one of their games')
+  // gets its level's GPU Upscaler too where it has none: theirs since 00.69, it would come from All Games.
+  if (s_sections["global"]["levels"] != "00.69")
+  {
+    // The levels as 00.68 set them (Low and Medium as now), and as they are.
+    std::vector<std::pair<const Preset*, const Preset*>> levels;
+    for (const Preset& preset : PRESETS)
+    {
+      const Preset* before = &preset;
+      for (const Preset& old : PRESETS_0068_HIGH_ULTRA)
+      {
+        if (std::string(old.name) == preset.name)
+          before = &old;
+      }
+      levels.emplace_back(before, &preset);
+    }
+    static const char* const SIZES[] = {"resolution", "n64_resolution", "ps1_resolution", "psp_resolution",
+                                        "dc_resolution"};
+    const Setting* quality = Find("quality");
+    for (auto& [name, values] : s_sections)
+    {
+      // The consoles whose games read the section: All Games every console, a console's that console, a game its own.
+      std::vector<SystemId> readers;
+      if (name == "global")
+      {
+        for (const System& system : Systems())
+          readers.push_back(system.id);
+      }
+      else if (name.rfind("console:", 0) == 0)
+      {
+        if (const System* console = SystemByKey(name.substr(8)))
+          readers.push_back(console->id);
+      }
+      else
+      {
+        readers.push_back(SystemOfKey(name).id);
+      }
+      const bool flycast_only = readers.size() == 1 && IsFlycast(readers.front());
+      // The level chosen last where the section has one (Set): another level's values there are a choice made by hand
+      // after it (00.68's Ultra with Natural HD chosen: the N64's part reads as High's, and stays).
+      const auto chosen = values.find("quality");
+      std::map<std::string, std::string> changes;
+      for (const SystemId system : readers)
+      {
+        // (The 3DS had no levels then: its own change, 3ds_levels=00.71, below.)
+        if (!quality || !AppliesTo(*quality, system) || system == SystemId::THREEDS)
+          continue;
+        for (const auto& [before, now] : levels)
+        {
+          if (chosen != values.end() && chosen->second != now->name)
+            continue;
+          // That console's part of the level the section holds: every value 00.68's, its size among them.
+          std::vector<std::string> held;
+          bool same = true, sized = false, sizes = false;
+          for (const auto& [key, value] : before->values)
+          {
+            const Setting* setting = Find(key);
+            if (!setting || setting->systems == 0 || !AppliesTo(*setting, system))
+              continue;
+            const bool size = std::any_of(std::begin(SIZES), std::end(SIZES),
+                                          [key = key](const char* each) { return std::string(key) == each; });
+            sizes = sizes || size;
+            const auto it = values.find(key);
+            if (it == values.end())
+              continue;
+            same = same && it->second == value;
+            sized = sized || size;
+            held.push_back(key);
+          }
+          if (!same || held.empty() || (sizes && !sized))
+            continue;
+          for (const auto& [key, value] : now->values)
+          {
+            if (std::find(held.begin(), held.end(), key) != held.end())
+              changes[key] = value;
+            else if (flycast_only && std::string(key) == "gpu_filter" && !values.count(key))
+              changes[key] = value;
+          }
+          break;  // (the first level whose values these are: Low's and Medium's stay as they are)
+        }
+      }
+      for (const auto& [key, value] : changes)
+        values[key] = value;
+    }
+    s_sections["global"]["levels"] = "00.69";
+    SaveLocked();
+  }
+  // (00.69: the NEWER values below come after the two changes above - 00.68's Dreamcast High and 00.69's levels -,
+  // so a file of before them is first at today's levels, and the values of a console that came after its level are
+  // today's level's: 00.35's High gets the PSP's High of now.)
   // A Quality level chosen before a console came (the PlayStation: 00.32 and older, the public 00.19
   // too; the PSP: 00.35 and older; the Dreamcast: 00.47 and older) stays that level: the level's values for that console are added to the section that has
   // all its other values (the later consoles' left out of the comparison). Only the missing ones: a
@@ -1162,6 +1569,171 @@ void Load(const std::string& data_dir)
       }
     }
   }
+  // 00.68: a console's settings made only by opening one of its games' pages (00.58 to 00.67: UseConsoleByDefault made
+  // them at once, a copy of All Games' values) follow All Games again where they still are that copy - every value the
+  // same as All Games' -, once ([global] console_copies=00.68). Its games stay at This Console; a console whose
+  // settings were changed keeps them. Last: after the migrations above, which change All Games' values and the
+  // consoles' alike.
+  if (s_sections["global"]["console_copies"] != "00.68")
+  {
+    for (auto it = s_sections.begin(); it != s_sections.end();)
+    {
+      bool copy = it->first.rfind("console:", 0) == 0 && ModeLocked(it->first) == "on";
+      for (const auto& [key, value] : it->second)
+      {
+        if (!copy)
+          break;
+        if (key != "custom" && key != "quality")
+          copy = GetLocked(key, "") == value;
+      }
+      it = copy ? s_sections.erase(it) : std::next(it);
+    }
+    s_sections["global"]["console_copies"] = "00.68";
+    SaveLocked();
+  }
+  // 00.69: the 3DS as it looks, the top screen above and the touch screen below (the owner: "la 3DS que parta con una
+  // pantalla arriba y otra abajo"). One Above the Other is the default since 00.64, but a view kept before stayed: 00.62's
+  // and 00.63's default (Side by Side) copied into a console's settings, or one chosen in the in-game menu. Every 3DS
+  // Screens value kept - All Games, This Console, This Game - becomes One Above the Other, once ([global]
+  // 3ds_stack=00.69, not the setting's own key): a view chosen after this is kept. Last, after the copies above.
+  if (s_sections["global"]["3ds_stack"] != "00.69")
+  {
+    std::string changed;
+    for (auto& [name, values] : s_sections)
+    {
+      const auto layout = values.find("3ds_layout");
+      if (layout == values.end() || layout->second == "stack")
+        continue;
+      changed += (changed.empty() ? "" : ", ") + name + " (" + layout->second + ")";
+      layout->second = "stack";
+    }
+    LogF("settings: 3DS Screens set to One Above the Other, the touch screen below, once (00.69): %s",
+         changed.empty() ? "no other view was kept" : changed.c_str());
+    s_sections["global"]["3ds_stack"] = "00.69";
+    SaveLocked();
+  }
+  // 00.71: the 3DS has the Quality levels again (00.63 gave it 1x, 2x, 3x, 3x; from 00.64 to 00.70 every game played at
+  // 1x whatever the level, without the GPU Upscaler): 3DS Resolution 1x to 4x and the GPU Upscaler, as the other 3D
+  // consoles. Where a 3DS game's settings come from - All Games, the 3DS's This Console, a 3DS game's own - a level
+  // chosen there (Set's "quality"; for All Games without it, a file of before 00.63, the level whose values it holds) is
+  // the 3DS's too: its 3DS Resolution, and in the 3DS's own sections its GPU Upscaler (a copy of another place's there:
+  // the 3DS read none). Where none was chosen, the 3DS stays as it played: a 3DS Resolution kept there (00.63's, read by
+  // no game since) is 1x, and in its own sections a GPU Upscaler kept there is Off; what a section doesn't hold still
+  // comes from All Games, whose GPU Upscaler is every console's, the 3DS's from now on too. So All Games' page shows the
+  // level it showed, and a 3DS game the level chosen where its settings come from. Once ([global] 3ds_levels=00.71; the
+  // log says what changed). Last, after the changes above.
+  if (s_sections["global"]["3ds_levels"] != "00.71")
+  {
+    // All Games' level where its file doesn't say which was chosen (before 00.63): the one whose values it holds, as
+    // its page showed it (the 3DS's size left out: no level set it then).
+    const Preset* global_level = nullptr;
+    for (const Preset& preset : PRESETS)
+    {
+      bool all = true;
+      for (const auto& [key, value] : preset.values)
+      {
+        const Setting* setting = Find(key);
+        if (std::string(key) != "3ds_resolution" && setting && setting->systems != 0)
+          all = all && GetLocked(key, "") == value;
+      }
+      if (all && global_level == nullptr)
+        global_level = &preset;
+    }
+    std::string changed;
+    for (auto& [name, values] : s_sections)
+    {
+      bool own = false;  // the 3DS's console settings, or a 3DS game's (whatever it follows now: This Game brings it back)
+      if (name.rfind("console:", 0) == 0)
+      {
+        const System* console = SystemByKey(name.substr(8));
+        if (!console || console->id != SystemId::THREEDS)
+          continue;
+        own = true;
+      }
+      else if (name != "global")
+      {
+        if (SystemOfKey(name).id != SystemId::THREEDS)
+          continue;
+        own = true;
+      }
+      const auto chosen = values.find("quality");
+      const Preset* level = own || chosen != values.end() ? nullptr : global_level;
+      for (const Preset& preset : PRESETS)
+      {
+        if (chosen != values.end() && chosen->second == preset.name)
+          level = &preset;
+      }
+      std::string what;
+      auto put = [&section = values, &what, own](const std::string& key, const std::string& value) {
+        const auto it = section.find(key);
+        // (All Games without the value reads the setting's default: the same as writing it.)
+        if (it != section.end() ? it->second == value : !own && value == Fallback(key))
+          return;
+        what += (what.empty() ? "" : ", ") + key + " " + (it == section.end() ? std::string("-") : it->second) + " -> " +
+                value;
+        section[key] = value;
+      };
+      if (level != nullptr)
+      {
+        for (const auto& [key, value] : level->values)
+        {
+          if (std::string(key) == "3ds_resolution" || (own && std::string(key) == "gpu_filter"))
+            put(key, value);
+        }
+      }
+      else
+      {
+        if (values.count("3ds_resolution"))
+          put("3ds_resolution", "1");
+        if (own && values.count("gpu_filter"))
+          put("gpu_filter", "off");
+      }
+      if (!what.empty())
+        changed += (changed.empty() ? "" : "; ") + name + " (" + what + ")";
+    }
+    LogF("settings: the 3DS's Quality levels (00.71), once: %s", changed.empty() ? "nothing to change" : changed.c_str());
+    s_sections["global"]["3ds_levels"] = "00.71";
+    SaveLocked();
+  }
+  // 00.80: the DS's and the 3DS's screens, one set of settings (EMUSUNI_SCREEN_SETTINGS above). The DS's Big Screen is
+  // Large Screen + Small ("big" -> "large": a third, on the right, as it was), its One Screen Top Screen Only ("single"
+  // -> "top": R3 still shows the touch screen alone). The 3DS's Big Top Screen (Azahar's own until 00.79: the touch
+  // screen a quarter of the top screen, at the bottom right) keeps that look: where 3DS Screens is "large", its Small
+  // Screen Size and Small Screen Position are written as it was. Every other value kept stays (a view chosen can't be
+  // told from a copy of a default: 00.70's rule); the DS's new default, One Above the Other, is what a value never set
+  // reads. Once ([global] screens=00.80; the log says what changed). Last, after the changes above.
+  if (s_sections["global"]["screens"] != "00.80")
+  {
+    std::string changed;
+    for (auto& [name, values] : s_sections)
+    {
+      std::string what;
+      const auto nds = values.find("nds_layout");
+      if (nds != values.end() && (nds->second == "big" || nds->second == "single"))
+      {
+        const std::string now = nds->second == "big" ? "large" : "top";
+        what = "nds_layout " + nds->second + " -> " + now;
+        nds->second = now;
+      }
+      const auto threeds = values.find("3ds_layout");
+      if (threeds != values.end() && threeds->second == "large")
+      {
+        static const std::pair<const char*, const char*> BIG_TOP[] = {{"3ds_small_size", "4"},
+                                                                       {"3ds_small_position", "right_bottom"}};
+        for (const auto& [key, value] : BIG_TOP)
+        {
+          if (values.emplace(key, value).second)
+            what += std::string(what.empty() ? "" : ", ") + key + " " + value;
+        }
+      }
+      if (!what.empty())
+        changed += (changed.empty() ? "" : "; ") + name + " (" + what + ")";
+    }
+    LogF("settings: the DS's and the 3DS's screens (00.80), once: %s",
+         changed.empty() ? "nothing to change" : changed.c_str());
+    s_sections["global"]["screens"] = "00.80";
+    SaveLocked();
+  }
 }
 
 void Save()
@@ -1195,6 +1767,10 @@ bool GetOn(const std::string& key, const std::string& game_id)
 void Set(const std::string& key, const std::string& value, const std::string& game_id)
 {
   std::lock_guard lock(s_mutex);
+  // A game at This Console whose console has no settings of its own yet (UseConsoleByDefault): the console's start
+  // now, from the values its game uses (All Games'), and this change is its first.
+  if (!game_id.empty() && ModeLocked(game_id) == "console" && ModeLocked(ConsoleSection(game_id)) != "on")
+    StartConsoleLocked(game_id);
   auto& section = s_sections[SectionLocked(game_id)];
   if (key == "quality")
   {
@@ -1248,20 +1824,26 @@ bool IsCustom(const std::string& game_id)
 Scope ScopeOf(const std::string& game_id)
 {
   std::lock_guard lock(s_mutex);
+  // (This Console before the console has settings of its own: its games follow All Games until one is changed.)
+  if (!game_id.empty() && ModeLocked(game_id) == "console")
+    return Scope::Console;
   const std::string section = SectionLocked(game_id);
   return section == "global" ? Scope::Global : section.rfind("console:", 0) == 0 ? Scope::Console : Scope::Game;
 }
 
 void UseConsoleByDefault(const std::string& game_id)
 {
-  bool never_chosen;
+  std::lock_guard lock(s_mutex);
+  // Never chosen: no "custom" value of its own, and the console has no settings of its own yet. The page then shows This
+  // Console, but the console gets settings of its own only when one is changed there (Set): opening a game's page
+  // alone (00.58 to 00.67: it made them at once, a copy of All Games' values) left that console's games behind every
+  // later change of the main Settings - "however I set the graphics, Banjo-Kazooie stays blurry" (its N64 kept Low's
+  // native resolution after Quality was set to Ultra for All Games).
+  if (!game_id.empty() && ModeLocked(game_id).empty() && SectionLocked(game_id) == "global")
   {
-    std::lock_guard lock(s_mutex);
-    // Never chosen: no "custom" value of its own, and the console has no settings of its own yet.
-    never_chosen = !game_id.empty() && ModeLocked(game_id).empty() && SectionLocked(game_id) == "global";
+    s_sections[game_id]["custom"] = "console";
+    SaveLocked();
   }
-  if (never_chosen)
-    SetScope(game_id, Scope::Console);
 }
 
 void SetScope(const std::string& game_id, Scope scope)
@@ -1291,22 +1873,7 @@ void SetScope(const std::string& game_id, Scope scope)
   }
   else if (scope == Scope::Console)
   {
-    const std::string console = ConsoleSection(game_id);
-    auto& section = s_sections[console];
-    if (ModeLocked(console) != "on")
-    {
-      if (section.size() <= 1)  // the console's first settings: the ones its game uses now
-      {
-        const SystemId system = SystemOfKey(game_id).id;
-        for (const Setting& setting : SETTINGS)
-        {
-          if (now.count(setting.key) && AppliesTo(setting, system))
-            section[setting.key] = now[setting.key];
-        }
-      }
-      section["custom"] = "on";
-    }
-    s_sections[game_id]["custom"] = "console";
+    StartConsoleLocked(game_id);
   }
   else
   {
@@ -1375,6 +1942,13 @@ void ResetAll()
   s_sections["global"]["presets"] = "2";
   s_sections["global"]["dc_pixel"] = "reset";
   s_sections["global"]["quality_levels"] = "00.63";
+  s_sections["global"]["dc_levels"] = "00.68";
+  s_sections["global"]["n64_2d_ultra"] = "00.68";
+  s_sections["global"]["console_copies"] = "00.68";
+  s_sections["global"]["levels"] = "00.69";
+  s_sections["global"]["3ds_stack"] = "00.69";
+  s_sections["global"]["3ds_levels"] = "00.71";
+  s_sections["global"]["screens"] = "00.80";
   SaveLocked();
 }
 
@@ -1391,8 +1965,8 @@ bool AppliesToAny(const Setting& setting)
 std::string SystemTag(const Setting& setting)
 {
   // No tag for a setting of every console this build plays - nor of every one but Flycast's (the Dreamcast, the
-  // NAOMI, the Atomiswave) and the 3DS (the picture's: they play at their own size, which Quality's and the 3DS's
-  // header say).
+  // NAOMI, the Atomiswave) and the 3DS (the picture's, while they played at their own size: Flycast's to 00.67, the
+  // 3DS's to 00.70; Quality and the GPU Upscaler are every console's now).
   if ((setting.systems | FOR_FLYCAST | FOR_3DS) == FOR_ALL)
     return {};
   std::string tags;
@@ -1430,37 +2004,60 @@ const Choice* FindChoice(const Setting& setting, const std::string& value)
 std::string QualityHelp(const std::string& level, SystemId system)
 {
   const int at = level == "low" ? 0 : level == "medium" ? 1 : level == "high" ? 2 : level == "ultra" ? 3 : -1;
-  // (No levels for Flycast's consoles, Standard, nor the 3DS, its own resolution: their pages say so.)
-  if (at < 0 || IsFlycast(system) || system == SystemId::THREEDS)
+  if (at < 0)
     return {};
-  // The consoles whose picture is pixels (the CPU's): the GPU Upscaler's steps alone (PRESETS).
+  // The consoles whose picture is pixels (the CPU's): the GPU Upscaler's steps alone (PRESETS, 00.69).
   static const char* const PIXELS[] = {
       "The console's own resolution: its picture as it made it, made bigger for the TV, with no filters.",
       "Smooth Edges: the GPU smooths the jagged edges; the pixels stay as they are.",
-      "Natural HD: smooth edges, then a sharp HD picture at the TV's resolution (AMD FSR).",
-      "Natural AI: Natural HD with an AI network (Anime4K) that cleans every edge; the textures stay."};
+      "Pixel Art HD: the GPU redraws the pixels as clean HD shapes at the TV's resolution (xBRZ).",
+      "AI: Pixel Art HD, then an AI network (Anime4K) smooths every edge and curve: the smoothest HD."};
   static const char* const NDS[] = {
       "The console's own resolution: both screens as the DS made them (256x192), with no filters.",
       "Smooth Edges on both screens: the GPU smooths the jagged edges.",
-      "Natural HD on both screens: smooth edges, then a sharp HD picture (AMD FSR).",
-      "Natural AI on both screens: Natural HD with an AI network (Anime4K) that cleans every edge."};
+      "Pixel Art HD on both screens: redrawn as clean HD shapes at the TV's resolution (xBRZ).",
+      "AI on both screens: Pixel Art HD, then an AI network (Anime4K) smooths every edge: the smoothest HD."};
+  // The 3D consoles: their own resolution going up; Smooth Edges at Medium and High, sharpened at Ultra (00.69).
   static const char* const N64[] = {
       "The console's own resolution, with no filters: the lightest. The size changes at the next start.",
       "2x (480p) with Smooth Edges. The size changes at the next start.",
-      "4x (960p) with Natural HD. The size changes at the next start.",
-      "4x (960p) with Natural AI, and smooth HD text and icons. The size changes at the next start."};
+      "4x (960p) with Smooth Edges. The size changes at the next start.",
+      "4x (960p), made crisper by AMD's sharpening (Natural HD). The size changes at the next start."};
   static const char* const PS1[] = {
       "The console's own resolution (1x), its own textures and colours, with no filters.",
       "2x (480p), smooth textures (xBR) and true colour, with Smooth Edges.",
-      "4x (960p), smooth textures, true colour and steady 3D (PGXP), with Natural HD.",
-      "4x (960p), smooth textures, steady 3D, 4x anti-aliasing (MSAA) and Natural AI."};
+      "3x (720p), smooth textures, true colour and steady 3D (PGXP), with Smooth Edges.",
+      "4x (960p), smooth textures, steady 3D, 4x anti-aliasing (MSAA), made crisper (Natural HD)."};
   static const char* const PSP[] = {
       "The console's own resolution (480x272), with no filters.",
       "2x (960x544), sharper textures far away, with Smooth Edges.",
-      "3x (1440x816), the sharpest textures far away, with Natural HD.",
+      "3x (1440x816), the sharpest textures far away, with Smooth Edges.",
       "4x (1920x1088, Full HD), the sharpest textures far away, made crisper (Natural HD)."};
+  // Flycast's consoles: Flycast's own resolution and texture sharpness (00.68), the GPU Upscaler's steps since 00.69.
+  static const char* const FLYCAST[] = {
+      "The console's own resolution (640x480), textures 4x sharp far away: the lightest. The size changes at the "
+      "next start.",
+      "2x (1280x960), textures 8x sharp far away, with Smooth Edges. The size changes at the next start.",
+      "3x (1920x1440, made smaller for the TV), textures 8x sharp far away, with Smooth Edges. The size changes at "
+      "the next start.",
+      "3x (1920x1440), the sharpest textures far away (16x), made crisper (Natural HD). The size changes at the "
+      "next start."};
+  // The 3DS (00.71; from 00.64 to 00.70 its own resolution only): 3DS Resolution 1x to 4x, the 3D consoles' GPU Upscaler
+  // steps. A bigger size is the GPU's work, but a game that reads its picture back waits for it (none of the games
+  // tried on the PC did).
+  static const char* const THREEDS[] = {
+      "The console's own resolution (400x240 and 320x240), with no filters: the lightest. The size changes at the "
+      "next start.",
+      "2x (800x480) with Smooth Edges. The size changes at the next start; a game that reads its picture back can "
+      "slow down.",
+      "3x (1200x720) with Smooth Edges. The size changes at the next start; a game that reads its picture back can "
+      "slow down.",
+      "4x (1600x960), made crisper by AMD's sharpening (Natural HD). The size changes at the next start; a game that "
+      "reads its picture back can slow down."};
   switch (system)
   {
+  case SystemId::THREEDS:
+    return THREEDS[at];
   case SystemId::N64:
     return N64[at];
   case SystemId::PS1:
@@ -1469,6 +2066,10 @@ std::string QualityHelp(const std::string& level, SystemId system)
     return PSP[at];
   case SystemId::NDS:
     return NDS[at];
+  case SystemId::DC:
+  case SystemId::NAOMI:
+  case SystemId::ATOMISWAVE:
+    return FLYCAST[at];
   default:
     return PIXELS[at];
   }

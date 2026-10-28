@@ -65,10 +65,39 @@
 #   - Hot VRAM pages (Resonance's too): a page that faults more than 6 times in a second stops being
 #     protected for 10 s, the textures on it are checked by hash when used (a PS4 fault costs about a
 #     millisecond; core/rend/TexCache.cpp).
-#   - The recompilers' code memory (SH4 11 MiB, ARM7 4 MiB, DSP 32 KiB: arrays in the core's data, 16
-#     KiB aligned, within 2 GiB of its code) is made executable once through EmuSuNi (port/ps4_n64.c:
-#     emusuni_make_executable, the ways the PS4 allows) instead of mmap/mprotect. If that fails, the
-#     interpreters run (the SH4's, the ARM7's and the DSP's, all built in).
+#   - The recompilers' code memory (SH4 21 MiB, ARM7 8 MiB, DSP 32 KiB: since 00.69 twice upstream's caches, which
+#     filled up in the owner's sessions and were then all compiled again) is three parts of the app's JIT
+#     arena (00.66; port/ps4_n64.c's emusuni_jit_arena: one array in the app's data, within 2 GiB of the
+#     code, made executable the ways the PS4 allows, which every recompiling core shares - one runs at a time -
+#     and the app gives back after each core's end), taken again at every game's start, the code written
+#     again; not arrays of the core's own (15 MiB of the image the PS4 charges from the app's start). If the
+#     arena can't be had, the interpreters run (the SH4's, the ARM7's and the DSP's, all built in). The
+#     big tables are on the heap while a game runs (the ARM7's 16 MiB table of blocks, the SH4 MMU's 5.5 MiB;
+#     glslang's 6 MiB SPIR-V table when first used, which it isn't): no static array of 1 MiB or more (checked).
+#   - The SH4 recompiler's FTRV and FIPR (the vector maths 3D games do for every vertex) in x86 in the block,
+#     not a call of their C versions, the same double-precision sums in the same order (the same results to
+#     the bit); its memory accesses without saving the float registers around each call (the handlers that
+#     call C keep them themselves). Switches EMUSUNI_DC_VECTOR=0 / EMUSUNI_DC_MEMCALLS=0 (or the files
+#     /data/EmuSuNi/dc-vector-off, dc-memcalls-off), as below.
+#   - The sound chip's 64 channels: only the playing ones stepped each sample (the same sound to the bit).
+#   - The SH4 waiting in a loop (00.69): a loop that only reads memory and comes round to the same registers with
+#     nothing changed (Sega's library waiting for the next frame: 54-64% of the SH4's time in Crazy Taxi's and
+#     Daytona USA's races) lets the time go by to the next event or interrupt without running (the pictures and
+#     the sound the same to the bit on the PC tests); a library's counted wait (Marvel vs. Capcom 2, Virtua Tennis 2)
+#     too, its count counted down by the rounds that went by. The SH4's memory accesses in the block itself (00.69), not a
+#     call of the fast memory's 4-instruction function each (its call and return 5-15% of the emulation thread); an
+#     access to the hardware's addresses is rewritten as the call of the slow handler when it faults, as before.
+#     Switches EMUSUNI_DC_IDLE=0 / EMUSUNI_DC_INLINEMEM=0 (files /data/EmuSuNi/dc-idle-off, dc-inlinemem-off).
+#   - The Atomiswave cartridge's decryption by tables (00.69; its bit permutations were loops, 9% of the emulation
+#     thread while an Atomiswave boots).
+#   - The console's pace (00.69): flycast_emusuni_pace(fps) gives the frames a second the app runs it at; with
+#     threaded rendering the emulation thread sleeps at a frame more than 3 frames ahead of it (a game that draws
+#     nothing - a loading screen, a board's BIOS - ran as fast as the CPU could, its sound too fast for the app).
+#   - C++ exceptions (00.81): on the PS4 one the core throws never reaches its catch and the app ends without a crash
+#     report, so every throw is logged first (oslib/emusuni_throw.cpp, linked over __cxa_throw with ld.lld -r --wrap):
+#     its type, its message, the SH4's pc and the game. A display list with a parameter the TA doesn't know no longer
+#     throws (upstream's catch only left out the rest of the list). The board's video timing is logged when it changes.
+#   - PGO: scripts/dc-core.profdata.xz (below).
 #   - Threads: every thread Flycast names ("Flycast-emu", the emulation with threaded rendering, a
 #     new one at every start: game start, reset, save state loaded; "CustomTexLoader", "PicoTCP"...)
 #     first calls emusuni_dc_thread(name), which the app defines (port/): its core, priority and name.
@@ -98,11 +127,15 @@
 #     and renamed at the end and every 600 frames when pipelines were made; the GLSL compiled to
 #     SPIR-V once (<system>/dc/vulkan_spirv.cache, by a hash of each shader, Flycast's version in its
 #     header).
-#   - A line in the log every 10 s (retro_run), per frame: retro_run's time, the renderer's and its
-#     waits for the emulation, the emulation thread's CPU time and its waits for the renderer, the
-#     pipelines and shaders made and their time, the GPU waits and full GPU syncs; and in that
-#     window the faults by kind (writes to pages of compiled code, to textures' VRAM, the table's
-#     pieces mapped, the hardware accesses rewritten, others passed on) and the mprotect calls.
+#   - A line in the log every 10 s (retro_run), per frame: retro_run's time, the renderer's (of it the TA
+#     lists' conversion with the textures) and its waits for the emulation, the emulation thread's CPU time
+#     (of it the sound chip: ARM7, channels, DSP) and its waits for the renderer, the disc's reads (count,
+#     time, the longest), the pipelines and shaders made and their time, the GPU waits and full GPU syncs;
+#     and in that window the faults by kind (writes to pages of compiled code, to textures' VRAM, the table's
+#     pieces mapped, the hardware accesses rewritten, others passed on) and the mprotect calls. Since 00.69 two
+#     more lines: the SH4's waits let go by (their share of the console's time) and the time the emulation was
+#     held back to the app's pace; the renderer's parts (its draws' commands and their count, the presenting, the
+#     queue's submits and the waits for the app's lock of the queue).
 #   - Built as a static library, without LTO, with its own zlib, zstd (without its tracing hooks),
 #     libchdr, libzip, glslang... (nothing of the system's), without UPnP, Lua, breakpad, Discord,
 #     OpenMP or the GDB server, for 16 KiB pages. The PS4's CMake system is "Generic": asio without
@@ -111,8 +144,13 @@
 #     copy has the same functions, which upstream's link takes).
 #   - The arcade boards (00.63, the app's NAOMI and Atomiswave tabs): flycast_emusuni_arcade_list gives the
 #     app every game Flycast's list has (set, parent, full name, BIOS zip, board, GD-ROM image, flags); the
-#     NAOMI printer's fonts are in the program again (a few NAOMI games print).
-# The object is checked at the end: only flycast_retro_* (and flycast_emusuni_arcade_list) defined globally, no weak references left,
+#     NAOMI printer's fonts are in the program again (a few NAOMI games print). flycast_emusuni_check_set
+#     (00.65) says what would make a set's start fail, before the core starts and without an exception.
+#   - The console's frames per picture, for the app's pacing (00.68): every message of the renderer's queue
+#     carries the emulation's frame count of when it was sent, a picture presented keeps its own, and
+#     flycast_emusuni_vblanks gives the app the last picture's (a 30 FPS game, Frame Skip: 2 to 4 frames a
+#     picture; src/Emulator.cpp DcFrames).
+# The object is checked at the end: only flycast_retro_* (and the app's four flycast_emusuni_* helpers) defined globally, no weak references left,
 # the C++ operator new/delete it uses all EmuSuNi's own (port/ps4_new.cpp, on the app's heap) and
 # none defined in it, and every other symbol it needs found in what the app links (OpenOrbis' libc,
 # libkernel, libSceLibcInternal, clang's builtins, libc++/libc++abi/libunwind, port/ps4_n64.c;
@@ -121,7 +159,10 @@
 #   build-dc-core.sh <out dir> [clean]
 #   DC_CORE_HOST=1 build-dc-core.sh <out dir>   the same object for this PC (Linux, clang 21), for the
 #                                               PC tests: no PS4 checks; the test frontend provides
-#                                               emusuni_make_executable and emusuni_dc_thread.
+#                                               the JIT arena (emusuni_jit_arena,
+#                                               emusuni_jit_arena_generation; its reset after
+#                                               retro_deinit) and emusuni_dc_thread.
+#   DC_CORE_PGO=off|generate                     without the profile; instrumented to make one (PC)
 #                                               The fast memory runs on stand-ins for the PS4's calls
 #                                               (EMUSUNI_DC_HOST: a memfd and mmap; direct memory
 #                                               comes filled with 0xA5; EMUSUNI_DC_SHIM_FAIL=alias,
@@ -200,7 +241,7 @@ patch('CMakeLists.txt',
       'if(NOT MINIUPNP_FOUND)\n\tif(NINTENDO_SWITCH OR EMUSUNI_PORT)  # EmuSuNi: no UPnP\n')
 patch('core/oslib/CMakeLists.txt',
       'target_sources(${PROJECT_NAME} PRIVATE\n        directory.cpp\n',
-      'target_sources(${PROJECT_NAME} PRIVATE\n        emusuni_mem.cpp\n        emusuni_timing.cpp\n        directory.cpp\n')
+      'target_sources(${PROJECT_NAME} PRIVATE\n        emusuni_mem.cpp\n        emusuni_throw.cpp\n        emusuni_timing.cpp\n        directory.cpp\n')
 patch('CMakeLists.txt',
       '\t\t\tcore/linux/posix_vmem.cpp\n',
       '\t\t\tcore/linux/posix_vmem.cpp\n\t\t\tcore/linux/emusuni_vmem.cpp\n')
@@ -278,7 +319,8 @@ patch('core/hw/naomi/naomi_roms.cpp',
 # scratchpad wsl/naomi/front/throws.sh; a Dreamcast disc's throws none): naomi_cart_LoadBios asks OpenArchive for the
 # game's zip by its bare name, which isn't a file (getFileInfo throws for a missing one), and resource::load opens the
 # game's flash defaults, which aren't there (CMakeRC throws). Both ask first now. (A start that fails - no BIOS, a
-# file not in the set - still throws: src/Emulator.cpp looks for what it can before.)
+# file not in the set - still throws: src/Emulator.cpp asks flycast_emusuni_check_set, below, before it starts
+# the core.)
 patch('core/archive/archive.cpp',
       '\ttry {\n\t\tfileInfo = hostfs::storage().getFileInfo(path);\n\t\tif (!fileInfo.isDirectory)\n'
       '\t\t\tfile = hostfs::storage().openFile(path, "rb");\n\t} catch (const hostfs::StorageException& e) {\n\t}\n',
@@ -299,6 +341,128 @@ patch('core/oslib/resources.cpp',
       '\t\telse\n'
       '#endif\n'
       '\t\t{\n\t\t\tcmrc::file file = fs.open(path);\n')
+# --- (00.81) Every C++ exception the core throws, named in the log before it's thrown. On the PS4 one never reaches its
+# catch: the app ends at once, with no crash report (00.64), so a game that closes EmuSuNi left nothing to go on (a
+# player's The King of Fighters XI on the Atomiswave, as its first fight started). The final link renames the core's
+# calls of __cxa_throw to oslib/emusuni_throw.cpp's (ld.lld -r --wrap, below), which logs the exception's type, its
+# message (FlycastException's and SH4ThrownException's, kept by their constructors), the SH4's pc and the game, then
+# throws it as before: on the PC the same catches catch it.
+addfile('core/oslib/emusuni_throw.cpp', r'''// EmuSuNi (scripts/build-dc-core.sh, 00.81): every C++ exception the core throws, in the log before it's thrown (on
+// the PS4 its catch is never reached: the app ends).
+#include "types.h"
+
+#ifdef EMUSUNI_PORT
+#include "hw/sh4/sh4_if.h"
+#include <atomic>
+#include <cstdio>
+#include <cstring>
+#include <typeinfo>
+
+namespace {
+char g_what[192];                   // the message of the exception being made (its constructor), if it has one
+std::atomic<int> g_thrown { 0 };
+}  // namespace
+
+void emusuniThrowWhat(const char *what)
+{
+	snprintf(g_what, sizeof(g_what), "%s", what != nullptr ? what : "");
+}
+
+void emusuniThrowSh4(u32 epc, u32 code)
+{
+	snprintf(g_what, sizeof(g_what), "the SH4's exception %03x at %08x", code, epc);
+}
+
+extern "C" [[noreturn]] void __real___cxa_throw(void *object, std::type_info *type, void (*destructor)(void *));
+
+extern "C" [[noreturn]] void __wrap___cxa_throw(void *object, std::type_info *type, void (*destructor)(void *))
+{
+	const int n = ++g_thrown;
+	// (The first 20, then one in 100: on the PC a caught one may come again.)
+	if (n <= 20 || n % 100 == 0)
+	{
+		const u32 pc = p_sh4rcb != nullptr ? Sh4cntx.pc : 0;
+#if defined(__ORBIS__)
+		const char *after = "; on the PS4 its catch is never reached: the app ends here";
+#else
+		const char *after = "";
+#endif
+		ERROR_LOG(COMMON, "EmuSuNi: C++ exception %d thrown in the core: %s%s%s (SH4 pc %08x, game %s)%s", n,
+				type != nullptr ? type->name() : "?", g_what[0] != '\0' ? ": " : "", g_what, pc,
+				settings.content.gameId.c_str(), after);
+	}
+	g_what[0] = '\0';
+	__real___cxa_throw(object, type, destructor);
+}
+#endif
+''')
+patch('core/types.h',
+      'class FlycastException : public std::runtime_error\n{\npublic:\n'
+      '\tFlycastException(const std::string& reason) : std::runtime_error(reason) {}\n'
+      '\tFlycastException(const char *reason) : std::runtime_error(reason) {}\n};\n',
+      '#ifdef EMUSUNI_PORT\n'
+      'void emusuniThrowWhat(const char *what);  // oslib/emusuni_throw.cpp: the message, for the log of the throw\n'
+      'void emusuniThrowSh4(u32 epc, u32 code);\n'
+      '#endif\n'
+      'class FlycastException : public std::runtime_error\n{\npublic:\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\tFlycastException(const std::string& reason) : std::runtime_error(reason) { emusuniThrowWhat(reason.c_str()); }\n'
+      '\tFlycastException(const char *reason) : std::runtime_error(reason) { emusuniThrowWhat(reason); }\n'
+      '#else\n'
+      '\tFlycastException(const std::string& reason) : std::runtime_error(reason) {}\n'
+      '\tFlycastException(const char *reason) : std::runtime_error(reason) {}\n'
+      '#endif\n'
+      '};\n')
+patch('core/hw/sh4/sh4_core.h',
+      '\tSH4ThrownException(u32 epc, Sh4ExceptionCode expEvn) : epc(epc), expEvn(expEvn) { }\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '\tSH4ThrownException(u32 epc, Sh4ExceptionCode expEvn) : epc(epc), expEvn(expEvn) { emusuniThrowSh4(epc, expEvn); }\n'
+      '#else\n'
+      '\tSH4ThrownException(u32 epc, Sh4ExceptionCode expEvn) : epc(epc), expEvn(expEvn) { }\n'
+      '#endif\n')
+# A display list with a parameter the TA doesn't know (types 3 and 6): upstream throws TAParserException there, which
+# ta_parse catches to leave out the rest of the list - on the PS4 the end of the app. The list's parsing stops there
+# without the exception (the picture as upstream's: the rest of that list left out); NAOMI 2's path (ta_add_ta_data,
+# which elan.cpp catches) as upstream. The first logged, the count in the 10 s line.
+patch('core/hw/pvr/ta_vtx.cpp',
+      '\t\t\t\tWARN_LOG(PVR, "Unhandled param type pcw %08x", data->pcw.full);\n\t\t\t\tthrow TAParserException();\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\t\t\tif (fetchTextures)\n'
+      '\t\t\t\t{\n'
+      '\t\t\t\t\t// EmuSuNi (00.81): the rest of the list left out as ta_parse\'s catch does, without the exception.\n'
+      '\t\t\t\t\tif (emusuni::timing.taUnknown++ == 0)\n'
+      '\t\t\t\t\t\tNOTICE_LOG(PVR, "EmuSuNi: a display list with a parameter the TA doesn\'t know (pcw %08x): the rest of the list "\n'
+      '\t\t\t\t\t\t\t"left out, as upstream, without its C++ exception (the end of the app on the PS4)", data->pcw.full);\n'
+      '\t\t\t\t\treturn data_end;\n'
+      '\t\t\t\t}\n'
+      '#endif\n'
+      '\t\t\t\tWARN_LOG(PVR, "Unhandled param type pcw %08x", data->pcw.full);\n\t\t\t\tthrow TAParserException();\n')
+patch('core/hw/pvr/ta_vtx.cpp',
+      '#include "ta_ctx.h"\n',
+      '#include "ta_ctx.h"\n#include "emusuni_timing.h"\n')
+# The board's video timing (its frames a second come from it: the app runs the core at that rate), logged when it
+# changes: the lines, the pixel clocks a line and the clock, interlaced or not (a rate of 100 or more isn't passed on
+# to the app by upstream's retro_refresh_av_info: the line shows it). At most 30 a session.
+patch('core/hw/pvr/spg.cpp',
+      '#ifdef LIBRETRO\n\tretro_refresh_av_info((double)SH4_MAIN_CLOCK / ((double)Line_Cycles * (double)pvr_numscanlines));\n#endif\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '\t{\n'
+      '\t\t// EmuSuNi (00.81): the video timing when it changes.\n'
+      '\t\tstatic u32 lastLines = 0, lastLine = 0;\n'
+      '\t\tstatic int logged = 0;\n'
+      '\t\tif ((pvr_numscanlines != lastLines || Line_Cycles != lastLine) && logged < 30)\n'
+      '\t\t{\n'
+      '\t\t\tlastLines = pvr_numscanlines;\n'
+      '\t\t\tlastLine = Line_Cycles;\n'
+      '\t\t\tlogged++;\n'
+      '\t\t\tNOTICE_LOG(PVR, "EmuSuNi: video timing: %u lines of %u pixel clocks at %s MHz%s: %.3f frames a second", pvr_numscanlines,\n'
+      '\t\t\t\t\tSPG_LOAD.hcount + 1, FB_R_CTRL.vclk_div ? "27" : "13.5", SPG_CONTROL.interlace ? ", interlaced (a field a frame)" : "",\n'
+      '\t\t\t\t\t(double)SH4_MAIN_CLOCK / ((double)Line_Cycles * (double)pvr_numscanlines));\n'
+      '\t\t}\n'
+      '\t}\n'
+      '#endif\n'
+      '#ifdef LIBRETRO\n\tretro_refresh_av_info((double)SH4_MAIN_CLOCK / ((double)Line_Cycles * (double)pvr_numscanlines));\n#endif\n')
+
 # The cartridge's memory (a NAOMI's or Atomiswave's ROM, 16 to 384 MiB; a cartridge image's; a GD-ROM game's DIMM
 # memory) off the app's heap, as the Dreamcast's RAM (oslib/emusuni_mem.cpp): direct memory on the PS4, the
 # 4.5 GiB pool, rather than the system flexible memory the heap shares with Sony's modules.
@@ -405,6 +569,192 @@ patch('core/hw/naomi/naomi_cart.cpp',
       '#endif\n'
       '\t\tstd::vector<u8> gdromDigest;\n\t\tCurrentCartridge->Init(progress, config::GGPOEnable ? &gdromDigest : nullptr);\n')
 
+# --- What would make a board's start fail, found before it starts (00.65): flycast_emusuni_check_set, which
+# src/Emulator.cpp asks before it starts the core (Naomi::CheckSet). It looks for what loadMameRom would refuse the
+# set for, in its order and where it and loadBios look, without reading or loading anything and without a C++
+# exception (above: one ends the app on the PS4): the set not in Games[]; neither its zip nor its parent's there;
+# none of its BIOS's files, any region's (loadBios takes another region's when the chosen one's isn't there), in its
+# BIOS zip (found as findNaomiBios finds it: Flycast's system/dc, then beside the game; naomi_cart_LoadBios opens
+# the set's own zips by their bare names, from the current folder); a file of the set in neither of its zips, by
+# CRC, then by name (a default EEPROM is optional). The message is Flycast's own, in English (the app reads it:
+# Naomi::LoadError); nothing is translated or logged (the core may not be set up yet). A 7z's files by its
+# directory: opening one unpacks its whole block.
+patch('core/archive/archive.h',
+      '\tvirtual ArchiveFile *OpenFileByCrc(u32 crc) = 0;\n',
+      '\tvirtual ArchiveFile *OpenFileByCrc(u32 crc) = 0;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t// EmuSuNi (scripts/build-dc-core.sh): whether OpenFile / OpenFileByCrc would find the file, without reading it.\n'
+      '\tvirtual bool HasFile(const char *name) {\n'
+      '\t\tArchiveFile *file = OpenFile(name);\n'
+      '\t\tconst bool found = file != nullptr;\n'
+      '\t\tdelete file;\n'
+      '\t\treturn found;\n'
+      '\t}\n'
+      '\tvirtual bool HasFileByCrc(u32 crc) {\n'
+      '\t\tArchiveFile *file = OpenFileByCrc(crc);\n'
+      '\t\tconst bool found = file != nullptr;\n'
+      '\t\tdelete file;\n'
+      '\t\treturn found;\n'
+      '\t}\n'
+      '#endif\n')
+patch('core/archive/7zArchive.h',
+      '\tArchiveFile *OpenFileByCrc(u32 crc) override;\n',
+      '\tArchiveFile *OpenFileByCrc(u32 crc) override;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\tbool HasFile(const char *name) override;\n'
+      '\tbool HasFileByCrc(u32 crc) override;\n'
+      '#endif\n')
+patch('core/archive/7zArchive.cpp',
+      'SzArchive::~SzArchive()\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '// EmuSuNi (scripts/build-dc-core.sh): OpenFile\'s and OpenFileByCrc\'s lookups, in the directory: nothing unpacked.\n'
+      'bool SzArchive::HasFile(const char *name)\n'
+      '{\n'
+      '\tu16 fname[512];\n'
+      '\tfor (UInt32 i = 0; i < szarchive.NumFiles; i++)\n'
+      '\t{\n'
+      '\t\tif (SzArEx_IsDir(&szarchive, i))\n'
+      '\t\t\tcontinue;\n'
+      '\t\tsize_t len = SzArEx_GetFileNameUtf16(&szarchive, i, fname);\n'
+      '\t\tchar szname[512];\n'
+      '\t\tsize_t j = 0;\n'
+      '\t\tfor (; j < len && j < sizeof(szname) - 1; j++)\n'
+      '\t\t\tszname[j] = fname[j];\n'
+      '\t\tszname[j] = 0;\n'
+      '\t\tif (!strcmp(name, szname))\n'
+      '\t\t\treturn true;\n'
+      '\t}\n'
+      '\treturn false;\n'
+      '}\n'
+      '\n'
+      'bool SzArchive::HasFileByCrc(u32 crc)\n'
+      '{\n'
+      '\tif (crc == 0)\n'
+      '\t\treturn false;\n'
+      '\tfor (UInt32 i = 0; i < szarchive.NumFiles; i++)\n'
+      '\t\tif (!SzArEx_IsDir(&szarchive, i) && crc == szarchive.CRCs.Vals[i])\n'
+      '\t\t\treturn true;\n'
+      '\treturn false;\n'
+      '}\n'
+      '\n'
+      '#endif\n'
+      'SzArchive::~SzArchive()\n')
+patch('core/hw/naomi/naomi_cart.cpp',
+      'static void loadDecryptedRom(const std::string& path, const std::string& fileName, LoadProgress *progress)\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '// EmuSuNi (scripts/build-dc-core.sh): whether one of the archives has the file, by its CRC or else by its name, as\n'
+      '// loadMameRom and loadBios look for it.\n'
+      'static bool emusuniHasFile(std::initializer_list<Archive *> archives, u32 crc, const char *name)\n'
+      '{\n'
+      '\tfor (Archive *archive : archives)\n'
+      '\t\tif (archive != nullptr && archive->HasFileByCrc(crc))\n'
+      '\t\t\treturn true;\n'
+      '\tfor (Archive *archive : archives)\n'
+      '\t\tif (archive != nullptr && archive->HasFile(name))\n'
+      '\t\t\treturn true;\n'
+      '\treturn false;\n'
+      '}\n'
+      '\n'
+      '// What loadMameRom would refuse the set at path for (scripts/build-dc-core.sh says what and why); bios_dir is\n'
+      '// Flycast\'s system/dc. 1 when it would start, and for anything but a .zip or .7z (a cartridge image); else 0 and\n'
+      '// Flycast\'s message in error.\n'
+      'extern "C" int flycast_emusuni_check_set(const char *path, const char *bios_dir, char *error, unsigned error_size)\n'
+      '{\n'
+      '\tconst auto refuse = [error, error_size](const std::string& message) {\n'
+      '\t\tif (error != nullptr && error_size > 0)\n'
+      '\t\t\tsnprintf(error, error_size, "%s", message.c_str());\n'
+      '\t\treturn 0;\n'
+      '\t};\n'
+      '\tif (error != nullptr && error_size > 0)\n'
+      '\t\terror[0] = 0;\n'
+      '\tconst std::string gamePath(path);\n'
+      '\t// (Emulator::loadGame\'s fileName: the path\'s last part; libretro.cpp\'s g_roms_dir: its folder, with the slash.)\n'
+      '\tconst size_t slash = get_last_slash_pos(gamePath);\n'
+      '\tconst std::string fileName = slash == std::string::npos ? gamePath : gamePath.substr(slash + 1);\n'
+      '\tconst std::string romsDir = slash == std::string::npos ? std::string() : gamePath.substr(0, slash + 1);\n'
+      '\tconst std::string extension = get_file_extension(fileName);\n'
+      '\tif (extension != "zip" && extension != "7z")\n'
+      '\t\treturn 1;\n'
+      '\tconst Game *game = FindGame(fileName.c_str());\n'
+      '\tif (game == nullptr)\n'
+      '\t\treturn refuse("Unknown game");\n'
+      '\t// The set\'s zip and its parent\'s (loadMameRom).\n'
+      '\tstd::unique_ptr<Archive> archive(OpenArchive(gamePath));\n'
+      '\tstd::unique_ptr<Archive> parentArchive;\n'
+      '\tif (game->parent_name != nullptr)\n'
+      '\t{\n'
+      '\t\ttry {\n'
+      '\t\t\tstd::string parentPath = hostfs::storage().getParentPath(gamePath);\n'
+      '\t\t\tparentPath = hostfs::storage().getSubPath(parentPath, game->parent_name);\n'
+      '\t\t\tparentArchive.reset(OpenArchive(parentPath));\n'
+      '\t\t} catch (const FlycastException& e) {\n'
+      '\t\t}\n'
+      '\t}\n'
+      '\tif (archive == nullptr && parentArchive == nullptr)\n'
+      '\t{\n'
+      '\t\tif (game->parent_name != nullptr)\n'
+      '\t\t\treturn refuse(strprintf("Cannot open %s or %s", fileName.c_str(), game->parent_name));\n'
+      '\t\treturn refuse(strprintf("Cannot open %s", fileName.c_str()));\n'
+      '\t}\n'
+      '\t// Its BIOS (naomi_cart_LoadBios, loadBios): one of its files, any region\'s (not the default EEPROM).\n'
+      '\tconst char *biosName = game->bios != nullptr ? game->bios : "naomi";\n'
+      '\tconst BIOS_t *bios = nullptr;\n'
+      '\tfor (int biosid = 0; BIOS[biosid].name != nullptr; biosid++)\n'
+      '\t\tif (!stricmp(BIOS[biosid].name, biosName))\n'
+      '\t\t{\n'
+      '\t\t\tbios = &BIOS[biosid];\n'
+      '\t\t\tbreak;\n'
+      '\t\t}\n'
+      '\tbool biosFound = false;\n'
+      '\tif (bios != nullptr)\n'
+      '\t{\n'
+      '\t\t// (naomi_cart_LoadBios opens the set\'s zips by the bare name: from the current folder.)\n'
+      '\t\tstd::unique_ptr<Archive> childArchive(OpenArchive(fileName));\n'
+      '\t\tstd::unique_ptr<Archive> childParentArchive;\n'
+      '\t\tif (game->parent_name != nullptr)\n'
+      '\t\t{\n'
+      '\t\t\ttry {\n'
+      '\t\t\t\tstd::string parentPath = hostfs::storage().getParentPath(fileName);\n'
+      '\t\t\t\tparentPath = hostfs::storage().getSubPath(parentPath, game->parent_name);\n'
+      '\t\t\t\tchildParentArchive.reset(OpenArchive(parentPath));\n'
+      '\t\t\t} catch (const FlycastException& e) {\n'
+      '\t\t\t}\n'
+      '\t\t}\n'
+      '\t\t// findNaomiBios: <name>.zip in Flycast\'s system/dc, else beside the game; then <name>.7z the same way.\n'
+      '\t\tconst std::string archName(bios->filename != nullptr ? bios->filename : biosName);\n'
+      '\t\tconst std::string systemDir(bios_dir != nullptr ? bios_dir : "");\n'
+      '\t\tstd::string biosPath;\n'
+      '\t\tfor (const char *ext : { ".zip", ".7z" })\n'
+      '\t\t{\n'
+      '\t\t\tif (!systemDir.empty() && hostfs::storage().exists(systemDir + "/" + archName + ext))\n'
+      '\t\t\t\tbiosPath = systemDir + "/" + archName + ext;\n'
+      '\t\t\telse if (hostfs::storage().exists(romsDir + archName + ext))\n'
+      '\t\t\t\tbiosPath = romsDir + archName + ext;\n'
+      '\t\t\tif (!biosPath.empty())\n'
+      '\t\t\t\tbreak;\n'
+      '\t\t}\n'
+      '\t\tstd::unique_ptr<Archive> biosArchive(OpenArchive(biosPath));\n'
+      '\t\tfor (int romid = 0; bios->blobs[romid].filename != nullptr && !biosFound; romid++)\n'
+      '\t\t\tbiosFound = bios->blobs[romid].blob_type == Normal\n'
+      '\t\t\t\t\t&& emusuniHasFile({ childArchive.get(), childParentArchive.get(), biosArchive.get() },\n'
+      '\t\t\t\t\t\t\tbios->blobs[romid].crc, bios->blobs[romid].filename);\n'
+      '\t}\n'
+      '\tif (!biosFound)\n'
+      '\t\treturn refuse(strprintf("Error: cannot load BIOS %s", game->bios != nullptr ? game->bios : "naomi.zip"));\n'
+      '\t// Its files (loadMameRom): by CRC, then by name, in its zip and its parent\'s; a default EEPROM is optional.\n'
+      '\tfor (int romid = 0; game->blobs[romid].filename != nullptr; romid++)\n'
+      '\t{\n'
+      '\t\tif (game->blobs[romid].blob_type == Copy || game->blobs[romid].blob_type == Eeprom)\n'
+      '\t\t\tcontinue;\n'
+      '\t\tif (!emusuniHasFile({ archive.get(), parentArchive.get() }, game->blobs[romid].crc, game->blobs[romid].filename))\n'
+      '\t\t\treturn refuse(strprintf("Cannot find %s", game->blobs[romid].filename));\n'
+      '\t}\n'
+      '\treturn 1;\n'
+      '}\n'
+      '#endif\n'
+      '\n'
+      'static void loadDecryptedRom(const std::string& path, const std::string& fileName, LoadProgress *progress)\n')
+
 # --- The Dreamcast's memory without the virtual memory: the PS4 can't map memory twice (PPSSPP's VRAM
 # mirrors came out "NOT aliased"), so Flycast's own fallback (nvmem disabled): RAM, VRAM, ARAM and the
 # SH4 context with its 128 MiB jump table in blocks of their own (direct memory on the PS4), the
@@ -506,7 +856,20 @@ void *emusuni_pages_alloc(size_t size)
 		else
 			ERROR_LOG(VMEM, "EmuSuNi: too many memory blocks (%p kept)", at);
 	}
-	DEBUG_LOG(VMEM, "EmuSuNi: %d KiB of %s at %p", (int)(size / 1024), direct ? "direct memory" : "mapped memory", at);
+	// (00.81: a big block - an arcade cartridge, The King of Fighters XI's 320 MiB - in the log, and where it went.)
+	if (size >= 64 * 1024 * 1024)
+	{
+#if defined(__ORBIS__)
+		const char *where = direct ? "direct memory" : "mapped memory (no direct memory for it: the system's flexible memory)";
+#else
+		const char *where = direct ? "direct memory" : "mapped memory";
+#endif
+		NOTICE_LOG(VMEM, "EmuSuNi: %d MiB of %s at %p", (int)(size >> 20), where, at);
+	}
+	else
+	{
+		DEBUG_LOG(VMEM, "EmuSuNi: %d KiB of %s at %p", (int)(size / 1024), direct ? "direct memory" : "mapped memory", at);
+	}
 	return at;
 }
 
@@ -1693,6 +2056,25 @@ patch('core/linux/posix_vmem.cpp',
       '}\n'
       '#endif\n\n'
       '// Prepares the code region for JIT operations, thus marking it as RWX\n')
+# (00.69) The SH4's code cache 20 MiB (+1 for its temporary blocks), the ARM7's 8 MiB: twice upstream's, in the same
+# 32 MiB arena (29 MiB of it now; the arena is the app's either way, no memory more). Upstream's 10 and 4 filled up in
+# the owner's sessions (the log's "jit arena: given back by dc sh4 (10.0 MiB of 11.0 MiB written), dc arm7 (4.0 MiB of
+# 4.0 MiB written)" after Dolphin Blue, Jet Set Radio, Daytona USA, Virtua Tennis 2): a full cache drops every block
+# and compiles them all again as they run, a hitch.
+patch('core/hw/sh4/dyna/driver.cpp',
+      'constexpr u32 CODE_SIZE = 10_MB;\n',
+      '#ifdef EMUSUNI_PORT\n'
+      'constexpr u32 CODE_SIZE = 20_MB;  // EmuSuNi (00.69): twice upstream\'s (the JIT arena\'s part, linux/posix_vmem.cpp)\n'
+      '#else\n'
+      'constexpr u32 CODE_SIZE = 10_MB;\n'
+      '#endif\n')
+patch('core/hw/arm7/arm7_rec.h',
+      'const u32 ICacheSize = 4_MB;\n',
+      '#ifdef EMUSUNI_PORT\n'
+      'const u32 ICacheSize = 8_MB;  // EmuSuNi (00.69): twice upstream\'s (the JIT arena\'s part, linux/posix_vmem.cpp)\n'
+      '#else\n'
+      'const u32 ICacheSize = 4_MB;\n'
+      '#endif\n')
 patch('core/oslib/virtmem.h',
       '// To create the mappings in the address space.\nvoid create_mappings(const Mapping *vmem_maps, unsigned nummaps);\n',
       '// To create the mappings in the address space.\nvoid create_mappings(const Mapping *vmem_maps, unsigned nummaps);\n'
@@ -1704,7 +2086,39 @@ patch('core/linux/posix_vmem.cpp',
       'namespace virtmem\n{\n\nbool region_lock(void *start, size_t len)\n{\n',
       '#ifdef EMUSUNI_PORT\n'
       'extern bool emusuniWriteProtectOk, emusuniWriteProtectTested;  // oslib/emusuni_mem.cpp\n'
-      'extern "C" int emusuni_make_executable(void *address, size_t size);  // port/ps4_n64.c\n'
+      '// port/ps4_n64.c (the PC tests: their stand-in): the app\'s one JIT arena, which every recompiling core shares (one\n'
+      '// runs at a time), a part for each cache, given back after each core\'s end (Emulator::Run).\n'
+      'extern "C" void *emusuni_jit_arena(size_t size, const char *name);\n'
+      'extern "C" unsigned emusuni_jit_arena_generation(void);\n'
+      '#include <mutex>\n'
+      '\n'
+      'namespace emusuni\n'
+      '{\n'
+      '// The recompilers\' code caches in the app\'s JIT arena (00.66; they were 15 MiB of arrays in the program image,\n'
+      '// which the PS4 charges to the games\' memory from the app\'s start): the SH4\'s (11 MiB), the ARM7\'s (4 MiB) and\n'
+      '// the AICA DSP\'s (32 KiB), told apart by their sizes, taken all three in this order whenever the arena was given\n'
+      '// back since (another core has written there): at the same places in every game. NULL: no JIT (the interpreters).\n'
+      'void *jitPart(size_t size)\n'
+      '{\n'
+      '\tstatic std::mutex lock;\n'
+      '\tstatic void *parts[3];\n'
+      '\tstatic unsigned generation = ~0u;\n'
+      '\tstatic const size_t sizes[3] = { 21u << 20, 8u << 20, 32u << 10 };  // (00.69: 21 and 8; 11 and 4 before)\n'
+      '\tstatic const char *const names[3] = { "dc sh4", "dc arm7", "dc dsp" };\n'
+      '\tstd::lock_guard<std::mutex> guard(lock);\n'
+      '\tconst unsigned now = emusuni_jit_arena_generation();\n'
+      '\tif (now != generation)\n'
+      '\t{\n'
+      '\t\tgeneration = now;\n'
+      '\t\tfor (int i = 0; i < 3; i++)\n'
+      '\t\t\tparts[i] = emusuni_jit_arena(sizes[i], names[i]);\n'
+      '\t}\n'
+      '\tfor (int i = 0; i < 3; i++)\n'
+      '\t\tif (size == sizes[i])\n'
+      '\t\t\treturn parts[i];\n'
+      '\treturn emusuni_jit_arena(size, "dc other");\n'
+      '}\n'
+      '}  // namespace emusuni\n'
       '#endif\n\n'
       'namespace virtmem\n{\n\nbool region_lock(void *start, size_t len)\n{\n'
       '#ifdef EMUSUNI_PORT\n'
@@ -1749,26 +2163,18 @@ patch('core/linux/posix_vmem.cpp',
       'bool prepare_jit_block(void *code_area, size_t size, void **code_area_rwx)\n{\n',
       'bool prepare_jit_block(void *code_area, size_t size, void **code_area_rwx)\n{\n'
       '#ifdef EMUSUNI_PORT\n'
-      '\t// EmuSuNi: the code cache (an array in the core\'s data, virtmem.h) made executable the ways the\n'
-      '\t// PS4 allows (port/ps4_n64.c), else no JIT (the interpreters run). Once: it stays so (the DSP\'s\n'
-      '\t// is asked for again at every reset of the AICA, while nothing else of the core runs).\n'
-      '\tstatic void *executable[8];\n'
-      '\tstatic int executableCount = 0;\n'
-      '\tfor (int i = 0; i < executableCount; i++)\n'
-      '\t\tif (executable[i] == code_area)\n'
-      '\t\t{\n'
-      '\t\t\t*code_area_rwx = code_area;\n'
-      '\t\t\treturn true;\n'
-      '\t\t}\n'
-      '\tif (code_area != nullptr && emusuni_make_executable(code_area, size) >= 0)\n'
+      '\t// EmuSuNi: the cache\'s part of the app\'s JIT arena (jitPart above; read/write/execute the ways the PS4\n'
+      '\t// allows, port/ps4_n64.c), else no JIT (the interpreters run). The DSP\'s is asked for again at every reset of\n'
+      '\t// the AICA, the SH4\'s and the ARM7\'s at every game\'s start (Sh4Recompiler::emusuniContextMoved,\n'
+      '\t// arm7_rec.cpp\'s flush): the same part while the arena isn\'t given back.\n'
+      '\t(void)code_area;\n'
+      '\t*code_area_rwx = emusuni::jitPart(size);\n'
+      '\tif (*code_area_rwx != nullptr)\n'
       '\t{\n'
-      '\t\tif (executableCount < 8)\n'
-      '\t\t\texecutable[executableCount++] = code_area;\n'
-      '\t\t*code_area_rwx = code_area;\n'
-      '\t\tNOTICE_LOG(VMEM, "EmuSuNi: %d KiB of JIT memory at %p", (int)(size / 1024), code_area);\n'
+      '\t\tNOTICE_LOG(VMEM, "EmuSuNi: %d KiB of JIT memory at %p (the app\'s JIT arena)", (int)(size / 1024), *code_area_rwx);\n'
       '\t\treturn true;\n'
       '\t}\n'
-      '\tERROR_LOG(VMEM, "EmuSuNi: %d KiB of JIT memory at %p can\'t be made executable", (int)(size / 1024), code_area);\n'
+      '\tERROR_LOG(VMEM, "EmuSuNi: no JIT memory (%d KiB) in the app\'s JIT arena", (int)(size / 1024));\n'
       '\treturn false;\n'
       '#endif\n')
 patch('core/linux/posix_vmem.cpp',
@@ -1780,9 +2186,9 @@ patch('core/linux/posix_vmem.cpp',
 patch('core/oslib/virtmem.h',
       '#if defined(_WIN32) || defined(__APPLE__)\n#define DECLARE_CODE_CACHE(Name, Size) static u8 *Name;\n',
       '#if defined(EMUSUNI_PORT)\n'
-      '// EmuSuNi: an array in the core\'s data (the x86-64 code reaches the core\'s code and data with 32-bit\n'
-      '// offsets), on 16 KiB pages of its own (the PS4\'s), made executable by prepare_jit_block.\n'
-      '#define DECLARE_CODE_CACHE(Name, Size) alignas(16384) static u8 Name[((Size) + 16383) & ~(size_t)16383];\n'
+      '// EmuSuNi: no array of the core\'s own: prepare_jit_block gives a part of the app\'s JIT arena (in its data, within\n'
+      '// 2 GiB of the code: the x86-64 code reaches the core\'s code and data with 32-bit offsets).\n'
+      '#define DECLARE_CODE_CACHE(Name, Size) static u8 *Name;\n'
       '#elif defined(_WIN32) || defined(__APPLE__)\n#define DECLARE_CODE_CACHE(Name, Size) static u8 *Name;\n')
 patch('core/hw/mem/addrspace.cpp',
       'static void *malloc_pages(size_t size)\n{\n\treturn allocAligned(PAGE_SIZE, size);\n}\n\n'
@@ -1908,6 +2314,52 @@ patch('core/hw/sh4/dyna/blockmanager.cpp',
       '\t\treturn;\n'
       '\t}\n'
       '#endif\n')
+# (00.69) The PC tests only (EMUSUNI_DC_HOST, DCTEST_PERFMAP=1 in the environment): each block compiled is written to
+# /tmp/perf-<pid>.map with its SH4 address and code, so perf's profiles name the SH4 code the time went to.
+patch('core/hw/sh4/dyna/blockmanager.cpp',
+      '#include "oslib/virtmem.h"\n',
+      '#include "oslib/virtmem.h"\n'
+      '#if defined(EMUSUNI_PORT) && defined(EMUSUNI_DC_HOST)\n'
+      '#include <unistd.h>\n'
+      '#endif\n')
+patch('core/hw/sh4/dyna/blockmanager.cpp',
+      '\tblkmap[(void*)block->code] = block;\n',
+      '\tblkmap[(void*)block->code] = block;\n'
+      '#if defined(EMUSUNI_PORT) && defined(EMUSUNI_DC_HOST)\n'
+      '\tstatic const bool emusuniPerfMap = getenv("DCTEST_PERFMAP") != nullptr;\n'
+      '\tif (emusuniPerfMap)\n'
+      '\t{\n'
+      '\t\tstatic FILE *map = nullptr;\n'
+      '\t\tif (map == nullptr)\n'
+      '\t\t{\n'
+      '\t\t\tchar name[64];\n'
+      '\t\t\tsnprintf(name, sizeof(name), "/tmp/perf-%d.map", (int)getpid());\n'
+      '\t\t\tmap = fopen(name, "w");\n'
+      '\t\t}\n'
+      '\t\tif (map != nullptr)\n'
+      '\t\t{\n'
+      '\t\t\tstd::string text;\n'
+      '\t\t\t// (the code read from the RAM only: area 3)\n'
+      '\t\t\tfor (u32 i = 0; i < block->guest_opcodes && i < 24 && (block->vaddr & 0x1C000000) == 0x0C000000; i++)\n'
+      '\t\t\t{\n'
+      '\t\t\t\tconst u32 pc = block->vaddr + i * 2;\n'
+      '\t\t\t\tconst u16 op = *(const u16 *)&mem_b[pc & RAM_MASK];\n'
+      '\t\t\t\tchar buf[1024];\n'
+      '\t\t\t\tOpDesc[op]->Disassemble(buf, pc, op);\n'
+      '\t\t\t\tif (char *regs = strstr(buf, " ; "))\n'
+      '\t\t\t\t\t*regs = 0;  // (not the registers\' values)\n'
+      '\t\t\t\tfor (char *c = buf; *c != 0; c++)\n'
+      '\t\t\t\t\tif (*c == \'\\n\')\n'
+      '\t\t\t\t\t\t*c = \' \';\n'
+      '\t\t\t\ttext += buf;\n'
+      '\t\t\t\ttext += "; ";\n'
+      '\t\t\t}\n'
+      '\t\t\tfprintf(map, "%lx %x sh4_%08X_c%u_n%u %s\\n", (unsigned long)(uintptr_t)block->code, block->host_code_size,\n'
+      '\t\t\t\t\tblock->vaddr, block->guest_cycles, block->guest_opcodes, text.c_str());\n'
+      '\t\t\tfflush(map);\n'
+      '\t\t}\n'
+      '\t}\n'
+      '#endif\n')
 
 # --- The JITs' code memory (virtmem.h, posix_vmem.cpp): if it can't be made executable, the
 # interpreters run: the SH4's (always built in), the ARM7's and the AICA DSP's (built in too here).
@@ -1917,6 +2369,17 @@ patch('core/hw/sh4/dyna/driver.cpp',
       '#ifdef EMUSUNI_PORT\n'
       '// EmuSuNi: whether the code cache could be made executable (else Emulator uses the interpreter).\n'
       'bool emusuniSh4JitOk = false;\n'
+      'namespace emusuni { void *jitPart(size_t size); }  // linux/posix_vmem.cpp: the app\'s JIT arena\n'
+      '#endif\n')
+# (The main loop written again by the next reset: the code cache it was in may have moved, or been written by another
+# core since, the JIT arena's.)
+patch('core/rec-x64/rec_x64.cpp',
+      '\tvoid init(Sh4Context& sh4ctx, Sh4CodeBuffer& codeBuffer) override\n\t{\n'
+      '\t\tthis->sh4ctx = &sh4ctx;\n\t\tthis->codeBuffer = &codeBuffer;\n',
+      '\tvoid init(Sh4Context& sh4ctx, Sh4CodeBuffer& codeBuffer) override\n\t{\n'
+      '\t\tthis->sh4ctx = &sh4ctx;\n\t\tthis->codeBuffer = &codeBuffer;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\t::mainloop = nullptr;  // EmuSuNi: written again by the reset that follows (the JIT arena)\n'
       '#endif\n')
 patch('core/hw/sh4/dyna/driver.cpp',
       '\tverify(rc);\n\t// Ensure the pointer returned is non-null\n',
@@ -1986,7 +2449,21 @@ patch('core/hw/sh4/dyna/driver.cpp',
       '\t// The code has the context\'s address in it: what is compiled from now on gets the new one (the\n'
       '\t// reset of the code cache that follows writes the main loop again and drops every block).\n'
       '\tif (CodeCache != nullptr)\n'
+      '\t{\n'
+      '\t\t// The code cache\'s part of the app\'s JIT arena again (00.66; linux/posix_vmem.cpp): another core may\n'
+      '\t\t// have written there since the last game. Without it the SH4 interpreter runs this game.\n'
+      '\t\tu8 *part = (u8 *)emusuni::jitPart(FULL_SIZE);\n'
+      '\t\tif (part == nullptr)\n'
+      '\t\t{\n'
+      '\t\t\tERROR_LOG(DYNAREC, "EmuSuNi: no executable memory for the SH4 recompiler: the SH4 interpreter runs");\n'
+      '\t\t\tCodeCache = TempCodeCache = nullptr;\n'
+      '\t\t\temusuniSh4JitOk = false;\n'
+      '\t\t\treturn;\n'
+      '\t\t}\n'
+      '\t\tCodeCache = part;\n'
+      '\t\tTempCodeCache = CodeCache + CODE_SIZE;\n'
       '\t\tsh4Dynarec->init(*getContext(), codeBuffer);\n'
+      '\t}\n'
       '}\n'
       '#endif\n\n'
       'void Sh4Recompiler::Term()\n{\n')
@@ -2046,10 +2523,54 @@ patch('core/hw/arm7/arm7_rec.cpp',
       'void flush()\n{\n\ticPtr = ICache;\n',
       'void flush()\n{\n'
       '#ifdef EMUSUNI_PORT\n'
-      '\tif (ICache == nullptr)\n'
+      '\t// EmuSuNi (00.66): the code cache\'s part of the app\'s JIT arena again (another core may have written there\n'
+      '\t// since the last game: every game\'s start resets the AICA, which comes here), and the table of the compiled\n'
+      '\t// blocks on the heap (16 MiB; given back at retro_deinit: emusuniFreeTables).\n'
+      '\tif (ICache != nullptr)\n'
+      '\t\tICache = (u8 *)emusuni::jitPart(ICacheSize);\n'
+      '\tif (ICache != nullptr && EntryPoints == nullptr)\n'
+      '\t\tEntryPoints = (void (**)())malloc(sizeof(void (*)()) * (ARAM_SIZE_MAX / 4));\n'
+      '\tif (ICache == nullptr || EntryPoints == nullptr)\n'
+      '\t{\n'
+      '\t\tif (ICache != nullptr)\n'
+      '\t\t\tERROR_LOG(AICA_ARM, "EmuSuNi: no memory for the ARM7 recompiler\'s table: the ARM7 interpreter runs");\n'
+      '\t\tICache = nullptr;\n'
       '\t\treturn;  // EmuSuNi: no code memory, the interpreter runs\n'
+      '\t}\n'
       '#endif\n'
       '\ticPtr = ICache;\n')
+patch('core/hw/arm7/arm7_rec.cpp',
+      '#include "oslib/virtmem.h"\n#include "arm_mem.h"\n',
+      '#include "oslib/virtmem.h"\n#include "arm_mem.h"\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '#include <cstdlib>\n'
+      'namespace emusuni { void *jitPart(size_t size); }  // linux/posix_vmem.cpp: the app\'s JIT arena\n'
+      '#endif\n')
+patch('core/hw/arm7/arm7_rec.cpp',
+      'void (*EntryPoints[ARAM_SIZE_MAX / 4])();\n',
+      '#ifdef EMUSUNI_PORT\n'
+      'void (**EntryPoints)();  // EmuSuNi: ARAM_SIZE_MAX / 4 of them, on the heap (flush)\n'
+      'void emusuniFreeTables();\n'
+      '#else\n'
+      'void (*EntryPoints[ARAM_SIZE_MAX / 4])();\n'
+      '#endif\n')
+patch('core/hw/arm7/arm7_rec.cpp',
+      '\tfor (u32 i = 0; i < std::size(EntryPoints); i++)\n\t\tEntryPoints[i] = arm_compilecode;\n}\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '\tfor (u32 i = 0; i < ARAM_SIZE_MAX / 4; i++)\n'
+      '#else\n'
+      '\tfor (u32 i = 0; i < std::size(EntryPoints); i++)\n'
+      '#endif\n'
+      '\t\tEntryPoints[i] = arm_compilecode;\n}\n'
+      '\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '// EmuSuNi (libretro.cpp\'s retro_deinit): the table back to the heap between games (the next flush makes it again).\n'
+      'void emusuniFreeTables()\n'
+      '{\n'
+      '\tfree(EntryPoints);\n'
+      '\tEntryPoints = nullptr;\n'
+      '}\n'
+      '#endif\n')
 patch('core/hw/arm7/arm7_rec.cpp',
       '\tverify(rc);\n\n\tflush();\n}\n',
       '#ifdef EMUSUNI_PORT\n'
@@ -2098,6 +2619,249 @@ patch('core/hw/aica/dsp_x64.cpp',
       '\t\trunStepInterpreter();\n'
       '\t\treturn;\n'
       '\t}\n'
+      '#endif\n')
+
+# --- The sound chip's 64 channels (00.66): each of the 44,100 samples a second called ChannelEx::Step for every
+# channel, playing or not (a silent one only gave back zeros: ~5% of the emulation thread on the PC in AICA_Sample,
+# the call and its stack traffic times 64); now only the playing ones, in the same order, from a mask of them kept
+# where a channel starts and stops (enable, disable) and where a state sets it (deserialize). A silent channel
+# added exactly nothing (its outputs 0, its DSP input += 0), so the sound is the same to the bit. A channel that
+# starts while the channels after it are stepped is still stepped in that sample, as before (the mask is read
+# again after each one).
+patch('core/hw/aica/sgc_if.cpp',
+      '\tstatic ChannelEx Chans[64];\n',
+      '\tstatic ChannelEx Chans[64];\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\tstatic u64 emusuniOn;\t// EmuSuNi: bit n set while Chans[n].enabled (StepAll)\n'
+      '#endif\n')
+patch('core/hw/aica/sgc_if.cpp',
+      '\tvoid disable()\n\t{\n\t\tenabled = false;\n',
+      '\tvoid disable()\n\t{\n\t\tenabled = false;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\temusuniOn &= ~(1ull << ChannelNumber);\n'
+      '#endif\n')
+patch('core/hw/aica/sgc_if.cpp',
+      '\tvoid enable()\n\t{\n\t\tenabled = true;\n',
+      '\tvoid enable()\n\t{\n\t\tenabled = true;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\temusuniOn |= 1ull << ChannelNumber;\n'
+      '#endif\n')
+patch('core/hw/aica/sgc_if.cpp',
+      '\tstatic void StepAll(SampleType& mixl, SampleType& mixr)\n\t{\n'
+      '\t\tfor (ChannelEx& channel : Chans)\n\t\t\tchannel.Step(mixl, mixr);\n\t}\n',
+      '\tstatic void StepAll(SampleType& mixl, SampleType& mixr)\n\t{\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\t// EmuSuNi: the playing channels only, lowest first, as the loop over all of them stepped them.\n'
+      '\t\tfor (u64 on = emusuniOn; on != 0; )\n'
+      '\t\t{\n'
+      '\t\t\tconst int n = __builtin_ctzll(on);\n'
+      '\t\t\tChans[n].Step(mixl, mixr);\n'
+      '\t\t\ton = n == 63 ? 0 : emusuniOn & (~0ull << (n + 1));\n'
+      '\t\t}\n'
+      '#else\n'
+      '\t\tfor (ChannelEx& channel : Chans)\n\t\t\tchannel.Step(mixl, mixr);\n'
+      '#endif\n'
+      '\t}\n')
+patch('core/hw/aica/sgc_if.cpp',
+      '\t\tdeser >> channel.enabled;\n\t\tchannel.quiet = false;\n',
+      '\t\tdeser >> channel.enabled;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\tif (channel.enabled)\n'
+      '\t\t\tChannelEx::emusuniOn |= 1ull << channel.ChannelNumber;\n'
+      '\t\telse\n'
+      '\t\t\tChannelEx::emusuniOn &= ~(1ull << channel.ChannelNumber);\n'
+      '#endif\n'
+      '\t\tchannel.quiet = false;\n')
+patch('core/hw/aica/sgc_if.cpp',
+      'ChannelEx ChannelEx::Chans[64];\n',
+      'ChannelEx ChannelEx::Chans[64];\n'
+      '#ifdef EMUSUNI_PORT\n'
+      'u64 ChannelEx::emusuniOn;\n'
+      '#endif\n')
+
+# --- The core's big tables off the program image (00.66; the PS4 charges the app's whole image, .bss included, to the
+# games' memory from its start: with the code caches above, 42.5 MiB less for every game): on the heap while a
+# Dreamcast game runs, given back at retro_deinit (the code caches are in the app's JIT arena, above):
+#   - the ARM7 recompiler's table of compiled blocks (16 MiB): arm7_rec.cpp's flush, above;
+#   - the SH4 MMU's address table (4 MiB, the MMU games: Windows CE) and its TLB cache (1.5 MiB): made when first
+#     needed (the address table at the MMU's start and reset, its kernel half filled as MMU_init did);
+#   - glslang's SPIR-V instruction table (6 MiB, kept in the image by its own static constructor): made by the first
+#     spv::Parameterize(), which only glslang's disassembler and SPIR-V remapper call (Flycast calls neither); never
+#     given back (as upstream's), as scripts/build-psp-core.sh does for PPSSPP's copy.
+patch('core/hw/sh4/modules/mmu.h',
+      'extern u32 mmuAddressLUT[0x100000];\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '// EmuSuNi: on the heap (mmu.cpp): emusuniMmuLUT() makes it when it isn\'t there.\n'
+      'extern u32 *mmuAddressLUT;\n'
+      'u32 *emusuniMmuLUT();\n'
+      'void emusuniFreeMmuTables();\n'
+      '#else\n'
+      'extern u32 mmuAddressLUT[0x100000];\n'
+      '#endif\n')
+patch('core/hw/sh4/modules/mmu.h',
+      '\tif (full)\n\t\tmemset(mmuAddressLUT, 0, sizeof(mmuAddressLUT) / 2);\t// flush user memory\n'
+      '\telse\n\t{\n\t\tconstexpr u32 slotPages = (32 * 1024 * 1024) >> 12;\n'
+      '\t\tmemset(mmuAddressLUT, 0, slotPages * sizeof(u32));\t\t// flush slot 0\n\t}\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '\tif (full)\n\t\tmemset(emusuniMmuLUT(), 0, 0x100000 * sizeof(u32) / 2);\t// flush user memory\n'
+      '\telse\n\t{\n\t\tconstexpr u32 slotPages = (32 * 1024 * 1024) >> 12;\n'
+      '\t\tmemset(emusuniMmuLUT(), 0, slotPages * sizeof(u32));\t\t// flush slot 0\n\t}\n'
+      '#else\n'
+      '\tif (full)\n\t\tmemset(mmuAddressLUT, 0, sizeof(mmuAddressLUT) / 2);\t// flush user memory\n'
+      '\telse\n\t{\n\t\tconstexpr u32 slotPages = (32 * 1024 * 1024) >> 12;\n'
+      '\t\tmemset(mmuAddressLUT, 0, slotPages * sizeof(u32));\t\t// flush slot 0\n\t}\n'
+      '#endif\n')
+patch('core/hw/sh4/modules/mmu.cpp',
+      '#ifdef FAST_MMU\nu32 mmuAddressLUT[0x100000];\n#endif\n',
+      '#ifdef FAST_MMU\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '#include <cstdlib>\n'
+      'u32 *mmuAddressLUT;\n'
+      'void emusuniFreeFullTable();  // fastmmu.cpp\n'
+      '\n'
+      '// EmuSuNi: the address table, made (its kernel half filled, as MMU_init did) when it isn\'t there.\n'
+      'u32 *emusuniMmuLUT()\n'
+      '{\n'
+      '\tif (mmuAddressLUT == nullptr)\n'
+      '\t{\n'
+      '\t\tmmuAddressLUT = (u32 *)calloc(0x100000, sizeof(u32));\n'
+      '\t\tverify(mmuAddressLUT != nullptr);\n'
+      '\t\tfor (u32 vpn = 0x100000 / 2; vpn < 0x100000; vpn++)\n'
+      '\t\t\tmmuAddressLUT[vpn] = vpn << 12;\n'
+      '\t}\n'
+      '\treturn mmuAddressLUT;\n'
+      '}\n'
+      '\n'
+      '// EmuSuNi (libretro.cpp\'s retro_deinit): the MMU\'s tables back to the heap between games.\n'
+      'void emusuniFreeMmuTables()\n'
+      '{\n'
+      '\tfree(mmuAddressLUT);\n'
+      '\tmmuAddressLUT = nullptr;\n'
+      '\temusuniFreeFullTable();\n'
+      '}\n'
+      '#else\n'
+      'u32 mmuAddressLUT[0x100000];\n'
+      '#endif\n'
+      '#endif\n')
+patch('core/hw/sh4/modules/mmu.cpp',
+      '\t// pre-fill kernel memory\n'
+      '\tfor (u32 vpn = std::size(mmuAddressLUT) / 2; vpn < std::size(mmuAddressLUT); vpn++)\n'
+      '\t\tmmuAddressLUT[vpn] = vpn << 12;\n',
+      '\t// pre-fill kernel memory\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\temusuniMmuLUT();  // EmuSuNi: made with it\n'
+      '#else\n'
+      '\tfor (u32 vpn = std::size(mmuAddressLUT) / 2; vpn < std::size(mmuAddressLUT); vpn++)\n'
+      '\t\tmmuAddressLUT[vpn] = vpn << 12;\n'
+      '#endif\n')
+patch('core/hw/sh4/modules/mmu.cpp',
+      'void MMU_reset()\n{\n',
+      'void MMU_reset()\n{\n'
+      '#if defined(EMUSUNI_PORT) && defined(FAST_MMU)\n'
+      '\temusuniMmuLUT();  // EmuSuNi: there from every game\'s start (retro_deinit gave it back)\n'
+      '#endif\n')
+patch('core/hw/sh4/modules/fastmmu.cpp',
+      'static TLB_LinkedEntry full_table[65536];\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '#include <cstdlib>\n'
+      '// EmuSuNi: on the heap when first needed (the MMU games), given back at retro_deinit (emusuniFreeFullTable).\n'
+      'static TLB_LinkedEntry *full_table;\n'
+      'constexpr u32 emusuniFullTableSize = 65536;\n'
+      '#else\n'
+      'static TLB_LinkedEntry full_table[65536];\n'
+      '#endif\n')
+patch('core/hw/sh4/modules/fastmmu.cpp',
+      '\tif (full_table_size >= std::size(full_table))\n\t\treturn;\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '\tif (full_table == nullptr)\n'
+      '\t\tfull_table = (TLB_LinkedEntry *)malloc(sizeof(TLB_LinkedEntry) * emusuniFullTableSize);\n'
+      '\tif (full_table == nullptr || full_table_size >= emusuniFullTableSize)\n'
+      '\t\treturn;\n'
+      '#else\n'
+      '\tif (full_table_size >= std::size(full_table))\n\t\treturn;\n'
+      '#endif\n')
+patch('core/hw/sh4/modules/fastmmu.cpp',
+      'static void flush_cache()\n{\n\tfull_table_size = 0;\n\tmemset(entry_buckets, 0, sizeof(entry_buckets));\n}\n',
+      'static void flush_cache()\n{\n\tfull_table_size = 0;\n\tmemset(entry_buckets, 0, sizeof(entry_buckets));\n}\n'
+      '\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '// EmuSuNi (mmu.cpp\'s emusuniFreeMmuTables): the TLB cache back to the heap, emptied first.\n'
+      'void emusuniFreeFullTable()\n'
+      '{\n'
+      '\tflush_cache();\n'
+      '\tfree(full_table);\n'
+      '\tfull_table = nullptr;\n'
+      '}\n'
+      '#endif\n')
+patch('SPIRV/doc.cpp',
+      'InstructionParameters InstructionDesc[OpCodeMask + 1];\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '// EmuSuNi (scripts/build-dc-core.sh): on the heap from the first Parameterize() (the disassembler and the SPIR-V\n'
+      '// remapper call it before they read it; Flycast calls neither), not 6 MiB of the app\'s image.\n'
+      'InstructionParameters *InstructionDesc = nullptr;\n'
+      '#else\n'
+      'InstructionParameters InstructionDesc[OpCodeMask + 1];\n'
+      '#endif\n',
+      repo=root + '/core/deps/glslang')
+patch('SPIRV/doc.cpp',
+      '    static std::once_flag initialized;\n    std::call_once(initialized, [](){\n',
+      '    static std::once_flag initialized;\n    std::call_once(initialized, [](){\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '        InstructionDesc = new InstructionParameters[OpCodeMask + 1];  // EmuSuNi: on the heap (above)\n'
+      '#endif\n',
+      repo=root + '/core/deps/glslang')
+patch('SPIRV/doc.h',
+      'extern InstructionParameters InstructionDesc[];\n',
+      '#ifdef EMUSUNI_PORT\n'
+      'extern InstructionParameters *InstructionDesc;  // EmuSuNi: on the heap (doc.cpp)\n'
+      '#else\n'
+      'extern InstructionParameters InstructionDesc[];\n'
+      '#endif\n',
+      repo=root + '/core/deps/glslang')
+patch('shell/libretro/libretro.cpp',
+      '\taddrspace::release();\n#else\n\temu.term();\n#endif\n',
+      '\taddrspace::release();\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t// EmuSuNi: the tables made on the heap for the game back too (hw/arm7/arm7_rec.cpp, hw/sh4/modules/mmu.cpp), and\n'
+      '\t// the recompilers\' unwind records unregistered while the JIT arena still holds them (the app gives it away next).\n'
+      '\taica::arm::recompiler::emusuniFreeTables();\n'
+      '\temusuniFreeMmuTables();\n'
+      '\temusuniSh4UnwindClear();\n'
+      '\taica::arm::emusuniArmUnwindClear();\n'
+      '#endif\n'
+      '#else\n\temu.term();\n#endif\n')
+patch('shell/libretro/libretro.cpp',
+      'static void refresh_devices(bool first_startup);\n',
+      'static void refresh_devices(bool first_startup);\n'
+      '#ifdef EMUSUNI_PORT\n'
+      'namespace aica::arm::recompiler { void emusuniFreeTables(); }  // hw/arm7/arm7_rec.cpp\n'
+      'void emusuniFreeMmuTables();  // hw/sh4/modules/mmu.cpp\n'
+      'void emusuniSh4UnwindClear();  // rec-x64/rec_x64.cpp\n'
+      'namespace aica::arm { void emusuniArmUnwindClear(); }  // hw/arm7/arm7_rec_x64.cpp\n'
+      '#endif\n')
+# The recompilers' main loops register their unwind information (the DWARF records Flycast writes into the code cache
+# after each main loop) with the unwinder, which reads them again when they are unregistered (the next reset): taken
+# back at retro_deinit while the code cache still holds them, as the app gives the JIT arena to the next core after
+# the deinit and fills it with HLT (PC test: the second game of a process crashed in __deregister_frame without it).
+patch('core/rec-x64/rec_x64.cpp',
+      'static UnwindInfo unwinder;\n',
+      'static UnwindInfo unwinder;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '// EmuSuNi (libretro.cpp\'s retro_deinit): the main loop\'s unwind records unregistered while they are still there.\n'
+      'void emusuniSh4UnwindClear()\n'
+      '{\n'
+      '\tunwinder.clear();\n'
+      '}\n'
+      '#endif\n')
+patch('core/hw/arm7/arm7_rec_x64.cpp',
+      'static UnwindInfo unwinder;\n',
+      'static UnwindInfo unwinder;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '// EmuSuNi (libretro.cpp\'s retro_deinit): the main loop\'s unwind records unregistered while they are still there.\n'
+      'void emusuniArmUnwindClear()\n'
+      '{\n'
+      '\tunwinder.clear();\n'
+      '}\n'
       '#endif\n')
 
 # --- The fault handler: the core's own faults only, everything else goes on to the handler before (the
@@ -2386,6 +3150,1015 @@ patch('core/rec-x64/rec_x64.cpp',
       '#endif\n'
       '\t\t\tcall(bm_GetCodeByVAddr);\n'
       '\t\tcall(rax);\n')
+
+# --- The SH4's vector instructions (00.66): FTRV (a vector times the 4x4 matrix) and FIPR (a dot product), which
+# 3D games run for every vertex they transform, done in x86 inside the recompiled block instead of a call of their
+# C versions (shil_canonical.h's innerProduct; with the call around them ~7-9% of the emulation thread in Daytona
+# USA and Crazy Taxi on the PC): the same double-precision products (exact: two floats' product fits a double),
+# summed in the same order and rounded to float by the same rounding (the x86's, which the SH4's FPSCR sets), so
+# the results are the same to the bit. The vectors are in the SH4 context's memory, as for the call (the register
+# allocator writes them back before the instruction); only xmm0-xmm4, rax, rcx and rdx are used, which the call
+# clobbered too, so the allocated xmm8-xmm11 aren't saved and restored around it. EMUSUNI_DC_VECTOR=0 (or the
+# file /data/EmuSuNi/dc-vector-off) switches it off.
+patch('core/rec-x64/rec_x64.cpp',
+      'static bool emusuniDispatch()\n',
+      'static bool emusuniVectorOps()\n'
+      '{\n'
+      '\tstatic const bool enabled = []() {\n'
+      '\t\tchar how[96];\n'
+      '\t\tconst bool on = emusuni::dcOption("VECTOR", how, sizeof(how));\n'
+      '\t\tNOTICE_LOG(DYNAREC, "EmuSuNi: SH4 recompiler: FTRV and FIPR in x86 %s%s%s", on ? "on" : "off",\n'
+      '\t\t\thow[0] != \'\\0\' ? ": " : "", how);\n'
+      '\t\treturn on;\n'
+      '\t}();\n'
+      '\treturn enabled;\n'
+      '}\n\n'
+      'static bool emusuniDispatch()\n')
+patch('core/rec-x64/rec_x64.cpp',
+      '\tvoid canonStart(const shil_opcode& op)\n\t{\n\t\tCC_pars.clear();\n\t}\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '\t// FTRV: fd[j] = ((fn[0] * fm[j] + fn[1] * fm[4 + j]) + fn[2] * fm[8 + j]) + fn[3] * fm[12 + j] in doubles, j = 0..3\n'
+      '\t// two at a time. Each operation\'s operands in the order the C version has them compiled (clang -O3,\n'
+      '\t// btver2): the products fn[i] * fm, the first sum acc + p, the next ones p + acc - which of two NaNs comes\n'
+      '\t// out of an operation is its first operand\'s. fd is fn: everything is read before it is written.\n'
+      '\tvoid emusuniGenFtrv(const shil_opcode& op)\n'
+      '\t{\n'
+      '\t\tmov(rax, (uintptr_t)op.rs1.reg_ptr(sh4ctx));\t// fn: FVn\n'
+      '\t\tmov(rcx, (uintptr_t)op.rs2.reg_ptr(sh4ctx));\t// fm: XMTRX (xf0..xf15)\n'
+      '\t\tfor (int i = 0; i < 4; i++)\n'
+      '\t\t{\n'
+      '\t\t\tcvtss2sd(xmm4, dword[rax + i * 4]);\t\t// fn[i], twice\n'
+      '\t\t\tunpcklpd(xmm4, xmm4);\n'
+      '\t\t\tcvtps2pd(xmm2, qword[rcx + i * 16]);\t\t// fm[4i], fm[4i + 1]\n'
+      '\t\t\tcvtps2pd(xmm3, qword[rcx + i * 16 + 8]);\t// fm[4i + 2], fm[4i + 3]\n'
+      '\t\t\tconst Xbyak::Xmm lo = i == 0 ? xmm0 : xmm5;\n'
+      '\t\t\tconst Xbyak::Xmm hi = i == 0 ? xmm1 : xmm4;\n'
+      '\t\t\tmovapd(lo, xmm4);\n'
+      '\t\t\tmulpd(lo, xmm2);\t\t\t\t\t\t\t// fn[i] * fm[4i], fn[i] * fm[4i + 1]\n'
+      '\t\t\tif (i == 0)\n'
+      '\t\t\t\tmovapd(hi, xmm4);\n'
+      '\t\t\tmulpd(hi, xmm3);\t\t\t\t\t\t\t// fn[i] * fm[4i + 2], fn[i] * fm[4i + 3]\n'
+      '\t\t\tif (i == 1)\n'
+      '\t\t\t{\n'
+      '\t\t\t\taddpd(xmm0, xmm5);\t\t\t\t\t\t// acc + p\n'
+      '\t\t\t\taddpd(xmm1, xmm4);\n'
+      '\t\t\t}\n'
+      '\t\t\telse if (i > 1)\n'
+      '\t\t\t{\n'
+      '\t\t\t\taddpd(xmm5, xmm0);\t\t\t\t\t\t// p + acc\n'
+      '\t\t\t\taddpd(xmm4, xmm1);\n'
+      '\t\t\t\tmovapd(xmm0, xmm5);\n'
+      '\t\t\t\tmovapd(xmm1, xmm4);\n'
+      '\t\t\t}\n'
+      '\t\t}\n'
+      '\t\tcvtpd2ps(xmm0, xmm0);\n'
+      '\t\tcvtpd2ps(xmm1, xmm1);\n'
+      '\t\tmovlhps(xmm0, xmm1);\n'
+      '\t\tmov(rdx, (uintptr_t)op.rd.reg_ptr(sh4ctx));\t// fd: FVn\n'
+      '\t\tmovups(xword[rdx], xmm0);\n'
+      '\t}\n\n'
+      '\t// FIPR: fr[n + 3] = ((fn[0] * fm[0] + fn[1] * fm[1]) + fn[2] * fm[2]) + fn[3] * fm[3] in doubles, the operands\n'
+      '\t// in the C version\'s order as for FTRV.\n'
+      '\tvoid emusuniGenFipr(const shil_opcode& op)\n'
+      '\t{\n'
+      '\t\tmov(rax, (uintptr_t)op.rs1.reg_ptr(sh4ctx));\t// fn: FVn\n'
+      '\t\tmov(rcx, (uintptr_t)op.rs2.reg_ptr(sh4ctx));\t// fm: FVm\n'
+      '\t\tcvtps2pd(xmm0, qword[rax]);\n'
+      '\t\tcvtps2pd(xmm1, qword[rcx]);\n'
+      '\t\tmulpd(xmm0, xmm1);\t\t\t\t// fn[0] * fm[0], fn[1] * fm[1]\n'
+      '\t\tcvtps2pd(xmm2, qword[rax + 8]);\n'
+      '\t\tcvtps2pd(xmm3, qword[rcx + 8]);\n'
+      '\t\tmulpd(xmm2, xmm3);\t\t\t\t// fn[2] * fm[2], fn[3] * fm[3]\n'
+      '\t\tmovapd(xmm1, xmm0);\n'
+      '\t\tunpckhpd(xmm1, xmm1);\n'
+      '\t\taddsd(xmm0, xmm1);\t\t\t\t// acc = p0 + p1\n'
+      '\t\tmovapd(xmm3, xmm2);\n'
+      '\t\taddsd(xmm3, xmm0);\t\t\t\t// acc = p2 + acc\n'
+      '\t\tunpckhpd(xmm2, xmm2);\n'
+      '\t\taddsd(xmm2, xmm3);\t\t\t\t// p3 + acc\n'
+      '\t\tcvtsd2ss(xmm0, xmm2);\n'
+      '\t\thost_reg_to_shil_param(op.rd, xmm0);\t// as the call\'s result (fr[n + 3], maybe in a register)\n'
+      '\t}\n'
+      '#endif\n\n'
+      '\tvoid canonStart(const shil_opcode& op)\n\t{\n\t\tCC_pars.clear();\n\t}\n')
+patch('core/rec-x64/rec_x64.cpp',
+      '\t\t\tdefault:\n#ifndef CANONICAL_TEST\n\t\t\t\tif (!genBaseOpcode(op))\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\t\tcase shop_ftrv:\n'
+      '\t\t\tcase shop_fipr:\n'
+      '\t\t\t\tif (emusuniVectorOps())\n'
+      '\t\t\t\t{\n'
+      '\t\t\t\t\tif (op.op == shop_ftrv)\n'
+      '\t\t\t\t\t\temusuniGenFtrv(op);\n'
+      '\t\t\t\t\telse\n'
+      '\t\t\t\t\t\temusuniGenFipr(op);\n'
+      '\t\t\t\t}\n'
+      '\t\t\t\telse\n'
+      '\t\t\t\t\tshil_chf[op.op](&op);\n'
+      '\t\t\t\tbreak;\n'
+      '#endif\n\n'
+      '\t\t\tdefault:\n#ifndef CANONICAL_TEST\n\t\t\t\tif (!genBaseOpcode(op))\n')
+
+# --- The SH4's memory accesses without saving the float registers (00.66): the recompiled code reads and writes the
+# Dreamcast's memory through a call of a small handler (fast memory: one load or store; else, or for the hardware's
+# addresses, Flycast's C functions), and around each of those calls it saved and restored the float registers it
+# keeps in xmm8-xmm11 (up to 8 instructions a call, in the blocks that do 3D maths the most), because a C function may
+# overwrite them. Now the handlers that call C (the slow ones, the store queue's) keep xmm8-xmm11 themselves (saved
+# on their own stack around the call: only on that slow path), the fast ones never touch them, and the blocks call
+# both without saving: the same values in the same registers, so the same results. EMUSUNI_DC_MEMCALLS=0 (or the
+# file /data/EmuSuNi/dc-memcalls-off) switches it off.
+patch('core/rec-x64/rec_x64.cpp',
+      'static bool emusuniDispatch()\n',
+      'static bool emusuniMemCallsKeepXmm()\n'
+      '{\n'
+      '\tstatic const bool enabled = []() {\n'
+      '\t\tchar how[96];\n'
+      '\t\tconst bool on = emusuni::dcOption("MEMCALLS", how, sizeof(how));\n'
+      '\t\tNOTICE_LOG(DYNAREC, "EmuSuNi: SH4 recompiler: memory calls without saving xmm8-xmm11 %s%s%s", on ? "on" : "off",\n'
+      '\t\t\thow[0] != \'\\0\' ? ": " : "", how);\n'
+      '\t\treturn on;\n'
+      '\t}();\n'
+      '\treturn enabled;\n'
+      '}\n\n'
+      'static bool emusuniDispatch()\n')
+patch('core/rec-x64/rec_x64.cpp',
+      '\t\t\t\t\tGenCall((void (*)())MemHandlers[optimise ? MemType::Fast : MemType::Slow][size][MemOp::R], mmu_enabled());\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\t\t\t\tGenCall((void (*)())MemHandlers[optimise ? MemType::Fast : MemType::Slow][size][MemOp::R], mmu_enabled() || emusuniMemCallsKeepXmm());\n'
+      '#else\n'
+      '\t\t\t\t\tGenCall((void (*)())MemHandlers[optimise ? MemType::Fast : MemType::Slow][size][MemOp::R], mmu_enabled());\n'
+      '#endif\n')
+patch('core/rec-x64/rec_x64.cpp',
+      '\t\t\t\t\tGenCall((void (*)())MemHandlers[optimise ? MemType::Fast : MemType::Slow][size][MemOp::W], mmu_enabled());\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\t\t\t\tGenCall((void (*)())MemHandlers[optimise ? MemType::Fast : MemType::Slow][size][MemOp::W], mmu_enabled() || emusuniMemCallsKeepXmm());\n'
+      '#else\n'
+      '\t\t\t\t\tGenCall((void (*)())MemHandlers[optimise ? MemType::Fast : MemType::Slow][size][MemOp::W], mmu_enabled());\n'
+      '#endif\n')
+patch('core/rec-x64/rec_x64.cpp',
+      '\t\t\t\t\t\tL(no_sqw);\n'
+      '\t\t\t\t\t\tif (size == MemSize::S32)\n'
+      '\t\t\t\t\t\t\tjmp((const void *)addrspace::write32);\t// tail call\n',
+      '\t\t\t\t\t\tL(no_sqw);\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\t\t\t\t\tif (emusuniMemCallsKeepXmm())\n'
+      '\t\t\t\t\t\t{\n'
+      '\t\t\t\t\t\t\temusuniSlowCall(size == MemSize::S32 ? (const void *)addrspace::write32 : (const void *)addrspace::write64, 0);\n'
+      '\t\t\t\t\t\t\tcontinue;\n'
+      '\t\t\t\t\t\t}\n'
+      '#endif\n'
+      '\t\t\t\t\t\tif (size == MemSize::S32)\n'
+      '\t\t\t\t\t\t\tjmp((const void *)addrspace::write32);\t// tail call\n')
+patch('core/rec-x64/rec_x64.cpp',
+      '\t\t\t\t\telse\n\t\t\t\t\t{\n\t\t\t\t\t\t// Slow path\n',
+      '\t\t\t\t\telse\n\t\t\t\t\t{\n\t\t\t\t\t\t// Slow path\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\t\t\t\t\tif (emusuniMemCallsKeepXmm())\n'
+      '\t\t\t\t\t\t{\n'
+      '\t\t\t\t\t\t\tconst void *function;\n'
+      '\t\t\t\t\t\t\tif (op == MemOp::R)\n'
+      '\t\t\t\t\t\t\t\tfunction = size == MemSize::S8 ? (const void *)addrspace::read8 : size == MemSize::S16 ? (const void *)addrspace::read16\n'
+      '\t\t\t\t\t\t\t\t\t\t: size == MemSize::S32 ? (const void *)addrspace::read32 : (const void *)addrspace::read64;\n'
+      '\t\t\t\t\t\t\telse\n'
+      '\t\t\t\t\t\t\t\tfunction = size == MemSize::S8 ? (const void *)addrspace::write8 : size == MemSize::S16 ? (const void *)addrspace::write16\n'
+      '\t\t\t\t\t\t\t\t\t\t: size == MemSize::S32 ? (const void *)addrspace::write32 : (const void *)addrspace::write64;\n'
+      '\t\t\t\t\t\t\temusuniSlowCall(function, op == MemOp::R && size == MemSize::S8 ? 1 : op == MemOp::R && size == MemSize::S16 ? 2 : 0);\n'
+      '\t\t\t\t\t\t\tcontinue;\n'
+      '\t\t\t\t\t\t}\n'
+      '#endif\n')
+patch('core/rec-x64/rec_x64.cpp',
+      '\tvoid saveXmmRegisters()\n\t{\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '\t// A memory handler\'s slow path: the C function called with the blocks\' float registers (xmm8-xmm11, their low\n'
+      '\t// 32 bits as saveXmmRegisters keeps them) saved around it on the handler\'s own stack (16-byte aligned for the\n'
+      '\t// call), a byte or a word read sign-extended as before, then ret.\n'
+      '\tvoid emusuniSlowCall(const void *function, int extend)\n'
+      '\t{\n'
+      '\t\tsub(rsp, 24);\n'
+      '\t\tmovd(dword[rsp], xmm8);\n'
+      '\t\tmovd(dword[rsp + 4], xmm9);\n'
+      '\t\tmovd(dword[rsp + 8], xmm10);\n'
+      '\t\tmovd(dword[rsp + 12], xmm11);\n'
+      '\t\tcall(function);\n'
+      '\t\tif (extend == 1)\n'
+      '\t\t\tmovsx(eax, al);\n'
+      '\t\telse if (extend == 2)\n'
+      '\t\t\tmovsx(eax, ax);\n'
+      '\t\tmovd(xmm8, dword[rsp]);\n'
+      '\t\tmovd(xmm9, dword[rsp + 4]);\n'
+      '\t\tmovd(xmm10, dword[rsp + 8]);\n'
+      '\t\tmovd(xmm11, dword[rsp + 12]);\n'
+      '\t\tadd(rsp, 24);\n'
+      '\t\tret();\n'
+      '\t}\n'
+      '#endif\n\n'
+      '\tvoid saveXmmRegisters()\n\t{\n')
+
+# --- The Atomiswave cartridge's decryption (00.69): every 16-bit word the BIOS and the game take from the cartridge by
+# DMA goes through two bit permutations, each a loop over its 16 bits (bitswap16 and decrypt: 9% of the emulation thread
+# while Dolphin Blue boots, on the PC). By tables now: a permutation of 16 bits is the OR of the permutations of its two
+# bytes (each bit of the result is one bit of the input), so two lookups give what the loop gave, for the four
+# permutation boxes of the keys and the address's; the same words to the bit. And the word's index taken modulo the
+# cartridge's size only past its end (a division each word).
+patch('core/hw/naomi/awcartridge.cpp',
+      'static u16 decrypt(u16 cipherText, u32 address, const u8 key)\n{\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '// EmuSuNi (00.69): bitswap16 by tables (built once, thread-safe as a function\'s static).\n'
+      'namespace {\n'
+      'struct EmusuniSwapTables\n'
+      '{\n'
+      '\tu16 textLo[4][256], textHi[4][256], addrLo[256], addrHi[256];\n'
+      '\tEmusuniSwapTables()\n'
+      '\t{\n'
+      '\t\tstatic const u8 addr_swap_vec[] = { 13,5,2, 14,10,9,4, 15,11,6,1, 12,8,7,3,0 };\n'
+      '\t\tfor (int box = 0; box < 4; box++)\n'
+      '\t\t{\n'
+      '\t\t\tu8 text_swap_vec[16];\n'
+      '\t\t\tfor (int i = 0; i < 16; i++)\n'
+      '\t\t\t\ttext_swap_vec[i] = permutation_table[box][15 - i];\n'
+      '\t\t\tfor (int b = 0; b < 256; b++)\n'
+      '\t\t\t{\n'
+      '\t\t\t\ttextLo[box][b] = bitswap16((u16)b, text_swap_vec);\n'
+      '\t\t\t\ttextHi[box][b] = bitswap16((u16)(b << 8), text_swap_vec);\n'
+      '\t\t\t}\n'
+      '\t\t}\n'
+      '\t\tfor (int b = 0; b < 256; b++)\n'
+      '\t\t{\n'
+      '\t\t\taddrLo[b] = bitswap16((u16)b, addr_swap_vec);\n'
+      '\t\t\taddrHi[b] = bitswap16((u16)(b << 8), addr_swap_vec);\n'
+      '\t\t}\n'
+      '\t}\n'
+      '};\n'
+      '}\n'
+      '#endif\n\n'
+      'static u16 decrypt(u16 cipherText, u32 address, const u8 key)\n{\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\tstatic const EmusuniSwapTables tables;\n'
+      '\tconst int box = key >> 6;\n'
+      '\tu16 aux = tables.textLo[box][cipherText & 0xff] | tables.textHi[box][cipherText >> 8];\n'
+      '\taux = aux ^ (tables.addrLo[address & 0xff] | tables.addrHi[(address >> 8) & 0xff]);\n'
+      '\tconst sbox_set* ss = &sboxes_table[(key>>4)&3];\n'
+      '\tconst u8 b0 = ss->S0[aux & 0x1f];\n'
+      '\tconst u8 b1 = ss->S1[(aux >> 5) & 0xf];\n'
+      '\tconst u8 b2 = ss->S2[(aux >> 9) & 0xf];\n'
+      '\tconst u8 b3 = ss->S3[aux >> 13];\n'
+      '\treturn ((b3<<13)|(b2<<9)|(b1<<5)|b0)^xor_table[key&0xf];\n'
+      '#else\n')
+patch('core/hw/naomi/awcartridge.cpp',
+      '\tb3 = ss->S3[b3];\n\n\treturn ((b3<<13)|(b2<<9)|(b1<<5)|b0)^xor_table[key&0xf];\n}\n',
+      '\tb3 = ss->S3[b3];\n\n\treturn ((b3<<13)|(b2<<9)|(b1<<5)|b0)^xor_table[key&0xf];\n'
+      '#endif\n'
+      '}\n')
+patch('core/hw/naomi/awcartridge.cpp',
+      'u16 AWCartridge::decrypt16(u32 address) {\n\treturn decrypt(((u16 *)RomPtr)[address % (RomSize / 2)], address, rombd_key);\n',
+      'u16 AWCartridge::decrypt16(u32 address) {\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\tconst u32 words = RomSize / 2;\n'
+      '\tconst u32 index = address < words ? address : address % words;  // (EmuSuNi: no division inside the cartridge)\n'
+      '\treturn decrypt(((u16 *)RomPtr)[index], address, rombd_key);\n'
+      '#else\n'
+      '\treturn decrypt(((u16 *)RomPtr)[address % (RomSize / 2)], address, rombd_key);\n'
+      '#endif\n')
+
+# --- The SH4 waiting in a loop (00.69). Games wait for the next frame in a loop that only reads memory until the vblank's
+# interrupt changes it: Crazy Taxi and Daytona USA (Sega's library: an empty function called, four words read, round
+# again) spent 25-32% of the emulation thread there on the PC, Crazy Taxi's SH4 63% of its time in its races. A loop
+# that comes round to the same state with nothing changed in between would go on the same way until something outside
+# it changes the memory it reads, which only happens at an event (the scheduler's: the vblank, DMA ends, the sound chip,
+# which also runs the ARM7) or an interrupt. So the time up to the next event goes by without running it, in whole
+# slices as the main loop counts them (the TMU, the sound and every event see the same times), and the loop looks again
+# after it.
+#   - Each block that can write memory (a store, a store queue's write-back, an interpreted instruction) counts one
+#     change when it starts (emusuniIdleChanges); so do every event the scheduler runs, an interrupt or exception taken,
+#     a state loaded, a reset, and the reads of registers that change with time or by being read (the SH4's on-chip
+#     ones: the TMU's counters...; the GD-ROM's and the arcade cartridge's ports).
+#   - A block without any of that whose branch goes back (a loop's end), with no block that writes compiled between the
+#     branch's target and it (MvC2's wait counts down a word in memory), checks when it takes the branch (inline, a call
+#     only when nothing changed since the last check at the same target): if the SH4's registers (general, banked,
+#     float, MAC, GBR, PR, FPUL, SR with T, FPSCR, the system ones) are what they were at that last check, the loop is at
+#     a fixed point: the slice ends at once and UpdateSystem_INTC lets the next ones go by (the SH4 not run) until an
+#     event runs or an interrupt is pending, at most 1024 slices. The loop then runs again from that branch's target
+#     (the PC it would have passed every round). Only the interrupt's moment in the loop moves (at most one round of it).
+#   - A library's counted wait (Marvel vs. Capcom 2 on the Dreamcast and the NAOMI, Virtua Tennis 2: 30-52% of the
+#     emulation thread) writes as it waits: it calls an empty function through a dispatcher, counts a word in memory
+#     down, and goes on while another word is the same and the count isn't 0. Its three blocks are recognised when its
+#     end is compiled (their SH4 code, word for word), the dispatcher and the empty function where they run; at its
+#     branch back the rounds that fit before the next event go by, the count counted down by them (never to 0: the
+#     loop ends by itself) before that event runs. The same pictures and sound to the bit on the PC tests.
+#   - Not with the MMU on (Windows CE games), and off with EMUSUNI_DC_IDLE=0 or the file /data/EmuSuNi/dc-idle-off.
+#   - The log's 10 s line gives the share of the console's time let go by this way.
+addfile('core/emusuni_idle.h', r'''// EmuSuNi (scripts/build-dc-core.sh, 00.69): the SH4 waiting in a loop, let go by to the next event.
+#pragma once
+#ifdef EMUSUNI_PORT
+#include "types.h"
+
+// The last check of a loop's branch back (rec-x64/rec_x64.cpp writes target and seen inline; the call compares the
+// registers): hw/sh4/interpr/sh4_interpreter.cpp.
+struct EmusuniIdle
+{
+	u32 seen;        // emusuniIdleChanges at the last check
+	u32 target;      // its branch's target
+	u32 saved;       // whether the registers below are that check's
+	u32 status, T, fpscr;
+	u32 cooldown;    // after registers that differed (a loop that works), the checks let go by before the next compare
+	bool skip;       // the time goes by to the next event (UpdateSystem_INTC)
+	// A library's counted wait (emusuniCountdownCheck): its counter's address, the cycles of one round, the cycles that may go
+	// by (its count less one round: the loop ends by itself at 0), those already gone (the slice's rest).
+	bool countdown;
+	u32 cdAddress, cdCycles;
+	int64_t cdBudget, cdSkipped;
+	u8 regs[512];    // xf..fpul: the float registers, the general ones, MAC, the banked ones, GBR...VBR, PR, FPUL
+};
+extern EmusuniIdle emusuniIdle;
+// Anything that may change what a waiting loop reads (a block that writes memory as it starts, an event, an
+// interrupt, a state loaded, a read of the TMU's counters...).
+extern u32 emusuniIdleChanges;
+// The registers compared with the last check's (called when nothing changed since it and its target is the same).
+void emusuniIdleCheck(u32 target);
+// A library's counted wait, at its loop's branch back (rec-x64/rec_x64.cpp found its code): the rounds the time to the next event
+// holds go by, its counter counted down by them.
+void emusuniCountdownCheck(u32 target);
+#endif
+''')
+patch('core/rec-x64/rec_x64.cpp',
+      'static bool emusuniDispatch()\n{\n',
+      '// EmuSuNi (00.69, hw/sh4/interpr/sh4_interpreter.cpp): the SH4 waiting in a loop.\n'
+      '#include "emusuni_idle.h"\n'
+      'static bool emusuniIdleOn()\n'
+      '{\n'
+      '\tstatic const bool enabled = []() {\n'
+      '\t\tchar how[96];\n'
+      '\t\tconst bool on = emusuni::dcOption("IDLE", how, sizeof(how));\n'
+      '\t\tNOTICE_LOG(DYNAREC, "EmuSuNi: SH4 recompiler: waiting loops let go by to the next event %s%s%s", on ? "on" : "off",\n'
+      '\t\t\thow[0] != \'\\0\' ? ": " : "", how);\n'
+      '\t\treturn on;\n'
+      '\t}();\n'
+      '\treturn enabled;\n'
+      '}\n'
+      '\n'
+      '// Whether a block writes memory (a store, a store queue\'s write-back, an interpreted instruction).\n'
+      'static bool emusuniWrites(const RuntimeBlockInfo *block)\n'
+      '{\n'
+      '\tfor (const shil_opcode& op : block->oplist)\n'
+      '\t\tif (op.op == shop_writem || op.op == shop_pref || op.op == shop_ifb)\n'
+      '\t\t\treturn true;\n'
+      '\treturn false;\n'
+      '}\n'
+      '\n'
+      '// Whether a loop\'s branch back from `block` to `target` is worth checking: nothing compiled between them writes\n'
+      '// (a loop that writes on every round never comes round to the same state), within 1 KiB.\n'
+      'static bool emusuniLoopReadsOnly(const RuntimeBlockInfo *block, u32 target)\n'
+      '{\n'
+      '\tif (target > block->vaddr || block->vaddr - target > 0x400)\n'
+      '\t\treturn false;\n'
+      '\tfor (u32 a = target; a < block->vaddr; a += 2)\n'
+      '\t{\n'
+      '\t\tRuntimeBlockInfoPtr other = bm_GetBlock(a);\n'
+      '\t\tif (other != nullptr && emusuniWrites(other.get()))\n'
+      '\t\t\treturn false;\n'
+      '\t}\n'
+      '\treturn true;\n'
+      '}\n'
+      '\n'
+      '// A library\'s counted wait (Marvel vs. Capcom 2 on the Dreamcast and the NAOMI, Virtua Tennis 2: 30-52% of the\n'
+      '// emulation thread):\n'
+      '//   A: jsr @Rn; mov #imm,R4             (its dispatcher: table[imm].function(table[imm].argument), an empty one)\n'
+      '//   B: mov.l @R15,R3; mov.l @R3,R2; add #-1,R2; mov.l R2,@R3     (--*counter)\n'
+      '//      mov.l @(4,R15),R3; mov.l @R3,R2; cmp/eq R14,R2; bf out     (*flag != R14: out)\n'
+      '//   C: mov.l @R15,R1; mov.l @R1,R3; tst R3,R3; bf A               (*counter != 0: again)\n'
+      '// Whether `block` is its C (A and B before it, as the RAM holds them; the dispatcher is checked as it runs).\n'
+      'static bool emusuniIsCountdownLoop(const RuntimeBlockInfo *block)\n'
+      '{\n'
+      '\tconst u32 c = block->vaddr, a = block->BranchBlock;\n'
+      '\tif ((c & 0x1C000000) != 0x0C000000 || (a & 0x1C000000) != 0x0C000000 || a + 20 != c || block->guest_opcodes != 4)\n'
+      '\t\treturn false;\n'
+      '\tauto op = [](u32 at) { return *(const u16 *)&mem_b[at & RAM_MASK]; };\n'
+      '\tif ((op(a) & 0xF0FF) != 0x400B || (op(a + 2) & 0xFF00) != 0xE400)\n'
+      '\t\treturn false;\n'
+      '\tstatic const u16 B[7] = { 0x63F2, 0x6232, 0x72FF, 0x2322, 0x53F1, 0x6232, 0x32E0 };\n'
+      '\tfor (int i = 0; i < 7; i++)\n'
+      '\t\tif (op(a + 4 + i * 2) != B[i])\n'
+      '\t\t\treturn false;\n'
+      '\tstatic const u16 C[3] = { 0x61F2, 0x6312, 0x2338 };\n'
+      '\tfor (int i = 0; i < 3; i++)\n'
+      '\t\tif (op(c + i * 2) != C[i])\n'
+      '\t\t\treturn false;\n'
+      '\tconst u16 bf = op(c + 6);\n'
+      '\treturn (op(a + 18) & 0xFF00) == 0x8B00 && (bf & 0xFF00) == 0x8B00 && c + 6 + 4 + (s32)(s8)(bf & 0xFF) * 2 == a;\n'
+      '}\n'
+      '\n'
+      'static bool emusuniDispatch()\n{\n')
+patch('core/rec-x64/rec_x64.cpp',
+      '\t\tsub(dword[rax], block->guest_cycles);\n\n\t\tregalloc.DoAlloc(block);\n',
+      '\t\tsub(dword[rax], block->guest_cycles);\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\t// EmuSuNi (00.69): a block that can write memory counts a change as it starts (emusuni_idle.h).\n'
+      '\t\tconst bool emusuniIdle = emusuniIdleOn() && !mmu_enabled();\n'
+      '\t\tconst bool emusuniStores = emusuniWrites(block);\n'
+      '\t\tif (emusuniIdle && emusuniStores)\n'
+      '\t\t{\n'
+      '\t\t\tmov(rax, (uintptr_t)&emusuniIdleChanges);\n'
+      '\t\t\tinc(dword[rax]);\n'
+      '\t\t}\n'
+      '\t\t// (its branch back, when taken: the check, for a loop that only reads)\n'
+      '\t\tconst bool emusuniBackCheck = emusuniIdle && !emusuniStores\n'
+      '\t\t\t\t&& (block->BlockType == BET_Cond_0 || block->BlockType == BET_Cond_1 || block->BlockType == BET_StaticJump)\n'
+      '\t\t\t\t&& emusuniLoopReadsOnly(block, block->BranchBlock);\n'
+      '\t\t// (the library\'s counted wait: its own check)\n'
+      '\t\tconst bool emusuniCountdown = emusuniIdle && !emusuniStores\n'
+      '\t\t\t\t&& (block->BlockType == BET_Cond_0 || block->BlockType == BET_Cond_1) && emusuniIsCountdownLoop(block);\n'
+      '#endif\n'
+      '\n\t\tregalloc.DoAlloc(block);\n')
+patch('core/rec-x64/rec_x64.cpp',
+      '\t\t\t\tjne(branch_not_taken, T_SHORT);\n\t\t\t\tmov(dword[rax], block->BranchBlock);\n\t\t\t\tL(branch_not_taken);\n',
+      '\t\t\t\tjne(branch_not_taken, T_SHORT);\n\t\t\t\tmov(dword[rax], block->BranchBlock);\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\t\t\tif (emusuniCountdown)\n'
+      '\t\t\t\t{\n'
+      '\t\t\t\t\tmov(call_regs[0], block->BranchBlock);\n'
+      '\t\t\t\t\tGenCall(emusuniCountdownCheck, true);  // (the registers are written back: no float register live)\n'
+      '\t\t\t\t}\n'
+      '\t\t\t\telse if (emusuniBackCheck)\n'
+      '\t\t\t\t\temusuniGenIdleCheck(block->BranchBlock);\n'
+      '#endif\n'
+      '\t\t\t\tL(branch_not_taken);\n')
+patch('core/rec-x64/rec_x64.cpp',
+      '\t\tcase BET_StaticJump:\n\t\tcase BET_StaticCall:\n\t\t\t//next_pc = block->BranchBlock;\n\t\t\tmov(dword[rax], block->BranchBlock);\n\t\t\tbreak;\n',
+      '\t\tcase BET_StaticJump:\n\t\tcase BET_StaticCall:\n\t\t\t//next_pc = block->BranchBlock;\n\t\t\tmov(dword[rax], block->BranchBlock);\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\t\tif (emusuniBackCheck && block->BlockType == BET_StaticJump)\n'
+      '\t\t\t\temusuniGenIdleCheck(block->BranchBlock);\n'
+      '#endif\n'
+      '\t\t\tbreak;\n')
+patch('core/rec-x64/rec_x64.cpp',
+      '\t\tret();\n\t}\n#endif\n\n\tvoid saveXmmRegisters()\n\t{\n',
+      '\t\tret();\n\t}\n\n'
+      '\t// (00.69) A loop\'s branch back taken: the check (emusuni_idle.h). Inline while something changed since the last\n'
+      '\t// check or its target was another (the check\'s state written, a few instructions), else the call that compares\n'
+      '\t// the registers. The SH4\'s registers are written back here; rax, rcx, rdi and the call\'s scratch registers are free.\n'
+      '\tvoid emusuniGenIdleCheck(u32 target)\n'
+      '\t{\n'
+      '\t\tXbyak::Label changed, done;\n'
+      '\t\tmov(rax, (uintptr_t)&emusuniIdleChanges);\n'
+      '\t\tmov(ecx, dword[rax]);\n'
+      '\t\tmov(rax, (uintptr_t)&emusuniIdle);\n'
+      '\t\tcmp(ecx, dword[rax + (int)offsetof(EmusuniIdle, seen)]);\n'
+      '\t\tjne(changed, T_SHORT);\n'
+      '\t\tcmp(dword[rax + (int)offsetof(EmusuniIdle, target)], target);\n'
+      '\t\tjne(changed, T_SHORT);\n'
+      '\t\tmov(call_regs[0], target);\n'
+      '\t\tGenCall(emusuniIdleCheck, true);\n'
+      '\t\tjmp(done, T_SHORT);\n'
+      '\t\tL(changed);\n'
+      '\t\tmov(dword[rax + (int)offsetof(EmusuniIdle, seen)], ecx);\n'
+      '\t\tmov(dword[rax + (int)offsetof(EmusuniIdle, target)], target);\n'
+      '\t\tmov(dword[rax + (int)offsetof(EmusuniIdle, saved)], 0);\n'
+      '\t\tL(done);\n'
+      '\t}\n'
+      '#endif\n\n\tvoid saveXmmRegisters()\n\t{\n')
+patch('core/hw/sh4/interpr/sh4_interpreter.cpp',
+      '#include "../sh4_cycles.h"\n',
+      '#include "../sh4_cycles.h"\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '#include "emusuni_idle.h"\n'
+      '#include "emusuni_timing.h"\n'
+      '#include "hw/sh4/dyna/blockmanager.h"\n'
+      '#include <cstring>\n'
+      '#endif\n')
+patch('core/hw/sh4/interpr/sh4_interpreter.cpp',
+      'int UpdateSystem_INTC()\n{\n\tSh4cntx.sh4_sched_next -= SH4_TIMESLICE;\n\tif (Sh4cntx.sh4_sched_next < 0)\n\t\tsh4_sched_tick(SH4_TIMESLICE);\n'
+      '\tif (Sh4cntx.interrupt_pend)\n\t\treturn UpdateINTC();\n\telse\n\t\treturn 0;\n}\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '// EmuSuNi (00.69, emusuni_idle.h): the SH4 waiting in a loop.\n'
+      'u32 emusuniIdleChanges;\n'
+      'EmusuniIdle emusuniIdle { 0, ~0u };\n'
+      '\n'
+      '// The registers at a loop\'s branch back, the same target as the last check and nothing changed since it: if they\n'
+      '// are that check\'s, the loop is at a fixed point - the slice ends here and the time goes by to the next event.\n'
+      'void emusuniIdleCheck(u32 target)\n'
+      '{\n'
+      '\tSh4Context& ctx = p_sh4rcb->cntx;\n'
+      '\tconst u8 *regs = (const u8 *)&ctx.xf[0];\n'
+      '\tconst size_t size = (const u8 *)(&ctx.fpul + 1) - regs;\n'
+      '\tconst size_t r = (const u8 *)&ctx.r[0] - regs;  // (the general registers first: a loop that works changes them)\n'
+      '\tif (size > sizeof(emusuniIdle.regs))\n'
+      '\t\treturn;\n'
+      '\tif (!emusuniIdle.saved)\n'
+      '\t\temusuniIdle.cooldown = 0;\n'
+      '\telse if (emusuniIdle.cooldown > 0)\n'
+      '\t{\n'
+      '\t\temusuniIdle.cooldown--;  // (a loop that works: compared again in a few rounds, still with nothing changed)\n'
+      '\t\treturn;\n'
+      '\t}\n'
+      '\telse if (memcmp(emusuniIdle.regs + r, regs + r, sizeof(ctx.r)) == 0\n'
+      '\t\t\t&& memcmp(emusuniIdle.regs, regs, size) == 0 && emusuniIdle.status == ctx.sr.status && emusuniIdle.T == ctx.sr.T\n'
+      '\t\t\t&& emusuniIdle.fpscr == ctx.fpscr.full)\n'
+      '\t{\n'
+      '\t\tif (ctx.cycle_counter > 0)\n'
+      '\t\t\temusuni::timing.idleCycles += ctx.cycle_counter;\n'
+      '\t\tctx.cycle_counter = 0;\n'
+      '\t\temusuniIdle.skip = true;\n'
+      '\t\treturn;\n'
+      '\t}\n'
+      '\telse\n'
+      '\t\temusuniIdle.cooldown = 7;\n'
+      '\tmemcpy(emusuniIdle.regs, regs, size);\n'
+      '\temusuniIdle.status = ctx.sr.status;\n'
+      '\temusuniIdle.T = ctx.sr.T;\n'
+      '\temusuniIdle.fpscr = ctx.fpscr.full;\n'
+      '\temusuniIdle.saved = 1;\n'
+      '}\n'
+      '\n'
+      '// The library\'s counted wait at its branch back (rec-x64/rec_x64.cpp: emusuniIsCountdownLoop found A, B and C): a round calls\n'
+      '// table[imm].function through the dispatcher in Rn (the same 17 instructions, its stack words the same each round)\n'
+      '// where an empty function (rts; nop) stands, counts *counter down, and goes on while *flag is R14 and *counter isn\'t\n'
+      '// 0. Until the next event nothing else changes what it reads: the rounds that fit in that time go by, *counter\n'
+      '// counted down by them (never to 0: the loop ends by itself), the cycles of a round the six blocks\' own.\n'
+      'void emusuniCountdownCheck(u32 target)\n'
+      '{\n'
+      '\tSh4Context& ctx = p_sh4rcb->cntx;\n'
+      '\tauto ram = [](u32 at) { return (at & 0x1C000000) == 0x0C000000; };\n'
+      '\tauto op = [](u32 at) { return *(const u16 *)&mem_b[at & RAM_MASK]; };\n'
+      '\tauto word = [](u32 at) { return *(const u32 *)&mem_b[at & RAM_MASK & ~3u]; };\n'
+      '\tconst u32 d = ctx.r[(op(target) >> 8) & 0xF];  // jsr @Rn\n'
+      '\tconst s32 imm = (s8)(op(target + 2) & 0xFF);   // mov #imm,R4\n'
+      '\tif (!ram(d) || (d & 1) != 0)\n'
+      '\t\treturn;\n'
+      '\tstatic const u16 D[17] = { 0x4F22, 0x7FF8, 0x6243, 0xD300, 0x4208, 0x2F42, 0x4200, 0x323C, 0x6423, 0x1F21, 0x6122,\n'
+      '\t\t\t0x410B, 0x5441, 0x7F08, 0x4F26, 0x000B, 0xE000 };\n'
+      '\tfor (int i = 0; i < 17; i++)\n'
+      '\t\tif ((i == 3 ? op(d + i * 2) & 0xFF00 : op(d + i * 2)) != D[i])\n'
+      '\t\t\treturn;\n'
+      '\tconst u32 tableAt = ((d + 6) & ~3u) + 4 + (op(d + 6) & 0xFF) * 4;  // mov.l @(disp,PC),R3\n'
+      '\tif (!ram(tableAt))\n'
+      '\t\treturn;\n'
+      '\tconst u32 entry = word(tableAt) + (u32)(imm * 8);\n'
+      '\tif (!ram(entry) || (entry & 3) != 0)\n'
+      '\t\treturn;\n'
+      '\tconst u32 function = word(entry);\n'
+      '\tif (!ram(function) || (function & 1) != 0 || op(function) != 0x000B || op(function + 2) != 0x0009)  // rts; nop\n'
+      '\t\treturn;\n'
+      '\tconst u32 sp = ctx.r[15];\n'
+      '\tif (!ram(sp) || (sp & 3) != 0)\n'
+      '\t\treturn;\n'
+      '\tconst u32 counterAt = word(sp), flagAt = word(sp + 4);\n'
+      '\tif (!ram(counterAt) || !ram(flagAt) || ((counterAt | flagAt) & 3) != 0)\n'
+      '\t\treturn;\n'
+      '\tconst u32 count = word(counterAt);\n'
+      '\tif (count < 2 || word(flagAt) != ctx.r[14])\n'
+      '\t\treturn;\n'
+      '\tu32 cycles = 0;\n'
+      '\tfor (u32 at : { target, target + 4, target + 20, d, d + 26, function })\n'
+      '\t{\n'
+      '\t\tRuntimeBlockInfoPtr block = bm_GetBlock(at);\n'
+      '\t\tif (block == nullptr)\n'
+      '\t\t\treturn;  // (not all compiled yet: a round as before)\n'
+      '\t\tcycles += block->guest_cycles;\n'
+      '\t}\n'
+      '\tconst int64_t left = ctx.cycle_counter > 0 ? ctx.cycle_counter : 0;\n'
+      '\tconst int64_t budget = (int64_t)(count - 1) * cycles;\n'
+      '\tif (cycles == 0 || budget < left + SH4_TIMESLICE)\n'
+      '\t\treturn;\n'
+      '\temusuniIdle.countdown = true;\n'
+      '\temusuniIdle.cdAddress = counterAt;\n'
+      '\temusuniIdle.cdCycles = cycles;\n'
+      '\temusuniIdle.cdBudget = budget;\n'
+      '\temusuniIdle.cdSkipped = left;\n'
+      '\temusuni::timing.idleCycles += left;\n'
+      '\tctx.cycle_counter = 0;\n'
+      '\temusuniIdle.skip = true;\n'
+      '}\n'
+      '\n'
+      '// The counted wait: its counter counted down by the rounds that went by (before the event that ends them runs).\n'
+      'static void emusuniCountdownApply(int64_t skipped)\n'
+      '{\n'
+      '\tif (!emusuniIdle.countdown)\n'
+      '\t\treturn;\n'
+      '\temusuniIdle.countdown = false;\n'
+      '\tconst u32 rounds = (u32)((emusuniIdle.cdSkipped + skipped) / emusuniIdle.cdCycles);\n'
+      '\tu32& counter = *(u32 *)&mem_b[emusuniIdle.cdAddress & RAM_MASK];\n'
+      '\tconst u32 most = counter > 0 ? counter - 1 : 0;\n'
+      '\tcounter -= rounds < most ? rounds : most;\n'
+      '}\n'
+      '\n'
+      '// The slices go by without the SH4 (the loop would only come round again) until an event is due or an interrupt is\n'
+      '// pending (the counted wait: or its rounds run out): the scheduler counted as the main loop counts it, slice by slice.\n'
+      'static void emusuniIdleWait()\n'
+      '{\n'
+      '\tint64_t skipped = 0;\n'
+      '\tfor (int i = 0; i < 1024 && !Sh4cntx.interrupt_pend; i++)\n'
+      '\t{\n'
+      '\t\tif (emusuniIdle.countdown && emusuniIdle.cdSkipped + skipped + SH4_TIMESLICE > emusuniIdle.cdBudget)\n'
+      '\t\t\tbreak;\n'
+      '\t\tSh4cntx.sh4_sched_next -= SH4_TIMESLICE;\n'
+      '\t\tskipped += SH4_TIMESLICE;\n'
+      '\t\tif (Sh4cntx.sh4_sched_next < 0)\n'
+      '\t\t{\n'
+      '\t\t\temusuniCountdownApply(skipped);\n'
+      '\t\t\tsh4_sched_tick(SH4_TIMESLICE);\n'
+      '\t\t\tbreak;\n'
+      '\t\t}\n'
+      '\t}\n'
+      '\temusuniCountdownApply(skipped);\n'
+      '\temusuni::timing.idleCycles += skipped;\n'
+      '\temusuni::timing.idleSkips++;\n'
+      '}\n'
+      '#endif\n'
+      '\n'
+      'int UpdateSystem_INTC()\n{\n\tSh4cntx.sh4_sched_next -= SH4_TIMESLICE;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\tif (Sh4cntx.sh4_sched_next < 0)\n'
+      '\t\temusuniCountdownApply(0);  // (the slice\'s rest went by: counted before the event runs)\n'
+      '#endif\n'
+      '\tif (Sh4cntx.sh4_sched_next < 0)\n\t\tsh4_sched_tick(SH4_TIMESLICE);\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\telse if (emusuniIdle.skip)\n'
+      '\t\temusuniIdleWait();\n'
+      '\temusuniCountdownApply(0);\n'
+      '\temusuniIdle.skip = false;\n'
+      '#endif\n'
+      '\tif (Sh4cntx.interrupt_pend)\n\t\treturn UpdateINTC();\n\telse\n\t\treturn 0;\n}\n')
+patch('core/hw/sh4/sh4_sched.cpp',
+      'void sh4_sched_tick(int cycles)\n{\n\tif (Sh4cntx.sh4_sched_next >= 0)\n\t\treturn;\n',
+      '#ifdef EMUSUNI_PORT\n'
+      'extern u32 emusuniIdleChanges;  // (00.69: emusuni_idle.h)\n'
+      '#endif\n'
+      'void sh4_sched_tick(int cycles)\n{\n\tif (Sh4cntx.sh4_sched_next >= 0)\n\t\treturn;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\temusuniIdleChanges++;  // an event runs: what a waiting loop reads may change\n'
+      '#endif\n')
+patch('core/hw/sh4/sh4_sched.cpp',
+      'void sh4_sched_deserialize(Deserializer& deser)\n{\n\tdeser >> sh4_sched_ffb;\n',
+      'void sh4_sched_deserialize(Deserializer& deser)\n{\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\temusuniIdleChanges++;  // a state loaded\n'
+      '#endif\n'
+      '\tdeser >> sh4_sched_ffb;\n')
+patch('core/hw/sh4/sh4_sched.cpp',
+      'void sh4_sched_reset(bool hard)\n{\n',
+      'void sh4_sched_reset(bool hard)\n{\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\temusuniIdleChanges++;\n'
+      '#endif\n')
+patch('core/hw/sh4/sh4_interrupts.cpp',
+      '\tDo_Interrupt(InterruptEnvId[bitscanrev(Sh4cntx.interrupt_pend)]);\n\treturn 1;\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '\textern u32 emusuniIdleChanges;\n'
+      '\temusuniIdleChanges++;  // (00.69) an interrupt taken\n'
+      '#endif\n'
+      '\tDo_Interrupt(InterruptEnvId[bitscanrev(Sh4cntx.interrupt_pend)]);\n\treturn 1;\n')
+patch('core/hw/sh4/sh4_interrupts.cpp',
+      '\tCCN_EXPEVT = expEvn;\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '\textern u32 emusuniIdleChanges;\n'
+      '\temusuniIdleChanges++;  // (00.69) an exception taken\n'
+      '#endif\n'
+      '\tCCN_EXPEVT = expEvn;\n')
+patch('core/hw/sh4/sh4_mmr.cpp',
+      'T DYNACALL ReadMem_p4mmr(u32 addr)\n{\n',
+      'T DYNACALL ReadMem_p4mmr(u32 addr)\n{\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\textern u32 emusuniIdleChanges;\n'
+      '\temusuniIdleChanges++;  // (00.69) the on-chip registers: the TMU\'s counters change with time\n'
+      '#endif\n')
+patch('core/hw/holly/sb_mem.cpp',
+      '\t\tif (addr >= 0x005F7000 && addr <= 0x005F70FF)\n\t\t{\n\t\t\tif constexpr (System == DC_PLATFORM_DREAMCAST)\n\t\t\t\treturn (T)ReadMem_gdrom(addr, sz);\n',
+      '\t\tif (addr >= 0x005F7000 && addr <= 0x005F70FF)\n\t\t{\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\t\textern u32 emusuniIdleChanges;\n'
+      '\t\t\temusuniIdleChanges++;  // (00.69) the GD-ROM\'s and the cartridge\'s ports: a read takes data\n'
+      '#endif\n'
+      '\t\t\tif constexpr (System == DC_PLATFORM_DREAMCAST)\n\t\t\t\treturn (T)ReadMem_gdrom(addr, sz);\n')
+
+# --- The SH4's memory accesses in the block (00.69). With the fast memory each access whose address isn't known when
+# the block is compiled was a call of a 4-instruction function and its return (the address masked, the RAM read or
+# written at the fast memory's base); the call and the return took 5-15% of the emulation thread on the PC (Virtua
+# Tennis 2, Marvel vs. Capcom 2: 15%). Those 4 instructions are now in the block itself, the same bytes as the
+# function's (the base as a 64-bit constant, the address kept in r9). An access to the hardware's addresses still
+# faults; the fault handler finds the 4 instructions before the faulting one (compared with the function's own bytes)
+# and writes over them the call of the slow handler (or the store queue's) that the call would have been rewritten to,
+# with no-ops after it, and the access goes on there - as for the call before. Only with the fast memory, the MMU off
+# and the float registers kept by the slow handlers (the switch above, on by default); off with EMUSUNI_DC_INLINEMEM=0
+# or the file /data/EmuSuNi/dc-inlinemem-off.
+patch('core/rec-x64/rec_x64.cpp',
+      'static bool emusuniDispatch()\n{\n',
+      '// EmuSuNi (00.69): the memory accesses in the block (BlockCompiler::emusuniGenInlineAccess).\n'
+      '#include <cstring>\n'
+      'static bool emusuniInlineMemOn()\n'
+      '{\n'
+      '\tstatic const bool enabled = []() {\n'
+      '\t\tchar how[96];\n'
+      '\t\tconst bool on = emusuni::dcOption("INLINEMEM", how, sizeof(how));\n'
+      '\t\tNOTICE_LOG(DYNAREC, "EmuSuNi: SH4 recompiler: memory accesses in the block %s%s%s", on ? "on" : "off",\n'
+      '\t\t\thow[0] != \'\\0\' ? ": " : "", how);\n'
+      '\t\treturn on;\n'
+      '\t}();\n'
+      '\treturn enabled;\n'
+      '}\n'
+      '\n'
+      'static bool emusuniDispatch()\n{\n')
+patch('core/rec-x64/rec_x64.cpp',
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\t\t\t\tGenCall((void (*)())MemHandlers[optimise ? MemType::Fast : MemType::Slow][size][MemOp::R], mmu_enabled() || emusuniMemCallsKeepXmm());\n'
+      '#else\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\t\t\t\tif (optimise && emusuniInlineMem())\n'
+      '\t\t\t\t\t\temusuniGenInlineAccess(size, MemOp::R);\n'
+      '\t\t\t\t\telse\n'
+      '\t\t\t\t\tGenCall((void (*)())MemHandlers[optimise ? MemType::Fast : MemType::Slow][size][MemOp::R], mmu_enabled() || emusuniMemCallsKeepXmm());\n'
+      '#else\n')
+patch('core/rec-x64/rec_x64.cpp',
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\t\t\t\tGenCall((void (*)())MemHandlers[optimise ? MemType::Fast : MemType::Slow][size][MemOp::W], mmu_enabled() || emusuniMemCallsKeepXmm());\n'
+      '#else\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\t\t\t\tif (optimise && emusuniInlineMem())\n'
+      '\t\t\t\t\t\temusuniGenInlineAccess(size, MemOp::W);\n'
+      '\t\t\t\t\telse\n'
+      '\t\t\t\t\tGenCall((void (*)())MemHandlers[optimise ? MemType::Fast : MemType::Slow][size][MemOp::W], mmu_enabled() || emusuniMemCallsKeepXmm());\n'
+      '#else\n')
+patch('core/rec-x64/rec_x64.cpp',
+      '\t\tret();\n\t}\n\n'
+      '\t// (00.69) A loop\'s branch back taken: the check (emusuni_idle.h).',
+      '\t\tret();\n\t}\n\n'
+      'public:\n'
+      '\t// (00.69) Whether a block\'s accesses go in it (emusuniGenInlineAccess): the fast memory, its base a 64-bit address\n'
+      '\t// (the 10-byte mov the fault handler looks for), the MMU off, the slow handlers keeping the float registers.\n'
+      '\tbool emusuniInlineMem()\n'
+      '\t{\n'
+      '\t\treturn emusuniInlineMemOn() && addrspace::virtmemEnabled() && !mmu_enabled() && emusuniMemCallsKeepXmm()\n'
+      '\t\t\t\t&& ((uintptr_t)addrspace::ram_base >> 32) != 0;\n'
+      '\t}\n'
+      '\n'
+      '\t// (00.69) A fast access in the block: the fast handler\'s instructions but its ret (genMemHandlers), the address in\n'
+      '\t// call_regs[0] (kept in r9), a write\'s value in call_regs64[1], a read\'s in eax/rax.\n'
+      '\tvoid emusuniGenInlineAccess(int size, int op)\n'
+      '\t{\n'
+      '\t\tmov(rax, (uintptr_t)addrspace::ram_base);\n'
+      '\t\tmov(r9, call_regs64[0]);\n'
+      '\t\tand_(call_regs[0], 0x1FFFFFFF);\n'
+      '\t\tswitch (size)\n'
+      '\t\t{\n'
+      '\t\tcase MemSize::S8:\n'
+      '\t\t\tif (op == MemOp::R)\n'
+      '\t\t\t\tmovsx(eax, byte[rax + call_regs64[0]]);\n'
+      '\t\t\telse\n'
+      '\t\t\t\tmov(byte[rax + call_regs64[0]], call_regs[1].cvt8());\n'
+      '\t\t\tbreak;\n'
+      '\t\tcase MemSize::S16:\n'
+      '\t\t\tif (op == MemOp::R)\n'
+      '\t\t\t\tmovsx(eax, word[rax + call_regs64[0]]);\n'
+      '\t\t\telse\n'
+      '\t\t\t\tmov(word[rax + call_regs64[0]], call_regs[1].cvt16());\n'
+      '\t\t\tbreak;\n'
+      '\t\tcase MemSize::S32:\n'
+      '\t\t\tif (op == MemOp::R)\n'
+      '\t\t\t\tmov(eax, dword[rax + call_regs64[0]]);\n'
+      '\t\t\telse\n'
+      '\t\t\t\tmov(dword[rax + call_regs64[0]], call_regs[1]);\n'
+      '\t\t\tbreak;\n'
+      '\t\tcase MemSize::S64:\n'
+      '\t\t\tif (op == MemOp::R)\n'
+      '\t\t\t\tmov(rax, qword[rax + call_regs64[0]]);\n'
+      '\t\t\telse\n'
+      '\t\t\t\tmov(qword[rax + call_regs64[0]], call_regs64[1]);\n'
+      '\t\t\tbreak;\n'
+      '\t\t}\n'
+      '\t}\n'
+      '\n'
+      '\t// (00.69) An access in the block faulted at `pc` (the hardware\'s addresses): the 19 bytes before it and it are a fast\n'
+      '\t// handler\'s (the same bytes but its ret)? Then the call its fault would have been rewritten to, over them: the slow\n'
+      '\t// handler, the store queue\'s for a write there, and no-ops to the end; the access then runs from there.\n'
+      '\tstatic bool emusuniFindInlineAccess(const u8 *pc, int& size, int& op, int& length)\n'
+      '\t{\n'
+      '\t\tfor (size = 0; size < MemSize::Count; size++)\n'
+      '\t\t\tfor (op = 0; op < MemOp::Count; op++)\n'
+      '\t\t\t{\n'
+      '\t\t\t\tconst u8 *stub = (const u8 *)MemHandlers[MemType::Fast][size][op];\n'
+      '\t\t\t\tif (stub == nullptr || memcmp(pc - 19, stub, 19) != 0)\n'
+      '\t\t\t\t\tcontinue;\n'
+      '\t\t\t\tlength = 0;\n'
+      '\t\t\t\twhile (length < 8 && stub[19 + length] != 0xC3)  // (the access, up to the handler\'s ret)\n'
+      '\t\t\t\t\tlength++;\n'
+      '\t\t\t\tif (length > 0 && length < 8 && memcmp(pc, stub + 19, length) == 0)\n'
+      '\t\t\t\t\treturn true;\n'
+      '\t\t\t}\n'
+      '\t\treturn false;\n'
+      '\t}\n'
+      '\tvoid emusuniRewriteInlineAccess(int size, int op, int length, u32 memAddress)\n'
+      '\t{\n'
+      '\t\tconst u8 *start = getCurr();\n'
+      '\t\tif (op == MemOp::W && size >= MemSize::S32 && (memAddress >> 26) == 0x38)\n'
+      '\t\t\tcall(MemHandlers[MemType::StoreQueue][size][MemOp::W]);\n'
+      '\t\telse\n'
+      '\t\t\tcall(MemHandlers[MemType::Slow][size][op]);\n'
+      '\t\tnop(19 + length - (getCurr() - start));\n'
+      '\t\tready();\n'
+      '\t}\n'
+      'private:\n'
+      '\n'
+      '\t// (00.69) A loop\'s branch back taken: the check (emusuni_idle.h).')
+patch('core/rec-x64/rec_x64.cpp',
+      '\t\tif (codeBuffer == nullptr)\n\t\t\t// init() not called yet\n\t\t\treturn false;\n\t\tu8 *retAddr = *(u8**)context.rsp - 5;\n',
+      '\t\tif (codeBuffer == nullptr)\n\t\t\t// init() not called yet\n\t\t\treturn false;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\t{\n'
+      '\t\t\t// EmuSuNi (00.69): an access in the block (BlockCompiler::emusuniGenInlineAccess).\n'
+      '\t\t\tu8 *pc = (u8 *)context.pc;\n'
+      '\t\t\tu8 *base = (u8 *)codeBuffer->getBase();\n'
+      '\t\t\tint size, op, length;\n'
+      '\t\t\tif (pc >= base + 19 && pc + 8 <= base + codeBuffer->getSize()\n'
+      '\t\t\t\t\t&& (pc < MemHandlerStart || pc >= MemHandlerEnd)\n'
+      '\t\t\t\t\t&& BlockCompiler::emusuniFindInlineAccess(pc, size, op, length))\n'
+      '\t\t\t{\n'
+      '\t\t\t\tu8 *start = pc - 19;\n'
+      '\t\t\t\tvirtmem::jit_set_exec(start, 32, false);\n'
+      '\t\t\t\tBlockCompiler compiler(*sh4ctx, *codeBuffer, start);\n'
+      '\t\t\t\tcompiler.emusuniRewriteInlineAccess(size, op, length, (u32)context.r9);\n'
+      '\t\t\t\tvirtmem::jit_set_exec(start, 32, true);\n'
+      '\t\t\t\tcontext.pc = (uintptr_t)start;\n'
+      '\t\t\t\t// the address, unmasked, back where the handler takes it\n'
+      '#ifdef _WIN32\n'
+      '\t\t\t\tcontext.rcx = context.r9;\n'
+      '#else\n'
+      '\t\t\t\tcontext.rdi = context.r9;\n'
+      '#endif\n'
+      '\t\t\t\treturn true;\n'
+      '\t\t\t}\n'
+      '\t\t}\n'
+      '#endif\n'
+      '\t\tu8 *retAddr = *(u8**)context.rsp - 5;\n')
+
+# --- The renderer's time in parts (00.69), for the PS4's log (its 10 s line): Daytona USA's renderer took 14.9 ms a
+# frame at 3x (9.6-12 at 1x in 00.67), of it only 2.1 ms the TA lists and textures, its GPU waits 0.01 - the rest wasn't
+# told apart. Now: the drawing's commands (Drawer::Draw, the vertex upload with them), the draws made, the picture's
+# presenting (its render pass ended and submitted), and the queue's submits with the time waiting for the app's lock of
+# the queue (src/Display.cpp: the app's own drawing submits on it too).
+patch('core/rend/vulkan/vk_context_lr.h',
+      '#include "overlay.h"\n',
+      '#include "overlay.h"\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '#include "emusuni_timing.h"\n'
+      '#endif\n')
+patch('core/rend/vulkan/vk_context_lr.h',
+      '\tvoid SubmitCommandBuffers(const std::vector<vk::CommandBuffer> &buffers, vk::Fence fence) {\n'
+      '\t\tretro_render_if->lock_queue(retro_render_if->handle);\n'
+      '\t\tqueue.submit(vk::SubmitInfo(nullptr, nullptr, buffers, nullptr), fence);\n'
+      '\t\tretro_render_if->unlock_queue(retro_render_if->handle);\n',
+      '\tvoid SubmitCommandBuffers(const std::vector<vk::CommandBuffer> &buffers, vk::Fence fence) {\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\tconst int64_t emusuniStart = emusuni::nowNs();\n'
+      '\t\tretro_render_if->lock_queue(retro_render_if->handle);\n'
+      '\t\tconst int64_t emusuniLocked = emusuni::nowNs();\n'
+      '\t\tqueue.submit(vk::SubmitInfo(nullptr, nullptr, buffers, nullptr), fence);\n'
+      '\t\tretro_render_if->unlock_queue(retro_render_if->handle);\n'
+      '\t\temusuni::timing.queueLockNs += emusuniLocked - emusuniStart;\n'
+      '\t\temusuni::timing.submitNs += emusuni::nowNs() - emusuniStart;\n'
+      '\t\temusuni::timing.submits++;\n'
+      '#else\n'
+      '\t\tretro_render_if->lock_queue(retro_render_if->handle);\n'
+      '\t\tqueue.submit(vk::SubmitInfo(nullptr, nullptr, buffers, nullptr), fence);\n'
+      '\t\tretro_render_if->unlock_queue(retro_render_if->handle);\n'
+      '#endif\n')
+patch('core/rend/vulkan/vulkan_renderer.cpp',
+      '#include "rend/transform_matrix.h"\n',
+      '#include "rend/transform_matrix.h"\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '#include "emusuni_timing.h"\n'
+      '#endif\n')
+patch('core/rend/vulkan/vulkan_renderer.cpp',
+      '\t\t\tdrawer->setRendContext(rendContext);\n\t\t\tdrawer->Draw(fogTexture.get(), paletteTexture.get());\n',
+      '\t\t\tdrawer->setRendContext(rendContext);\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\t\t{\n'
+      '\t\t\t\temusuni::ScopeTime emusuniTime(emusuni::timing.drawNs);\n'
+      '\t\t\t\tdrawer->Draw(fogTexture.get(), paletteTexture.get());\n'
+      '\t\t\t}\n'
+      '#else\n'
+      '\t\t\tdrawer->Draw(fogTexture.get(), paletteTexture.get());\n'
+      '#endif\n')
+patch('core/rend/vulkan/vulkan_renderer.cpp',
+      '\tbool Present() override\n\t{\n\t\tif (clearLastFrame)\n\t\t\treturn false;\n',
+      '\tbool Present() override\n\t{\n\t\tif (clearLastFrame)\n\t\t\treturn false;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\temusuni::ScopeTime emusuniTime(emusuni::timing.presentNs);\n'
+      '#endif\n')
+patch('core/rend/vulkan/drawer.cpp',
+      '#include "rend/sorter.h"\n',
+      '#include "rend/sorter.h"\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '#include "emusuni_timing.h"\n'
+      '#endif\n')
+patch('core/rend/vulkan/drawer.cpp',
+      '\tvk::Pipeline pipeline = pipelineManager->GetPipeline(listType, sortTriangles, poly, gpuPalette, dithering);\n'
+      '\tcmdBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline);\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '\temusuni::timing.drawCalls++;\n'
+      '#endif\n'
+      '\tvk::Pipeline pipeline = pipelineManager->GetPipeline(listType, sortTriangles, poly, gpuPalette, dithering);\n'
+      '\tcmdBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline);\n')
+
+# --- One descriptor set per texture and sampler a frame (00.69). Each textured polygon got a descriptor set of its own
+# every frame (allocated, written with vkUpdateDescriptorSets, its writes in a vector, kept in a map: two heap
+# allocations each), though a frame's polygons share far fewer textures (Daytona USA's race: 1,700 draws a frame). The
+# set says only which texture and sampler (but NAOMI 2's, which also say the polygon's uniforms: as before), so polygons
+# with the same pair share it now, and a set already bound isn't bound again; the same descriptors for every draw, the
+# same picture. Per frame as before (the sets go back with the frame's slot of the ring).
+patch('core/rend/vulkan/pipeline.h',
+      '\tvoid bindPerPolyDescriptorSets(vk::CommandBuffer cmdBuffer, const PolyParam& poly, int polyNumber, vk::Buffer buffer,\n'
+      '\t\t\tvk::DeviceSize uniformOffset, vk::DeviceSize lightOffset, bool punchThrough)\n'
+      '\t{\n',
+      '\tvoid bindPerPolyDescriptorSets(vk::CommandBuffer cmdBuffer, const PolyParam& poly, int polyNumber, vk::Buffer buffer,\n'
+      '\t\t\tvk::DeviceSize uniformOffset, vk::DeviceSize lightOffset, bool punchThrough)\n'
+      '\t{\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\tif (!poly.isNaomi2())\n'
+      '\t\t{\n'
+      '\t\t\t// EmuSuNi (00.69): the set of this texture and sampler this frame, made by the first polygon with them.\n'
+      '\t\t\tvk::Sampler sampler;\n'
+      '\t\t\tvk::ImageView view;\n'
+      '\t\t\tif (poly.texture != nullptr)\n'
+      '\t\t\t{\n'
+      '\t\t\t\tsampler = samplerManager->GetSampler(poly, punchThrough);\n'
+      '\t\t\t\tview = ((Texture *)poly.texture)->GetReadOnlyImageView();\n'
+      '\t\t\t}\n'
+      '\t\t\tconst EmusuniTexKey key { (u64)(VkSampler)sampler, (u64)(VkImageView)view, poly.texture != nullptr };\n'
+      '\t\t\tvk::DescriptorSet set;\n'
+      '\t\t\tauto it = emusuniTexSets.find(key);\n'
+      '\t\t\tif (it == emusuniTexSets.end())\n'
+      '\t\t\t{\n'
+      '\t\t\t\tset = perPolyAlloc.alloc();\n'
+      '\t\t\t\tif (poly.texture != nullptr)\n'
+      '\t\t\t\t{\n'
+      '\t\t\t\t\tconst vk::DescriptorImageInfo imageInfo(sampler, view, vk::ImageLayout::eShaderReadOnlyOptimal);\n'
+      '\t\t\t\t\tconst vk::WriteDescriptorSet write(set, 0, 0, vk::DescriptorType::eCombinedImageSampler, imageInfo);\n'
+      '\t\t\t\t\tgetContext()->GetDevice().updateDescriptorSets(write, nullptr);\n'
+      '\t\t\t\t}\n'
+      '\t\t\t\temusuniTexSets.emplace(key, set);\n'
+      '\t\t\t}\n'
+      '\t\t\telse\n'
+      '\t\t\t\tset = it->second;\n'
+      '\t\t\tif (set != emusuniBound)\n'
+      '\t\t\t{\n'
+      '\t\t\t\tcmdBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 1, set, nullptr);\n'
+      '\t\t\t\temusuniBound = set;\n'
+      '\t\t\t}\n'
+      '\t\t\treturn;\n'
+      '\t\t}\n'
+      '\t\temusuniBound = vk::DescriptorSet{};  // (NAOMI 2\'s: its own set, bound below)\n'
+      '#endif\n')
+patch('core/rend/vulkan/pipeline.h',
+      '\tvoid bindPerFrameDescriptorSets(vk::CommandBuffer cmdBuffer)\n\t{\n',
+      '\tvoid bindPerFrameDescriptorSets(vk::CommandBuffer cmdBuffer)\n\t{\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\temusuniBound = vk::DescriptorSet{};  // (a new command buffer or render: nothing bound in it yet)\n'
+      '#endif\n')
+patch('core/rend/vulkan/pipeline.h',
+      '\t\tperFrameDescSet = vk::DescriptorSet{};\n\t\tperPolyDescSets.clear();\n\t}\n',
+      '\t\tperFrameDescSet = vk::DescriptorSet{};\n\t\tperPolyDescSets.clear();\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\temusuniTexSets.clear();\n'
+      '\t\temusuniBound = vk::DescriptorSet{};\n'
+      '#endif\n'
+      '\t}\n')
+patch('core/rend/vulkan/pipeline.h',
+      '\tstd::unordered_map<const void *, vk::DescriptorSet> perPolyDescSets;\n',
+      '\tstd::unordered_map<const void *, vk::DescriptorSet> perPolyDescSets;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t// EmuSuNi (00.69): this frame\'s sets by texture and sampler, and the set last bound (bindPerPolyDescriptorSets).\n'
+      '\tstruct EmusuniTexKey\n'
+      '\t{\n'
+      '\t\tu64 sampler, view;\n'
+      '\t\tbool textured;\n'
+      '\t\tbool operator==(const EmusuniTexKey& other) const {\n'
+      '\t\t\treturn sampler == other.sampler && view == other.view && textured == other.textured;\n'
+      '\t\t}\n'
+      '\t};\n'
+      '\tstruct EmusuniTexHash\n'
+      '\t{\n'
+      '\t\tsize_t operator()(const EmusuniTexKey& key) const {\n'
+      '\t\t\treturn (size_t)(key.view * 0x9E3779B97F4A7C15ull ^ (key.sampler + 0x632BE59BD9B4E019ull) ^ key.textured);\n'
+      '\t\t}\n'
+      '\t};\n'
+      '\tstd::unordered_map<EmusuniTexKey, vk::DescriptorSet, EmusuniTexHash> emusuniTexSets;\n'
+      '\tvk::DescriptorSet emusuniBound;\n'
+      '#endif\n')
+patch('core/rend/vulkan/pipeline.h',
+      '\t\t\tgetContext()->GetDevice().updateDescriptorSets(writeDescriptorSet, nullptr);\n'
+      '\t\t\tperPolyDescSets[&mvParam] = perPolyDescSet;\n'
+      '\t\t}\n'
+      '\t\telse\n'
+      '\t\t\tperPolyDescSet = it->second;\n'
+      '\t\tcmdBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 1, perPolyDescSet, nullptr);\n',
+      '\t\t\tgetContext()->GetDevice().updateDescriptorSets(writeDescriptorSet, nullptr);\n'
+      '\t\t\tperPolyDescSets[&mvParam] = perPolyDescSet;\n'
+      '\t\t}\n'
+      '\t\telse\n'
+      '\t\t\tperPolyDescSet = it->second;\n'
+      '\t\tcmdBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 1, perPolyDescSet, nullptr);\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\temusuniBound = vk::DescriptorSet{};  // (another set bound: the next polygon binds its own)\n'
+      '#endif\n')
 
 # --- Hot pages, for the PS4's page faults (Resonance's too): a fault costs the PS4 a signal, about a millisecond
 # with the protection changes, and its pages are 16 KiB: a page a game keeps writing (a texture it animates,
@@ -3032,6 +4805,26 @@ struct Timing
 	std::atomic<int> shadersCompiled { 0 };   // of them not in the SPIR-V cache
 	std::atomic<int64_t> gpuWaitNs { 0 };     // fences and idle waits: the GPU behind
 	std::atomic<int> idleWaits { 0 };         // vkQueueWaitIdle / vkDeviceWaitIdle: full GPU syncs
+	// 00.66, the emulation thread's parts and the renderer's (the PS4 can't be profiled: these tell where the time goes):
+	std::atomic<int64_t> soundNs { 0 };       // the sound chip: the ARM7 and the AICA's channels and DSP (AicaUpdate)
+	std::atomic<int64_t> discNs { 0 };        // the disc's reads (libGDR_ReadSector: GD-ROM sectors, CD audio)
+	std::atomic<int> discReads { 0 };
+	std::atomic<int64_t> discMaxNs { 0 };     // the longest read since the last line
+	std::atomic<int64_t> processNs { 0 };     // the renderer's TA lists to polygons and its textures (Renderer::Process)
+	// 00.69: the SH4's waits in a loop let go by (hw/sh4/interpr/sh4_interpreter.cpp: emusuniIdleCheck), the console's frames
+	std::atomic<int64_t> idleCycles { 0 };    // SH4 cycles not run: the loop would only have come round to the same state
+	std::atomic<int> idleSkips { 0 };         // the times it was let go by (until the next event or interrupt)
+	std::atomic<int> vblanks { 0 };           // the console's frames (Emulator::vblank)
+	std::atomic<int64_t> paceNs { 0 };        // the emulation thread asleep, ahead of the app's pace (emulator.cpp)
+	// 00.69, the renderer's parts (rend/vulkan): its commands, its presenting, the queue's submits and the lock's waits
+	std::atomic<int64_t> drawNs { 0 };        // Drawer::Draw: the vertex upload and the draws' commands
+	std::atomic<int> drawCalls { 0 };         // the draws (Drawer::DrawPoly)
+	std::atomic<int64_t> presentNs { 0 };     // Renderer::Present: the render pass ended, submitted, the picture handed over
+	std::atomic<int64_t> submitNs { 0 };      // the queue's submits, with...
+	std::atomic<int64_t> queueLockNs { 0 };   // ...the waits for the app's lock of the queue
+	std::atomic<int> submits { 0 };
+	// 00.81: display lists with a parameter the TA doesn't know, the rest of each left out (hw/pvr/ta_vtx.cpp)
+	std::atomic<int> taUnknown { 0 };
 	// The fault handler's (linux/common.cpp), by kind, and the page locks (linux/posix_vmem.cpp):
 	std::atomic<int> faultsCode { 0 };        // a write to a page of compiled code (the blocks of it dropped)
 	std::atomic<int> faultsVram { 0 };        // a write to a texture's VRAM (the texture dropped)
@@ -3055,6 +4848,39 @@ struct ScopeTime
 	const int64_t start = nowNs();
 	explicit ScopeTime(std::atomic<int64_t>& to) : to(to) {}
 	~ScopeTime() { to += nowNs() - start; }
+};
+
+// The time of a scope called very often (the sound chip's, 44,100 times a second), measured in one call of 16 and
+// counted 16 times: a sixteenth of the clock reads.
+struct SampledTime
+{
+	std::atomic<int64_t>& to;
+	int64_t start = 0;
+	SampledTime(std::atomic<int64_t>& to, unsigned& calls) : to(to)
+	{
+		if ((++calls & 15) == 0)
+			start = nowNs();
+	}
+	~SampledTime()
+	{
+		if (start != 0)
+			to += (nowNs() - start) * 16;
+	}
+};
+
+// A read of the disc (libGDR_ReadSector): its time, the count and the longest (a slow USB stick shows there).
+struct DiscTime
+{
+	const int64_t start = nowNs();
+	~DiscTime()
+	{
+		const int64_t took = nowNs() - start;
+		timing.discNs += took;
+		timing.discReads++;
+		int64_t most = timing.discMaxNs.load();
+		while (took > most && !timing.discMaxNs.compare_exchange_weak(most, took))
+			;
+	}
 };
 
 // The calling thread's CPU time (its work without its waits); the wall clock if the system can't tell.
@@ -3103,7 +4929,66 @@ patch('core/emulator.cpp',
       'void Emulator::vblank()\n{\n'
       '#ifdef EMUSUNI_PORT\n'
       '\temusuni::countEmulation(true);\n'
+      '\temusuni::timing.vblanks++;\n'
+      '\temusuniPace();\n'
       '#endif\n')
+# (00.69) The console's speed kept to the app's while no picture holds it back. With threaded rendering the emulation
+# thread waits only for the renderer (a frame ahead at most); a game that draws nothing for a while (a loading screen,
+# a menu between its pictures, the arcade boards' BIOS checking the cartridge) ran as fast as the CPU could, its sound
+# too: Daytona USA's menus on the PS4 at 107-113% of the sound's rate, which the app's audio cut down; NAOMI and
+# Atomiswave boots 4-8 times faster than real on the PC, 1.3 s of sound a run dropped. The app gives the frames per
+# second it runs the console at (flycast_emusuni_pace: its speed, fast forward's x2-x8; 0 none); at each of the
+# console's frames the emulation thread sleeps while it is more than 3 frames ahead of that pace, never longer than
+# 100 ms at a time; 6 frames behind, the pace starts again from there (no catching up: the app's own pacing does).
+patch('core/emulator.cpp',
+      'void Emulator::vblank()\n{\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '#include <thread>\n'
+      'static std::atomic<double> emusuniPaceFps { 0.0 };\n'
+      '// EmuSuNi (src/Emulator.cpp): the console\'s frames per second the app runs it at, 0 for no limit.\n'
+      'extern "C" void flycast_emusuni_pace(double fps)\n'
+      '{\n'
+      '\temusuniPaceFps.store(fps, std::memory_order_relaxed);\n'
+      '}\n'
+      '\n'
+      '// At each of the console\'s frames (the emulation thread): asleep while more than 3 frames ahead of the app\'s pace.\n'
+      'static void emusuniPace()\n'
+      '{\n'
+      '\tstatic int64_t start = 0;\n'
+      '\tstatic double startFps = 0.0;\n'
+      '\tstatic u64 frames = 0;\n'
+      '\tconst double fps = emusuniPaceFps.load(std::memory_order_relaxed);\n'
+      '\tif (fps <= 0.0 || !config::ThreadedRendering)\n'
+      '\t{\n'
+      '\t\tstart = 0;\n'
+      '\t\treturn;\n'
+      '\t}\n'
+      '\tconst int64_t now = emusuni::nowNs();\n'
+      '\tconst double frameNs = 1e9 / fps;\n'
+      '\tif (start == 0 || fps != startFps)\n'
+      '\t{\n'
+      '\t\tstart = now;\n'
+      '\t\tstartFps = fps;\n'
+      '\t\tframes = 0;\n'
+      '\t\treturn;\n'
+      '\t}\n'
+      '\tframes++;\n'
+      '\tconst double due = start + frames * frameNs;  // when this frame is due at the app\'s pace\n'
+      '\tif (now - due > 6 * frameNs)\n'
+      '\t{\n'
+      '\t\tstart = now;  // behind: the pace from here on\n'
+      '\t\tframes = 0;\n'
+      '\t\treturn;\n'
+      '\t}\n'
+      '\tconst double ahead = due - now - 3 * frameNs;\n'
+      '\tif (ahead > 0.0)\n'
+      '\t{\n'
+      '\t\temusuni::ScopeTime emusuniTime(emusuni::timing.paceNs);\n'
+      '\t\tstd::this_thread::sleep_for(std::chrono::nanoseconds((int64_t)std::min(ahead, 100e6)));\n'
+      '\t}\n'
+      '}\n'
+      '#endif\n\n'
+      'void Emulator::vblank()\n{\n')
 patch('core/hw/pvr/Renderer_if.cpp',
       '#include "network/ggpo.h"\n',
       '#include "network/ggpo.h"\n#include "emusuni_timing.h"\n')
@@ -3125,6 +5010,57 @@ patch('core/hw/pvr/Renderer_if.cpp',
       '\tbool execute(Message msg)\n\t{\n'
       '#ifdef EMUSUNI_PORT\n'
       '\t\temusuni::ScopeTime emusuniTime(emusuni::timing.renderNs);\n'
+      '#endif\n')
+# (00.66: the parts of the emulation thread and of the rendering the PS4 log can't get otherwise: the sound chip
+# (timed in one of every 16 of its 44,100 calls a second), the disc's reads, the TA lists' conversion with the
+# textures.)
+patch('core/hw/pvr/Renderer_if.cpp',
+      '\t\t\tFC_PROFILE_SCOPE_NAMED("Renderer::Process");\n',
+      '\t\t\tFC_PROFILE_SCOPE_NAMED("Renderer::Process");\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\t\temusuni::ScopeTime emusuniProcess(emusuni::timing.processNs);\n'
+      '#endif\n')
+# The emulation's two other waits for the renderer, counted with the first (the queue full): a frame's start while
+# the renderer still has the frame before (QueueRender, without auto frame skip) and the end of a frame's rendering
+# while the renderer is still converting its TA lists (rend_end_render): the time the renderer holds the emulation.
+patch('core/hw/pvr/ta_ctx.cpp',
+      '#include "stdclass.h"\n',
+      '#include "stdclass.h"\n#include "emusuni_timing.h"\n')
+patch('core/hw/pvr/ta_ctx.cpp',
+      '\t\t\t// fast enough over the last frames\n\t\t\tframe_finished.Wait();\n',
+      '\t\t\t// fast enough over the last frames\n'
+      '\t\t{\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\t\temusuni::ScopeTime emusuniTime(emusuni::timing.emuWaitNs);\n'
+      '#endif\n'
+      '\t\t\tframe_finished.Wait();\n'
+      '\t\t}\n')
+patch('core/hw/pvr/Renderer_if.cpp',
+      '\tif (pend_rend && config::ThreadedRendering)\n\t\trenderEnd.Wait();\n',
+      '\tif (pend_rend && config::ThreadedRendering)\n'
+      '\t{\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\temusuni::ScopeTime emusuniTime(emusuni::timing.emuWaitNs);\n'
+      '#endif\n'
+      '\t\trenderEnd.Wait();\n'
+      '\t}\n')
+patch('core/hw/aica/aica.cpp',
+      '#include "hw/arm7/arm_mem.h"\n',
+      '#include "hw/arm7/arm_mem.h"\n#include "emusuni_timing.h"\n')
+patch('core/hw/aica/aica.cpp',
+      'static int AicaUpdate(int tag, int cycles, int jitter, void *arg)\n{\n\tarm::run(1);\n',
+      'static int AicaUpdate(int tag, int cycles, int jitter, void *arg)\n{\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\tstatic unsigned emusuniCalls;\n'
+      '\temusuni::SampledTime emusuniTime(emusuni::timing.soundNs, emusuniCalls);\n'
+      '#endif\n'
+      '\tarm::run(1);\n')
+patch('core/imgread/common.cpp',
+      'u32 libGDR_ReadSector(u8 *buff, u32 startSector, u32 sectorCount, u32 sectorSize, bool stopOnMiss)\n{\n',
+      '#ifdef EMUSUNI_PORT\n#include "emusuni_timing.h"\n#endif\n\n'
+      'u32 libGDR_ReadSector(u8 *buff, u32 startSector, u32 sectorCount, u32 sectorSize, bool stopOnMiss)\n{\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\temusuni::DiscTime emusuniTime;\n'
       '#endif\n')
 patch('core/rend/vulkan/compiler.cpp',
       '#include "vulkan_context.h"\n',
@@ -3371,13 +5307,13 @@ patch('shell/libretro/libretro.cpp',
       'static void emusuniLogTiming(int64_t runStart, bool picture)\n'
       '{\n'
       '\tstruct Counters { int64_t emuRun, emuWait, render, renderWait, pipeline, shader, gpuWait; int pipelines, shaders, compiled, idleWaits;\n'
-      '\t\tint faultsCode, faultsVram, faultsTable, faultsRewrite, faultsOther, protects, unprotects; };\n'
+      '\t\tint faultsCode, faultsVram, faultsTable, faultsRewrite, faultsOther, protects, unprotects; int64_t sound, disc, process; int discReads; };\n'
       '\tauto read = []() {\n'
       '\t\tconst emusuni::Timing& t = emusuni::timing;\n'
       '\t\treturn Counters { t.emuRunNs.load(), t.emuWaitNs.load(), t.renderNs.load(), t.renderWaitNs.load(), t.pipelineNs.load(),\n'
       '\t\t\tt.shaderNs.load(), t.gpuWaitNs.load(), t.pipelines.load(), t.shaders.load(), t.shadersCompiled.load(), t.idleWaits.load(),\n'
       '\t\t\tt.faultsCode.load(), t.faultsVram.load(), t.faultsTable.load(), t.faultsRewrite.load(), t.faultsOther.load(),\n'
-      '\t\t\tt.protects.load(), t.unprotects.load() };\n'
+      '\t\t\tt.protects.load(), t.unprotects.load(), t.soundNs.load(), t.discNs.load(), t.processNs.load(), t.discReads.load() };\n'
       '\t};\n'
       '\tstatic int64_t windowStart = 0, runNs = 0;\n'
       '\tstatic int runs = 0, pictures = 0;\n'
@@ -3402,24 +5338,111 @@ patch('shell/libretro/libretro.cpp',
       '\t// The emulation thread\'s CPU time (its waits not in it); without threaded rendering the renderer\n'
       '\t// runs inside the emulation (runInternal): its time taken out.\n'
       '\tconst double emulation = (c.emuRun - before.emuRun - (threaded ? 0 : c.render - before.render)) / ms;\n'
+      '\tconst int64_t discMost = emusuni::timing.discMaxNs.exchange(0);  // (the longest read of this window)\n'
       '\tNOTICE_LOG(COMMON, "EmuSuNi: dc per frame (%d runs, %.1f pictures/s, %s, SH4 %s, %s): retro_run %.2f ms, of it rendering %.2f "\n'
-      '\t\t"and waiting for the emulation %.2f; emulation thread busy %.2f ms (waiting for the renderer %.2f); in the rendering: new pipelines %d "\n'
+      '\t\t"(TA lists and textures %.2f) and waiting for the emulation %.2f; emulation thread busy %.2f ms (the sound chip %.2f of it; waiting for "\n'
+      '\t\t"the renderer %.2f); disc reads %d (%.2f ms a frame, the longest %.1f ms); in the rendering: new pipelines %d "\n'
       '\t\t"(%.1f ms), shaders %d of them compiled %d (%.1f ms), GPU waits %.2f ms (%d full syncs); faults: code %d, VRAM %d, table %d, "\n'
       '\t\t"hardware %d, other %d; mprotect %d+%d",\n'
       '\t\truns, pictures / ((now - windowStart) / 1e9), threaded ? "threaded" : "one thread", emusuniSh4JitOk ? "recompiler" : "interpreter",\n'
       '\t\taddrspace::virtmemEnabled() ? "fast memory" : "memory handlers",\n'
-      '\t\trunNs / ms, (c.render - before.render) / ms, (c.renderWait - before.renderWait) / ms, emulation,\n'
-      '\t\t(c.emuWait - before.emuWait) / ms, c.pipelines - before.pipelines, (c.pipeline - before.pipeline) / 1e6,\n'
+      '\t\trunNs / ms, (c.render - before.render) / ms, (c.process - before.process) / ms, (c.renderWait - before.renderWait) / ms,\n'
+      '\t\temulation, (c.sound - before.sound) / ms, (c.emuWait - before.emuWait) / ms, c.discReads - before.discReads,\n'
+      '\t\t(c.disc - before.disc) / ms, discMost / 1e6, c.pipelines - before.pipelines, (c.pipeline - before.pipeline) / 1e6,\n'
       '\t\tc.shaders - before.shaders, c.compiled - before.compiled, (c.shader - before.shader) / 1e6,\n'
       '\t\t(c.gpuWait - before.gpuWait) / ms, c.idleWaits - before.idleWaits,\n'
       '\t\tc.faultsCode - before.faultsCode, c.faultsVram - before.faultsVram, c.faultsTable - before.faultsTable,\n'
       '\t\tc.faultsRewrite - before.faultsRewrite, c.faultsOther - before.faultsOther,\n'
       '\t\tc.protects - before.protects, c.unprotects - before.unprotects);\n'
+      '\t// (00.69) the SH4 waiting in loops let go by (hw/sh4/interpr/sh4_interpreter.cpp): its share of the console\'s time\n'
+      '\tconst int frames = emusuni::timing.vblanks.exchange(0);\n'
+      '\tconst int64_t idleCycles = emusuni::timing.idleCycles.exchange(0);\n'
+      '\tconst int idleSkips = emusuni::timing.idleSkips.exchange(0);\n'
+      '\tconst int64_t paceNs = emusuni::timing.paceNs.exchange(0);\n'
+      '\tif (frames > 0)\n'
+      '\t\tNOTICE_LOG(COMMON, "EmuSuNi: dc: the SH4 waited in a loop %.1f%% of the console\'s time, let go by to the next event "\n'
+      '\t\t\t"%d times (%d frames); the emulation held back to the app\'s pace %.2f ms a frame", 100.0 * idleCycles\n'
+      '\t\t\t/ (frames * (SH4_MAIN_CLOCK / 59.94)), idleSkips, frames, paceNs / 1e6 / frames);\n'
+      '\t// (00.69) the renderer\'s parts, per run as the line above\n'
+      '\tconst int64_t drawNs = emusuni::timing.drawNs.exchange(0), presentNs = emusuni::timing.presentNs.exchange(0);\n'
+      '\tconst int64_t submitNs = emusuni::timing.submitNs.exchange(0), lockNs = emusuni::timing.queueLockNs.exchange(0);\n'
+      '\tconst int draws = emusuni::timing.drawCalls.exchange(0), submits = emusuni::timing.submits.exchange(0);\n'
+      '\tNOTICE_LOG(COMMON, "EmuSuNi: dc renderer per frame: drawing %.2f ms (%.0f draws), presenting %.2f ms, queue submits %.1f "\n'
+      '\t\t"(%.2f ms, of it waiting for the app\'s lock of the queue %.2f ms)", drawNs / ms, draws / (double)runs, presentNs / ms,\n'
+      '\t\tsubmits / (double)runs, submitNs / ms, lockNs / ms);\n'
+      '\t// (00.81) display lists cut short (a parameter the TA doesn\'t know), when there were any\n'
+      '\tif (const int taUnknown = emusuni::timing.taUnknown.exchange(0))\n'
+      '\t\tNOTICE_LOG(COMMON, "EmuSuNi: dc: %d display lists with a parameter the TA doesn\'t know, the rest of each "\n'
+      '\t\t\t"left out", taUnknown);\n'
       '\twindowStart = now;\n'
       '\trunNs = runs = pictures = 0;\n'
       '\tbefore = c;\n'
       '}\n\n'
       'static void emusuniFlushDeferred()\n{\n')
+
+# --- The console's frames per picture, for the app's pacing (00.68): a run of the core (retro_run) is one picture,
+# and a game at 30 FPS (Jet Set Radio, all of it), Frame Skip 1 or 2, or Auto frame skip once it skips make it 2 to 4
+# of the console's frames. The app paces Flycast by them (src/Emulator.cpp, flycast_emusuni_vblanks): every message of
+# the renderer's queue carries the console's frame count of when the emulation sent it, and a picture presented
+# records its own. The difference between two pictures is then exact, whatever the threads' timing (00.67 used
+# Flycast's detect_vsync_swap_interval instead, which Flycast turns off with Auto frame skip: Jet Set Radio on the
+# owner's PS4 ran at up to twice its speed again).
+patch('core/hw/pvr/Renderer_if.cpp',
+      'class PvrMessageQueue\n{\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '// EmuSuNi: the console\'s frames (rend_vblank, the emulation thread) and the count of the last picture presented.\n'
+      'static std::atomic<u64> emusuniVblanks { 0 };\n'
+      'static std::atomic<u64> emusuniPresentedVblanks { 0 };\n'
+      '#endif\n\n'
+      'class PvrMessageQueue\n{\n')
+patch('core/hw/pvr/Renderer_if.cpp',
+      '\t\tMessageType type = NoMessage;\n\t\tFramebufferInfo config;\n\t};\n',
+      '\t\tMessageType type = NoMessage;\n\t\tFramebufferInfo config;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\tu64 emusuniVblank = 0;  // the console\'s frames when it was sent\n'
+      '#endif\n'
+      '\t};\n')
+patch('core/hw/pvr/Renderer_if.cpp',
+      '\t\tMessage msg { type, config };\n',
+      '\t\tMessage msg { type, config };\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\tmsg.emusuniVblank = emusuniVblanks.load(std::memory_order_relaxed);\n'
+      '#endif\n')
+patch('core/hw/pvr/Renderer_if.cpp',
+      '\t\tswitch (msg.type)\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\temusuniCurrent = msg.emusuniVblank;  // (render() presents too: its message\'s count)\n'
+      '#endif\n'
+      '\t\tswitch (msg.type)\n')
+patch('core/hw/pvr/Renderer_if.cpp',
+      '\t\t\tpresented = true;\n',
+      '\t\t\tpresented = true;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\t\temusuniPresentedVblanks.store(emusuniCurrent, std::memory_order_relaxed);\n'
+      '#endif\n')
+patch('core/hw/pvr/Renderer_if.cpp',
+      '\tstd::deque<Message> queue;\n};\n',
+      '\tstd::deque<Message> queue;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\tu64 emusuniCurrent = 0;  // the message being executed\'s count\n'
+      '#endif\n'
+      '};\n')
+patch('core/hw/pvr/Renderer_if.cpp',
+      'void rend_vblank()\n{\n',
+      'void rend_vblank()\n{\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\temusuniVblanks.fetch_add(1, std::memory_order_relaxed);\n'
+      '#endif\n')
+patch('core/hw/pvr/Renderer_if.cpp',
+      'void check_framebuffer_write()\n{\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '// EmuSuNi (src/Emulator.cpp): the console\'s frame count of the last picture presented (retro_run\'s thread).\n'
+      'extern "C" unsigned long long flycast_emusuni_vblanks(void)\n'
+      '{\n'
+      '\treturn emusuniPresentedVblanks.load(std::memory_order_relaxed);\n'
+      '}\n'
+      '#endif\n\n'
+      'void check_framebuffer_write()\n{\n')
 
 written = 0
 for (repo, path), text in patched.items():
@@ -3470,6 +5493,37 @@ FLAGS_CORE="-O3 -DNDEBUG -march=btver2 -DHAVE_NO_LANGEXTRA -ffunction-sections -
 # (On the PC: Jaguar's instructions but AMD's SSE4A, which Intel CPUs don't have, and the PS4 calls of
 # linux/emusuni_vmem.cpp done by stand-ins on Linux: EMUSUNI_DC_HOST.)
 [ "$HOST" = 1 ] && FLAGS_CORE+=" -mno-sse4a -DEMUSUNI_DC_HOST=1"
+# PGO (profile-guided optimisation, 00.66): scripts/dc-core.profdata.xz, a profile of the PC build playing
+# Crazy Taxi, Marvel vs. Capcom 2, Daytona USA and Jet Set Radio (races, a fight, the streets) and their
+# starts, used by both builds when it's there (DC_CORE_PGO=off: without it). Only the C++ is optimised by it
+# (the sound chip's channels, the scheduler, the TA and the renderer...; the recompilers' code isn't C++). A
+# profile older than the sources only optimises less (the functions that changed get none; the log counts
+# them). A new one: DC_CORE_HOST=1 DC_CORE_PGO=generate build-dc-core.sh <dir> (instrumented), the PC test
+# frontend linked with -fprofile-instr-generate and run on the games with LLVM_PROFILE_FILE=<dir>/%p.profraw,
+# then llvm-profdata-21 merge -o dc-core.profdata <dir>/*.profraw; xz -9 it into scripts/.
+PROFILE="${DC_CORE_PROFILE:-$HERE/dc-core.profdata.xz}"
+PGO="none"
+case "${DC_CORE_PGO:-use}" in
+  generate)
+    if [ "$HOST" != 1 ]; then
+      echo "Flycast: DC_CORE_PGO=generate is for the PC build (DC_CORE_HOST=1)"
+      exit 1
+    fi
+    FLAGS_CORE+=" -fprofile-instr-generate"
+    PGO="generate" ;;
+  off) ;;
+  *)
+    if [ -f "$PROFILE" ]; then
+      xz -dc "$PROFILE" > "$OUT/dc-core.profdata.new"
+      if cmp -s "$OUT/dc-core.profdata.new" "$OUT/dc-core.profdata"; then
+        rm -f "$OUT/dc-core.profdata.new"
+      else
+        mv "$OUT/dc-core.profdata.new" "$OUT/dc-core.profdata"
+      fi
+      FLAGS_CORE+=" -fprofile-instr-use=$OUT/dc-core.profdata -Wno-profile-instr-unprofiled"
+      PGO="profile $(sha256sum "$PROFILE" | cut -c1-16)"
+    fi ;;
+esac
 OPTIONS=(
   -DLIBRETRO=ON -DEMUSUNI_PORT=ON -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=OFF
   -DUSE_VULKAN=ON -DUSE_OPENGL=OFF -DUSE_GLES=OFF -DUSE_GLES2=OFF -DUSE_OPENMP=OFF
@@ -3495,7 +5549,7 @@ fi
 STAMP="$OUT/.emusuni-flags"
 COMMITS="$(git -C "$SRC" rev-parse HEAD 2>/dev/null || echo unknown)"
 COMMITS+=" $(git -C "$SRC" submodule status 2>/dev/null | awk '$1 !~ /^-/ {print $1}' | tr -d '+' | tr '\n' ' ')"
-WANT="$SRC | $COMMITS | host $HOST | ${OPTIONS[*]} | $(sha256sum "${BASH_SOURCE[0]}" | cut -d' ' -f1)"
+WANT="$SRC | $COMMITS | host $HOST | pgo $PGO | ${OPTIONS[*]} | $(sha256sum "${BASH_SOURCE[0]}" | cut -d' ' -f1)"
 if [ "${2:-}" = clean ] || [ "$(cat "$STAMP" 2>/dev/null)" != "$WANT" ] || [ ! -f "$BUILD/build.ninja" ]; then
   echo "Flycast: configuring and compiling everything (new flags, a new version of this script, or clean)"
   rm -rf "$BUILD" "$STAMP"
@@ -3512,6 +5566,12 @@ if ! ninja -C "$BUILD" -j "$JOBS" -k 0 flycast_libretro >> "$LOG" 2>&1; then
   exit 1
 fi
 printf '%s' "$WANT" > "$STAMP"
+if [ "${PGO%% *}" = profile ]; then
+  # (clang's -Wprofile-instr-out-of-date, one line per file: "of N functions, M have mismatched data")
+  STALE=$( { grep -oE "of [0-9]+ functions, [0-9]+ ha(s|ve) mismatched data" "$LOG" || true; } |
+           awk '{n += $2; m += $4} END {print m + 0, "of", n + 0}')
+  echo "Flycast: PGO with $(basename "$PROFILE") (functions it doesn't match in the files compiled now: $STALE in the files with any)"
+fi
 
 # One object: only the libretro API (renamed) stays global. Every library the core target was made
 # of (Flycast's own, glslang, libchdr, zstd, zlib, libzip, xxHash, nowide, tinygettext, libelf and the
@@ -3519,10 +5579,20 @@ printf '%s' "$WANT" > "$STAMP"
 # copy (core/deps/lzma, for 7z archives) has the same functions, and upstream's link takes those.
 # Replaced only when it changed (the app isn't linked again for nothing).
 mapfile -t ARCHIVES < <(find "$BUILD" -name '*.a' -not -path '*/CMakeFiles/*' -not -name 'liblzma.a' | sort)
-ld.lld-21 -r --whole-archive "${ARCHIVES[@]}" --no-whole-archive \
+# (00.81: --wrap - the core's calls of __cxa_throw go to oslib/emusuni_throw.cpp's __wrap___cxa_throw, which logs the
+# exception and calls the real one.)
+ld.lld-21 -r --wrap=__cxa_throw --whole-archive "${ARCHIVES[@]}" --no-whole-archive \
   "$BUILD/core/deps/libchdr/deps/lzma-24.05/liblzma.a" -o "$OUT/dc_core_all.o"
-# (And the app's own helper: the arcade boards' games, flycast_emusuni_arcade_list in hw/naomi/naomi_roms.cpp.)
-HELPERS="flycast_emusuni_arcade_list"
+# (And the app's own helpers: the arcade boards' games, flycast_emusuni_arcade_list in hw/naomi/naomi_roms.cpp;
+# what would make a board's start fail, flycast_emusuni_check_set in hw/naomi/naomi_cart.cpp; the console's frames
+# of the last picture, flycast_emusuni_vblanks in hw/pvr/Renderer_if.cpp; the app's pace for the emulation,
+# flycast_emusuni_pace in emulator.cpp.)
+# (00.81) The throws' logger linked in.
+if ! llvm-nm-21 --defined-only "$OUT/dc_core_all.o" | grep " T __wrap___cxa_throw$" > /dev/null; then
+  echo "Flycast: the object has no __wrap___cxa_throw (oslib/emusuni_throw.cpp): its throws wouldn't be logged"
+  exit 1
+fi
+HELPERS="flycast_emusuni_arcade_list flycast_emusuni_check_set flycast_emusuni_pace flycast_emusuni_vblanks"
 llvm-objcopy-21 --wildcard --keep-global-symbol='flycast_retro_*' --keep-global-symbol='flycast_emusuni_*' \
   "$OUT/dc_core_all.o" "$OUT/dc_core.o.new"
 rm -f "$OUT/dc_core_all.o"
@@ -3546,6 +5616,14 @@ if [ -n "$WEAK" ]; then
 fi
 if llvm-nm-21 --defined-only "$OUT/dc_core.o.new" | awk '{print $NF}' | grep -E '^_Z(nw|na|dl|da)'; then
   echo "Flycast: the object defines a C++ operator new/delete of its own"
+  exit 1
+fi
+# No static array of 1 MiB or more (00.66): the PS4 charges the app's whole static memory from its start, used or not
+# (the recompilers' code is in the app's JIT arena, the big tables on the heap while a game runs).
+BIG=$(llvm-nm-21 --print-size --radix=d "$OUT/dc_core.o.new" | awk '($3 == "b" || $3 == "B") && $2 + 0 >= 1048576 {print $4}')
+if [ -n "$BIG" ]; then
+  echo "Flycast: the object has static arrays of 1 MiB or more:"
+  echo "$BIG"
   exit 1
 fi
 if [ "$HOST" != 1 ]; then

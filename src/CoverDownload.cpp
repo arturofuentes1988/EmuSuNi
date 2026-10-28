@@ -15,6 +15,7 @@
 
 #include <orbis/libkernel.h>
 
+#include "CoverFiles.h"
 #include "Image.h"
 #include "Log.h"
 #include "Net.h"
@@ -287,6 +288,40 @@ std::vector<std::string> Names(const Kind& kind, const System& system, const std
 // is sometimes the other one's subtitle ("P.T.O. - Pacific Theater of Operations"). Names are
 // compared by their words, then by their parts, then by close spellings.
 
+// A name with a list's numbering in front of its title ("01 Comix Zone", "01 - Comix Zone", "1. Comix Zone",
+// "001_Comix Zone", "[01] Comix Zone", "(01) Comix Zone", "#01 Comix Zone"; 00.68, GitHub issue #7): the name
+// without it, else "". It is tried after the name itself, never in its place: a number that belongs to the title
+// ("1942", "3 Ninjas Kick Back", "2020 Super Baseball", "10-Yard Fight") finds its picture by the name first. Not a
+// number joined to letters ("7th Saga") nor one before nothing but groups ("2048 (Europe)").
+std::string Undecorated(const std::string& name)
+{
+  size_t i = 0;
+  const char open = !name.empty() && (name[0] == '[' || name[0] == '(' || name[0] == '#') ? name[0] : '\0';
+  if (open)
+    i++;
+  const size_t digits = i;
+  while (i < name.size() && std::isdigit(static_cast<unsigned char>(name[i])))
+    i++;
+  if (i == digits || i - digits > 4)
+    return {};
+  if (open == '[' || open == '(')
+  {
+    if (i >= name.size() || name[i] != (open == '[' ? ']' : ')'))
+      return {};
+    i++;
+  }
+  const size_t separator = i;
+  while (i < name.size() && (name[i] == ' ' || name[i] == '-' || name[i] == '_' || name[i] == '.' || name[i] == ')'))
+    i++;
+  if (i == separator && !open)
+    return {};
+  if (i >= name.size() || !std::isalnum(static_cast<unsigned char>(name[i])))
+    return {};
+  const std::string rest = name.substr(i);
+  const bool letters = std::any_of(rest.begin(), rest.end(), [](char c) { return std::isalpha(static_cast<unsigned char>(c)); });
+  return letters ? rest : std::string();
+}
+
 // The title: the name before its first "(" or "[".
 std::string TitlePart(const std::string& name)
 {
@@ -413,7 +448,10 @@ public:
   }
 
   // The pictures of the game (its name in every region and revision), and how they were found.
-  std::vector<const std::string*> Find(const std::string& stem, std::string* how) const
+  // strict: the same name only, its words in the same order (a name with a list's numbering in front: "1. Wheel of
+  // Fortune - Deluxe Edition"'s parts would find another game's subtitle, "Jeopardy! - Deluxe Edition"; "2. Sonic The
+  // Hedgehog"'s words in any order, "Sonic The Hedgehog 2").
+  std::vector<const std::string*> Find(const std::string& stem, std::string* how, bool strict = false) const
   {
     const std::string title = TitlePart(stem);
     const std::vector<std::string> words = Words(title);
@@ -426,6 +464,8 @@ public:
     };
     if (const auto it = m_names.find(key); it != m_names.end())
       return found(it->second.names, "same name");
+    if (strict)
+      return {};
     {
       std::vector<std::string> sorted = words;
       std::sort(sorted.begin(), sorted.end());
@@ -532,9 +572,11 @@ const std::string* Pick(const std::vector<const std::string*>& candidates, const
       {"USA", "(US)"}, {"Europe", "(EU)"}, {"Japan", "(JP)"}};
   const std::string* best = nullptr;
   int best_score = -1000;
+  const std::string bare_id = Undecorated(game.id);  // (the file's name without a list's numbering in front)
   for (const std::string* name : candidates)
   {
-    int score = *name == game.id ? 20 : 0;  // the file's own name: the picture made for it
+    // The file's own name: the picture made for it.
+    int score = *name == game.id || (!bare_id.empty() && *name == bare_id) ? 20 : 0;
     if (!game.region.empty())
     {
       const std::string first = game.region.substr(0, game.region.find(','));
@@ -555,6 +597,10 @@ const std::string* Pick(const std::vector<const std::string*>& candidates, const
       if (name->find(bad) != std::string::npos)
         score -= 5;
     }
+    // The server's names of the GitHub project's links ("Turok 2 - Seeds of Evil (Europe) - SymbolicLink"): the
+    // picture's own name first.
+    if (name->find("SymbolicLink") != std::string::npos)
+      score -= 8;
     for (const char* rerelease : {"Virtual Console", "Switch Online", "Classic Mini", "Evercade", "Edition)",
                                   "Aftermarket", "PlayChoice", "(VS"})
     {
@@ -735,16 +781,15 @@ const std::string* Nearest(const Titles& list, const std::string& stem, const Li
   return best ? Pick(best->names, game) : nullptr;
 }
 
-// A cover put in the console's covers folder by hand: <file name>.png, <title>.png or, for an arcade game,
-// its full name's or its parent's (libretro's thumbnails' names, which the Library lists the same way).
-bool HasOwnCover(const std::string& covers_dir, const Library::Game& game)
+// A cover put in the console's covers folder by hand (or one saved before): named like the game's file, its title
+// or, for an arcade game, its full name or its parent's (libretro's thumbnails' names, which the Library lists the
+// same way); a PNG or a JPEG, any case, the Super Nintendo's in covers/snes/ or right in covers/ (src/CoverFiles.h:
+// the menu's own way). `own`: the covers folder's, CoverFiles::List.
+bool HasOwnCover(const CoverFiles::Index& own, const Library::Game& game)
 {
-  const std::string prefix = GetSystem(game.system).prefix;
-  if (FileExists(covers_dir + "/" + game.key + ".png") || FileExists(covers_dir + "/" + prefix + game.title + ".png"))
-    return true;
-  for (const std::string& name : game.cover_names)
+  for (const std::string& name : CoverFiles::Names(game))
   {
-    if (FileExists(covers_dir + "/" + prefix + name + ".png"))
+    if (own.count(name) > 0)
       return true;
   }
   return false;
@@ -764,15 +809,87 @@ std::shared_ptr<const Prepared> Prepare(const std::vector<std::string>& names)
   return std::make_shared<const Prepared>(names);
 }
 
+std::string NameKey(const std::string& name)
+{
+  return Joined(Words(TitlePart(name)));
+}
+
 const std::string* Closest(const Prepared& list, const std::string& name, const Library::Game& game, bool* sure)
 {
+  // As Download() looks: a name with a list's numbering in front ("01 Comix Zone") by its same name or words, then
+  // without the numbering, then in every way; any other name in every way.
+  const std::string bare = Undecorated(name);
   std::string how;
-  if (const std::string* found = Pick(list.index.Find(name, &how), game))
+  struct Pass
   {
-    *sure = true;
-    return found;
+    const std::string* name;
+    bool strict;
+  };
+  const std::vector<Pass> passes =
+      bare.empty() ? std::vector<Pass>{{&name, false}} : std::vector<Pass>{{&name, true}, {&bare, false}, {&name, false}};
+  for (const Pass& pass : passes)
+  {
+    if (const std::string* found = Pick(list.index.Find(*pass.name, &how, pass.strict), game))
+    {
+      *sure = true;
+      return found;
+    }
   }
-  return Nearest(list.titles, name, game, sure);
+  const std::string* nearest = Nearest(list.titles, name, game, sure);
+  if (!bare.empty() && !(nearest && *sure))
+  {
+    bool bare_sure = false;
+    const std::string* bare_nearest = Nearest(list.titles, bare, game, &bare_sure);
+    if (bare_nearest && (bare_sure || !nearest))
+    {
+      *sure = bare_sure;
+      return bare_nearest;
+    }
+  }
+  return nearest;
+}
+
+const std::string* Match(const Prepared& list, const Library::Game& game, std::string* how)
+{
+  // The names Download() looks for (its passes, without the closest guesses of Closest for All): the game's own - its
+  // title when renamed, then its file's - or an arcade game's full names; a name with a list's numbering in front
+  // ("01 Comix Zone") by its same name only, then without the numbering, then in every way.
+  std::vector<std::string> stems = game.cover_names;
+  if (stems.empty())
+  {
+    stems.push_back(game.custom_title ? game.title : game.id);
+    if (game.custom_title)
+      stems.push_back(game.id);
+  }
+  std::vector<std::string> bare;
+  for (const std::string& stem : game.cover_names.empty() ? stems : std::vector<std::string>{})
+  {
+    const std::string without = Undecorated(stem);
+    if (!without.empty() && std::find(stems.begin(), stems.end(), without) == stems.end() &&
+        std::find(bare.begin(), bare.end(), without) == bare.end())
+      bare.push_back(without);
+  }
+  struct Pass
+  {
+    const std::vector<std::string>* names;
+    bool strict;
+  };
+  std::vector<Pass> passes = {{&stems, false}};
+  if (!bare.empty())
+    passes = {{&stems, true}, {&bare, false}, {&stems, false}};
+  for (const Pass& pass : passes)
+  {
+    for (const std::string& name : *pass.names)
+    {
+      if (const std::string* found = Pick(list.index.Find(name, how, pass.strict), game))
+      {
+        if (pass.names == &bare)
+          *how += ", without the number in front";
+        return found;
+      }
+    }
+  }
+  return nullptr;
 }
 
 Result Download(const std::vector<Library::Game>& games, const std::string& covers_dir,
@@ -781,12 +898,14 @@ Result Download(const std::vector<Library::Game>& games, const std::string& cove
 {
   Result result;
   MakeDirs(covers_dir);
-  // The games without a picture (a cover put there by hand counts: <file name> or <title>.png, in
+  // The games without a picture (a cover put there by hand counts: <file name> or <title>, PNG or JPEG, in
   // the console's covers folder).
+  CoverFiles::Index own;
+  CoverFiles::List(covers_dir, &own);
   std::vector<const Library::Game*> wanted;
   for (const Library::Game& game : games)
   {
-    if (HasOwnCover(covers_dir, game))
+    if (HasOwnCover(own, game))
       result.already++;
     else
       wanted.push_back(&game);
@@ -805,6 +924,7 @@ Result Download(const std::vector<Library::Game>& games, const std::string& cove
   std::unique_ptr<NameIndex> indexes[SYSTEM_COUNT][KIND_COUNT];
   std::unique_ptr<Titles> titles[SYSTEM_COUNT][KIND_COUNT];  // closest: made the first time needed
   bool listed[SYSTEM_COUNT][KIND_COUNT] = {};
+  std::string list_error[SYSTEM_COUNT];  // why a console's list couldn't be read
   bool github = true;  // GitHub as the second choice, until its connection fails
   for (int i = 0; i < total; i++)
   {
@@ -826,72 +946,128 @@ Result Download(const std::vector<Library::Game>& games, const std::string& cove
       if (game.custom_title)
         stems.push_back(game.id);
     }
+    // A list's numbering in front of a name ("01 Comix Zone"): the name without it too. Such a name is looked for as
+    // it is by its same name or words only (a number of the title: "3 Ninjas Kick Back", "2020 Super Baseball"),
+    // then without the numbering, then as it is in every way (its parts around " - " with the numbering in them
+    // would find another game: "1. Wheel of Fortune - Deluxe Edition", "Jeopardy! - Deluxe Edition"). A name
+    // without one is looked for as before.
+    std::vector<std::string> bare;
+    for (const std::string& stem : game.cover_names.empty() ? stems : std::vector<std::string>{})
+    {
+      // (An arcade board's game is looked for by its romset's names: never a numbering of the player's.)
+      const std::string without = Undecorated(stem);
+      if (!without.empty() && std::find(stems.begin(), stems.end(), without) == stems.end() &&
+          std::find(bare.begin(), bare.end(), without) == bare.end())
+        bare.push_back(without);
+    }
+    struct Pass
+    {
+      const std::vector<std::string>* names;
+      bool strict;
+    };
+    std::vector<Pass> passes = {{&stems, false}};
+    if (!bare.empty())
+      passes = {{&stems, true}, {&bare, false}, {&stems, false}};
     // The box, else the title screen.
     const std::string* name = nullptr;
     const Kind* kind = nullptr;
     std::string how;
-    for (int k = 0; k < KIND_COUNT && !name; k++)
+    for (const Pass& pass : passes)
     {
-      if (!listed[s][k])
+      const std::vector<std::string>* tried = pass.names;
+      for (int k = 0; k < KIND_COUNT && !name; k++)
       {
-        listed[s][k] = true;
-        std::string error;
-        MakeDirs(covers_dir + "/" + system.prefix);  // the list is kept there
-        names[s][k] = Names(KINDS[k], system, covers_dir, ca_file, &error, &session);
-        indexes[s][k] = std::make_unique<NameIndex>(names[s][k]);
-        if (names[s][k].empty())
+        if (!listed[s][k])
         {
-          Log(std::string(system.tab) + " " + KINDS[k].label + ": no list: " + error);
-          if (k == 0 && result.error.empty())
-            result.error = error;
+          listed[s][k] = true;
+          std::string error;
+          MakeDirs(covers_dir + "/" + system.prefix);  // the list is kept there
+          names[s][k] = Names(KINDS[k], system, covers_dir, ca_file, &error, &session);
+          indexes[s][k] = std::make_unique<NameIndex>(names[s][k]);
+          if (names[s][k].empty())
+          {
+            Log(std::string(system.tab) + " " + KINDS[k].label + ": no list: " + error);
+            list_error[s] = error;
+            if (k == 0 && result.error.empty())
+              result.error = error;
+          }
+        }
+        for (size_t i = 0; i < tried->size() && !name; i++)
+          name = Pick(indexes[s][k]->Find((*tried)[i], &how, pass.strict), game);
+        if (name)
+        {
+          kind = &KINDS[k];
+          if (tried == &bare)
+            how += ", without the number in front";
         }
       }
-      for (size_t i = 0; i < stems.size() && !name; i++)
-        name = Pick(indexes[s][k]->Find(stems[i], &how), game);
-      kind = &KINDS[k];
+      if (name)
+        break;
     }
     // Closest for All: the closest box art, else title screen, when it is sure of it (the doubtful
     // ones stay for Find Cover, which shows them first).
-    std::string guesses;
-    for (int k = 0; closest && !name && k < KIND_COUNT; k++)
+    std::vector<std::string> guesses;
+    for (const std::vector<std::string>* tried : {bare.empty() ? &stems : &bare, bare.empty() ? &bare : &stems})
     {
-      if (names[s][k].empty())
-        continue;
-      if (!titles[s][k])
-        titles[s][k] = std::make_unique<Titles>(ReadTitles(names[s][k]));
-      for (const std::string& stem : stems)
+      for (int k = 0; closest && !name && k < KIND_COUNT; k++)
       {
-        bool sure = false;
-        const std::string* guess = Nearest(*titles[s][k], stem, game, &sure);
-        if (guess && sure)
+        if (names[s][k].empty())
+          continue;
+        if (!titles[s][k])
+          titles[s][k] = std::make_unique<Titles>(ReadTitles(names[s][k]));
+        for (const std::string& stem : *tried)
         {
-          name = guess;
-          kind = &KINDS[k];
-          how = "closest";
-          break;
+          bool sure = false;
+          const std::string* guess = Nearest(*titles[s][k], stem, game, &sure);
+          if (guess && sure)
+          {
+            name = guess;
+            kind = &KINDS[k];
+            how = tried == &bare ? "closest, without the number in front" : "closest";
+            break;
+          }
+          if (guess && std::find(guesses.begin(), guesses.end(), *guess) == guesses.end())
+            guesses.push_back(*guess);
         }
-        if (guess)
-          guesses += (guesses.empty() ? "" : ", ") + *guess;
       }
     }
     if (!name && !guesses.empty())
-      Log(game.key + ": maybe " + guesses + ": left for Find Cover");
+    {
+      std::string maybe;
+      for (const std::string& guess : guesses)
+        maybe += (maybe.empty() ? "" : ", ") + guess;
+      Log(game.key + ": maybe " + maybe + ": left for Find Cover");
+    }
     if (!name)
     {
+      // Why, for Games Without Cover (said under its list).
       if (names[s][0].empty())
+      {
         result.failed++;  // the console's list couldn't be read
+        result.why.emplace_back(game.key, "libretro's list of pictures couldn't be read: " + Net::Plain(0, list_error[s]));
+        if (result.reason.empty())
+          result.reason = result.why.back().second;
+      }
       else
+      {
         result.not_found++;
+        result.why.emplace_back(game.key, guesses.empty() ? std::string("No picture in libretro's list has a name like it") :
+                                                            "The closest picture isn't sure: " + guesses[0]);
+      }
       Log(game.key + ": no picture found");
       continue;
     }
     if (kind != &KINDS[0] || how != "same name")
       Log(game.key + " -> " + *name + " (" + kind->label + ", " + how + ")");
-    MakeDirs(covers_dir + "/" + system.prefix);
-    const std::string target = covers_dir + "/" + game.key + ".png";
-    if (HasOwnCover(covers_dir, game))
+    // (00.81: covers/<console>/, the Super Nintendo's covers/snes/ too.)
+    const std::string target = CoverFiles::NewFile(covers_dir, game.key);
+    const std::string folder = target.substr(0, target.rfind('/'));
+    MakeDirs(folder);
+    // One chosen with Find Cover meanwhile (it saves where this one goes; one named by the title, by hand): kept.
+    auto chosen = [&] { return FileExists(target) || FileExists(folder + "/" + game.title + ".png"); };
+    if (chosen())
     {
-      result.already++;  // chosen with Find Cover meanwhile: kept
+      result.already++;
       continue;
     }
     auto is_png = [](const std::string& data) { return data.size() > 8 && data.compare(1, 3, "PNG") == 0; };
@@ -915,6 +1091,11 @@ Result Download(const std::vector<Library::Game>& games, const std::string& cove
       result.failed++;
       if (result.error.empty())
         result.error = error.empty() ? "HTTP " + std::to_string(status) : error;
+      result.why.emplace_back(game.key, "Its picture couldn't be downloaded: " +
+                                            (status == 200 ? std::string("what came isn't a picture") :
+                                                             Net::Plain(status, error)));
+      if (result.reason.empty())
+        result.reason = result.why.back().second;
       Log(game.key + ": " + (error.empty() ? "HTTP " + std::to_string(status) : error));
       continue;
     }
@@ -923,7 +1104,7 @@ Result Download(const std::vector<Library::Game>& games, const std::string& cove
     bool written = false;
     {
       std::lock_guard lock(g_cover_write);
-      if (FileExists(target) || FileExists(covers_dir + "/" + system.prefix + game.title + ".png"))
+      if (chosen())
       {
         result.already++;  // chosen with Find Cover while this one downloaded: kept
         continue;
@@ -948,6 +1129,9 @@ Result Download(const std::vector<Library::Game>& games, const std::string& cove
     else
     {
       result.failed++;
+      result.why.emplace_back(game.key, "Its picture couldn't be saved in " + covers_dir + " (is the storage full?)");
+      if (result.reason.empty())
+        result.reason = result.why.back().second;
     }
   }
   if (progress)

@@ -59,10 +59,19 @@ set(ARCADE_CORE_OBJECT "" CACHE FILEPATH "FinalBurn Neo as one object (scripts/b
 # leaves it out; since 00.62 it is in by default, experimental: its ~27 MB of code and data are part of
 # the app's image, which the PS4 takes out of the same flexible memory the games use).
 set(THREEDS_CORE_OBJECT "" CACHE FILEPATH "Azahar as one object (scripts/build-3ds-core.sh)")
-# The Sega Saturn's speed test (00.64: YabaSanshiro without a renderer, built by scripts/build-saturn-core.sh into one
-# object whose libretro API is yabasanshiro_retro_*): in the app (EMUSUNI_SATURN=1) only when scripts/build.sh is
-# told with-saturn; even then players see nothing of it without the file /data/EmuSuNi/saturn-test (src/SaturnTest.h).
-set(SATURN_CORE_OBJECT "" CACHE FILEPATH "YabaSanshiro without a renderer as one object (scripts/build-saturn-core.sh)")
+# The Sega Saturn (00.68, experimental: YabaSanshiro with its software renderer on threads of its own, built by
+# scripts/build-saturn-core.sh into one object whose libretro API is yabasanshiro_retro_*): in the app
+# (EMUSUNI_SATURN=1, its tab) only when scripts/build.sh is told with-saturn; its speed test (00.64) with it, which
+# players see only with the file /data/EmuSuNi/saturn-test (src/SaturnTest.h).
+set(SATURN_CORE_OBJECT "" CACHE FILEPATH "YabaSanshiro as one object (scripts/build-saturn-core.sh)")
+# The PC Engine (00.82: libretro's Beetle PCE Fast, built by scripts/build-beetle-cores.sh into one object whose
+# libretro API is beetle_pce_retro_*): in the app (EMUSUNI_PCE=1, its tab) when scripts/build.sh passes the object
+# (build.sh no-pce leaves it out). (00.80 to 00.82 also had the 32X - PicoDrive -, the Neo Geo Pockets - Beetle NeoPop
+# - and the WonderSwans - Beetle Cygne -: gone in 00.83.)
+set(PCE_CORE_OBJECT "" CACHE FILEPATH "Beetle PCE Fast as one object (scripts/build-beetle-cores.sh)")
+# Mbed TLS, curl's TLS (00.73): scripts/build-mbedtls.sh's libraries (PacBrew's with bignum.c's fix: PacBrew's own fail
+# every RSA handshake), which scripts/build.sh passes; else PacBrew's.
+set(MBEDTLS_LIB_DIR "${OPENORBIS}/usr/lib" CACHE PATH "Mbed TLS libraries (scripts/build-mbedtls.sh)")
 
 # --- The emulator cores -------------------------------------------------------------------------
 # Every core is a libretro core with the same API (retro_init, retro_run...). Several of them in
@@ -165,6 +174,27 @@ target_compile_definitions(imgui PUBLIC IMGUI_DISABLE_DEMO_WINDOWS IMGUI_IMPL_VU
   VK_NO_PROTOTYPES)
 target_compile_options(imgui PRIVATE -O2 -w)
 
+# --- RetroAchievements (00.73, src/Achievements.h) ----------------------------------------------
+# rcheevos, RetroAchievements' own library (MIT; scripts/setup.sh pins v12.5.0): rc_client, the hashing of the games
+# (rhash) and rc_libretro (the console's memory from the core's map); C only, no threads of its own. libchdr (BSD-3;
+# with its LZMA and zstd decoders, the app's zlib) reads the CHD images it hashes.
+set(RCHEEVOS_DIR $ENV{HOME}/src/rcheevos CACHE PATH "rcheevos source tree (RetroAchievements, v12.5.0)")
+set(LIBCHDR_DIR $ENV{HOME}/src/libchdr CACHE PATH "libchdr source tree")
+file(GLOB RCHEEVOS_SOURCES ${RCHEEVOS_DIR}/src/*.c ${RCHEEVOS_DIR}/src/rapi/*.c ${RCHEEVOS_DIR}/src/rcheevos/*.c
+  ${RCHEEVOS_DIR}/src/rhash/*.c)
+add_library(rcheevos STATIC ${RCHEEVOS_SOURCES})
+target_include_directories(rcheevos PUBLIC ${RCHEEVOS_DIR}/include ${RCHEEVOS_DIR}/src)
+target_include_directories(rcheevos PRIVATE ${SNES9X_DIR}/libretro)  # (rc_libretro.c's libretro.h: the app's)
+target_compile_definitions(rcheevos PUBLIC RC_CLIENT_SUPPORTS_HASH)
+target_compile_options(rcheevos PRIVATE -O2 -w)
+file(GLOB LIBCHDR_SOURCES ${LIBCHDR_DIR}/src/libchdr_*.c)
+add_library(chdr STATIC ${LIBCHDR_SOURCES} ${LIBCHDR_DIR}/deps/lzma-26.02/src/LzmaDec.c
+  ${LIBCHDR_DIR}/deps/zstd-1.5.7/zstddeclib.c)
+target_include_directories(chdr PUBLIC ${LIBCHDR_DIR}/include)
+target_include_directories(chdr PRIVATE ${OPENORBIS}/usr/include)  # (zlib.h: the app's zlib)
+target_compile_definitions(chdr PRIVATE CHDR_SYSTEM_ZLIB)
+target_compile_options(chdr PRIVATE -O2 -w)
+
 # --- The GPU filters' shaders (src/shaders: GLSL to SPIR-V headers for GpuFilter.cpp) -----------
 find_program(GLSLANG_VALIDATOR glslangValidator REQUIRED)
 file(GLOB EMUSUNI_SHADERS CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/shaders/*.vert
@@ -190,9 +220,27 @@ add_executable(emusuni
   src/Controls.cpp src/Emulator.cpp src/IngameMenu.cpp src/GameAudio.cpp src/Library.cpp
   src/Cheats.cpp src/CheatDownload.cpp src/Saves.cpp src/Image.cpp src/Log.cpp src/PS4Lang.cpp src/PS4Glyphs.cpp
   src/Net.cpp src/CoverDownload.cpp src/Upscaler.cpp src/Tour.cpp src/Cores.cpp src/Systems.cpp
-  src/SystemKeyboard.cpp src/GpuFilter.cpp src/Arcade.cpp src/Naomi.cpp
+  src/GpuFilter.cpp src/Arcade.cpp src/Naomi.cpp src/StartGuard.cpp
   port/ps4_jit_stubs.c port/ps4_diskfree.c ${PS4_RUNTIME_SOURCES})
 add_dependencies(emusuni fceumm_core emusuni_shaders)
+# Star ratings under the covers (00.73): src/Ratings.h (LaunchBox's community ratings, downloaded by the app).
+target_sources(emusuni PRIVATE src/Ratings.cpp)
+# Game bezels (00.80): src/BezelProject.h (The Bezel Project's, downloaded by the app for the player's games).
+target_sources(emusuni PRIVATE src/BezelProject.cpp)
+# The covers on disk (00.81): src/CoverFiles.h (a folder per console, covers/snes/ too; PNG or JPEG). The JPEG covers
+# are read by PacBrew's libjpeg-turbo (linked below).
+target_sources(emusuni PRIVATE src/CoverFiles.cpp)
+# The cores' game lists (00.81): src/GameDb.h (each game's settings from them in the log, the app's corrections).
+target_sources(emusuni PRIVATE src/GameDb.cpp)
+# Updates from inside the app (00.73): src/Update.h; the hand-over to the PS4's package installer: src/UpdateInstall.h.
+target_sources(emusuni PRIVATE src/Update.cpp src/UpdateInstall.cpp)
+# (The PS4's App Inst Util and background installer, BGFT: loaded by the updater when it hands a package over.)
+target_link_libraries(emusuni PRIVATE SceAppInstUtil SceBgft)
+# RetroAchievements (00.73): src/Achievements.h (rcheevos' rc_client), AchievementsDisc.h (the discs' images it hashes),
+# AchievementsUi.h (the popups over the game).
+target_sources(emusuni PRIVATE src/Achievements.cpp src/AchievementsDisc.cpp src/AchievementsUi.cpp
+  src/AchievementsSnes.cpp)
+target_link_libraries(emusuni PRIVATE rcheevos chdr)
 target_include_directories(emusuni PRIVATE src ${CMAKE_BINARY_DIR}/shaders ${OPENORBIS}/usr/include
   ${OPENORBIS}/usr/include/libpng16)
 target_compile_definitions(emusuni PRIVATE EMUSUNI_VERSION="${EMUSUNI_VERSION}" EMUSUNI_GBA=1)
@@ -294,17 +342,28 @@ if(SATURN_CORE_OBJECT)
   if(NOT EXISTS "${SATURN_CORE_OBJECT}")
     message(FATAL_ERROR "SATURN_CORE_OBJECT ${SATURN_CORE_OBJECT} doesn't exist (scripts/build-saturn-core.sh)")
   endif()
-  # Only the speed test: its screen (src/SaturnTest.cpp) and its measuring (src/SaturnBench.cpp), which also has the
-  # core's calls to the app (emusuni_saturn_thread: its SCSP thread's core and priority; the SCSP's sleep and frame).
+  # The speed test's screen (src/SaturnTest.cpp, also the BIOS's finder the console uses) and its measuring
+  # (src/SaturnBench.cpp), which also has the core's calls to the app (emusuni_saturn_thread: its threads' cores and
+  # priority; the SCSP's sleep and frame; the renderer's log line). The console itself is Systems.cpp's and
+  # Emulator.cpp's (#ifdef EMUSUNI_SATURN).
   target_sources(emusuni PRIVATE src/SaturnTest.cpp src/SaturnBench.cpp)
   target_compile_definitions(emusuni PRIVATE EMUSUNI_SATURN=1)
   target_link_libraries(emusuni PRIVATE ${SATURN_CORE_OBJECT})
 endif()
+# The PC Engine (00.82): a plain core (no threads, no recompiler, nothing of the app's but its heap).
+if(PCE_CORE_OBJECT)
+  if(NOT EXISTS "${PCE_CORE_OBJECT}")
+    message(FATAL_ERROR "PCE_CORE_OBJECT ${PCE_CORE_OBJECT} doesn't exist (scripts/build-beetle-cores.sh)")
+  endif()
+  target_compile_definitions(emusuni PRIVATE EMUSUNI_PCE=1)
+  target_link_libraries(emusuni PRIVATE ${PCE_CORE_OBJECT})
+endif()
 target_link_libraries(emusuni PRIVATE snes9x ${FCEUMM_OBJECT} imgui
-  ${OPENORBIS}/usr/lib/libminizip.a ${OPENORBIS}/usr/lib/libpng16.a ${OPENORBIS}/usr/lib/libcurl.a
-  ${OPENORBIS}/usr/lib/libmbedtls.a ${OPENORBIS}/usr/lib/libmbedx509.a
-  ${OPENORBIS}/usr/lib/libmbedcrypto.a ${OPENORBIS}/usr/lib/libz.a
-  SceSysmodule SceSystemService SceUserService SceVideoOut SceAudioOut ScePad SceNet SceImeDialog
-  SceCommonDialog)
+  ${OPENORBIS}/usr/lib/libminizip.a ${OPENORBIS}/usr/lib/libpng16.a ${OPENORBIS}/usr/lib/libjpeg.a
+  ${OPENORBIS}/usr/lib/libcurl.a
+  ${MBEDTLS_LIB_DIR}/libmbedtls.a ${MBEDTLS_LIB_DIR}/libmbedx509.a
+  ${MBEDTLS_LIB_DIR}/libmbedcrypto.a ${OPENORBIS}/usr/lib/libz.a
+  SceSysmodule SceSystemService SceUserService SceVideoOut SceAudioOut ScePad SceNet)
+# (00.80: no SceImeDialog / SceCommonDialog - every text is typed on the app's keyboard, src/TextKeyboard.h.)
 ps4_link_mesa(emusuni)
 ps4_add_eboot(emusuni)

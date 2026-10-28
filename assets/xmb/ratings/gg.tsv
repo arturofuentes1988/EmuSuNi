@@ -1,0 +1,433 @@
+# EmuSuNi star ratings (scripts/make-ratings.py): the Game Gear names and each one's game in the LaunchBox
+# Games Database (its id: the app downloads LaunchBox's ratings itself, src/Ratings.h).
+# Names: No-Intro's and Redump's, from libretro-database's metadat (github.com/libretro/libretro-database, CC BY-SA 4.0).
+# Matched with LaunchBox's Metadata.xml of 2026-10-22. This file is under CC BY-SA 4.0.
+# name<TAB>LaunchBox id
+5 in One FunPak	11827
+Aa Harimanada	20542
+Addams Family, The	11828
+Adventures of Batman & Robin, The	20543
+Aerial Assault	11829
+Aladdin	20353
+Alien 3	11830
+Alien Syndrome	11831
+Andre Agassi Tennis	11832
+Arcade Classics	11833
+Arch Rivals - The Arcade Game	11834
+Archer Maclean's Dropzone	21772
+Arena	11835
+Ariel - The Little Mermaid	11836
+Arliel - Crystal Densetsu	15969
+Asterix and the Great Rescue	11837
+Asterix and the Secret Mission	5734
+Ax Battler - A Legend of Golden Axe	11838
+Ax Battler - Golden Axe Densetsu	11838
+Ayrton Senna's Super Monaco GP II	20544
+Baku Baku	24268
+Baku Baku Animal - Sekai Shiikugakari Senshu-ken	24268
+Barbie Super Model	114996
+Batman Forever	21765
+Batman Returns	5735
+Batter Up	24270
+Battleship - The Classic Naval Combat Game	24271
+Battletoads	24001
+Beavis and Butt-Head	24272
+Berenstain Bears' Camping Adventure, The	21759
+Berlin no Kabe	27362
+Bishoujo Senshi Sailor Moon S	19051
+Bonkers Wax Up!	5736
+Bram Stoker's Dracula	14794
+BreakThru!	207057
+Bubble Bobble	21760
+Bugs Bunny in Double Trouble	21766
+Bust-A-Move	24273
+Buster Ball	27360
+Buster Fight	27361
+Caesars Palace	24274
+Captain America and the Avengers	24275
+Car Licence	31821
+Casino FunPak	24276
+Castle of Illusion Starring Mickey Mouse	21344
+Cave Dude	115006
+Chakan	5737
+Championship Hockey	115007
+Chase H.Q.	25245
+Cheese Cat-Astrophe Starring Speedy Gonzales	13100
+Chessmaster, The	24277
+Chicago Syndicate	24278
+Choplifter III	17792
+Chuck Rock	24280
+Chuck Rock II - Son of Chuck	24279
+CJ Elephant Fugitive	29969
+Cliffhanger	24281
+Clutch Hitter	24282
+Columns	5738
+Cool Spot	21260
+Cosmic Spacehead	24283
+Crayon Shin-chan - Taiketsu! Kantam Panic!!	27363
+Crazy Faces	115673
+Crystal Warriors	15969
+CutThroat Island	24284
+Daffy Duck in Hollywood	21767
+Dangerous Demolition	464686
+David Robinson's Supreme Court	158072
+Deep Duck Trouble Starring Donald Duck	21345
+Defenders of Oasis	15970
+Desert Speedtrap Starring Road Runner and Wile E. Coyote	21768
+Desert Strike	21769
+Desert Strike - Return to the Gulf	21769
+Devilish	19837
+Dinobasher Starring Bignose the Caveman	196633
+Donald Duck no 4-Tsu no Hihou	21345
+Donald Duck no Lucky Dime	5739
+Donald no Magical World	25198
+Doraemon - Noranosuke no Yabou	27373
+Doraemon - Waku Waku Pocket Paradise	27364
+Double Dragon	21770
+Dr. Robotnik's Mean Bean Machine	25085
+Dracula no Shiro	451112
+Dragon - The Bruce Lee Story	21771
+Dragon Crystal	21346
+Dragon Crystal - Tsurani no Meikyuu	21346
+Dunk Kids	27365
+Dynamite Headdy	25101
+Earthworm Jim	25102
+Ecco - The Tides of Time	25086
+Ecco the Dolphin	27366
+Ecco the Dolphin II	25086
+Ernie Els Golf	25084
+Eternal Legend	15968
+Evander Holyfield's 'Real Deal' Boxing	24159
+Excellent Dizzy Collection, The	25087
+F-15 Strike Eagle	25105
+F1	21317
+F1 - World Championship Edition	116554
+Faceball 2000	27367
+Factory Panic	25106
+Fantastic Dizzy	25107
+Fantasy Zone	5740
+Fatal Fury Special	21761
+FIFA International Soccer	25088
+FIFA Soccer 96	25089
+Fire Track	217779
+Foreman for Real	21762
+Frank Thomas Big Hurt Baseball	21763
+Fray - Shugyou Hen	116689
+Fred Couples Golf	25090
+Frogger	25108
+From TV Animation Slam Dunk - Shouri e no Starting 5	27368
+G-LOC - Air Battle	19994
+Galaga '91	26930
+Galaga 2	26930
+Gamble Panic	27369
+Gambler Jiko Chuushinha	116710
+Ganbare Gorby!	25106
+Garfield - Caught in the Act	25091
+Garou Densetsu Special	21761
+Gear Stadium	24270
+Gear Stadium Heiseiban	27370
+Gear Works	21764
+George Foreman's KO Boxing	14095
+GG Aleste	27372
+GG Aleste 3	196787
+GG Nibbles	217979
+GG Portrait - Pai Chan	116748
+GG Portrait - Yuuki Akira	116750
+GG Shinobi, The	5753
+Global Gladiators	25134
+Gojira - Kaijuu Daishingeki	27374
+GP Rider	25109
+Greendog - The Beached Surfer Dude!	17762
+Griffin	19237
+Gunstar Heroes	27371
+Halley Wars	5742
+Head Buster	27375
+Heavy Weight Champ	14095
+Home Alone	25110
+Honoo no Toukyuuji - Dodge Danpei	118287
+Hook	25111
+Hurricanes	25112
+Hyokkori Hyoutan-jima - Hyoutan-jima no Daikoukai	27377
+Hyper Pro Yakyuu '92	118293
+In the Wake of Vampire	5747
+Incredible Crash Dummies, The	25113
+Incredible Hulk, The	25114
+Indiana Jones and the Last Crusade	25115
+Iron Man X-O Manowar in Heavy Metal	25116
+Itchy & Scratchy Game, The	25117
+J.League GG Pro-Striker '94	119070
+J.League Soccer - Dream Eleven	27379
+James Bond 007 - The Duel	25118
+James Pond 3 - Operation Starfi5h	25119
+James Pond II - Codename RoboCod	5743
+Jang Pung II	119074
+Jeopardy!	25121
+Jeopardy! - Sports Edition	25120
+Joe Montana Football	15712
+Journey from Darkness - Strider Returns	25227
+Judge Dredd	25122
+Junction	25123
+Jungle Book, The	5744
+Jungle Strike	34727
+Jurassic Park	21318
+Kaitou Saint Tail	27380
+Kawasaki Superbike Challenge	21319
+Kenyuu Densetsu Yaiba	17793
+Kick & Rush	25341
+Kinetic Connection	27381
+Kishin Douji Zenki	19235
+KLAX	25124
+Krusty's Fun House	25207
+Kuni-chan no Game Tengoku	27382
+Kuni-chan no Game Tengoku Part 2	27383
+Land of Illusion Starring Mickey Mouse	5745
+Last Action Hero	25129
+Legend of Illusion Starring Mickey Mouse	21320
+Lemmings	17773
+Lemmings 2 - The Tribes	119734
+Lion King, The	5746
+Lost World, The - Jurassic Park	21321
+Lucky Dime Caper Starring Donald Duck, The	5739
+Lunar - Sanposuru Gakuen	20260
+Madden 96	25131
+Madden NFL 95	25130
+Madou Monogatari A - Dokidoki Vacation	27384
+Madou Monogatari I - 3tsu no Madoukyuu	27385
+Madou Monogatari II - Arle 16-Sai	27386
+Madou Monogatari III - Kyuukyoku Joou-sama	27387
+Magic Knight Rayearth	27388
+Magic Knight Rayearth 2 - Making of Magic Knight	27389
+Magical Puzzle Popils	27393
+Magical Taruruuto-kun	27394
+Mai Nurse	445858
+Majors, The - Pro Baseball	14105
+Man Overboard!	25199
+Mappy	27390
+Marble Madness	25132
+Marko's Magic Football	25133
+Master of Darkness	5747
+Mega Man	17794
+Megami Tensei Gaiden - Last Bible	27391
+Megami Tensei Gaiden - Last Bible Special	27392
+Mickey Mouse Densetsu no Oukoku - Legend of Illusion	21320
+Mickey Mouse no Castle Illusion	21344
+Mickey Mouse no Mahou no Crystal	5745
+Mickey's Ultimate Challenge	25135
+Micro Machines	25137
+Micro Machines 2 - Turbo Tournament	25136
+Mighty Morphin Power Rangers	25139
+Mighty Morphin Power Rangers - The Movie	25138
+MLBPA Baseball	25140
+Moldorian - Hikari to Yami no Sister	27395
+Monster Truck Wars	17795
+Monster World II - Dragon no Wana	25339
+Mortal Kombat	13768
+Mortal Kombat - Shinken Kourin Densetsu	13768
+Mortal Kombat 3	21288
+Mortal Kombat II	20252
+Ms. Pac-Man	5749
+Nazo Puyo	27396
+Nazo Puyo - Arle no Roux	27398
+Nazo Puyo 2	27397
+NBA Action Starring David Robinson	25141
+NBA Jam	11161
+NBA Jam - Tournament Edition	11032
+Neko Daisuki!	27399
+NFL '95	25142
+NFL Quarterback Club	25144
+NFL Quarterback Club 96	25143
+NHL All-Star Hockey	25145
+NHL Hockey	25146
+Ninja Gaiden	5750
+Ninku	27400
+Ninku 2 - Tenkuuryuu-e no Michi	27401
+Ninku Gaiden - Hiroyuki Daikatsugeki	27402
+Nomo Hideo no World Series Baseball	25343
+Off the Wall	158073
+Olympic Gold	25147
+Ottifants, The	19993
+OutRun	5751
+OutRun Europa	25148
+Pac-Attack	25149
+Pac-in-Time	133292
+Pac-Man	25150
+Panzer Dragoon Mini	27403
+Paperboy	27404
+Paperboy 2	25151
+Pengo	5752
+Pet Club - Inu Daisuki!	121582
+Pete Sampras Tennis	25166
+PGA Tour 96	25167
+PGA Tour Golf	25168
+PGA Tour Golf II	25169
+Phantasy Star Adventure	27405
+Phantasy Star Gaiden	27406
+Phantom 2040	25170
+Pinball Dreams	25171
+Pocket Jansou	121626
+Poker Face Paul's Blackjack	25172
+Poker Face Paul's Cribbage	212898
+Poker Face Paul's Gin	25173
+Poker Face Paul's Poker	25175
+Poker Face Paul's Solitaire	25174
+Pop Breaker	27407
+Popeye no Beach Volleyball	27408
+Power Drive	25176
+Power Strike II	25191
+Predator 2	25177
+Primal Rage	25178
+Prince of Persia	25179
+Princess Gardening	455471
+Pro Yakyuu '91, The	121629
+Pro Yakyuu GG League	121630
+Pro Yakyuu GG League '94	121631
+Psychic World	25180
+Putt & Putter	25181
+Puyo Puyo	27409
+Puyo Puyo Tsuu	27410
+Puzzle & Action - Ichidanto-R	27378
+Puzzle & Action - Tanto-R	121632
+Puzzle Bobble	24273
+Quest for the Shaven Yak Starring Ren Hoek & Stimpy	25193
+Quiz Gear Fight!!, The	121634
+R.B.I. Baseball '94	17796
+R.C. Grand Prix	25192
+Rastan Saga	27411
+Revenge of Drancon	27906
+Riddick Bowe Boxing	25194
+Ring Dash GG	464405
+Rise of the Robots	25195
+Ristar	24374
+Road Rash	19992
+RoboCop 3	25196
+RoboCop Versus The Terminator	25197
+Royal Stone - Hirakareshi Toki no Tobira	27412
+Ryuukyuu	25212
+Samurai Shodown	25200
+Samurai Spirits	25200
+Sassou Shounen Eiyuuden - Coca-Cola Kid	26759
+Scratch Golf	25201
+SD Gundam - Winner's History	27413
+Sega Game Pack 4 in 1	25202
+Sensible Soccer - European Champions	25204
+Shadam Crusader - Harukanaru Oukoku	15970
+Shanghai II	29402
+Shaq Fu	25205
+Shikinjou	27414
+Shining Force - The Sword of Hajya	19049
+Shining Force Gaiden - Ensei, Jashin no Kuni e	27415
+Shining Force Gaiden - Final Conflict	19050
+Shining Force Gaiden II - Jashin no Kakusei	19049
+Shinobi	5753
+Shinobi II - The Silent Fury	17797
+Side Pocket	25206
+Simpsons, The - Bart vs. the Space Mutants	14106
+Simpsons, The - Bart vs. the World	19836
+Simpsons, The - Bartman Meets Radioactive Man	24269
+Skweek	25208
+Slider	25208
+Smurfs, The	25210
+Snepzhen Solitaire	466519
+Solitaire FunPak	25211
+Solitaire Poker	25212
+Sonic & Tails	19419
+Sonic & Tails 2	17800
+Sonic Blast	25213
+Sonic Chaos	19419
+Sonic Drift	26760
+Sonic Drift 2	19062
+Sonic Labyrinth	11145
+Sonic Spinball	22366
+Sonic The Hedgehog	5754
+Sonic The Hedgehog - Triple Trouble	17800
+Sonic The Hedgehog 2	5755
+Soukoban	27416
+Space Harrier	5756
+Spider-Man	25217
+Spider-Man - Return of the Sinister Six	25219
+Spider-Man - X-Men - Arcade's Revenge	25218
+Spirou	133294
+Sports Illustrated - Championship Football & Baseball	25220
+Sports Trivia	165220
+Sports Trivia - Championship Edition	25221
+Star Trek - The Next Generation - The Advanced Holodeck Tutorial	25223
+Star Trek Generations - Beyond the Nexus	25222
+Star Wars	5757
+Stargate	25224
+Street Battle	119074
+Street Hero	133296
+Streets of Rage	25225
+Streets of Rage 2	25226
+Striker	25228
+Super Battletank	25229
+Super Columns	25230
+Super Golf	25231
+Super Kick Off	5758
+Super Momotarou Dentetsu III	121657
+Super Monaco GP	5759
+Super Off Road	25232
+Super Smash T.V.	25215
+Super Space Invaders	25320
+Super Star Wars - Return of the Jedi	5760
+Superman - The Man of Steel	25321
+Surf Ninjas	25322
+Sylvan Tale	23379
+T2 - The Arcade Game	25244
+Tails Adventure	11147
+Tails' Skypatrol	11146
+Taisen Mahjong HaoPai	121699
+Taisen Mahjong HaoPai 2	121700
+Taisen-gata Daisenryaku G	121701
+Taito Chase H.Q.	25245
+TaleSpin	25323
+Tama & Friends - 3 Choume Kouen Tamalympic	27417
+Tarot no Yakata	27376
+Tarzan - Lord of the Jungle	25246
+Tatakae! Pro Yakyuu Twin League	121702
+Taz in Escape from Mars	16976
+Taz-Mania	5761
+Tempo Jr.	17799
+Tengen World Cup Soccer	25341
+Terminator 2 - Judgment Day	25247
+Terminator, The	25248
+Tesserae	25324
+Tetris4GG	466385
+Tintin in Tibet	27418
+Tom and Jerry - The Movie	25249
+Torarete Tamaruka	121722
+True Lies	25250
+Ultimate Soccer	25325
+Urban Strike	25326
+Vampire - Master of Darkness	5747
+Virtua Fighter Animation	25328
+Virtua Fighter Mini	25328
+VR Troopers	25327
+Wagyan Land	27789
+Wheel of Fortune	25335
+WildSnake	133297
+Wimbledon	25336
+Wing Warriors	177814
+Winter Olympics	25337
+Wizard Pinball	17798
+Wolfchild	25338
+Wonder Boy	27906
+Wonder Boy - The Dragon's Trap	25339
+Woody Pop	25340
+World Class Leaderboard	25342
+World Cup USA 94	15244
+World Derby	27788
+World Series Baseball	22365
+World Series Baseball '95	25343
+WWF Raw	25329
+WWF Wrestlemania - Steel Cage Challenge	25334
+X-Men	14795
+X-Men - Gamemaster's Legacy	5763
+X-Men - Mojo World	25344
+Yogi Bear in Yogi Bear's Goldrush	133298
+Yu Yu Hakusho - Horobishimono no Gyakushuu	19236
+Yu Yu Hakusho II - Gekitou! Nanakyou no Tatakai	20546
+Zan Gear	20545
+Zool - Ninja of the 'Nth' Dimension	25345
+Zool no Yume Bouken	25345
+Zoop	14070
+Zoop'em Up	196981

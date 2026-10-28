@@ -37,7 +37,9 @@ const std::vector<System>& Systems()
 #endif
 #ifdef EMUSUNI_PS1
       // PlayStation games are CD images (a .cue with its .bin tracks, .chd, .pbp, an .m3u for the
-      // discs of one game): the core reads them itself from their path, from the USB drive.
+      // discs of one game): the core reads them itself from their path, from the USB drive. A .bin no .cue
+      // names is a game too (00.81), though not one of these extensions: a .bin is the Genesis's
+      // (SystemOfFile); src/Library.cpp tells a PlayStation disc's by what it holds.
       {SystemId::PS1, "ps1", "PlayStation", "PlayStation", "PS1", "PS1", "PS1", 0x2D5DB8, 0x2D5DB8, "ps1/",
        "/usb0/Roms/ps1", {".cue", ".chd", ".pbp", ".m3u", ".iso", ".img", ".ecm", ".mds"}, "Sony - PlayStation",
        "libretro-thumbnails/Sony_-_PlayStation", &Cores::SWANSTATION, true},
@@ -118,6 +120,24 @@ const std::vector<System>& Systems()
       {SystemId::THREEDS, "3ds", "Nintendo 3DS", "Nintendo 3DS", "3DS", "3DS", "3DS", 0x1CA0DC, 0x1CA0DC, "3ds/",
        "/usb0/Roms/3ds", {".3ds", ".cci", ".cxi", ".3dsx"}, "Nintendo - Nintendo 3DS",
        "libretro-thumbnails/Nintendo_-_Nintendo_3DS", &Cores::AZAHAR, true},
+#endif
+#ifdef EMUSUNI_SATURN
+      // Saturn games are CD images (a .cue with its .bin tracks, .chd, .iso, .ccd, .mds) that the core reads itself
+      // from their path (by_path: no .zip). A .cue, .chd, .iso or .mds is the PlayStation's, the PSP's, the
+      // Dreamcast's or the Saturn's by its folder or by what is inside it (src/Library.cpp: after them here, so the
+      // others keep those extensions first); a .ccd only the Saturn's. Experimental: YabaSanshiro with its software
+      // renderer on threads of its own (scripts/build-saturn-core.sh). The badge in a brown no other console has.
+      {SystemId::SATURN, "saturn", "Saturn", "Saturn", "Saturn", "SATURN", "SATURN", 0x6D4C41, 0x6D4C41, "saturn/",
+       "/usb0/Roms/saturn", {".cue", ".chd", ".iso", ".ccd", ".mds"}, "Sega - Saturn",
+       "libretro-thumbnails/Sega_-_Saturn", &Cores::YABASANSHIRO, true},
+#endif
+#ifdef EMUSUNI_PCE
+      // The PC Engine (TurboGrafx-16 for the games of the West: its badge; the PC Engine's for Japan's): Beetle PCE
+      // Fast (scripts/build-beetle-cores.sh). HuCards: a .pce (or a .zip of one), read by the app and handed over from
+      // memory. (No SuperGrafx: this core has none of its hardware.) The badge in the TurboGrafx's orange.
+      {SystemId::PCE, "pce", "PC Engine", "PC Engine", "PCE", "TURBOGRAFX-16", "PC ENGINE", 0xD0461A, 0xD0461A, "pce/",
+       "/usb0/Roms/pce", {".pce"}, "NEC - PC Engine - TurboGrafx 16",
+       "libretro-thumbnails/NEC_-_PC_Engine_-_TurboGrafx_16", &Cores::BEETLE_PCE},
 #endif
   };
   return SYSTEMS;
