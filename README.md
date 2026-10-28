@@ -113,6 +113,45 @@ All the details: the [release notes](https://github.com/arturofuentes1988/EmuSuN
 
 ## Screenshots
 
+New in 00.22 (the app in Spanish):
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/v00.22/1-saturn-library.png" alt="Sega Saturn page"></td>
+    <td width="50%"><img src="docs/screenshots/v00.22/2-saturn-daytona-usa.png" alt="Daytona USA on the Saturn"></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Sega Saturn</b> (experimental) — covers, star ratings and the RA mark</td>
+    <td align="center"><b>Daytona USA</b> — with its own bezel from The Bezel Project</td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/v00.22/3-pc-engine-library.png" alt="PC Engine page"></td>
+    <td><img src="docs/screenshots/v00.22/4-pc-engine-new-adventure-island.png" alt="New Adventure Island on the PC Engine"></td>
+  </tr>
+  <tr>
+    <td align="center"><b>PC Engine / TurboGrafx-16</b> — HuCards</td>
+    <td align="center"><b>New Adventure Island</b> — with its own bezel</td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/v00.22/5-achievements-in-game.png" alt="Achievements in the in-game menu"></td>
+    <td><img src="docs/screenshots/v00.22/6-my-achievements.png" alt="My Achievements"></td>
+  </tr>
+  <tr>
+    <td align="center"><b>RetroAchievements</b> in the in-game menu (L3 + R3) — translated to Spanish</td>
+    <td align="center"><b>My Achievements</b> — your latest unlocks and games</td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/v00.22/7-check-for-updates.png" alt="Check for Updates"></td>
+    <td></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Check for Updates</b> — the app tells you about each new version</td>
+    <td></td>
+  </tr>
+</table>
+
+Earlier versions:
+
 <table>
   <tr>
     <td width="50%"><img src="docs/screenshots/game-snes.png" alt="Super Nintendo"></td>

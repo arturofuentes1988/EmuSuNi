@@ -115,6 +115,45 @@ Todos los detalles: las [notas de la versión](https://github.com/arturofuentes1
 
 ## Capturas
 
+Novedades de la 00.22:
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/v00.22/1-saturn-library.png" alt="Página de la Sega Saturn"></td>
+    <td width="50%"><img src="docs/screenshots/v00.22/2-saturn-daytona-usa.png" alt="Daytona USA en la Saturn"></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Sega Saturn</b> (experimental) — carátulas, estrellas y la marca RA</td>
+    <td align="center"><b>Daytona USA</b> — con su propio marco de The Bezel Project</td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/v00.22/3-pc-engine-library.png" alt="Página de la PC Engine"></td>
+    <td><img src="docs/screenshots/v00.22/4-pc-engine-new-adventure-island.png" alt="New Adventure Island en la PC Engine"></td>
+  </tr>
+  <tr>
+    <td align="center"><b>PC Engine / TurboGrafx-16</b> — HuCards</td>
+    <td align="center"><b>New Adventure Island</b> — con su propio marco</td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/v00.22/5-achievements-in-game.png" alt="Logros en el menú del juego"></td>
+    <td><img src="docs/screenshots/v00.22/6-my-achievements.png" alt="Mis logros"></td>
+  </tr>
+  <tr>
+    <td align="center"><b>RetroAchievements</b> en el menú del juego (L3 + R3) — traducidos al español</td>
+    <td align="center"><b>Mis logros</b> — lo último que desbloqueaste y tus juegos</td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/v00.22/7-check-for-updates.png" alt="Buscar actualizaciones"></td>
+    <td></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Buscar actualizaciones</b> — la app te avisa de cada versión nueva</td>
+    <td></td>
+  </tr>
+</table>
+
+Versiones anteriores:
+
 <table>
   <tr>
     <td width="50%"><img src="docs/screenshots/game-snes.png" alt="Super Nintendo"></td>
