@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>EmuSuNi statistics</title>
+  <meta name="description" content="EmuSuNi's players, live: online now, countries, consoles, games, rooms, rankings - anonymous and aggregated.">
+  <meta name="color-scheme" content="light dark">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <a class="skip" href="#main" data-i18n="skip">Skip to content</a>
+  <header class="top">
+    <a class="brand" href="./" aria-label="EmuSuNi">
+      <svg class="logo" viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="16" r="11" fill="#3f7de0"/><circle cx="16" cy="32" r="11" fill="#2fae5e"/><circle cx="48" cy="32" r="11" fill="#e04848"/><circle cx="32" cy="48" r="11" fill="#eebd2a"/></svg>
+      <span>EmuSuNi</span>
+    </a>
+    <nav class="nav" aria-label="Pages">
+      <a href="./" data-i18n="nav_home">Home</a>
+      <a href="stats.html" class="tab active" aria-current="page" data-i18n="nav_stats">Statistics</a>
+      <a href="#rankings" data-i18n="p_rankings">Rankings</a>
+      <a href="#profile" data-i18n="p_profile">My profile</a>
+    </nav>
+    <div class="switches">
+      <a class="pill nav-mobile" href="./" data-i18n="nav_home">Home</a>
+      <button type="button" id="lang" class="pill" aria-label="Español / English">ES</button>
+      <button type="button" id="theme" class="pill" aria-label="Light or dark">◐</button>
+    </div>
+  </header>
+
+  <main id="main" class="stats-page">
+    <section class="band">
+      <h1 class="page-title" data-i18n="st_title">Statistics</h1>
+      <p class="note" data-i18n="st_sub">EmuSuNi's players, live.</p>
+      <p class="note notice" id="stats-state" data-i18n="stats_loading">Loading…</p>
+      <div class="tiles five">
+        <div class="tile"><span class="tile-value" id="t-online">–</span><span class="tile-label" data-i18n="t_online">players online now</span></div>
+        <div class="tile"><span class="tile-value" id="t-today">–</span><span class="tile-label" data-i18n="t_today">players today</span></div>
+        <div class="tile"><span class="tile-value" id="t-active">–</span><span class="tile-label" data-i18n="t_active">players in the last 30 days</span></div>
+        <div class="tile"><span class="tile-value" id="t-new">–</span><span class="tile-label" data-i18n="t_new">new installs in 30 days</span></div>
+        <div class="tile"><span class="tile-value" id="t-downloads">–</span><span class="tile-label" data-i18n="t_downloads">downloads</span></div>
+      </div>
+    </section>
+
+    <section class="band grid">
+      <article class="panel"><h2 data-i18n="p_online_console">Playing now, by console</h2><ul class="bars" id="now-consoles"></ul></article>
+      <article class="panel"><h2 data-i18n="p_online_country">Online now, by country</h2><ul class="bars" id="now-countries"></ul></article>
+      <article class="panel wide"><h2 data-i18n="p_daily">Players a day</h2><div class="chart" id="chart-daily"></div></article>
+      <article class="panel wide"><h2 data-i18n="p_new">New installs a day</h2><div class="chart" id="chart-new"></div></article>
+    </section>
+
+    <section id="countries" class="band grid">
+      <article class="panel wide">
+        <h2 data-i18n="p_map">Where the players are (30 days)</h2>
+        <div id="map" class="map"></div>
+        <div class="legend" aria-hidden="true"><span data-i18n="map_legend_low">fewer</span><span class="ramp"></span><span data-i18n="map_legend_high">more</span></div>
+      </article>
+      <article class="panel">
+        <h2 data-i18n="p_countries">Countries (30 days)</h2>
+        <ul class="bars" id="list-countries"></ul>
+        <button type="button" class="more" id="more-countries" hidden data-i18n="show_all">Show all</button>
+      </article>
+      <article class="panel">
+        <h2 data-i18n="p_versions">Versions (30 days)</h2>
+        <ul class="bars" id="list-versions"></ul>
+        <h2 class="second" data-i18n="p_consoles">Top consoles (30 days)</h2>
+        <ul class="bars" id="list-consoles"></ul>
+      </article>
+    </section>
+
+    <section id="games" class="band grid">
+      <article class="panel wide">
+        <div class="panel-head">
+          <h2 data-i18n="p_games">Top games</h2>
+          <div class="segmented" role="group">
+            <button type="button" id="games-7" class="seg on" data-i18n="g7">7 days</button>
+            <button type="button" id="games-30" class="seg" data-i18n="g30">30 days</button>
+          </div>
+        </div>
+        <ol class="games" id="list-games"></ol>
+      </article>
+    </section>
+
+    <section id="downloads" class="band grid">
+      <article class="panel wide"><h2 data-i18n="p_downloads">Downloads over time</h2><div class="chart" id="chart-downloads"></div></article>
+      <article class="panel wide"><h2 data-i18n="p_by_version">Downloads by version</h2><ul class="bars" id="list-downloads"></ul></article>
+    </section>
+
+    <section id="rooms-section" class="band">
+      <article class="panel">
+        <h2 data-i18n="p_rooms">Live rooms</h2>
+        <div id="rooms"></div>
+        <p class="note small" id="private-rooms"></p>
+      </article>
+    </section>
+
+    <section id="rankings" class="band">
+      <article class="panel">
+        <div class="panel-head">
+          <h2 data-i18n="p_rankings">Rankings</h2>
+          <div class="segmented" role="group">
+            <button type="button" id="rank-all" class="seg on" data-i18n="r_all">Most hours</button>
+            <button type="button" id="rank-country" class="seg" data-i18n="r_country">By country</button>
+            <button type="button" id="rank-console" class="seg" data-i18n="r_console">By console</button>
+          </div>
+        </div>
+        <select id="rank-choice" class="choice" hidden aria-label="Choice"></select>
+        <div id="ranking"></div>
+        <p class="note small" data-i18n="r_note">Players show here when they turn on Public Profile in the app's Online tab.</p>
+      </article>
+    </section>
+
+    <section id="profile" class="band">
+      <article class="panel">
+        <h2 data-i18n="p_profile">My profile</h2>
+        <p class="note" data-i18n="profile_hint">Your code is in the app: Online tab → Profile Code.</p>
+        <form id="profile-form" class="code-form" autocomplete="off">
+          <input id="profile-code" class="code-input" inputmode="text" maxlength="19" placeholder="XXXX-XXXX-XXXX-XXXX" aria-label="Profile code" spellcheck="false">
+          <button type="submit" class="button small" data-i18n="profile_button">Show</button>
+        </form>
+        <div id="profile-view"></div>
+      </article>
+    </section>
+
+    <section class="band">
+      <p class="note small" id="stats-updated"></p>
+      <p class="note small" data-i18n="stats_privacy">Anonymous and aggregated.</p>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <p data-i18n="disclaimer">EmuSuNi is free software (GPL-2.0-or-later). No games or BIOS files are included. Not affiliated with Sony.</p>
+    <p>
+      <a href="https://github.com/arturofuentes1988/EmuSuNi/blob/main/THIRD_PARTY_NOTICES.md" data-i18n="notices">Third-party notices</a> ·
+      <a href="https://db-ip.com">IP Geolocation by DB-IP</a> (<a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>) ·
+      <span data-i18n="titles_credit">Game titles: libretro-database and FinalBurn Neo</span> ·
+      <a href="https://www.naturalearthdata.com" data-i18n="map_credit">Map: Natural Earth</a>
+    </p>
+  </footer>
+  <div id="tooltip" class="tooltip" role="status" hidden></div>
+  <script src="strings.js" defer></script>
+  <script src="common.js" defer></script>
+  <script src="stats.js" defer></script>
+</body>
+</html>
