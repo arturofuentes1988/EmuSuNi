@@ -170,6 +170,7 @@ details p { color: var(--text-2); margin: 8px 0 0; }
 .donate { text-align: center; }
 .donate > p { max-width: 640px; margin: 8px auto 16px; }
 .donate .donate-note { color: var(--muted); font-size: 14px; margin-top: 12px; }
+.donate .donate-sub { font-size: 18px; margin: 28px 0 12px; }
 .foot { border-top: 1px solid var(--line); padding: 24px 16px 40px; color: var(--muted); font-size: 13px; text-align: center; }
 .foot p { max-width: 900px; margin: 8px auto; }
 
