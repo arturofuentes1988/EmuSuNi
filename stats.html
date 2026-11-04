@@ -35,7 +35,7 @@
       <h1 class="page-title" data-i18n="st_title">Statistics</h1>
       <p class="note" data-i18n="st_sub">EmuSuNi's players, live.</p>
       <p class="note notice" id="stats-state" data-i18n="stats_loading">Loading…</p>
-      <div class="tiles five">
+      <div class="tiles five" id="stats-tiles">
         <div class="tile"><span class="tile-value" id="t-online">–</span><span class="tile-label" data-i18n="t_online">players online now</span></div>
         <div class="tile"><span class="tile-value" id="t-today">–</span><span class="tile-label" data-i18n="t_today">players today</span></div>
         <div class="tile"><span class="tile-value" id="t-active">–</span><span class="tile-label" data-i18n="t_active">players in the last 30 days</span></div>
@@ -44,7 +44,7 @@
       </div>
     </section>
 
-    <section class="band grid">
+    <section class="band grid" id="now-section">
       <article class="panel"><h2 data-i18n="p_online_console">Playing now, by console</h2><ul class="bars" id="now-consoles"></ul></article>
       <article class="panel"><h2 data-i18n="p_online_country">Online now, by country</h2><ul class="bars" id="now-countries"></ul></article>
       <article class="panel wide"><h2 data-i18n="p_daily">Players a day</h2><div class="chart" id="chart-daily"></div></article>

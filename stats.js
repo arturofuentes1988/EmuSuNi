@@ -9,14 +9,28 @@
   // ---- The page ----
   function render() {
     var state = E.byId("stats-state");
+    // (00.95) No players counted yet (the published versions only): a note, the players' numbers and sections hidden -
+    // the downloads stay.
+    var noPlayers = !!stats && !E.hasPlayers(stats);
     if (!stats) {
       state.hidden = false;
       state.textContent = failed ? E.t("stats_none") : E.t("stats_loading");
+    } else if (noPlayers) {
+      state.hidden = false;
+      state.textContent = E.t("players_soon");
     } else {
       var current = !stats.online || stats.online.current !== false;
       state.hidden = current;
       state.textContent = current ? "" : E.t("stats_stale");
     }
+    ["t-online", "t-today", "t-active", "t-new"].forEach(function (id) { E.byId(id).parentNode.hidden = noPlayers; });
+    E.byId("stats-tiles").classList.toggle("solo", noPlayers);
+    ["now-section", "countries", "games", "rooms-section", "rankings", "profile"].forEach(function (id) {
+      E.byId(id).hidden = noPlayers;
+    });
+    document.querySelectorAll('.nav a[href="#rankings"], .nav a[href="#profile"]').forEach(function (a) {
+      a.hidden = noPlayers;  // (their sections are hidden too)
+    });
     var s = stats || {};
     var online = s.online || {};
     var active = s.active || {};

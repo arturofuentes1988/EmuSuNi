@@ -121,6 +121,13 @@ var EmuSuNi = (function () {
     });
   }
   function getStats() { return getJson("stats.json"); }
+  // (00.95) stats.json counts only the versions published on GitHub: none of them has sent a heartbeat yet (the first
+  // one that does is v00.23) - no players to show, only the downloads.
+  function hasPlayers(s) {
+    var active = (s && s.active) || {};
+    return (active.last_30_days || 0) > 0 || (active.today || 0) > 0 || (((s && s.online) || {}).now || 0) > 0 ||
+           ((s && s.daily) || []).length > 0;
+  }
 
   // ---- Bars: a label, its number, a bar (one series: the accent) ----
   function bars(list, rows, labelOf, valueOf, extraOf) {
@@ -231,7 +238,7 @@ var EmuSuNi = (function () {
   return {
     REPO: REPO, BASE: function () { return BASE; }, CONSOLES: CONSOLES, start: start, t: t, fmt: fmt, num: num,
     hours: hours, el: el, byId: byId, clear: clear, flag: flag, countryName: countryName, consoleName: consoleName,
-    date: date, getJson: getJson, getStats: getStats, bars: bars, chart: chart, lang: function () { return lang; },
-    NS: NS
+    date: date, getJson: getJson, getStats: getStats, hasPlayers: hasPlayers, bars: bars, chart: chart,
+    lang: function () { return lang; }, NS: NS
   };
 })();

@@ -20,6 +20,14 @@
     E.byId("h-downloads").textContent = total ? E.num(total) : "–";
     E.byId("h-online").textContent = stats && stats.online ? E.num(stats.online.now || 0) : "–";
     E.byId("h-active").textContent = stats && stats.active ? E.num(stats.active.last_30_days || 0) : "–";
+    // (00.95) No players counted yet (the published versions only): a note, the downloads alone.
+    var noPlayers = !!stats && !E.hasPlayers(stats);
+    E.byId("h-online").parentNode.hidden = noPlayers;
+    E.byId("h-active").parentNode.hidden = noPlayers;
+    E.byId("h-tiles").classList.toggle("solo", noPlayers);
+    var note = E.byId("h-note");
+    note.hidden = !noPlayers;
+    note.textContent = noPlayers ? E.t("players_soon") : "";
   }
 
   E.start(STRINGS, render);

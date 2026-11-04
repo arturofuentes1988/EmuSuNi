@@ -271,3 +271,8 @@ section[id], .panel[id] { scroll-margin-top: 100px; }
   .button { font-size: 17px; }
   .tiles.five .tile:last-child:nth-child(odd) { grid-column: 1 / -1; }  /* (the fifth number across the row) */
 }
+
+/* ---- (00.95) No players counted yet (the published versions only, from v00.23): a note, the downloads' number
+   alone - not stretched across the row - and the players' sections hidden (hidden wins over their display). ---- */
+[hidden] { display: none !important; }
+.tiles.solo, .tiles.five.solo, .live .tiles.solo { grid-template-columns: minmax(0, 1fr); max-width: 320px; }
