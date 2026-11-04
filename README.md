@@ -21,7 +21,7 @@
   <a href="LICENSE"><img alt="License GPL-2.0+" src="https://img.shields.io/badge/license-GPL--2.0%2B-3db46d?style=for-the-badge"></a>
 </p>
 
-<p align="center"><a href="README.es.md">Leer en español</a> · <a href="CHANGELOG.md">Changelog</a> · <a href="https://github.com/arturofuentes1988/EmuSuNi/releases/latest">Download</a> · <a href="https://t.me/+5Y2CVb3aR500OGMx">Telegram</a></p>
+<p align="center"><a href="README.es.md">Leer en español</a> · <a href="CHANGELOG.md">Changelog</a> · <a href="https://github.com/arturofuentes1988/EmuSuNi/releases/latest">Download</a> · <a href="https://t.me/+A53DraC3it5mZTcx">Telegram</a></p>
 
 ---
 
@@ -43,7 +43,7 @@
    included.
 4. **Play**: your games show up by themselves, with their box art when the PS4 is online. In a game,
    **L3 + R3** opens the menu: save states, settings, controls, quit.
-5. **Help and bug reports**: the [Telegram group](https://t.me/+5Y2CVb3aR500OGMx), or an
+5. **Help and bug reports**: the [Telegram group](https://t.me/+A53DraC3it5mZTcx), or an
    [issue](https://github.com/arturofuentes1988/EmuSuNi/issues) with your `/data/EmuSuNi/emusuni.log`.
 
 ## The consoles
