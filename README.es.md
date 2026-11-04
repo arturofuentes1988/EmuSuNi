@@ -21,7 +21,7 @@
   <a href="LICENSE"><img alt="Licencia GPL-2.0+" src="https://img.shields.io/badge/licencia-GPL--2.0%2B-3db46d?style=for-the-badge"></a>
 </p>
 
-<p align="center"><a href="README.md">Read in English</a> · <a href="CHANGELOG.md">Historial de cambios</a> · <a href="https://github.com/arturofuentes1988/EmuSuNi/releases/latest">Descargar</a> · <a href="https://t.me/+5Y2CVb3aR500OGMx">Telegram</a></p>
+<p align="center"><a href="README.md">Read in English</a> · <a href="CHANGELOG.md">Historial de cambios</a> · <a href="https://github.com/arturofuentes1988/EmuSuNi/releases/latest">Descargar</a> · <a href="https://t.me/+A53DraC3it5mZTcx">Telegram</a></p>
 
 ---
 
@@ -42,7 +42,7 @@
    los del Famicom Disk System (`disksys.rom`) ([BIOS](#bios)). No se incluyen juegos ni BIOS.
 4. **Juega**: tus juegos aparecen solos, con su carátula si la PS4 tiene internet. En el juego,
    **L3 + R3** abre el menú: estados guardados, ajustes, controles, salir.
-5. **Ayuda y errores**: el [grupo de Telegram](https://t.me/+5Y2CVb3aR500OGMx), o una
+5. **Ayuda y errores**: el [grupo de Telegram](https://t.me/+A53DraC3it5mZTcx), o una
    [incidencia](https://github.com/arturofuentes1988/EmuSuNi/issues) con tu `/data/EmuSuNi/emusuni.log`.
 
 ## Las consolas
