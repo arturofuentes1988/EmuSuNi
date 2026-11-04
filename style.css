@@ -167,6 +167,9 @@ details { background: var(--card); border: 1px solid var(--line); border-radius:
 summary { cursor: pointer; font-weight: 600; }
 details p { color: var(--text-2); margin: 8px 0 0; }
 .links { margin-top: 16px; }
+.donate { text-align: center; }
+.donate > p { max-width: 640px; margin: 8px auto 16px; }
+.donate .donate-note { color: var(--muted); font-size: 14px; margin-top: 12px; }
 .foot { border-top: 1px solid var(--line); padding: 24px 16px 40px; color: var(--muted); font-size: 13px; text-align: center; }
 .foot p { max-width: 900px; margin: 8px auto; }
 
