@@ -29,6 +29,7 @@
 #include "Log.h"
 #include "Menu.h"
 #include "PS4Lang.h"
+#include "Portable.h"
 #include "Saves.h"
 #include "Settings.h"
 #include "StartGuard.h"
@@ -243,9 +244,21 @@ int main()
   sceUserServiceInitialize(nullptr);
   scePadInit();
 
-  Settings::Load(data_dir);
-  Controls::Load(data_dir);
-  Saves::Init(data_dir);
+  // (00.87) Where the player's data lives this session (src/Portable.h): a USB drive's portable data (Settings -> Keep
+  // My Data on the USB Drive), looked for only when this PS4 used one, else /data/EmuSuNi as always. The settings,
+  // controls, saves, states, cheats, bezels, covers, themes, favorites and the game list are read from there; the logs,
+  // the logins, the statistics and the caches stay in data_dir. A write to a drive taken out goes to this PS4 instead.
+  Portable::Start(data_dir);
+  SetWriteRedirect(Portable::Redirect);
+  const std::string user_dir = Portable::UserDir();
+  for (SystemId board : {SystemId::ARCADE, SystemId::NAOMI, SystemId::ATOMISWAVE})
+  {
+    if (HasSystem(board))
+      Library::SetSystemFolder(board, Portable::SystemDir(GetSystem(board).key));  // (their missing BIOS's marks)
+  }
+  Settings::Load(user_dir);
+  Controls::Load(user_dir);
+  Saves::Init(user_dir);
   PS4Lang::Load(App::ASSETS_DIR, Settings::Get("language"));
   Tour::Load(data_dir);
   // RetroAchievements (00.73): the account kept in retroachievements.ini logs in again with its token, in the

@@ -10,6 +10,8 @@
 #include <cstring>
 
 #include <png.h>
+
+#include "AssetPack.h"
 // (libjpeg-turbo's: PacBrew's sysroot has it; jpeglib.h wants FILE and size_t first.)
 #include <jpeglib.h>
 
@@ -427,7 +429,7 @@ bool Load(const std::string& path, ImageRGBA* out, uint32_t max_w, uint32_t max_
       *detail = words ? words : "";
     return false;
   };
-  FILE* file = std::fopen(path.c_str(), "rb");
+  FILE* file = AssetPack::Open(path);  // (00.90: the app's own bezels may be in xmb/assets.zip)
   if (!file)
     return fail(WHY_OPEN, std::strerror(errno));
   unsigned char head[16] = {};

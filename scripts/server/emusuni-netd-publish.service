@@ -1,0 +1,21 @@
+# EmuSuNi's online server: the public page's numbers (publish-stats.sh: aggregates only) pushed to the public
+# statistics repository, run by emusuni-netd-publish.timer every 5 minutes. Installed by scripts/server/deploy.sh.
+[Unit]
+Description=EmuSuNi online server: the public statistics, published
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=emusuni-netd
+Group=emusuni-netd
+StateDirectory=emusuni-netd
+StateDirectoryMode=0750
+UMask=0027
+Environment=HOME=/var/lib/emusuni-netd/publish
+EnvironmentFile=-/etc/emusuni-netd/publish.env
+ExecStart=/opt/emusuni-netd/publish-stats.sh
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes

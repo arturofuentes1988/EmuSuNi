@@ -191,8 +191,18 @@ struct LibraryInfo
 void SetLibrary(const std::vector<LibraryFile>& files);
 // While a game runs, the hashing waits (between files).
 void PauseLibrary(bool pause);
-// Every game's state now, by key (one lock: the menu asks once a second at most, when LibraryVersion changed).
-std::map<std::string, LibraryInfo> GetLibraryInfos();
+// The states that may have changed since the menu last took them (once a second at most, when LibraryVersion changed;
+// one lock): each one's game by its index in SetLibrary's list, with its key. All of them (*all) after a new list, a
+// console's list from RetroAchievements, the account's progress or a game played; else only the files hashed since.
+// (00.85: until then every game's state each time, in a map by key - 30 000 games once a second while they were
+// hashed.)
+struct LibraryChange
+{
+  size_t index = 0;
+  std::string key;
+  LibraryInfo info;
+};
+std::vector<LibraryChange> TakeLibraryChanges(bool* all);
 int LibraryVersion();
 // How a zipped cartridge's ROM is read (the app's Library::ReadRom); without one, zipped cartridges aren't hashed.
 void SetRomReader(bool (*read)(const std::string& path, SystemId system, std::vector<uint8_t>* data,

@@ -905,6 +905,11 @@ Result Download(const std::vector<Library::Game>& games, const std::string& cove
   std::vector<const Library::Game*> wanted;
   for (const Library::Game& game : games)
   {
+#ifdef EMUSUNI_OPENBOR
+    // (with-openbor) OpenBOR's games have no libretro thumbnails: nothing is asked for them.
+    if (!*GetSystem(game.system).thumbnails)
+      continue;
+#endif
     if (HasOwnCover(own, game))
       result.already++;
     else
@@ -1145,6 +1150,13 @@ Result Download(const std::vector<Library::Game>& games, const std::string& cove
 std::vector<std::string> PictureNames(SystemId system, bool title_screens, const std::string& covers_dir,
                                       const std::string& ca_file, std::string* error)
 {
+#ifdef EMUSUNI_OPENBOR
+  if (!*GetSystem(system).thumbnails)  // (with-openbor) OpenBOR: no libretro thumbnails
+  {
+    *error = "No pictures to download for this console";
+    return {};
+  }
+#endif
   Net::Session session;
   MakeDirs(covers_dir + "/" + GetSystem(system).prefix);
   return Names(KINDS[title_screens ? 1 : 0], GetSystem(system), covers_dir, ca_file, error, &session);
@@ -1206,6 +1218,13 @@ bool DownloadPicture(SystemId system, bool title_screen, const std::string& name
                      uint32_t max_w, uint32_t max_h, const std::string& ca_file, std::string* error)
 {
   const System& console = GetSystem(system);
+#ifdef EMUSUNI_OPENBOR
+  if (!*console.thumbnails)  // (with-openbor) OpenBOR: no libretro thumbnails
+  {
+    *error = "No pictures to download for this console";
+    return false;
+  }
+#endif
   const Kind& kind = KINDS[title_screen ? 1 : 0];
   auto is_png = [](const std::string& data) { return data.size() > 8 && data.compare(1, 3, "PNG") == 0; };
   Net::Session session;

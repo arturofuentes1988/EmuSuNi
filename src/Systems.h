@@ -14,7 +14,9 @@
 // CD, the 32X, the PC Engine CD, the Neo Geo Pockets and the WonderSwans: gone in 00.83, the owner's choice. Their keys -
 // megacd, 32x, pcecd, ngp, ngpc, wswan, wswanc - in a player's files are no console's now: SystemByKey gives nullptr
 // (a saved Console Order, Consoles Shown and the bezels' downloads leave them out), no game of theirs is in the Library,
-// and their files - saves, states, covers, settings sections, Roms folders - are left as they are.)
+// and their files - saves, states, covers, settings sections, Roms folders - are left as they are.) Atari's (00.90):
+// the 2600 (Stella), the 7800 (ProSystem) and the Jaguar (Virtual Jaguar), scripts/build-atari-cores.sh, in builds
+// with EMUSUNI_A2600, EMUSUNI_A7800 and EMUSUNI_JAGUAR.
 //
 // A game is known by its key: its file name without the extension for the Super Nintendo (as
 // before EmuSuNi played other consoles), "<console>/<file name>" for the others. Its settings,
@@ -51,10 +53,20 @@ enum class SystemId
   ATOMISWAVE = 17,  // Sammy's Atomiswave: Flycast too
   SATURN = 18,      // the Sega Saturn: YabaSanshiro (builds with EMUSUNI_SATURN)
   PCE = 19,         // the PC Engine / TurboGrafx-16: Beetle PCE Fast (builds with EMUSUNI_PCE; 21 in 00.82)
+  A2600 = 20,       // the Atari 2600: Stella (builds with EMUSUNI_A2600, 00.90)
+  A7800 = 21,       // the Atari 7800: ProSystem (builds with EMUSUNI_A7800, 00.90)
+  JAGUAR = 22,      // the Atari Jaguar: Virtual Jaguar (builds with EMUSUNI_JAGUAR, 00.90)
+#ifdef EMUSUNI_OPENBOR
+  OPENBOR = 23,     // OpenBOR's games (.pak): zanac's multi-engine core (builds with EMUSUNI_OPENBOR, with-openbor)
+#endif
 };
 // The most there can be: Systems() has those of this build (at most 32: the settings' console masks are 32-bit,
 // Settings.h FOR_ALL).
-constexpr int SYSTEM_COUNT = 20;
+#ifdef EMUSUNI_OPENBOR
+constexpr int SYSTEM_COUNT = 24;
+#else
+constexpr int SYSTEM_COUNT = 23;
+#endif
 
 struct System
 {
@@ -114,6 +126,11 @@ inline bool IsFlycast(SystemId id)
 inline bool IsRomsetSystem(SystemId id)
 {
   return id == SystemId::ARCADE || IsFlycastBoard(id);
+}
+// Atari's consoles (00.90): the 2600, the 7800 and the Jaguar, each its own core.
+inline bool IsAtari(SystemId id)
+{
+  return id == SystemId::A2600 || id == SystemId::A7800 || id == SystemId::JAGUAR;
 }
 // The console whose ROM files have this name's extension (nullptr: none, or a .zip).
 const System* SystemOfFile(const std::string& name);

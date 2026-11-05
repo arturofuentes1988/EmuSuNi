@@ -22,6 +22,7 @@
 #include <future>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <set>
 #include <sstream>
 #include <thread>
@@ -41,6 +42,7 @@
 #include "Achievements.h"
 #include "AchievementsUi.h"
 #include "Arcade.h"
+#include "AssetPack.h"
 #include "BezelProject.h"
 #include "CheatDownload.h"
 #include "Cheats.h"
@@ -51,18 +53,29 @@
 #include "GameAudio.h"
 #include "Image.h"
 #include "Log.h"
+#include "LogReport.h"
 #include "MenuNav.h"
+#include "Multiplayer.h"
 #include "Naomi.h"
 #include "Net.h"
 #include "PS4Glyphs.h"
 #include "PS4Lang.h"
+#include "Portable.h"
 #include "Ratings.h"
 #include "Saves.h"
 #include "Settings.h"
+#include "StartGuard.h"
 #include "Systems.h"
 #include "TextKeyboard.h"
 #include "Tour.h"
+#include "GbLink.h"
+#include "Netplay.h"
+#include "NetplayLibrary.h"
+#include "NetplayUi.h"
+#include "MyStats.h"
+#include "UsageStats.h"
 #include "Update.h"
+#include "Voice.h"
 #ifdef EMUSUNI_SATURN
 #include "SaturnTest.h"
 #endif
@@ -374,7 +387,8 @@ struct Sound
 
 std::unique_ptr<Sound> LoadWav(const std::string& path)
 {
-  const std::string data = ReadTextFile(path);
+  std::string data;
+  AssetPack::Read(path, &data);  // (00.90: the app's own sounds are in xmb/assets.zip in the package)
   if (data.size() < 44 || data.compare(0, 4, "RIFF") != 0 || data.compare(8, 4, "WAVE") != 0)
     return nullptr;
   int channels = 0, rate = 0, bits = 0;
@@ -512,6 +526,7 @@ private:
       const int volume = m_volume;
       for (size_t i = 0; i < mix.size(); i++)
         buffer[i] = static_cast<int16_t>(std::clamp(mix[i] * volume / 100, -32768, 32767));
+      ::Voice::Mix(buffer.data(), FRAMES);  // (00.23: the voice chat's voices, Test Microphone's playback)
       const int result = AudioPort::Output(buffer.data());  // waits a period after an error
       if (result < 0)
       {
@@ -726,18 +741,19 @@ struct Preferences
         clock = value == "on";
       else if (key == "ratings")
         ratings = value != "off";
+      // (00.87: the folders and games on a USB drive's portable data are kept relative to the drive - src/Portable.h.)
       else if (key == "games_dir")
-        games_dirs["snes"] = value;  // the Super Nintendo's (as before EmuSuNi played other consoles)
+        games_dirs["snes"] = Portable::FromStored(value);  // the Super Nintendo's (as before EmuSuNi played other consoles)
       else if (key.rfind("games_dir.", 0) == 0)
-        games_dirs[key.substr(10)] = value;
+        games_dirs[key.substr(10)] = Portable::FromStored(value);
       else if (key == "last_game")
-        last_game = value;
+        last_game = Portable::FromStored(value);
       else if (key == "style")
         style = value == "xmb" ? "xmb" : "library";
       else if (key == "sort")
         sort = value == "nocover" ? "title" : value;  // Without Cover lasts one session
       else if (key == "default_game")
-        default_game = value;
+        default_game = Portable::FromStored(value);
       else if (key == "ra_filter")
         ra_filter = value == "known" || value == "progress" ? value : "off";
       else if (key == "console_order")
@@ -758,14 +774,15 @@ struct Preferences
     text += "theme=" + theme + "\nwallpaper=" + wallpaper + "\nsounds=" + (sounds ? "on" : "off") +
             "\nvolume=" + std::to_string(volume) + "\nclock=" + (clock ? "on" : "off") +
             "\nratings=" + (ratings ? "on" : "off") +
-            "\ngames_dir=" + (snes == games_dirs.end() ? std::string() : snes->second) +
-            "\nlast_game=" + last_game + "\nstyle=" + style + "\nsort=" + sort +
-            "\ndefault_game=" + default_game + "\nra_filter=" + ra_filter + "\nconsole_order=" + console_order +
+            "\ngames_dir=" + (snes == games_dirs.end() ? std::string() : Portable::ToStored(snes->second)) +
+            "\nlast_game=" + Portable::ToStored(last_game) + "\nstyle=" + style + "\nsort=" + sort +
+            "\ndefault_game=" + Portable::ToStored(default_game) + "\nra_filter=" + ra_filter +
+            "\nconsole_order=" + console_order +
             "\nconsole_order_version=" + std::to_string(console_order_version) + "\n";
     for (const auto& [key, dir] : games_dirs)
     {
       if (key != "snes")
-        text += "games_dir." + key + "=" + dir + "\n";
+        text += "games_dir." + key + "=" + Portable::ToStored(dir) + "\n";
     }
     WriteTextFile(path, text);
   }
@@ -798,11 +815,24 @@ enum class Category
   AtomiswaveGames,
   SaturnGames,   // builds with the Sega Saturn (EMUSUNI_SATURN)
   PceGames,      // builds with the PC Engine (EMUSUNI_PCE): its HuCards
+  A2600Games,    // (00.90) builds with Atari's consoles (EMUSUNI_A2600, EMUSUNI_A7800, EMUSUNI_JAGUAR)
+  A7800Games,
+  JaguarGames,
+#ifdef EMUSUNI_OPENBOR
+  OpenborGames,  // builds with OpenBOR (EMUSUNI_OPENBOR, with-openbor): its .pak games
+#endif
   Favorites,
   SavedData,
   Themes,
+  Online,  // (00.23) online play's tab: rooms, codes, public rooms, nickname, the online profile
 };
-constexpr int CATEGORY_COUNT = 25;
+#ifdef EMUSUNI_OPENBOR
+constexpr int CATEGORY_COUNT = 30;
+static_assert(static_cast<int>(Category::OpenborGames) ==
+              static_cast<int>(Category::Games) + 1 + static_cast<int>(SystemId::OPENBOR));
+#else
+constexpr int CATEGORY_COUNT = 29;
+#endif
 static_assert(static_cast<int>(Category::N64Games) ==
               static_cast<int>(Category::Games) + 1 + static_cast<int>(SystemId::N64));
 static_assert(static_cast<int>(Category::GbaGames) ==
@@ -821,12 +851,18 @@ static_assert(static_cast<int>(Category::SaturnGames) ==
               static_cast<int>(Category::Games) + 1 + static_cast<int>(SystemId::SATURN));
 static_assert(static_cast<int>(Category::PceGames) ==
               static_cast<int>(Category::Games) + 1 + static_cast<int>(SystemId::PCE));
+static_assert(static_cast<int>(Category::JaguarGames) ==
+              static_cast<int>(Category::Games) + 1 + static_cast<int>(SystemId::JAGUAR));
 static_assert(static_cast<int>(Category::Favorites) == static_cast<int>(Category::Games) + 1 + SYSTEM_COUNT);
 constexpr const char* CATEGORY_NAMES[CATEGORY_COUNT] = {
     "Settings",  "All Games", "Super Nintendo", "NES",        "Nintendo 64", "Game Boy",
     "Game Boy Color", "Game Boy Advance", "PlayStation", "Nintendo DS", "PSP", "Dreamcast",
     "SG-1000", "Master System", "Game Gear", "Genesis", "Arcade", "Nintendo 3DS", "NAOMI", "Atomiswave",
-    "Saturn", "PC Engine", "Favorites", "Saved Data", "Themes"};
+    "Saturn", "PC Engine", "Atari 2600", "Atari 7800", "Atari Jaguar",
+#ifdef EMUSUNI_OPENBOR
+    "OpenBOR",
+#endif
+    "Favorites", "Saved Data", "Themes", "Online"};
 constexpr const char* SORT_NAMES[][2] = {
     {"title", "A-Z"}, {"recent", "Recently Played"}, {"region", "Region"}, {"console", "Console"},
     {"nocover", "Without Cover"}};  // a view: only the games without a cover picture, A-Z
@@ -838,6 +874,13 @@ int SystemOfList(int category)
   return system >= 0 && system < SYSTEM_COUNT && HasSystem(static_cast<SystemId>(system)) ? system : -1;
 }
 
+// (00.88) The game list of a console that plays online (src/Netplay.h): its globe in the XMB and the Library's tabs.
+bool PlaysOnline(int category)
+{
+  const int system = SystemOfList(category);
+  return system >= 0 && Netplay::RulesFor(GetSystem(static_cast<SystemId>(system)).key).online;
+}
+
 // The consoles' order in the Library's tabs, the XMB's columns and the Console sort (Settings ->
 // Console Order, kept in xmb.ini as console_order): every console of this build once, the ones the
 // saved order doesn't name after the others in their usual order.
@@ -846,15 +889,39 @@ int s_console_order_version = 1;  // changes with the order (Tabs() and Columns(
 // The consoles with a tab and an XMB column (Settings -> Consoles Shown, Library::ShownConsoles): some or all of
 // the console order's, in it; empty until the menu sets it (then all). Changing it changes the version too.
 std::vector<SystemId> s_shown_consoles;
+// (00.85, a player: "Add MENU SCALE FACTOR! I can see only 10 games on my TV") Settings -> Menu Size (settings.ini's
+// menu_size: 100, 90, 80 or 70): how big the XMB's rows and the Library's covers are drawn, smaller fitting more games
+// on the screen. Read again at each frame's start (Draw): a change shows at once. Smaller means the same drawing
+// shrunk (ScaleDrawn), not other text sizes: every size drawn is one more set of glyphs in the font atlas.
+float s_menu_scale = 1.0f;
+
+float MenuScaleOf(const std::string& value)
+{
+  const int percent = std::atoi(value.c_str());
+  return percent >= 50 && percent <= 100 ? static_cast<float>(percent) / 100.0f : 1.0f;
+}
+
+// What was drawn into dl since its vertex `first`, made `scale` times as big around `pivot` (Menu Size).
+void ScaleDrawn(ImDrawList* dl, int first, ImVec2 pivot, float scale)
+{
+  for (int i = first; i < dl->VtxBuffer.Size; i++)
+  {
+    ImVec2& p = dl->VtxBuffer[i].pos;
+    p.x = pivot.x + (p.x - pivot.x) * scale;
+    p.y = pivot.y + (p.y - pivot.y) * scale;
+  }
+}
 
 // The standard order (Default Order): Nintendo's consoles, then Sony's, then Sega's, each from the
-// most basic to the most powerful, then NEC's (the PC Engine, 00.82), then the arcade boards: the Arcade, the NAOMI
-// (Sega's, the Dreamcast's hardware in a cabinet) and the Atomiswave (Sammy's, the same again).
+// most basic to the most powerful, then NEC's (the PC Engine, 00.82), Atari's (the 2600, the 7800, the Jaguar: 00.90),
+// then the arcade boards: the Arcade, the NAOMI (Sega's, the Dreamcast's hardware in a cabinet) and the Atomiswave
+// (Sammy's, the same again).
 constexpr SystemId STANDARD_ORDER[] = {SystemId::GB,  SystemId::NES, SystemId::GBC, SystemId::SNES,
                                        SystemId::GBA, SystemId::N64, SystemId::NDS, SystemId::THREEDS,
                                        SystemId::PS1, SystemId::PSP, SystemId::SG1000, SystemId::SMS,
                                        SystemId::GG,  SystemId::MD,  SystemId::SATURN, SystemId::DC,
-                                       SystemId::PCE, SystemId::ARCADE, SystemId::NAOMI, SystemId::ATOMISWAVE};
+                                       SystemId::PCE, SystemId::A2600, SystemId::A7800, SystemId::JAGUAR,
+                                       SystemId::ARCADE, SystemId::NAOMI, SystemId::ATOMISWAVE};
 
 // The consoles of this build in the standard order (any not in it after them).
 std::vector<SystemId> StandardOrder()
@@ -888,14 +955,16 @@ std::vector<SystemId> PresetOrder(const std::string& preset)
 {
   std::vector<SystemId> order;
   if (preset == "power")
-    order = {SystemId::GB,  SystemId::SG1000, SystemId::NES,    SystemId::SMS,   SystemId::GG,
-             SystemId::PCE, SystemId::GBC,    SystemId::MD,     SystemId::SNES,  SystemId::GBA,
-             SystemId::PS1, SystemId::SATURN, SystemId::N64,    SystemId::NDS,   SystemId::DC,
+    order = {SystemId::A2600, SystemId::GB,  SystemId::SG1000, SystemId::NES,    SystemId::A7800, SystemId::SMS,
+             SystemId::GG,    SystemId::PCE, SystemId::GBC,    SystemId::MD,     SystemId::SNES,  SystemId::GBA,
+             SystemId::JAGUAR, SystemId::PS1, SystemId::SATURN, SystemId::N64,   SystemId::NDS,   SystemId::DC,
              SystemId::ARCADE, SystemId::NAOMI, SystemId::ATOMISWAVE, SystemId::PSP, SystemId::THREEDS};
   else if (preset == "year")
-    order = {SystemId::NES, SystemId::SG1000, SystemId::SMS,  SystemId::PCE, SystemId::MD,    // 1983 1983 1985 1987 1988
+    order = {SystemId::A2600,                                                                   // 1977
+             SystemId::NES, SystemId::SG1000, SystemId::SMS,  SystemId::A7800, SystemId::PCE,  // 1983 1983 1985 1986 1987
+             SystemId::MD,                                                                      // 1988
              SystemId::GB,  SystemId::GG,     SystemId::ARCADE, SystemId::SNES,                 // 1989 1990 1990 1990
-             SystemId::SATURN, SystemId::PS1,                                                   // 1994 1994
+             SystemId::JAGUAR, SystemId::SATURN, SystemId::PS1,                                 // 1993 1994 1994
              SystemId::N64, SystemId::GBC,    SystemId::DC,   SystemId::NAOMI, SystemId::GBA,  // 1996 1998 1998 1998 2001
              SystemId::ATOMISWAVE, SystemId::NDS, SystemId::PSP, SystemId::THREEDS};            // 2003 2004 2004 2011
   else if (preset == "alpha")
@@ -1001,8 +1070,8 @@ std::string ConsoleOrderKeys()
   return keys;
 }
 
-// The XMB style's columns, left to right: Settings, all the games, a column per console shown (in the
-// console order), the favorites. Saved Data and Themes are pages of Settings in both styles (Cross
+// The XMB style's columns, left to right: Settings, Online (00.23), all the games, a column per console shown (in
+// the console order), the favorites. Saved Data and Themes are pages of Settings in both styles (Cross
 // on them in its list, Circle back).
 const std::vector<int>& Columns()
 {
@@ -1011,7 +1080,8 @@ const std::vector<int>& Columns()
   if (version != s_console_order_version)
   {
     version = s_console_order_version;
-    columns = {static_cast<int>(Category::Settings), static_cast<int>(Category::Games)};
+    columns = {static_cast<int>(Category::Settings), static_cast<int>(Category::Online),
+               static_cast<int>(Category::Games)};
     for (SystemId id : ShownOrder())
       columns.push_back(static_cast<int>(Category::Games) + 1 + static_cast<int>(id));
     columns.push_back(static_cast<int>(Category::Favorites));
@@ -1020,7 +1090,7 @@ const std::vector<int>& Columns()
 }
 
 // The Library style's tabs (L1 / R1, round and round), left to right: All, a tab per console shown
-// (in the console order), Favorites, Settings.
+// (in the console order), Favorites, Online (00.23), Settings.
 const std::vector<int>& Tabs()
 {
   static std::vector<int> tabs;
@@ -1032,6 +1102,7 @@ const std::vector<int>& Tabs()
     for (SystemId id : ShownOrder())
       tabs.push_back(static_cast<int>(Category::Games) + 1 + static_cast<int>(id));
     tabs.push_back(static_cast<int>(Category::Favorites));
+    tabs.push_back(static_cast<int>(Category::Online));  // (00.23)
     tabs.push_back(static_cast<int>(Category::Settings));
   }
   return tabs;
@@ -1166,6 +1237,17 @@ constexpr ConsoleNote CONSOLE_NOTES[] = {
      ".cue (with its .bin tracks), .chd, .iso, .ccd, .mds; one disc each, not in a .zip"},
     // (00.82. No SuperGrafx.)
     {SystemId::PCE, "PC Engine and TurboGrafx-16 HuCards", nullptr, ".pce, or a .zip of one (no SuperGrafx .sgx)"},
+    // (00.90. The 7800's and the Jaguar's BIOS are optional: their games start without it.)
+    {SystemId::A2600, "Atari 2600 (VCS) cartridges", nullptr, ".a26, or a .bin of 64 KB or less, or a .zip of one"},
+    {SystemId::A7800, "Atari 7800 cartridges", nullptr, ".a78 (with its header), or a .zip of one"},
+    // (Experimental as the Saturn: the 3D games are slower than the console. Its number pad: the touchpad, Emulator.cpp.)
+    {SystemId::JAGUAR, "Atari Jaguar cartridges (experimental); its number pad on the touchpad", nullptr,
+     ".j64, .jag (homebrew: .abs, .cof), or a .zip of one"},
+#ifdef EMUSUNI_OPENBOR
+    // (with-openbor. The engine version, 3.0 or 4.0, is picked by what the .pak holds: scripts/build-openbor-core.sh.)
+    {SystemId::OPENBOR, "OpenBOR games: free fan-made beat 'em ups", nullptr,
+     ".pak, not in a .zip; the engine version is picked by itself"},
+#endif
 };
 
 struct Item
@@ -1189,6 +1271,7 @@ enum Setting
   SET_GAMES_DIR,   // a console's game folder: a folder browser
   SET_FOLDERS,     // Game Folders: the consoles and their folders
   SET_STYLE,       // Menu Style: Library or XMB
+  SET_MENU_SIZE,   // Menu Size (00.85): the games drawn smaller, more of them in view (settings.ini's menu_size)
   SET_LANGUAGE,    // Language
   SET_SAVES,       // a game's saved data
   SET_DELETE,      // "Delete?" for a save
@@ -1213,6 +1296,29 @@ enum Setting
   SET_RA_ABOUT,         // RetroAchievements -> What is RetroAchievements? (00.79)
   SET_BEZELS,           // Game Bezels (00.80, src/BezelProject.h): The Bezel Project's bezels of the player's games
   SET_BEZELS_DELETE,    // "Delete?" for the downloaded bezels
+  SET_VOICE,            // Voice Chat (00.23, src/Voice.h): its settings and Test Microphone
+  SET_ONLINE,           // Online Play (00.23, src/Netplay.h): Settings' way to the Online tab
+  SET_ONLINE_HOST,      // a game's Triangle -> Play Online: a private or a public room
+  SET_ONLINE_ROOM,      // the room: its code, its players, Start (made again every frame)
+  SET_STATS,            // Anonymous Statistics (00.23, src/UsageStats.h): on or off
+  SET_OL_CREATE,        // the Online tab (00.23; Square in its table, 00.85): Create Room - with a game, or Choose Together
+  SET_OL_SETTINGS,      //   (00.85) Options in its table: Online Settings - the rows below, Nickname, Hide My Address
+  SET_OL_PROFILE,       //   Online Profile: on or off (src/UsageStats.h)
+  SET_OL_PUBLIC,        //   Public Profile: on or off
+  SET_OL_CODE,          //   Profile Code: the code, where it opens
+  SET_OL_DELETE,        //   Delete My Profile: asked first
+  SET_MY_STATS,         // My Stats (00.23, src/MyStats.h): this PS4's own numbers
+  SET_OL_REPLACE,       // (00.86) one room at a time: close ours to make or join another? Yes / No
+  SET_PORTABLE,         // (00.87, src/Portable.h) Keep My Data on the USB Drive: turn on (a drive), use a drive's, off
+  SET_PORTABLE_COPY,    //   its copy as it goes, then its result (Restart Now)
+  SET_PORTABLE_ASK,     //   a drive with portable data this PS4 never answered for: use it? Yes / No
+  SET_PORTABLE_NOTICE,  //   a drive this PS4 uses, connected while the app runs: Restart Now / Later
+  SET_PORTABLE_WARNING, //   the drive in use taken out (saving to this PS4), a write to it failed, it didn't answer
+  SET_STATS_NOTICE,     // (00.89) the anonymous statistics' notice, once: OK / Turn Them Off (OpenStatsNotice)
+  SET_HELP,             // (00.90) How to Help: a star, a report, a word to others - no money (OpenHelpPanel)
+  SET_SEND_LOG,         // (00.91) Send Log (src/LogReport.h): what goes, Send; then sending, its code, or why not
+  SET_SEND_LOG_ASK,     //   at the start after EmuSuNi closed by itself: send its log? Yes / No
+  SET_OL_LINKGAME,      // (00.95) a Game Boy link cable room's guest: its own game for Game Boy 2
 #ifdef EMUSUNI_SATURN
 #endif
   SET_GROUP = 100,  // + index into Settings::Categories(): an emulation settings list
@@ -1230,6 +1336,7 @@ struct SettingRow
   std::string glyph;    // Controls: the DualShock 4 control, drawn as its icon
   int tag = 0;          // cheats: 1 = an ON tag (green), -1 = an OFF tag (red)
   ImTextureID icon{};
+  float icon_aspect = 0.0f;  // the icon's width / height (00.89: kept in its 52 x 45 box); 0 = fills it
   std::string picture;  // RetroAchievements' picture (its address: drawn once downloaded, 00.75)
   std::string help;     // the row's own help text (made with it: RetroAchievements' history, 00.75)
 };
@@ -1253,6 +1360,8 @@ struct SidePanel
   // Information: a game's rating in stars (half stars 0 to 10; -1 none), drawn at the end of its line of `lines`.
   int stars = -1;
   std::string stars_line;
+  // (00.87) Each option's own help at the bottom (an empty one, or none: OptionHelp's for its text).
+  std::vector<std::string> helps;
 };
 
 struct Game
@@ -1261,7 +1370,25 @@ struct Game
   int64_t played = 0;
   Ratings::Rating rating;  // its stars (src/Ratings.h; half_stars -1: none, or not matched yet)
   Achievements::LibraryInfo ra;  // RetroAchievements' mark (00.77: src/Achievements.h's library marks)
+  int order = 0;  // its place in the read's list (00.85: games of one title stay in that order after a rename)
 };
+
+// (00.85) A game for the matchers of names - the stars' (Ratings::Matcher), the covers' download - which read none of
+// its file's path, tags or missing files: a copy of a big library's games for their threads without them.
+Library::Game NamesOf(const Library::Game& rom)
+{
+  Library::Game names;
+  names.id = rom.id;
+  names.title = rom.title;
+  names.region = rom.region;
+  names.size = rom.size;
+  names.system = rom.system;
+  names.key = rom.key;
+  names.custom_title = rom.custom_title;
+  names.discs = rom.discs;
+  names.cover_names = rom.cover_names;
+  return names;
+}
 }  // namespace
 
 // ---------------------------------------------------------------------------------------------
@@ -1272,24 +1399,36 @@ public:
   Impl(Display& display, const std::string& data_dir, const std::string& assets_dir)
       : m_display(display), m_data_dir(data_dir), m_assets_dir(assets_dir)
   {
-    m_prefs.Load(m_data_dir + "/xmb.ini");
-    // (The Roms/<console> folders are made by BuildGames: MakeFolders.)
+    m_prefs.Load(UserDir() + "/xmb.ini");
+    // (The Roms/<console> folders are made by the read of the games: MakeFolders, on its thread.)
     for (const System& system : Systems())
     {
       if (GamesFolder(system.id).rfind(m_data_dir, 0) == 0)
         MakeDirs(GamesFolder(system.id));  // the app's own folders (not one on a USB stick)
     }
-    MakeDirs(m_data_dir + "/covers");
-    MakeDirs(m_data_dir + "/cheats");
-    MakeDirs(m_data_dir + "/themes");
+    MakeDirs(UserDir() + "/covers");
+    MakeDirs(UserDir() + "/cheats");
+    MakeDirs(UserDir() + "/themes");
     LoadNames();
-    m_rating_copy = Ratings::ReadCopy(m_data_dir);  // (LaunchBox's ratings downloaded before: BuildGames matches)
-    BuildGames();
+    m_rating_copy = Ratings::ReadCopy(m_data_dir);  // (LaunchBox's ratings downloaded before: SetGames matches)
+    // (00.85) The last read's games at once, from the internal storage (no USB drive is asked anything before the
+    // menu's first frame: a sleeping or broken one would hold it back); the read of the drives on its thread.
+    LoadCachedGames();
     LoadPlayed();
     LoadFavorites();
+    AskRead(true, true);
   }
   ~Impl()
   {
+    {
+      std::lock_guard lock(m_read_mutex);
+      m_read_quit = true;
+    }
+    m_read_progress.stop = true;
+    m_read_progress.pause = false;
+    m_read_wake.notify_all();
+    if (m_read_thread.joinable())
+      m_read_thread.join();
     m_dl_cancel = true;
     if (m_dl_thread.joinable())
       m_dl_thread.join();
@@ -1302,6 +1441,11 @@ public:
     m_find_wake.notify_all();
     if (m_find_thread.joinable())
       m_find_thread.join();
+    if (m_portable_thread.joinable())
+    {
+      m_portable_progress->stop = true;  // (00.87: the copy of the player's data stops at its next file)
+      m_portable_thread.join();
+    }
   }
 
   bool Run(Library::Game* game);
@@ -1310,16 +1454,23 @@ public:
     m_intro = true;
     m_intro_time = 0.0f;
     m_pending_error = error;
+    // (00.23) An online match's end (the other left, the connection was lost): said under Online Play's title.
+    // (00.86: a match's only - after a game played alone, the end of our room that stayed open, if it ended meanwhile,
+    // is UpdateOnline's to say.)
+    m_pending_title = m_launch_online && !Netplay::TakeError().empty() && !error.empty() ? "Online Play" : "";
+    m_launch_online = false;
   }
   bool DefaultGame(Library::Game* game)
   {
     if (m_prefs.default_game.empty())
       return false;
+    WaitForGames();  // (00.85: the cache's games, else the first read's)
     for (const Game& g : m_games)
     {
       if (g.rom.path == m_prefs.default_game)
       {
         *game = g.rom;
+        HoldRead();  // (the game starts before the menu)
         return true;
       }
     }
@@ -1328,11 +1479,13 @@ public:
   }
   bool FindGame(const std::string& path, Library::Game* game)
   {
+    WaitForGames();
     for (const Game& g : m_games)
     {
       if (g.rom.path == path)
       {
         *game = g.rom;
+        HoldRead();
         return true;
       }
     }
@@ -1343,7 +1496,61 @@ public:
   void LoadAssets();
 
 private:
-  void BuildGames();
+  // ---- Reading the games (00.85: big libraries) ----
+  // Until 00.84 the games were read before the menu's first frame (BuildGames): a library of 10 000 games on a USB
+  // drive took longer than the start's watchdog waits for a picture (main.cpp: 20 s), and the app closed before it
+  // opened - a folder shared by every console, the drive's top folder, took most of an hour. Now a thread of the
+  // menu's own reads them (ReadMain: the drives, the Roms folders made where missing, the places, the covers, then
+  // every console's games) while the menu draws; the start shows at once the games the last read found (the library's
+  // cache, data_dir/cache/library.tsv, the same version and the same folders asked for), its read replacing them
+  // only when it found something else. The very first start (and the first after an update) shows "Reading your
+  // games..." with how many it has found until they come. One read at a time: a read asked for while one runs stops
+  // that one at its next file and starts over (Square twice, a folder chosen meanwhile); a game running waits it.
+  struct ReadAsk
+  {
+    bool games = false;   // every console's games (with the places and the covers)
+    bool covers = false;  // the covers' pictures (a look at the places alone when neither: the games if they changed)
+    std::array<std::string, SYSTEM_COUNT> chosen;  // each console's folder (Game Folders, else its default one)
+    std::string covers_on;                         // Settings -> Covers Saved On
+    Library::Places known;                         // the places the menu had (a look: the games read when they changed)
+  };
+  struct ReadDone
+  {
+    bool scanned = false;         // the games were read (found, fingerprint)
+    bool places_changed = false;  // a look found other places (a drive plugged in or taken out)
+    Library::Places places;
+    std::string usb_covers;
+    Library::Found found;
+    uint64_t fingerprint = 0;
+    CoverFiles::Index cover_files;  // (covers: the pictures, the places they were listed from, where new ones go)
+    std::string covers_line;
+  };
+  std::array<std::string, SYSTEM_COUNT> ChosenFolders() const;
+  std::array<std::string, SYSTEM_COUNT> StoredChosen(const std::array<std::string, SYSTEM_COUNT>& chosen) const;
+  void LoadCachedGames();
+  void AskRead(bool games, bool covers);
+  void ReadMain();
+  bool ReadNow(const ReadAsk& ask, ReadDone* done);  // (the thread's; false: stopped, a newer read asked for)
+  void ListCovers(const std::vector<std::string>& drives, const std::string& usb_covers, const std::string& covers_on,
+                  ReadDone* done);
+  void TakeRead();         // what the thread found, into the menu (every frame; not while a game is launched or its
+                           // options are open: the games are in another order then)
+  void CoversRead(ReadDone& done);
+  void GamesRead(ReadDone& done);
+  int ReadingGames() const;  // the games found so far while a read of them goes on, else -1
+  void UpdateReadingItems();
+  void StartCoversOnce();  // the start's download of the missing covers, once the menu has the read's games and covers
+  void HoldRead();         // a game starts: a read of the games stops, to start again with the menu (m_read_resume)
+  bool WaitForGames();       // main.cpp's DefaultGame, FindGame before the menu's first frame
+  void DrawReading();
+  // The games of a read in m_games: in its order, the user's own names on them, by title (ApplyNames), the stars and
+  // RetroAchievements' marks for them; GamesChanged after any change of m_games' order: what points into it by index
+  // goes by the games' files again.
+  void SetGames(std::vector<Library::Game>&& roms);
+  void ApplyNames();
+  std::array<std::string, CATEGORY_COUNT> SelectedPaths();
+  void GamesChanged(const std::array<std::string, CATEGORY_COUNT>& selected, const std::string& online);
+  void ForgetCovers();
   void BuildItems();
   const Theme& CurrentTheme() const;
   void ApplyPreferences();
@@ -1427,6 +1634,140 @@ private:
   void AskText(const std::string& title, const std::string& text, std::function<void(const std::string&)> done,
                uint32_t max_length = 100, TextKeyboard::Mode mode = TextKeyboard::Mode::Text,
                const std::string& hint = "");
+  // Voice Chat (00.23, src/Voice.h): Settings -> Voice Chat - its rows made by Voice (again while Test Microphone runs).
+  void OpenVoicePanel();
+  void BuildVoiceRows();
+  // Online play (00.23, src/Netplay.h): Settings -> Online Play, a game's Triangle -> Play Online (a private or a
+  // public room), the room's panel (made again every frame from the room as it is: UpdateOnline); the game a guest
+  // plays, found in its games by the room's file (CRC32 and size), else by its title.
+  void OpenOnlinePanel();  // (00.23: the Online tab now)
+  void BuildOnlineItems();
+  bool OnlineAction(const std::string& action);
+  void OpenMyStats();
+  std::string MyStatsDetail() const;
+  std::string m_online_signature;      // what Online Settings' rows show (rebuilt when it changes)
+  bool m_online_tab_entered = false;
+  std::string OnlineNowLine() const;  // (00.23) "12 players online now" ("": not known)
+  void OpenOnlineHost(int game, bool link = false);
+  // (00.95) The Game Boy link cable online (src/GbLink.h): the guest's game for Game Boy 2 found among ours (m_games'
+  // index, -1: not here), said to the host with our save, chosen in its panel; the match set before Emulator::Run.
+  int FindLinkGame(const NetProto::LibraryGame& game);
+  void SayLinkGame();
+  void OpenLinkGamePicker();
+  void SetGbLinkMatch();
+  void OpenOnlineRoom();
+  void BuildOnlinePanel();
+  void UpdateOnline();
+  bool OnlinePanelInput(uint32_t pressed);
+  NetProto::LobbyGame FindOnlineGame(const NetProto::GameInfo& game, int* index);
+  bool OnlineGameInfo(int game, NetProto::GameInfo* info);
+  int OnlinePlayersMost(int game) const;
+  std::string OnlinePlayersHelp() const;
+  int m_online_game = -1;  // the game played online (m_games' index): the host's, or the one a guest found
+  // (00.95) The room's players the host chose (Play Online's Players: 2 to m_online_players_most).
+  int m_online_players = 2, m_online_players_most = 2;
+  NetProto::LobbyGame m_online_found = NetProto::LobbyGame::Looking;
+  // (00.95) Triangle -> Link Cable Online's room being made (m_online_link); the game for Game Boy 2 (m_games' index:
+  // a guest's own - the room's game at first, when it has it -; the host's file of the guest's), a guest's said.
+  bool m_online_link = false;
+  int m_online_link_game = -1;
+  bool m_online_link_said = false;
+  std::vector<std::string> m_online_actions;  // what each option of an online panel does ("start", "kick:1"...)
+  std::map<std::string, std::pair<uint32_t, uint64_t>> m_online_crcs;  // the files' CRC32 and size, by path
+  // The listed rooms' games among ours (and their m_games' index), by game (console, CRC32, size, title).
+  std::map<std::string, std::pair<NetProto::LobbyGame, int>> m_online_marks;
+  // The Online tab (00.85): a table of the rooms there are - public and private, waiting or playing, with their game
+  // -, asked for while the tab shows and again every few seconds (Netplay::Browse: the server's ListAll); L2 / R2
+  // filter it by console and by type; Cross joins the selected room (a private one with its code, asked for), Square
+  // makes one, Triangle joins with a code, Options opens Online Settings (Nickname, Hide My Address, the online
+  // profile, My Stats). The player's own room, while there is one, on top (the last list under it, dimmed). The same
+  // table in both styles: the Library's page, the XMB's column.
+  struct OnlineRow
+  {
+    NetProto::RoomEntry room;
+    std::string key;  // the selection's: "id:<n>" (an older server's list: "code:<code>"), "mine"
+    int ping_ms = -1;
+    NetProto::LobbyGame found = NetProto::LobbyGame::Missing;  // the room's game among ours
+    int game = -1;      // ... its m_games' index (its cover)
+    bool mine = false;  // the player's own room
+    bool together = false;
+  };
+  void BuildOnlineTable();
+  void DrawOnlineTable(ImDrawList* dl, float alpha, float x0, float x1, float top, float bottom, bool summary);
+  bool OnlineTabInput(uint32_t pressed);
+  void JoinOnlineRow(const OnlineRow& row);
+  void OpenOnlineSettings(const std::string& select = "");
+  void BuildOnlineSettingsRows();
+  std::string OnlineSettingsSignature() const;
+  std::vector<std::string> OnlineConsoles() const;  // the console filter's: "" (every one), then those online
+  std::string OnlineSummary() const;  // "12 players online now  ·  3 rooms" (translated)
+  std::vector<OnlineRow> m_online_rows;          // as the table shows them (the filters applied)
+  std::vector<Netplay::RoomView> m_online_last;  // the last list that came whole
+  int m_online_last_total = 0;
+  bool m_online_listed = false;  // a list came (since the last failure)
+  std::string m_online_row_key;  // the selected room's (kept while the list is asked for again)
+  int m_online_index = 0;        // its row (m_selected's: BuildItems puts that one back to 0)
+  int m_online_filter_console = 0, m_online_filter_type = 0;  // OnlineConsoles()' index; every / public / private
+  // (00.92) The others' rooms the filters leave of the last list (ours on top is neither), and the log's last line of
+  // them (said again when the filters or the counts change).
+  int m_online_shown = 0, m_online_others = 0;
+  std::string m_online_filter_said;
+  float m_online_entered = 0.0f, m_online_refresh_at = 0.0f, m_online_retry_at = 0.0f;
+  // Choose Together rooms (00.23): the library's files hashed on NetplayLibrary's thread (started with Online Play),
+  // this console's list sent to the room once complete, each game of it by its file (console, CRC32, size), the
+  // common list's rows as shown (every common game, or only those known to take 2 players or more).
+  void StartOnlineLibrary();
+  void BuildTogetherRows(const Netplay::View& v);
+  bool m_online_library_sent = false;
+  std::map<NetProto::LibraryGame, int> m_online_library;
+  bool m_online_show_all = false;
+  // (00.92, the owner) A Choose Together room with its players takes the whole screen (BuildTogetherRows,
+  // DrawTogetherScreen, TogetherInput): the console tabs (L1 / R1: every console's games, then each console's, with
+  // how many), the tab's games as a grid of covers, the players with the latency bar above them. The tab and the
+  // selected game are kept by their console and their place in m_games while the room's lists change.
+  struct TogetherCard
+  {
+    int game = -1, players = 0;
+    bool suggested = false;
+  };
+  struct TogetherScreen
+  {
+    static constexpr int COLS = 7;  // cards a row
+    bool on = false;
+    std::vector<std::string> tabs;  // "": every console's; then the consoles' keys
+    std::vector<int> counts;
+    int tab = 0;
+    std::vector<TogetherCard> cards;  // the tab's
+    int index = 0;
+    float scroll = 0.0f;
+    std::string status;  // the lists not in yet, or none in common ("": the cards)
+    int known = 0, unknown = 0;  // games both have for 2 players or more; whose number of players isn't known
+    int need = 2;                // (00.95) the room's players: the games for that many or more
+  } m_together;
+  std::string m_together_tab;
+  int m_together_game = -1;
+  // (A new room starts on the Online tab's console filter's tab; the log's last line of the tabs.)
+  std::string m_together_room, m_together_said;
+  void DrawTogetherScreen(ImDrawList* dl, float dt);
+  bool TogetherInput(uint32_t pressed);
+  void TogetherPick(int game);
+  // (00.86) The host's room stays open while the host goes anywhere (Circle on its panel goes back, Close Room closes
+  // it): the Online tab's table lists the rooms on its connection, ours on top (Cross: back to it). A player asking to
+  // join is a notice over whatever shows (Accept, Reject; Circle: later, in the room) - unless the room's panel shows
+  // (Accept and Reject there). One room at a time: making or joining another while ours is open asks first to close
+  // it (SET_OL_REPLACE; then m_online_after_close).
+  bool HostingRoom() const;
+  bool AskCloseRoom(bool join, std::function<void()> then);
+  void OnlineAskInput(uint32_t pressed);
+  void DrawOnlineAsk(ImDrawList* dl, float dt);
+  std::function<void()> m_online_after_close;
+  int m_online_ask = -1;              // the member asking, its notice shown (-1: none shown)
+  uint32_t m_online_ask_serial = 0;   // the last request noticed (Netplay::View::asking_serial)
+  int m_online_ask_choice = 0;        // Accept 0, Reject 1
+  float m_online_ask_slide = 0.0f;
+  std::string m_online_prefer;        // the room panel's option to select once it is there ("accept", "start")
+  bool m_online_was_hosting = false;  // our room was open last frame (its end in the background is said)
+  bool m_launch_online = false;       // the game launched is an online match (its end's error is the room's)
   // RetroAchievements (00.73, src/Achievements.h): Settings -> RetroAchievements - log in (the user name, then the
   // password, on the keyboard), log out; the panel follows the login as it goes (every frame).
   void OpenAchievementsPanel();
@@ -1461,6 +1802,8 @@ private:
   bool m_ra_marks = true;         // the setting (Settings -> RetroAchievements -> Marks on the Games)
   int m_ra_lib_version = -1;
   float m_ra_lib_time = 0.0f;
+  float m_ra_rebuilt = -10.0f;   // (00.85) when the filter's lists were last made again for the marks
+  bool m_ra_counts_due = false;  // only their counts changed since: made again 3 s after it
   std::string AchievementLine(const Game& game) const;  // Information's line
   // Find Cover (Triangle's options): libretro's pictures most like a name, looked up on a thread.
   void OpenFindCover(int game, bool back_to_list = false);
@@ -1474,6 +1817,10 @@ private:
   void ReturnToNoCover();
   std::string NoCoverDetail() const;
   void RefreshNoCoverItem();
+  void UpdateNoCoverItem();
+  mutable int m_no_cover_count = -1;  // (00.85) the games without a cover (-1: to count again)
+  bool m_no_cover_due = false;
+  float m_no_cover_time = -10.0f;
   // Updates (00.73, src/Update.h): Settings -> Check for Updates and the start's notice of a newer version (one
   // panel each), what they show (rebuilt when the updater's state changes) and their options; every frame.
   void OpenUpdatePanel(bool notice);
@@ -1481,6 +1828,31 @@ private:
   void UpdatePanelChoice();
   void UpdateUpdater();
   std::string UpdatesDetail(const Update::Status& status) const;
+  // Portable data (00.87, src/Portable.h): Settings -> Keep My Data on the USB Drive (its page, the copy's page, the
+  // question for a drive never answered for, the notice for a drive used here connected meanwhile, the warnings), the
+  // drives' look for portable data (each time the menu's drives change) and the restart that switches the data.
+  std::string PortableDetail() const;
+  void OpenPortablePanel();
+  void OpenPortableQuestion(bool notice);
+  void OpenPortableWarning(const std::string& warning);
+  void PortablePanelChoice();
+  // (00.89) The anonymous statistics' notice, once (STATS_NOTICE): wanted, shown, the statistics started after it.
+  bool StatsNoticeWanted() const;
+  void OpenStatsNotice();
+  void StartStats();
+  void OpenHelpPanel();  // (00.90) Settings -> How to Help
+  // (00.91) Send Log (src/LogReport.h): asked, sent, its code; the question after a crash.
+  void OpenSendLogPanel();
+  void BuildSendLogPanel();
+  void SendLogChoice();
+  void OpenCrashQuestion();
+  void StartSendingLog();
+  void StartPortableCopy(Portable::Copying copying, const std::string& drive, Portable::Policy policy);
+  void BuildPortableCopyPanel();
+  bool PortableCopyBusy() const;
+  void UpdatePortable();
+  void PortableLook(const std::vector<std::string>& drives);
+  void RestartApp(const std::string& why);
   // Deleting games: one (Triangle's options), or the duplicates and the other regions (Clean Up).
   void OpenCleanUp();
   void DeleteGames(const std::vector<std::string>& paths);
@@ -1490,11 +1862,12 @@ private:
   void LoadSaves();
   void OpenSavesPanel(int save);
   std::string SaveTitle(const std::string& id) const;
-  ImTextureID StatePicture(const std::string& id, int slot);
+  ImTextureID StatePicture(const std::string& id, int slot, float* aspect = nullptr);
   void ForgetStatePictures();
 
   // Covers: loaded on a thread when a game comes into view, a few dozen kept.
   void IndexCovers();
+  void CoverSaved(const std::string& name, const std::string& path);
   ImTextureID Cover(int game, float* aspect);
   void UpdateCovers();
   void StopCoverThread();
@@ -1532,6 +1905,7 @@ private:
   void Draw(float dt);
   void DrawBackground();
   void DrawCategoryIcon(ImDrawList* dl, Category category, ImVec2 center, float size, ImU32 color);
+  void DrawOnlineMark(ImDrawList* dl, ImVec2 center, float size, float alpha);
   void DrawItem(ImDrawList* dl, const Item& item, float y, bool selected, float alpha);
   void DrawSidePanel(ImDrawList* dl, float dt);
   void DrawHints(ImDrawList* dl);
@@ -1566,9 +1940,40 @@ private:
 
   Display& m_display;
   std::string m_data_dir, m_assets_dir;
+  // (00.87) The player's data folder (src/Portable.h): a USB drive's portable data, else m_data_dir - xmb.ini, the
+  // covers, cheats, themes, bezels, favorites, names, played games and the game list's cache. m_data_dir keeps what is
+  // this PS4's own (its Roms folders, the caches, the logins, the statistics).
+  std::string UserDir() const { return Portable::UserDir(); }
   Preferences m_prefs;
   std::vector<Game> m_games;
-  // Where the games were looked for (BuildGames): the places, each console's number of games, the covers'
+  // (00.85) The read's thread and what goes between it and the menu (under m_read_mutex): the read asked for and not
+  // begun, the one at work (games or not), what it found (the covers first, then the games); its progress (atomics).
+  std::thread m_read_thread;
+  mutable std::mutex m_read_mutex;
+  std::condition_variable m_read_wake;
+  bool m_read_quit = false;
+  std::optional<ReadAsk> m_read_ask;
+  bool m_read_busy = false, m_read_busy_games = false;
+  std::optional<ReadDone> m_read_covers, m_read_done;
+  Library::ScanProgress m_read_progress;
+  // The thread's own: the files' contents it learnt (and the cache's), what the cache on disk has.
+  Library::Contents m_read_contents;
+  uint64_t m_cache_fingerprint = 0;
+  size_t m_cache_facts = 0;
+  Library::Places m_cache_places;
+  std::array<std::string, SYSTEM_COUNT> m_cache_chosen;
+  // The menu's: m_games is a read's (or the cache's) - false at the first start until its read ends -, a read of this
+  // session is in (the start's covers download waits for it, and for the covers' list), the read m_games was made from
+  // (Library::Fingerprint: the same found again leaves m_games as it is), a renamed game's own title (by key), the
+  // count the "Reading your games..." items show.
+  bool m_games_known = false, m_games_read = false, m_covers_listed = false;
+  uint64_t m_games_fingerprint = 0;
+  std::map<std::string, std::string> m_own_titles;
+  int m_reading_shown = -1;
+  bool m_running = false;  // Run() is drawing the menu (not before its first time, nor while a game runs)
+  bool m_read_resume = false;  // a read of the games was stopped for a game: again when the menu comes back
+  std::vector<std::pair<NetProto::LibraryGame, std::string>> m_online_library_files;  // (SelectedPaths' note)
+  // Where the games were looked for (the last read): the places, each console's number of games, the covers'
   // folder on a USB drive ("" without a drive).
   Library::Places m_places;
   float m_places_time = 0.0f;
@@ -1599,6 +2004,7 @@ private:
   bool m_ra_rebuild = false;  // the games' states changed under a panel: the lists made again once it closes
   bool RaFilterOn() const { return m_ra_marks && m_prefs.ra_filter != "off"; }
   bool RaFilterPasses(const Game& game) const;
+  std::string RaFilterHiddenLine(int c) const;  // (00.89) "Only games with achievements - 355 hidden - Touchpad: show all"
   std::string RaFilterLine(int c) const;  // "With achievements: 438 of 793  -  checking 1200 of 3585..."
   SidePanel m_panel;
   bool m_assets_loaded = false;
@@ -1616,6 +2022,7 @@ private:
   std::map<std::string, std::unique_ptr<Sound>> m_sounds;
   ImTextureID m_wallpaper{};
   ImTextureID m_logo{};  // the "EmuSuNi" letters
+  ImTextureID m_help_qr{};  // (00.90) How to Help's QR code (loaded the first time it opens)
   float m_logo_aspect = 4.0f;
   ImTextureID m_glow{};  // a soft round light (white, gaussian alpha): the intro's stardust
   ImTextureID m_star{};  // a star (white, soft edges): the ratings' stars, tinted (DrawRating)
@@ -1629,6 +2036,10 @@ private:
   bool m_capture_released = false;
   float m_capture_time = 0.0f;
   int m_capture_row = 0;
+  // (00.89) A macro's row: its button first (step 0), then its presses held together (step 1: Controls::IsMacro).
+  int m_capture_step = 0;
+  std::string m_capture_trigger;
+  uint32_t m_capture_chord = 0;
 
   // Cheats page, and Find Cheats Online's lists and codes (CheatDownload.h).
   enum class CheatPage
@@ -1646,6 +2057,25 @@ private:
   int m_finder_mb = -1;
   int m_update_serial = -1;     // the updater's state the update panel and the Settings row show
   bool m_update_started = false;
+  bool m_stats_notice = false;   // (00.89) the statistics' notice to show when the menu is free
+  bool m_stats_waiting = false;  //   UsageStats::Start waits for it (answered or closed)
+  bool m_report_ask = false;     // (00.91) EmuSuNi closed by itself last time: the question when the menu is free
+  int m_report_serial = -1;      //   the send's state the Send Log panel shows
+  bool m_report_confirm = false;  //   it shows what goes and Send (not the send's state)
+  // Portable data (00.87, src/Portable.h).
+  std::vector<std::string> m_portable_actions;  // what each option of a portable panel does ("on:/usb0", "off"...)
+  std::string m_portable_drive, m_portable_id;  // the drive (its root, its data's id) a question or notice is for
+  std::string m_portable_pending;               // "ask" or "notice" waiting for the menu to be free
+  std::string m_portable_warning;               // a warning waiting for the menu to be free
+  std::vector<std::string> m_portable_drives;   // the drives of the last look
+  bool m_portable_looked = false;
+  std::set<std::string> m_portable_said;        // the drives' data asked or told about this session
+  Portable::CopyPlan m_portable_plan;           // the copy under way or done
+  std::unique_ptr<Portable::CopyProgress> m_portable_progress;
+  std::thread m_portable_thread;
+  bool m_portable_ok = false;                   // the copy done, every file there (and the drive marked)
+  bool m_portable_ended = false;                // the copy's end taken (its thread joined)
+  float m_portable_built = 0.0f;                // when its page was made last (m_time)
   int m_search_selected = 0;
 
   // Saved data.
@@ -1653,10 +2083,12 @@ private:
   int m_saves_panel = -1;
   std::string m_delete_key;  // "sram" or "slot:N" waiting for "Delete?"
   std::map<std::string, ImTextureID> m_state_pictures;  // "<id>/<slot>"
+  std::map<std::string, float> m_state_aspects;         // (00.89) their width / height
   std::string m_state_pictures_game;
 
   // Covers.
   std::map<std::string, std::string> m_cover_files;  // lower-case name without its extension -> path (CoverFiles)
+  std::vector<std::pair<std::string, std::string>> m_covers_saved;  // (CoverSaved: saved while a list was made)
   struct CoverEntry
   {
     ImTextureID texture{};
@@ -1742,6 +2174,7 @@ private:
 #ifdef EMUSUNI_SATURN
 #endif
   std::string m_pending_error;
+  std::string m_pending_title;  // (its panel's title: "" the game couldn't start)
   float m_memory_log = 0.0f;
 
   // Favorites (game keys, data_dir/favorites.ini) and the search.
@@ -1816,63 +2249,627 @@ private:
 // ---------------------------------------------------------------------------------------------
 // Games and assets.
 
-void Menu::Impl::BuildGames()
+// ---- Reading the games (00.85: big libraries) ----
+
+std::array<std::string, SYSTEM_COUNT> Menu::Impl::ChosenFolders() const
 {
-  m_games.clear();
-  // Each console's games in its folder (Game Folders, else its default one) and, without a folder chosen, in
-  // Roms/<console> of the internal storage and of every USB drive (Library::ScanAll: a folder shared with
-  // another console has its .zip files opened to see whose they are, a file found twice is one game).
-  const std::vector<std::string> drives_now = Library::UsbDrives();
-  MakeFolders(drives_now);  // (first: the folders made are found below, the next look sees the same places)
-  m_places = Library::FindPlaces(m_data_dir, drives_now);
-  m_places_reads.Read();  // (a look on the thread started before this is older now)
-  m_places_time = m_time;
-  m_usb_covers = Library::UsbCoversFolder(m_places.drives);
   std::array<std::string, SYSTEM_COUNT> chosen;
   for (const System& system : Systems())
     chosen[static_cast<size_t>(system.id)] = GamesFolder(system.id);
-  Library::Found scan = Library::ScanAll(chosen, m_places);
-  std::string found, drives;
-  for (const std::string& drive : m_places.drives)
-    drives += (drives.empty() ? "" : ", ") + drive;
+  return chosen;
+}
+
+// (00.87) The folders asked for as the library's cache keeps them: one chosen (Game Folders) on the USB drive with the
+// player's portable data relative to the drive (src/Portable.h: the same drive on usb1 is the same folder), a console's
+// default folder as it is ("/usb0/Roms/n64": whichever drive is usb0). As they are without portable data.
+std::array<std::string, SYSTEM_COUNT> Menu::Impl::StoredChosen(const std::array<std::string, SYSTEM_COUNT>& chosen) const
+{
+  std::array<std::string, SYSTEM_COUNT> stored = chosen;
+  for (const System& system : Systems())
+  {
+    std::string& folder = stored[static_cast<size_t>(system.id)];
+    if (folder != DefaultFolder(system))
+      folder = Portable::ToStored(folder);
+  }
+  return stored;
+}
+
+// The last read's games (the library's cache), before the read's thread starts: shown at once when this version read
+// them in the same folders. The files' contents it learnt go to the thread either way (a file it looked inside isn't
+// opened again while it is the same).
+void Menu::Impl::LoadCachedGames()
+{
+  const auto start = Clock::now();
+  Library::Cache cache;
+  // (00.87) A USB drive's portable data (src/Portable.h): its own cache, its paths relative to the drive.
+  const std::string drive = Portable::Active() ? Portable::DriveRoot() : std::string();
+  if (!Library::LoadCache(UserDir() + "/cache/library.tsv", &cache, drive))
+  {
+    Log("games: none read before (no cache): read now, the menu meanwhile");
+    return;
+  }
+  if (!drive.empty() && !cache.writer.empty() && cache.writer != Portable::LibraryWriter())
+  {
+    // Written by another PS4: its games on its own storage and on its other drives aren't this one's - only the drive's
+    // are shown at once (the read on its thread finds this PS4's own).
+    const size_t before = cache.found.games.size();
+    std::erase_if(cache.found.games, [&drive](const Library::Game& game) {
+      return game.path.compare(0, drive.size() + 1, drive + "/") != 0;
+    });
+    cache.found.counts.fill(0);
+    for (const Library::Game& game : cache.found.games)
+      cache.found.counts[static_cast<size_t>(game.system)]++;
+    Log("games: the cache on the USB drive was written by another PS4: its " + std::to_string(cache.found.games.size()) +
+        " games on the drive shown, " + std::to_string(before - cache.found.games.size()) + " left out");
+  }
+  m_read_contents = std::move(cache.contents);
+  if (cache.version != App::VERSION || cache.chosen != StoredChosen(ChosenFolders()))
+  {
+    Log("games: the last read was " +
+        (cache.version != App::VERSION ? "version " + cache.version + "'s" : std::string("of other folders")) +
+        ": read now, the menu meanwhile");
+    return;
+  }
+  m_cache_fingerprint = Library::Fingerprint(cache.found);
+  m_cache_facts = m_read_contents.size();
+  m_cache_places = cache.places;
+  m_cache_chosen = cache.chosen;
+  m_places = cache.places;
+  m_console_games = cache.found.counts;
+  const size_t count = cache.found.games.size();
+  SetGames(std::move(cache.found.games));
+  m_games_fingerprint = m_cache_fingerprint;
+  m_games_known = true;
+  char line[160];
+  std::snprintf(line, sizeof(line), "games: %zu as the last read found them (%.0f ms); read again on a thread", count,
+                std::chrono::duration<double, std::milli>(Clock::now() - start).count());
+  Log(line);
+}
+
+// A read for the thread: the games (and with them the places and the covers), the covers alone (Covers Saved On), or
+// a look at the places (neither: the games when they changed - a drive plugged in or taken out while a game ran). A
+// read of the games asked for while one runs stops that one at its next file (it starts over with the folders as they
+// are now); a look while a read is under way or waiting is left out (that one answers it).
+void Menu::Impl::AskRead(bool games, bool covers)
+{
+  ReadAsk ask;
+  ask.games = games;
+  ask.covers = covers || games;
+  ask.chosen = ChosenFolders();
+  ask.covers_on = Settings::Get("covers_on");
+  ask.known = m_places;
+  {
+    std::lock_guard lock(m_read_mutex);
+    if (!ask.games && !ask.covers && (m_read_busy || m_read_ask || m_read_done))
+      return;
+    if (m_read_ask)
+    {
+      ask.games = ask.games || m_read_ask->games;
+      ask.covers = ask.covers || m_read_ask->covers;
+    }
+    if (ask.games && m_read_busy)
+      m_read_progress.stop = true;
+    m_read_ask = std::move(ask);
+  }
+  if (!m_read_thread.joinable())
+  {
+    try
+    {
+      m_read_thread = std::thread([this] { ReadMain(); });
+    }
+    catch (...)
+    {
+      // (No thread: the read here, as before 00.85.)
+      Log("games: no thread to read them on: read now");
+      ReadAsk now;
+      {
+        std::lock_guard lock(m_read_mutex);
+        now = std::move(*m_read_ask);
+        m_read_ask.reset();
+      }
+      ReadDone done;
+      if (ReadNow(now, &done) && (done.scanned || done.places_changed))
+      {
+        std::lock_guard lock(m_read_mutex);
+        m_read_done = std::move(done);
+      }
+      return;
+    }
+  }
+  m_read_wake.notify_all();
+}
+
+// The read's thread: one read after another, the newest asked for.
+void Menu::Impl::ReadMain()
+{
+  for (;;)
+  {
+    ReadAsk ask;
+    {
+      std::unique_lock lock(m_read_mutex);
+      m_read_wake.wait(lock, [this] { return m_read_quit || m_read_ask.has_value(); });
+      if (m_read_quit)
+        return;
+      ask = std::move(*m_read_ask);
+      m_read_ask.reset();
+      m_read_busy = true;
+      m_read_busy_games = ask.games;
+      m_read_progress.stop = false;
+      m_read_progress.games = 0;
+    }
+    ReadDone done;
+    const bool complete = ReadNow(ask, &done);
+    std::lock_guard lock(m_read_mutex);
+    m_read_busy = m_read_busy_games = false;
+    if (complete && (done.scanned || done.places_changed))
+      m_read_done = std::move(done);
+  }
+}
+
+// One read (on the thread): the USB drives, the places, the covers' pictures (handed to the menu at once), then every
+// console's games in its folder (Game Folders, else its default one) and, without a folder chosen, in Roms/<console>
+// of the internal storage and of every USB drive (Library::ScanAll: a folder shared with another console has its .zip
+// files opened to see whose they are, a file found twice is one game); what it found kept for the next start.
+bool Menu::Impl::ReadNow(const ReadAsk& ask, ReadDone* done)
+{
+  const auto start = Clock::now();
+  const std::vector<std::string> drives = Library::UsbDrives();
+  bool games = ask.games;
+  const bool covers = ask.covers;
+  if (!games)
+  {
+    done->places = Library::FindPlaces(m_data_dir, drives);
+    if (done->places != ask.known)
+    {
+      Log("game places changed: " + std::to_string(ask.known.drives.size()) + " -> " +
+          std::to_string(done->places.drives.size()) + " USB drives: the games are read again");
+      done->places_changed = games = true;
+      std::lock_guard lock(m_read_mutex);
+      m_read_busy_games = true;
+    }
+    else if (!covers)
+    {
+      return true;  // (nothing changed)
+    }
+  }
+  if (games)
+  {
+    MakeFolders(drives);  // (first: the folders made are found below, the next look sees the same places)
+    done->places = Library::FindPlaces(m_data_dir, drives);
+  }
+  done->usb_covers = Library::UsbCoversFolder(done->places.drives);
+  if (covers || games)
+  {
+    ReadDone listed;
+    ListCovers(done->places.drives, done->usb_covers, ask.covers_on, &listed);
+    std::lock_guard lock(m_read_mutex);
+    m_read_covers = std::move(listed);  // (the menu has them at once: the games may take a while)
+  }
+  if (!games)
+    return true;
+  Library::Found found = Library::ScanAll(ask.chosen, done->places, &m_read_progress, &m_read_contents);
+  if (found.stopped)
+  {
+    Log("games: the read stopped (another one was asked for)");
+    return false;
+  }
+  done->fingerprint = Library::Fingerprint(found);
+  const double seconds = std::chrono::duration<double>(Clock::now() - start).count();
+  std::string counts, drives_line;
+  for (const std::string& drive : done->places.drives)
+    drives_line += (drives_line.empty() ? "" : ", ") + drive;
   for (const System& system : Systems())
   {
     const size_t id = static_cast<size_t>(system.id);
     std::string where;
-    for (size_t f = 0; f < scan.folders[id].size(); f++)
+    for (size_t f = 0; f < found.folders[id].size() && f < found.found_in[id].size(); f++)
     {
-      if (scan.found_in[id][f] > 0)
-        where += (where.empty() ? " in " : " + ") + scan.folders[id][f];
+      if (found.found_in[id][f] > 0)
+        where += (where.empty() ? " in " : " + ") + found.folders[id][f];
     }
-    found += std::string(found.empty() ? "" : ", ") + std::to_string(scan.counts[id]) + " " + system.tab + where;
+    counts += std::string(counts.empty() ? "" : ", ") + std::to_string(found.counts[id]) + " " + system.tab + where;
   }
-  m_console_games = scan.counts;
-  for (Library::Game& rom : scan.games)
+  Log("game places: USB drives " + (drives_line.empty() ? std::string("none") : drives_line) + "; covers on USB: " +
+      (done->usb_covers.empty() ? std::string("none") : done->usb_covers));
+  char took[96];
+  std::snprintf(took, sizeof(took), " (read in %.1f s; %zu files' contents known)", seconds, m_read_contents.size());
+  Log("games: " + counts + took);
+  // The next start's games: written when they (or the places, the folders, the files' contents) aren't the cache's.
+  if (done->fingerprint != m_cache_fingerprint || m_read_contents.size() != m_cache_facts ||
+      done->places != m_cache_places || StoredChosen(ask.chosen) != m_cache_chosen)
+  {
+    const auto save_start = Clock::now();
+    // (00.87) A USB drive's portable data (src/Portable.h): its paths relative to the drive, with a new writer's word
+    // (this PS4's, kept here once the file is written: the next start knows it wrote it).
+    const std::string user = UserDir();
+    const std::string drive = Portable::Active() ? Portable::DriveRoot() : std::string();
+    const std::string writer = drive.empty() ? std::string() : Portable::NewWord();
+    MakeDirs(user + "/cache");
+    if (Library::SaveCache(user + "/cache/library.tsv", App::VERSION, StoredChosen(ask.chosen), done->places, found,
+                           m_read_contents, drive, writer))
+    {
+      if (!writer.empty())
+        Portable::SetLibraryWriter(writer);
+      m_cache_fingerprint = done->fingerprint;
+      m_cache_facts = m_read_contents.size();
+      m_cache_places = done->places;
+      m_cache_chosen = StoredChosen(ask.chosen);
+      char line[96];
+      std::snprintf(line, sizeof(line), "games: kept for the next start (%.0f ms)",
+                    std::chrono::duration<double, std::milli>(Clock::now() - save_start).count());
+      Log(line);
+    }
+    else
+    {
+      Log("games: the cache couldn't be written: the next start reads them first");
+    }
+  }
+  done->found = std::move(found);
+  done->scanned = true;
+  return true;
+}
+
+// Covers: data_dir/covers/<console>/<file name> or <title> (.png, .jpg, .jpeg, any case), e.g. from libretro's
+// thumbnails ("Named_Boxarts"): covers/snes/, covers/nes/... (src/CoverFiles.h; the Super Nintendo's right in
+// covers/ too, as before 00.81, moved into covers/snes/ once). Indexed by the game key's way: "nes/<name>". The
+// USB drives' EmuSuNi/covers too (Covers Saved On), the place new covers are saved in last: its picture wins over
+// another place's of the same name. (00.85: listed on the read's thread; the menu takes them in CoversRead.)
+void Menu::Impl::ListCovers(const std::vector<std::string>& drives, const std::string& usb_covers,
+                            const std::string& covers_on, ReadDone* done)
+{
+  const std::string internal = UserDir() + "/covers";
+  const std::string save = covers_on != "usb" || usb_covers.empty() ? internal : usb_covers;  // (CoversSaveDir's)
+  std::vector<std::string> places;
+  for (const std::string& folder : Library::UsbCoversFolders(drives))
+  {
+    if (Library::PathKey(folder, drives) != Library::PathKey(save, drives))
+      places.push_back(folder);
+  }
+  if (internal != save)
+    places.push_back(internal);
+  places.push_back(save);
+  for (const std::string& place : places)
+  {
+    CoverFiles::MoveOldSnesCovers(place);
+    CoverFiles::List(place, &done->cover_files);
+  }
+  std::string from;
+  for (const std::string& place : places)
+    from += (from.empty() ? "" : ", ") + place;
+  done->usb_covers = usb_covers;
+  done->covers_line =
+      "covers: " + std::to_string(done->cover_files.size()) + " pictures (" + from + "; new ones go to " + save + ")";
+}
+
+void Menu::Impl::TakeRead()
+{
+  std::optional<ReadDone> covers, games;
+  {
+    std::lock_guard lock(m_read_mutex);
+    covers.swap(m_read_covers);
+    if (m_read_done && !(m_launch >= 0 || (m_panel.open && m_panel.title == "Game")))
+      games.swap(m_read_done);
+  }
+  if (covers)
+    CoversRead(*covers);
+  if (games)
+    GamesRead(*games);
+}
+
+void Menu::Impl::CoversRead(ReadDone& done)
+{
+  m_cover_files = std::move(done.cover_files);
+  // (The covers saved while the list was made - downloaded, Find Cover's - stay.)
+  for (const auto& [name, path] : m_covers_saved)
+    m_cover_files[name] = path;
+  m_covers_saved.clear();
+  m_usb_covers = done.usb_covers;
+  ForgetCovers();
+  m_covers_listed = true;
+  Log(done.covers_line);
+  RefreshNoCoverItem();
+  m_covers_changed = true;  // (Without Cover's lists again: Run)
+  if (m_panel.open && m_panel.setting == SET_NO_COVER)
+    BuildNoCoverRows();
+}
+
+// A read's games into the menu: unless they are those it shows already (the same read again: nothing moves), every
+// list made again, each keeping its selected game; then the covers of a new folder's games downloaded.
+void Menu::Impl::GamesRead(ReadDone& done)
+{
+  std::array<std::string, CATEGORY_COUNT> selected = SelectedPaths();
+  // (The first games of a start without them before - none read yet -: each list on the game played last, as Run puts
+  // it when it has them.)
+  if (!m_games_known)
+    selected.fill(m_prefs.last_game);
+  const std::string online = m_online_game >= 0 && m_online_game < static_cast<int>(m_games.size()) ?
+                                 m_games[static_cast<size_t>(m_online_game)].rom.path :
+                                 std::string();
+  m_places = std::move(done.places);
+  m_places_reads.Read();  // (a look on the thread started before this is older now)
+  m_places_time = m_time;
+  m_usb_covers = done.usb_covers;
+  m_console_games = done.found.counts;
+  m_games_read = true;
+  if (!m_games_known || done.fingerprint != m_games_fingerprint)
+  {
+    const size_t before = m_games.size();
+    SetGames(std::move(done.found.games));
+    m_games_fingerprint = done.fingerprint;
+    m_games_known = true;
+    LoadPlayed();
+    GamesChanged(selected, online);
+    if (m_games.size() != before)
+      Log("games: " + std::to_string(before) + " -> " + std::to_string(m_games.size()));
+    // Covers for the games of a new folder, in the background.
+    if (m_dl_auto && !m_dl_thread.joinable() && MissingCovers())
+      StartCoverDownload();
+  }
+  UpdateShownConsoles();  // (Only Those With Games: a console's first game, or its last one gone)
+  if (done.places_changed)
+    ShowToast("Game folders changed: games looked for again", 0);
+  PortableLook(m_places.drives);  // (00.87: a drive with portable data - the start's, or one plugged in)
+}
+
+// Box art: the missing covers are downloaded in the background when the app opens (as Dolphin for PS4 gets GameTDB's),
+// paused while a game runs - (00.85) once the start's read has the games and their covers' list: before, every game
+// would look without one.
+void Menu::Impl::StartCoversOnce()
+{
+  if (m_dl_auto || !m_running || !m_games_read || !m_covers_listed)
+    return;
+  m_dl_auto = true;
+  if (MissingCovers())
+  {
+    Log("covers: downloading the missing ones in the background");
+    StartCoverDownload();
+  }
+}
+
+// A game starts (Run's end, or main.cpp's default game): a read of the games under way or waiting stops - what it held
+// given back (the games it found, the folders it read: several MB of a big library while the game needs its memory),
+// the USB drive the game's alone - and starts again when the menu comes back (Run: the files' contents it learnt kept,
+// so the files it looked inside aren't opened again). A covers' list or a look at the places is short: it goes on.
+void Menu::Impl::HoldRead()
+{
+  std::lock_guard lock(m_read_mutex);
+  if ((m_read_busy && m_read_busy_games) || (m_read_ask && m_read_ask->games))
+  {
+    m_read_resume = true;
+    m_read_ask.reset();
+    m_read_progress.stop = true;
+  }
+  m_read_progress.pause = true;
+}
+
+int Menu::Impl::ReadingGames() const
+{
+  std::lock_guard lock(m_read_mutex);
+  const bool reading = (m_read_busy && m_read_busy_games) || (m_read_ask && m_read_ask->games) ||
+                       (m_read_done && m_read_done->scanned);
+  return reading ? m_read_progress.games.load() : -1;
+}
+
+// "Reading your games..." in the lists the read leaves empty for now (BuildItems), its count as it goes; the lists
+// made again when a read starts or ends.
+void Menu::Impl::UpdateReadingItems()
+{
+  const int reading = ReadingGames();
+  if (reading == m_reading_shown)
+    return;
+  const bool turned = (reading < 0) != (m_reading_shown < 0);
+  m_reading_shown = reading;
+  if (turned)
+  {
+    RebuildGameLists(true);
+    return;
+  }
+  for (int c = 0; c < CATEGORY_COUNT; c++)
+  {
+    auto& items = m_items[c];
+    if (IsGameList(c) && items.size() == 1 && items[0].game < 0 && items[0].label == "Reading your games...")
+      items[0].detail = reading > 0 ? std::to_string(reading) + " found so far" : std::string();
+  }
+}
+
+// The games before the menu's first frame (main.cpp: DefaultGame, FindGame): the cache's, else the first read's - a
+// frame drawn now and then meanwhile (the start's watchdog closes the app without a picture in 20 s), a minute at
+// most (a drive that doesn't answer: the menu opens, the game asked for isn't started).
+bool Menu::Impl::WaitForGames()
+{
+  if (m_games_known)
+    return true;
+  const auto start = Clock::now();
+  ImGuiIO& io = ImGui::GetIO();
+  while (Clock::now() - start < std::chrono::seconds(60))
+  {
+    TakeRead();
+    if (m_games_known)
+      return true;
+    io.DeltaTime = 1.0f / 60.0f;
+    m_display.BeginFrame();
+    ImGui::NewFrame();
+    DrawReading();
+    ImGui::Render();
+    m_display.EndFrame();
+    usleep(10 * 1000);
+  }
+  Log("games: still being read after a minute: the menu opens meanwhile");
+  return false;
+}
+
+// WaitForGames' frame: the letters, "Reading your games..." and how many so far.
+void Menu::Impl::DrawReading()
+{
+  ImDrawList* dl = ImGui::GetForegroundDrawList();
+  dl->AddRectFilled(ImVec2(0, 0), ImVec2(W, H), IM_COL32(0, 0, 0, 255));
+  if (m_logo != ImTextureID{})
+  {
+    const float w = 520.0f, h = w / std::max(m_logo_aspect, 0.1f);
+    dl->AddImage(m_logo, ImVec2(W * 0.5f - w * 0.5f, 420.0f - h), ImVec2(W * 0.5f + w * 0.5f, 420.0f));
+  }
+  if (!m_bold || !m_font)
+    return;
+  const std::string line = "Reading your games...";
+  Text(dl, m_bold, 40, ImVec2(W * 0.5f - TextWidth(m_bold, 40, line) * 0.5f, 520), IM_COL32(255, 255, 255, 255), line);
+  const int found = ReadingGames();
+  if (found > 0)
+  {
+    const std::string count = std::to_string(found) + " found so far";
+    Text(dl, m_font, 30, ImVec2(W * 0.5f - TextWidth(m_font, 30, count) * 0.5f, 590), IM_COL32(255, 255, 255, 190),
+         count);
+  }
+}
+
+void Menu::Impl::SetGames(std::vector<Library::Game>&& roms)
+{
+  std::vector<Game>().swap(m_games);  // (the old ones' room given back first: 30 000 games are several MB)
+  m_games.reserve(roms.size());
+  for (size_t i = 0; i < roms.size(); i++)
   {
     Game game;
-    game.rom = std::move(rom);
+    game.rom = std::move(roms[i]);
+    game.order = static_cast<int>(i);
     m_games.push_back(std::move(game));
   }
-  Log("game places: USB drives " + (drives.empty() ? std::string("none") : drives) + "; covers on USB: " +
-      (m_usb_covers.empty() ? std::string("none") : m_usb_covers));
-  // The user's own names (Rename).
+  std::vector<Library::Game>().swap(roms);
+  ApplyNames();
+  StartRatings();  // (the stars: the games matched before at once, the others on the matcher's thread)
+  StartAchievementMarks();  // (RetroAchievements' marks, 00.77: hashed on the module's thread)
+}
+
+// The user's own names (Rename) on the games - a name taken away gives the game its own title back -, then every
+// console's games together by title, as each console's own list (one title's games in the read's order: the order
+// the stable sort of 00.84 gave them, the titles in lower case made once each).
+void Menu::Impl::ApplyNames()
+{
   for (Game& game : m_games)
   {
     const auto it = m_names.find(game.rom.key);
     if (it != m_names.end())
     {
+      if (!game.rom.custom_title)
+        m_own_titles[game.rom.key] = game.rom.title;
       game.rom.title = it->second;
       game.rom.custom_title = true;
     }
+    else if (game.rom.custom_title)
+    {
+      const auto own = m_own_titles.find(game.rom.key);
+      if (own != m_own_titles.end())
+        game.rom.title = own->second;
+      game.rom.custom_title = false;
+    }
   }
-  // Every console's games together, by title (as each console's own list).
-  std::stable_sort(m_games.begin(), m_games.end(), [](const Game& a, const Game& b) {
-    const std::string la = Lower(a.rom.title), lb = Lower(b.rom.title);
-    return la != lb ? la < lb : a.rom.id < b.rom.id;
+  std::vector<std::string> lower(m_games.size());
+  std::vector<size_t> order(m_games.size());
+  for (size_t i = 0; i < m_games.size(); i++)
+  {
+    lower[i] = Lower(m_games[i].rom.title);
+    order[i] = i;
+  }
+  std::sort(order.begin(), order.end(), [&](size_t a, size_t b) {
+    if (lower[a] != lower[b])
+      return lower[a] < lower[b];
+    if (m_games[a].rom.id != m_games[b].rom.id)
+      return m_games[a].rom.id < m_games[b].rom.id;
+    return m_games[a].order < m_games[b].order;
   });
-  Log("games: " + found);
-  StartRatings();  // (the stars: the games matched before at once, the others on the matcher's thread)
-  StartAchievementMarks();  // (RetroAchievements' marks, 00.77: hashed on the module's thread)
+  std::vector<Game> sorted;
+  sorted.reserve(m_games.size());
+  for (const size_t i : order)
+    sorted.push_back(std::move(m_games[i]));
+  m_games = std::move(sorted);
+}
+
+// Each game list's selected game, by its file (the games about to change); a Choose Together room's games
+// (m_online_library: their places in m_games) by their files too, for GamesChanged.
+std::array<std::string, CATEGORY_COUNT> Menu::Impl::SelectedPaths()
+{
+  std::array<std::string, CATEGORY_COUNT> paths;
+  for (int c = 0; c < CATEGORY_COUNT; c++)
+  {
+    const auto& items = m_items[c];
+    if (IsGameList(c) && m_selected[c] >= 0 && m_selected[c] < static_cast<int>(items.size()) &&
+        items[m_selected[c]].game >= 0 && items[m_selected[c]].game < static_cast<int>(m_games.size()))
+      paths[c] = m_games[static_cast<size_t>(items[m_selected[c]].game)].rom.path;
+  }
+  m_online_library_files.clear();
+  for (const auto& [game, index] : m_online_library)
+  {
+    if (index >= 0 && index < static_cast<int>(m_games.size()))
+      m_online_library_files.emplace_back(game, m_games[static_cast<size_t>(index)].rom.path);
+  }
+  return paths;
+}
+
+// m_games changed (a read's games, a rename's order, games deleted): the covers asked for by index go (a new
+// generation), the lists are made again, each keeping its selected game (by its file; else its first), the online
+// room's game found again by its file.
+void Menu::Impl::GamesChanged(const std::array<std::string, CATEGORY_COUNT>& selected, const std::string& online)
+{
+  ForgetCovers();
+  m_no_cover_count = -1;
+  BuildItems();
+  for (int c = 0; c < CATEGORY_COUNT; c++)
+  {
+    if (!IsGameList(c))
+      continue;
+    m_selected[c] = 0;
+    m_item_pos[c] = 0.0f;
+    const auto& refreshed = m_items[c];
+    for (size_t i = 0; i < refreshed.size(); i++)
+    {
+      if (refreshed[i].game >= 0 && !selected[c].empty() && m_games[refreshed[i].game].rom.path == selected[c])
+      {
+        m_selected[c] = static_cast<int>(i);
+        m_item_pos[c] = static_cast<float>(i);
+      }
+    }
+  }
+  if (m_online_game >= 0)
+  {
+    m_online_game = -1;
+    for (size_t i = 0; i < m_games.size() && !online.empty(); i++)
+    {
+      if (m_games[i].rom.path == online)
+      {
+        m_online_game = static_cast<int>(i);
+        break;
+      }
+    }
+  }
+  if (!m_online_library.empty())
+  {
+    // (A Choose Together room's games at their new places; one gone leaves the room's list.)
+    std::unordered_map<std::string, int> at;
+    for (size_t i = 0; i < m_games.size(); i++)
+      at.emplace(m_games[i].rom.path, static_cast<int>(i));
+    m_online_library.clear();
+    for (const auto& [game, path] : m_online_library_files)
+    {
+      const auto found = at.find(path);
+      if (found != at.end())
+        m_online_library.emplace(game, found->second);
+    }
+  }
+  m_online_library_files.clear();
+}
+
+// The cover textures and the pictures asked for are of the games' old indexes: gone, a new generation (UpdateCovers
+// drops the older one's).
+void Menu::Impl::ForgetCovers()
+{
+  for (auto& [index, cover] : m_covers)
+  {
+    if (cover.texture != ImTextureID{})
+      m_display.DestroyTexture(cover.texture);
+  }
+  m_covers.clear();
+  std::lock_guard lock(m_cover_mutex);
+  m_cover_jobs.clear();
+  m_cover_done.clear();
+  m_cover_generation++;
 }
 
 void Menu::Impl::LoadAssets()
@@ -1909,7 +2906,7 @@ void Menu::Impl::LoadAssets()
   for (const char* name : {"move", "category", "confirm", "back", "launch", "error", "menu", "intro"})
   {
     // A sound in data_dir/themes/sounds replaces the built-in one.
-    std::unique_ptr<Sound> sound = LoadWav(m_data_dir + "/themes/sounds/" + name + ".wav");
+    std::unique_ptr<Sound> sound = LoadWav(UserDir() + "/themes/sounds/" + name + ".wav");
     if (!sound)
       sound = LoadWav(m_assets_dir + "/xmb/sounds/" + name + ".wav");
     if (sound)
@@ -1938,7 +2935,7 @@ void Menu::Impl::LoadAssets()
     m_star = m_display.CreateTexture(star.data(), STAR_SIZE, STAR_SIZE);
   }
   std::error_code error;
-  for (const auto& entry : std::filesystem::directory_iterator(m_data_dir + "/themes", error))
+  for (const auto& entry : std::filesystem::directory_iterator(UserDir() + "/themes", error))
   {
     std::string name = entry.path().filename().string();
     const std::string lower = Lower(name);
@@ -1946,7 +2943,7 @@ void Menu::Impl::LoadAssets()
       m_wallpapers.push_back(name);
   }
   std::sort(m_wallpapers.begin(), m_wallpapers.end());
-  IndexCovers();
+  // (The covers' pictures: listed by the read the constructor asked for - 00.85: not here, before the first frame.)
   m_cover_thread = std::thread([this] {
     for (;;)
     {
@@ -1982,53 +2979,28 @@ void Menu::Impl::StopCoverThread()
     m_cover_thread.join();
 }
 
-// Covers: data_dir/covers/<console>/<file name> or <title> (.png, .jpg, .jpeg, any case), e.g. from libretro's
-// thumbnails ("Named_Boxarts"): covers/snes/, covers/nes/... (src/CoverFiles.h; the Super Nintendo's right in
-// covers/ too, as before 00.81, moved into covers/snes/ once). Indexed by the game key's way: "nes/<name>". The
-// USB drives' EmuSuNi/covers too (Covers Saved On), the place new covers are saved in last: its picture wins over
-// another place's of the same name.
+// The covers' pictures listed again (Covers Saved On changed: the place saved in wins now) - on the read's thread
+// (00.85: ListCovers; a USB drive's covers folder of 30 000 pictures is a long look), the menu taking them as they
+// come (CoversRead).
 void Menu::Impl::IndexCovers()
 {
-  m_cover_files.clear();
-  const std::string save = CoversSaveDir(false), internal = m_data_dir + "/covers";
-  std::vector<std::string> places;
-  for (const std::string& folder : Library::UsbCoversFolders(m_places.drives))
-  {
-    if (Library::PathKey(folder, m_places.drives) != Library::PathKey(save, m_places.drives))
-      places.push_back(folder);
-  }
-  if (internal != save)
-    places.push_back(internal);
-  places.push_back(save);
-  for (const std::string& place : places)
-  {
-    CoverFiles::MoveOldSnesCovers(place);
-    CoverFiles::List(place, &m_cover_files);
-  }
-  for (auto& [index, cover] : m_covers)
-  {
-    if (cover.texture != ImTextureID{})
-      m_display.DestroyTexture(cover.texture);
-  }
-  m_covers.clear();
-  // The covers asked for or decoded before are for the games' old indexes (RefreshGames reads them again in
-  // another order): a new generation, the older one's dropped (UpdateCovers).
-  {
-    std::lock_guard lock(m_cover_mutex);
-    m_cover_jobs.clear();
-    m_cover_done.clear();
-    m_cover_generation++;
-  }
-  std::string from;
-  for (const std::string& place : places)
-    from += (from.empty() ? "" : ", ") + place;
-  Log("covers: " + std::to_string(m_cover_files.size()) + " pictures (" + from + "; new ones go to " + save + ")");
-  RefreshNoCoverItem();
+  AskRead(false, true);
+}
+
+// A cover saved (downloaded, Find Cover's) into the index; kept aside too while a list of them is being made, so the
+// list taken after it still has it (CoversRead).
+void Menu::Impl::CoverSaved(const std::string& name, const std::string& path)
+{
+  m_cover_files[name] = path;
+  m_no_cover_count = -1;
+  std::lock_guard lock(m_read_mutex);
+  if (m_read_busy || m_read_ask || m_read_covers)
+    m_covers_saved.emplace_back(name, path);
 }
 
 std::string Menu::Impl::CoversSaveDir(bool check)
 {
-  const std::string internal = m_data_dir + "/covers";
+  const std::string internal = UserDir() + "/covers";
   if (Settings::Get("covers_on") != "usb" || m_usb_covers.empty())
     return internal;
   if (!check)
@@ -2044,8 +3016,9 @@ std::string Menu::Impl::CoversSaveDir(bool check)
 
 std::string Menu::Impl::CoversDetail() const
 {
+  // (00.90) With the data on a USB drive (Portable), "internal" is the drive's EmuSuNi-Portable/covers: said so.
   if (Settings::Get("covers_on") != "usb")
-    return "Internal Storage";
+    return Portable::Active() ? "With My Data (USB Drive)" : "Internal Storage";
   return m_usb_covers.empty() ? std::string("USB Drive  -  Not connected: internal storage") : "USB Drive  -  " + m_usb_covers;
 }
 
@@ -2176,6 +3149,9 @@ void Menu::Impl::StartRatings(bool again)
       return;
     m_rating_asked.clear();
   }
+  // (00.85: the games for the matcher only when it is free - each a copy of its names alone: the matcher reads no
+  // file's path - and handed over, not copied again: 30 000 games were two copies of every field.)
+  const bool busy = m_rating_matcher.Busy();
   std::vector<Library::Game> wanted;
   for (Game& game : m_games)
   {
@@ -2184,15 +3160,19 @@ void Menu::Impl::StartRatings(bool again)
       game.rating = it->second;
     else if (!again)
       game.rating = Ratings::Rating{};  // (again: the stars stay until the new copy's come)
-    if (it == m_ratings.end() && !m_rating_asked.count(game.rom.key))
-      wanted.push_back(game.rom);
+    if (!busy && it == m_ratings.end() && !m_rating_asked.count(game.rom.key))
+      wanted.push_back(NamesOf(game.rom));
   }
-  if (wanted.empty() || m_rating_matcher.Busy())
+  if (wanted.empty() || busy)
     return;
-  if (m_rating_matcher.Start(wanted, m_assets_dir + "/xmb/ratings", Ratings::CopyPath(m_data_dir)))
+  std::vector<std::string> keys;
+  keys.reserve(wanted.size());
+  for (const Library::Game& rom : wanted)
+    keys.push_back(rom.key);
+  if (m_rating_matcher.Start(std::move(wanted), m_assets_dir + "/xmb/ratings", Ratings::CopyPath(m_data_dir)))
   {
-    for (const Library::Game& rom : wanted)
-      m_rating_asked.insert(rom.key);
+    for (std::string& key : keys)
+      m_rating_asked.insert(std::move(key));
   }
 }
 
@@ -2271,7 +3251,7 @@ bool Menu::Impl::StartBezelDownload(const std::vector<std::string>& consoles, bo
       games.push_back(game.rom);
   }
   m_bezels_counted = false;
-  return !games.empty() && m_bezel_download.Start(m_data_dir, games, consoles, resumed);
+  return !games.empty() && m_bezel_download.Start(UserDir(), games, consoles, resumed);
 }
 
 // The Settings row's value: the download as it goes, else the bezels there (counted the first time, and again after a
@@ -2297,8 +3277,8 @@ std::string Menu::Impl::BezelsDetail()
     m_bezels_there.clear();
     for (const System& system : Systems())
     {
-      if (BezelProject::Has(system.key) && FileExists(BezelProject::RecordPath(m_data_dir, system.key)))
-        m_bezels_there[system.key] = BezelProject::Count(m_data_dir, system.key);
+      if (BezelProject::Has(system.key) && FileExists(BezelProject::RecordPath(UserDir(), system.key)))
+        m_bezels_there[system.key] = BezelProject::Count(UserDir(), system.key);
     }
   }
   int files = 0;
@@ -2530,14 +3510,14 @@ void Menu::Impl::StartCoverDownload(bool closest)
   for (const Game& game : m_games)
   {
     if (!HasCover(game.rom))
-      games.push_back(game.rom);
+      games.push_back(NamesOf(game.rom));  // (00.85: its names only, handed to the thread: no second copy)
     else
       m_dl_skipped++;
   }
   m_dl_progress = 0;
   m_dl_total = static_cast<int>(games.size());
   const std::string covers = CoversSaveDir(true);
-  m_dl_thread = std::thread([this, games, closest, covers] {
+  m_dl_thread = std::thread([this, games = std::move(games), closest, covers] {
     const CoverDownload::Result result = CoverDownload::Download(
         games, covers, m_assets_dir + "/xmb/cacert.pem",
         [this](int done, int total, const std::string& title) {
@@ -2593,15 +3573,15 @@ void Menu::Impl::UpdateCoverDownload()
   }
   for (const auto& [key, path] : saved)
   {
-    m_cover_files[Lower(key)] = path;
+    CoverSaved(Lower(key), path);
     m_cover_why.erase(key);
-    for (size_t i = 0; i < m_games.size(); i++)
+    // (00.85: the covers looked for already - those drawn so far -, not every game, for each cover that comes.)
+    for (auto it = m_covers.begin(); it != m_covers.end();)
     {
-      if (m_games[i].rom.key != key)
-        continue;
-      auto it = m_covers.find(static_cast<int>(i));
-      if (it != m_covers.end() && it->second.texture == ImTextureID{} && !it->second.requested)
-        m_covers.erase(it);  // looked for again next time it is drawn
+      const bool again = it->first >= 0 && it->first < static_cast<int>(m_games.size()) &&
+                         m_games[static_cast<size_t>(it->first)].rom.key == key &&
+                         it->second.texture == ImTextureID{} && !it->second.requested;
+      it = again ? m_covers.erase(it) : std::next(it);  // looked for again next time it is drawn
     }
   }
   if (!saved.empty())
@@ -2681,55 +3661,26 @@ void Menu::Impl::UpdateCoverDownload()
   }
 }
 
-// Square in a game list, or a new game folder: the folders are read again. Each game list keeps
-// its selected game.
+// Square in a game list, a new game folder, a game deleted, a drive plugged in: the folders are read again - on the
+// read's thread (00.85): the lists keep their games meanwhile (their line says the read's count), each its selected
+// game when the new ones come (GamesRead), the covers of a new folder's games downloaded then.
 void Menu::Impl::RefreshGames()
 {
-  std::string selected_path[CATEGORY_COUNT];
-  for (int c = 0; c < CATEGORY_COUNT; c++)
-  {
-    const auto& items = m_items[c];
-    if (IsGameList(c) && m_selected[c] < static_cast<int>(items.size()) && items[m_selected[c]].game >= 0)
-      selected_path[c] = m_games[items[m_selected[c]].game].rom.path;
-  }
-  BuildGames();
-  LoadPlayed();
-  IndexCovers();
-  BuildItems();
-  for (int c = 0; c < CATEGORY_COUNT; c++)
-  {
-    if (!IsGameList(c))
-      continue;
-    m_selected[c] = 0;
-    m_item_pos[c] = 0.0f;
-    const auto& refreshed = m_items[c];
-    for (size_t i = 0; i < refreshed.size(); i++)
-    {
-      if (refreshed[i].game >= 0 && m_games[refreshed[i].game].rom.path == selected_path[c])
-      {
-        m_selected[c] = static_cast<int>(i);
-        m_item_pos[c] = static_cast<float>(i);
-      }
-    }
-  }
-  // Covers for the games of a new folder, in the background.
-  if (m_dl_auto && !m_dl_thread.joinable() && MissingCovers())
-    StartCoverDownload();
-  UpdateShownConsoles();  // (Only Those With Games: a console's first game, or its last one gone)
+  AskRead(true, true);
 }
 
 void Menu::Impl::CheckPlaces(bool now)
 {
   // A look at the drives' top folders and the Roms folders only (Library::FindPlaces): the games are read
-  // again only when they changed.
+  // again only when they changed. (00.85: `now`, back from a game, on the read's thread too: a drive that doesn't
+  // answer can't hold the menu's first frame; no look while a read is under way - its places are newer.)
   if (now)
   {
     m_places_time = m_time;
-    m_places_reads.Read();
-    PlacesFound(Library::FindPlaces(m_data_dir, Library::UsbDrives()));
+    AskRead(false, false);
     return;
   }
-  if (m_places_look.valid() || m_time - m_places_time < 1.5f)
+  if (m_places_look.valid() || m_time - m_places_time < 1.5f || ReadingGames() >= 0)
     return;
   m_places_time = m_time;
   try
@@ -2784,11 +3735,9 @@ void Menu::Impl::PlacesFound(const Library::Places& places)
     return;
   Log(std::string("game places changed: ") + std::to_string(m_places.drives.size()) + " -> " +
       std::to_string(places.drives.size()) + " USB drives: the games are read again");
-  const size_t before = m_games.size();
-  RefreshGames();
+  RefreshGames();  // (GamesRead says how many there are then)
   ShowToast("Game folders changed: games looked for again", 0);
-  if (m_games.size() != before)
-    Log("games: " + std::to_string(before) + " -> " + std::to_string(m_games.size()));
+  PortableLook(places.drives);  // (00.87: a drive with portable data plugged in, the one in use taken out)
 }
 
 // 00.63: nobody has to make the consoles' folders. Each time the games are read (the start, a drive plugged in,
@@ -2983,7 +3932,7 @@ void Menu::Impl::MoveConsole(int from, int to)
   order.insert(order.begin() + (to - 1), moved);
   SetConsoleOrder(order);
   m_prefs.console_order = ConsoleOrderKeys();
-  m_prefs.Save(m_data_dir + "/xmb.ini");
+  m_prefs.Save(UserDir() + "/xmb.ini");
   m_category_pos = static_cast<float>(ColumnIndex(m_category));
   m_tab_pos = static_cast<float>(LibraryTab());
   BuildItems();
@@ -3005,7 +3954,7 @@ bool Menu::Impl::ConsoleOrderInput(uint32_t pressed)
       m_order_moving = false;
       SetConsoleOrder(PresetOrder(preset));
       m_prefs.console_order = preset == "company" ? std::string() : ConsoleOrderKeys();
-      m_prefs.Save(m_data_dir + "/xmb.ini");
+      m_prefs.Save(UserDir() + "/xmb.ini");
       m_category_pos = static_cast<float>(ColumnIndex(m_category));
       m_tab_pos = static_cast<float>(LibraryTab());
       BuildItems();
@@ -3144,10 +4093,10 @@ void Menu::Impl::ApplyPreferences()
     m_display.DestroyTexture(m_wallpaper);
   m_wallpaper = ImTextureID{};
   if (!m_prefs.wallpaper.empty())
-    m_wallpaper = LoadPngTexture(m_data_dir + "/themes/" + m_prefs.wallpaper, nullptr, 1920, 1080);
+    m_wallpaper = LoadPngTexture(UserDir() + "/themes/" + m_prefs.wallpaper, nullptr, 1920, 1080);
   if (m_prefs.console_order != ConsoleOrderKeys())
     SetConsoleOrder(SavedConsoleOrder(m_prefs.console_order));
-  m_prefs.Save(m_data_dir + "/xmb.ini");
+  m_prefs.Save(UserDir() + "/xmb.ini");
 }
 
 void Menu::Impl::BuildItems()
@@ -3169,12 +4118,18 @@ void Menu::Impl::BuildItems()
                                                     std::filesystem::path(m_prefs.wallpaper).stem().string(),
                         -1, -1, SET_THEMES});
   }
+  // (00.87, src/Portable.h) The player's data on a USB drive, to take it to another PS4.
+  settings.push_back({"Keep My Data on the USB Drive", PortableDetail(), -1, -1, SET_PORTABLE});
   settings.push_back({"Language", PS4Lang::Current().name, -1, -1, SET_LANGUAGE});
   // Each console's buttons (its normal layout); a game's own from the game: Triangle -> Controls, or the in-game
   // menu's Controls.
   settings.push_back({"Controls", "Each console's buttons on the DualShock 4", -1, -1, SET_CONTROLS});
   // RetroAchievements (00.73, src/Achievements.h): the account (Casual only, 00.78).
   settings.push_back({"RetroAchievements", AchievementsDetail(), -1, -1, SET_ACHIEVEMENTS});
+  settings.push_back({"My Stats", MyStatsDetail(), -1, -1, SET_MY_STATS});  // (00.23: src/MyStats.h)
+  settings.push_back({"Voice Chat", Voice::Detail(), -1, -1, SET_VOICE});  // (00.23: src/Voice.h)
+  // Online play (00.23, src/Netplay.h): Join with Code, Public Rooms, Hide My Address (a room is made from a game).
+  settings.push_back({"Online Play", "The Online tab: rooms, codes, your profile", -1, -1, SET_ONLINE});
   // The emulation settings (Video, Graphics, Performance, Emulation, System) are set from a game
   // (Triangle -> Game Settings: for that game, its console or all games), not here.
   settings.push_back({"Game Folders", "A folder for each console's games", -1, -1, SET_FOLDERS});
@@ -3195,10 +4150,16 @@ void Menu::Impl::BuildItems()
   settings.push_back({"Sound Effects", m_prefs.sounds ? "On" : "Off", -1, -1, SET_SOUNDS});
   settings.push_back({"Volume", std::to_string(m_prefs.volume), -1, -1, SET_VOLUME});
   settings.push_back({"Menu Style", Library() ? "Library" : "XMB", -1, -1, SET_STYLE});
+  if (const Settings::Setting* size = Settings::Find("menu_size"))
+    settings.push_back({"Menu Size", Settings::LabelOf(*size, Settings::Get("menu_size")), -1, -1, SET_MENU_SIZE});
   settings.push_back({"Clock", m_prefs.clock ? "On" : "Off", -1, -1, SET_CLOCK});
   settings.push_back({"Reset All Settings", "Every setting back to the defaults", -1, -1,
                       SET_RESET_ALL});
   settings.push_back({"Check for Updates", UpdatesDetail(Update::Get()), -1, -1, SET_UPDATES});
+  // (00.23, src/UsageStats.h) How many use EmuSuNi: a random number of this app, never names or games.
+  settings.push_back({"Anonymous Statistics", UsageStats::Enabled() ? "On" : "Off", -1, -1, SET_STATS});
+  settings.push_back({"How to Help", "", -1, -1, SET_HELP});  // (00.90)
+  settings.push_back({"Send Log", "", -1, -1, SET_SEND_LOG});  // (00.91: src/LogReport.h)
   settings.push_back({"About", "", -1, -1, SET_ABOUT});
 
   auto& games = m_items[static_cast<int>(Category::Games)];
@@ -3311,8 +4272,15 @@ void Menu::Impl::BuildItems()
                             m_ra_count[c].unchecked > 0 ? "Still checking the files: they show here as they're found" :
                                                           "Touchpad shows every game again"});
   }
+  // (00.85) A list still empty while the games are being read: "Reading your games..." and how many so far
+  // (UpdateReadingItems counts on).
+  const int reading = ReadingGames();
+  m_reading_shown = reading;
+  const Item reading_item{"Reading your games...", reading > 0 ? std::to_string(reading) + " found so far" : ""};
   if (games.empty() && !m_search.empty())
     games.push_back({"No games match \"" + m_search + "\"", "Circle clears the search"});
+  else if (games.empty() && reading >= 0)
+    games.push_back(reading_item);
   else if (games.empty())
     games.push_back({"No games found", "Copy your games to their console's folder (Settings: Game Folders)"});
   for (const System& system : Systems())
@@ -3320,8 +4288,12 @@ void Menu::Impl::BuildItems()
     auto& list = m_items[ListOfSystem(system.id)];
     if (list.empty() && !m_search.empty())
       list.push_back({"No games match \"" + m_search + "\"", "Circle clears the search"});
+    else if (list.empty() && reading >= 0)
+      list.push_back(reading_item);
     else if (list.empty())
-      list.push_back({"No games found", "Copy games to Roms/" + std::string(system.key) + ", then press Square"});
+      // (00.90: players looked for "Roms/gba" anywhere) Where exactly: the drive's root, or the PS4's storage.
+      list.push_back({"No games found", "Copy your games to Roms/" + std::string(system.key) + " on a USB drive or in " +
+                                            m_data_dir + "/Roms/" + system.key});
   }
   if (favorites.empty() && !m_search.empty() && !m_favorites.empty())
     favorites.push_back({"No favorites match \"" + m_search + "\"", "Circle clears the search"});
@@ -3362,6 +4334,7 @@ void Menu::Impl::BuildItems()
     themes.push_back({std::filesystem::path(m_wallpapers[i]).stem().string(),
                       active ? "In use" : "Wallpaper", -1, -2 - static_cast<int>(i)});
   }
+  BuildOnlineItems();
   for (int c = 0; c < CATEGORY_COUNT; c++)
     m_selected[c] = std::clamp(m_selected[c], 0, std::max(0, static_cast<int>(m_items[c].size()) - 1));
 }
@@ -3395,7 +4368,7 @@ std::string Menu::Impl::SaveTitle(const std::string& id) const
   return title;
 }
 
-ImTextureID Menu::Impl::StatePicture(const std::string& id, int slot)
+ImTextureID Menu::Impl::StatePicture(const std::string& id, int slot, float* aspect)
 {
   if (m_state_pictures_game != id)
   {
@@ -3405,9 +4378,17 @@ ImTextureID Menu::Impl::StatePicture(const std::string& id, int slot)
   const std::string key = id + "/" + std::to_string(slot);
   auto it = m_state_pictures.find(key);
   if (it != m_state_pictures.end())
+  {
+    if (aspect)
+      *aspect = m_state_aspects[key];
     return it->second;
-  const ImTextureID texture = LoadPngTexture(Saves::StatePicturePath(id, slot), nullptr, 256, 224);
+  }
+  float ratio = 8.0f / 7.0f;
+  const ImTextureID texture = LoadPngTexture(Saves::StatePicturePath(id, slot), &ratio, 256, 224);
   m_state_pictures[key] = texture;
+  m_state_aspects[key] = ratio;
+  if (aspect)
+    *aspect = ratio;
   return texture;
 }
 
@@ -3419,6 +4400,7 @@ void Menu::Impl::ForgetStatePictures()
       m_display.DestroyTexture(texture);
   }
   m_state_pictures.clear();
+  m_state_aspects.clear();
   m_state_pictures_game.clear();
 }
 
@@ -3446,7 +4428,7 @@ void Menu::Impl::OpenSavesPanel(int index)
     SettingRow row{slot == 0 ? std::string("Resume State") : "Slot " + std::to_string(slot),
                    DateText(Saves::Modified(Saves::StatePath(save.id, slot))),
                    "del:slot:" + std::to_string(slot)};
-    row.icon = StatePicture(save.id, slot);
+    row.icon = StatePicture(save.id, slot, &row.icon_aspect);
     rows.push_back(std::move(row));
   }
   m_panel.rows = std::move(rows);
@@ -3500,10 +4482,33 @@ void Menu::Impl::OpenSettingPanel(int setting)
     m_panel.lines = {"", "Library: your covers in a row,", "tabs switched with L1 / R1.", "",
                      "XMB: the PSP-style columns."};
     break;
+  case SET_MENU_SIZE:
+    // (00.85) The setting's choices (Settings.cpp's menu_size), the one in use chosen.
+    m_panel.title = "Menu Size";
+    if (const Settings::Setting* size = Settings::Find("menu_size"))
+    {
+      for (const Settings::Choice& choice : size->choices)
+      {
+        if (Settings::Get("menu_size") == choice.value)
+          m_panel.selected = static_cast<int>(m_panel.options.size());
+        m_panel.options.push_back(choice.label);
+      }
+    }
+    m_panel.lines = {"", "Smaller games in the menu:", "more of them on the screen at once,", "in the XMB's list and the",
+                     "Library's row of covers.", "", "It changes at once."};
+    break;
   case SET_CLOCK:
     m_panel.title = "Clock";
     m_panel.options = {"On", "Off"};
     m_panel.selected = m_prefs.clock ? 0 : 1;
+    break;
+  case SET_STATS:
+    m_panel.title = "Anonymous Statistics";
+    m_panel.options = {"On", "Off"};
+    m_panel.selected = UsageStats::Enabled() ? 0 : 1;
+    m_panel.lines = {"", "Counts how many use EmuSuNi and where:", "a random number of this app, its version,",
+                     "the PS4's language, the console and the game", "played (a checksum, never a file's name).",
+                     "No names, no address kept.", "", "Off: nothing is sent."};
     break;
   case SET_RATINGS:
     m_panel.title = "Star Ratings";
@@ -3527,10 +4532,13 @@ void Menu::Impl::OpenSettingPanel(int setting)
     // places' covers are shown. (The drives as they are now.)
     CheckPlaces(true);
     m_panel.title = "Covers Saved On";
-    m_panel.options = {"Internal Storage", "USB Drive"};
+    // (00.90, a player thought his covers had to be moved) With the data on a USB drive (Portable), the first
+    // place is the drive's EmuSuNi-Portable/covers, with the saves: named so. Both places are read either way.
+    const bool portable = Portable::Active();
+    m_panel.options = {portable ? "With My Data (USB Drive)" : "Internal Storage", "USB Drive"};
     m_panel.selected = Settings::Get("covers_on") == "usb" ? 1 : 0;
     m_panel.lines = {"",
-                     "Internal: " + m_data_dir + "/covers",
+                     (portable ? "With your data: " : "Internal: ") + UserDir() + "/covers",
                      m_usb_covers.empty() ? std::string("USB: no drive connected") : "USB: " + m_usb_covers,
                      "",
                      "New covers go there (downloaded or chosen);",
@@ -3549,8 +4557,71 @@ void Menu::Impl::OpenSettingPanel(int setting)
   case SET_ACHIEVEMENTS:
     OpenAchievementsPanel();
     return;
+  case SET_VOICE:
+    OpenVoicePanel();
+    return;
+  case SET_ONLINE:
+    OpenOnlinePanel();
+    return;
+  case SET_OL_CREATE:
+    m_panel.title = "Create Room";
+    m_panel.options = {"With a Game", "Choose Together"};
+    m_online_actions = {"with_game", "together"};
+    m_panel.lines = {"", "With a game: pick it in your games,", "then Triangle -> Play Online.", "",
+                     "Choose Together: a room without a game:", "you pick one you both have."};
+    Play("menu");
+    return;
+  case SET_OL_SETTINGS:
+    OpenOnlineSettings();
+    Play("menu");
+    return;
+  case SET_OL_PROFILE:
+  {
+    const UsageStats::Profile profile = UsageStats::GetProfile();
+    m_panel.title = "Online Profile";
+    m_panel.options = {"On", "Off"};
+    m_online_actions = {"profile_on", "profile_off"};
+    m_panel.selected = profile.on ? 0 : 1;
+    m_panel.lines = {"", "On: EmuSuNi's server keeps your history -", "time played by game and console, sessions,",
+                     "online matches - and gives you a code that", "opens it on EmuSuNi's website.", "",
+                     "Off (the default): nothing of yours is kept.", "Delete My Profile deletes it."};
+    Play("menu");
+    return;
+  }
+  case SET_OL_PUBLIC:
+    m_panel.title = "Public Profile";
+    m_panel.options = {"On", "Off"};
+    m_online_actions = {"public_on", "public_off"};
+    m_panel.selected = UsageStats::GetProfile().is_public ? 0 : 1;
+    m_panel.lines = {"", "On: your nickname, country and hours", "are in the website's rankings.", "",
+                     "Off: only your code opens your profile."};
+    Play("menu");
+    return;
+  case SET_OL_CODE:
+    m_panel.title = "Profile Code";
+    m_panel.options = {"OK"};
+    m_online_actions = {"back"};
+    m_panel.lines = {"", UsageStats::GetProfile().code, "", "Your profile on EmuSuNi's website:",
+                     "emusuni.com", "Statistics -> My Profile, with this code.", "",
+                     "Anyone with the code sees it: keep it."};
+    Play("menu");
+    return;
+  case SET_OL_DELETE:
+    m_panel.title = "Delete My Profile";
+    m_panel.options = {"Cancel", "Delete My Profile"};
+    m_online_actions = {"back", "delete_profile"};
+    m_panel.lines = {"", "Your profile is deleted on EmuSuNi's", "server: its time played, sessions and",
+                     "online matches. My Stats on this PS4 stay."};
+    Play("menu");
+    return;
+  case SET_MY_STATS:
+    OpenMyStats();
+    return;
   case SET_BEZELS:
     OpenBezelsPanel();
+    return;
+  case SET_PORTABLE:
+    OpenPortablePanel();  // (00.87)
     return;
   case SET_UPDATES:
     OpenUpdatePanel(false);
@@ -3571,11 +4642,17 @@ void Menu::Impl::OpenSettingPanel(int setting)
     m_panel.options = {"Cancel", "Reset everything"};
     m_panel.lines = {"", "All games, global and per game,", "go back to the default settings."};
     break;
+  case SET_HELP:
+    OpenHelpPanel();
+    return;
+  case SET_SEND_LOG:
+    OpenSendLogPanel();
+    return;
   case SET_ABOUT:
     m_panel.title = "About";
-    m_panel.lines = {"EmuSuNi", "", "Created by Arturo Fuentes", std::string("Version ") + App::VERSION, "",
-                     "Star ratings by the players of the", "LaunchBox Games Database", "",
-                     "Game bezels by The Bezel Project", "(github.com/thebezelproject)"};
+    // (00.95, the owner: his name and the version only. LaunchBox's and The Bezel Project's credits are in their own
+    // panels - Star Ratings, Game Bezels - and in THIRD_PARTY_NOTICES.md.)
+    m_panel.lines = {"EmuSuNi", "", "Created by Arturo Fuentes", std::string("Version ") + App::VERSION};
     break;
   default:
     if (setting >= SET_GROUP && setting < SET_GROUP + static_cast<int>(Settings::Categories().size()))
@@ -3798,6 +4875,19 @@ void Menu::Impl::ChangeSettingRow(int direction)
     }
     return;
   }
+  if (m_panel.setting == SET_VOICE)
+  {
+    // Voice Chat (00.23): a setting stepped (Voice saves it), Test Microphone started or stopped (the microphone of
+    // the PS4's first user, whose controller the menu reads).
+    int user = 0;
+    sceUserServiceGetInitialUser(&user);
+    if (Voice::PanelChange(row.key, direction, user))
+    {
+      BuildVoiceRows();
+      BuildItems();  // (the Settings list's Voice Chat line)
+    }
+    return;
+  }
   if (m_panel.setting == SET_ACHIEVEMENTS)
   {
     // RetroAchievements (00.73): log in (the user name, then the password, on the keyboard: only the token the
@@ -4014,7 +5104,7 @@ void Menu::Impl::ChangeSettingRow(int direction)
       const System& system = GetSystem(m_browse_system);
       m_prefs.games_dirs[system.key] =
           m_browse_dir == DefaultFolder(system) ? "" : m_browse_dir;
-      m_prefs.Save(m_data_dir + "/xmb.ini");
+      m_prefs.Save(UserDir() + "/xmb.ini");
       m_panel.open = false;
       RefreshGames();
       Play("confirm");
@@ -4066,10 +5156,14 @@ void Menu::Impl::ChangeSettingRow(int direction)
         m_capture_released = false;
         m_capture_time = 0.0f;
         m_capture_row = m_panel.selected;
+        m_capture_step = 0;
+        m_capture_chord = 0;
       }
       else
       {
         Controls::Set(binding, "None", edit, system);
+        if (Controls::IsMacro(binding))
+          Controls::SetMacroPresses(binding, "", edit, system);
         BuildControlRows();
       }
     }
@@ -4247,6 +5341,12 @@ void Menu::Impl::BuildControlRows()
     SettingRow row{bindings[i].label, bindings[i].stick_group ? value : Controls::Describe(value),
                    "ctl:" + std::to_string(i)};
     row.glyph = bindings[i].stick_group ? "" : value;
+    if (Controls::IsMacro(bindings[i]))
+    {
+      // (00.89) A macro: its button and what it presses, in words ("R1 = Cross + Triangle").
+      row.value = Controls::MacroText(bindings[i], edit, m_controls_system);
+      row.glyph.clear();
+    }
     rows.push_back(std::move(row));
   }
   rows.push_back({"", "", "", true});
@@ -4269,19 +5369,47 @@ void Menu::Impl::UpdateCapture(float dt)
     m_capture_released = Controls::IsAtRest(data);
     return;
   }
-  if (m_capture_time > 5.0f)
+  if (m_capture_time > 5.0f && m_capture_chord == 0)
   {
     m_capture = false;
+    m_capture_step = 0;
     Play("back");
     return;
   }
   const std::string& key = m_panel.rows[m_capture_row].key;
   const auto& binding = Controls::Bindings(m_controls_system)[std::atoi(key.c_str() + 4)];
-  const std::string control = Controls::Capture(data);
+  const std::string edit = Controls::HasGameProfile(m_controls_game) ? m_controls_game : "";
+  if (m_capture_step == 1)
+  {
+    // (00.89) A macro's presses: every button held together, taken once all of them are let go.
+    m_capture_chord |= Controls::PressedControls(data);
+    if (m_capture_chord == 0 || !Controls::IsAtRest(data))
+      return;
+    Controls::Set(binding, m_capture_trigger, edit, m_controls_system);
+    Controls::SetMacroPresses(binding, Controls::NamesOf(m_capture_chord), edit, m_controls_system);
+    Log("controls: " + std::string(binding.label) + " = " + Controls::MacroText(binding, edit, m_controls_system));
+    BuildControlRows();
+    m_capture = false;
+    m_capture_step = 0;
+    m_input.Poll(0.0f);  // swallow the presses
+    Play("confirm");
+    return;
+  }
+  const std::string control = Controls::Capture(data, Controls::TakesSticks(binding));  // (00.90: a stick too)
   if (control.empty())
     return;
-  Controls::Set(binding, control, Controls::HasGameProfile(m_controls_game) ? m_controls_game : "",
-                m_controls_system);
+  if (Controls::IsMacro(binding))
+  {
+    // Its button: now its presses (kept with it once they come; 5 s without them: nothing changes).
+    m_capture_trigger = control;
+    m_capture_step = 1;
+    m_capture_chord = 0;
+    m_capture_released = false;
+    m_capture_time = 0.0f;
+    Play("confirm");
+    return;
+  }
+  Controls::Set(binding, control, edit, m_controls_system);
   BuildControlRows();
   m_capture = false;
   m_input.Poll(0.0f);  // swallow the press
@@ -4298,10 +5426,10 @@ void Menu::Impl::OpenCheatsList(const Game& game)
   m_cheats_path = game.rom.path;
   m_cheats_title = game.rom.title;
   m_cheats_system = game.rom.system;
-  m_cheats_folder = m_data_dir + "/cheats/" + GetSystem(game.rom.system).prefix;
+  m_cheats_folder = UserDir() + "/cheats/" + GetSystem(game.rom.system).prefix;
   m_cheats_file = game.rom.id + ".cht";
   m_cheat_page = CheatPage::List;
-  m_cheats.Load(m_data_dir, game.rom.key);
+  m_cheats.Load(UserDir(), game.rom.key);
   BuildCheatRows();
   m_panel.selected = 0;
   MoveSettingRow(0);
@@ -4443,8 +5571,8 @@ void Menu::Impl::OpenGameOptions()
   m_panel = {};
   m_panel.open = true;
   m_panel.title = "Game";
+  // (00.88) Favorites no longer here: L2 on a game adds it or takes it out (the menu fits the screen again).
   m_panel.options = {"Start",
-                     IsFavorite(index) ? "Remove from Favorites" : "Add to Favorites",
                      "Game Settings",
                      "Cheats",  // (left out for the Dreamcast: below)
                      "Controls",
@@ -4466,6 +5594,14 @@ void Menu::Impl::OpenGameOptions()
     const auto info = std::find(m_panel.options.begin(), m_panel.options.end(), "Information");
     m_panel.options.insert(info, "Achievements");
   }
+  // Online play (00.23, src/Netplay.h): the consoles that play online, after Start.
+  if (Netplay::RulesFor(GetSystem(game.rom.system).key).online)
+    m_panel.options.insert(m_panel.options.begin() + 1, "Play Online");
+#ifdef EMUSUNI_GBLINK
+  // (00.95) The Game Boy link cable online (src/GbLink.h): its room for two, the other player's own game in Game Boy 2.
+  if (game.rom.system == SystemId::GB || game.rom.system == SystemId::GBC)
+    m_panel.options.insert(m_panel.options.begin() + 1, "Link Cable Online");
+#endif
   Play("menu");
 }
 
@@ -4481,6 +5617,15 @@ void Menu::Impl::ApplySettingOption(int setting, int option)
     break;
   case SET_CLOCK:
     m_prefs.clock = option == 0;
+    break;
+  case SET_STATS:
+    UsageStats::SetEnabled(option == 0);
+    break;
+  case SET_STATS_NOTICE:
+    StartStats();  // (first: off before the start wouldn't be kept)
+    if (option == 1)
+      UsageStats::SetEnabled(false);
+    Log(std::string("stats: the notice answered: ") + (option == 1 ? "turned off" : "OK"));
     break;
   case SET_RATINGS:
     if (option == 2)
@@ -4502,6 +5647,14 @@ void Menu::Impl::ApplySettingOption(int setting, int option)
   case SET_STYLE:
     m_prefs.style = option == 0 ? "library" : "xmb";
     break;
+  case SET_MENU_SIZE:
+    // (00.85: a global value of settings.ini, as Covers Saved On; the next frame draws it - Draw reads it.)
+    if (const Settings::Setting* size = Settings::Find("menu_size"))
+    {
+      if (option >= 0 && option < static_cast<int>(size->choices.size()))
+        Settings::Set("menu_size", size->choices[static_cast<size_t>(option)].value);
+    }
+    break;
   case SET_COVERS:
   {
     // (Settings::Set: a global value of settings.ini, as the language: Reset All Settings puts it back.)
@@ -4509,7 +5662,7 @@ void Menu::Impl::ApplySettingOption(int setting, int option)
     const std::string folder = CoversSaveDir(true);  // made now on the drive
     Log("covers: new ones go to " + folder);
     IndexCovers();  // the place saved in wins over the other one now
-    ShowToast(option == 1 && folder == m_data_dir + "/covers" ? std::string("No USB drive: covers stay internal") :
+    ShowToast(option == 1 && folder == UserDir() + "/covers" ? std::string("No USB drive: covers stay internal") :
                                                                 "Covers: " + folder,
               0);
     break;
@@ -4517,12 +5670,13 @@ void Menu::Impl::ApplySettingOption(int setting, int option)
   case SET_RESET_ALL:
     if (option == 1)
     {
-      // The games' settings; the menu's own options stay, as the language does (Consoles Shown and Covers
-      // Saved On are global values of settings.ini too).
+      // The games' settings; the menu's own options stay, as the language does (Consoles Shown, Covers
+      // Saved On and Menu Size, 00.85, are global values of settings.ini too).
       std::vector<std::pair<std::string, std::string>> menu;
       for (const auto& [key, value] : Settings::GlobalValues())
       {
-        if (key == "consoles_shown" || key == "consoles_off" || key == "covers_on")
+        if (key == "consoles_shown" || key == "consoles_off" || key == "covers_on" || key == "menu_size" ||
+            key == "stats_notice")
           menu.emplace_back(key, value);
       }
       Settings::ResetAll();
@@ -4548,12 +5702,21 @@ void Menu::Impl::HandleInput(uint32_t pressed)
     HandleKeyboard(pressed);
     return;
   }
+  if (m_online_ask >= 0)
+  {
+    OnlineAskInput(pressed);  // (00.86: a player asking to join our room)
+    return;
+  }
+  if (m_panel.open && OnlinePanelInput(pressed))
+    return;  // (00.23: online play's panels)
   if (m_panel.open)
   {
     if (m_panel.setting == SET_FIND_COVER)
       m_find_select_first = false;  // the user moved first: no jump to the closest picture
     if (m_panel.setting == SET_CONSOLE_ORDER && ConsoleOrderInput(pressed))
       return;
+    if ((pressed & BTN_CIRCLE) && m_panel.setting == SET_PORTABLE_COPY && (PortableCopyBusy() || m_portable_ok))
+      return;  // (00.87: the copy of the player's data goes on; once done, Restart Now)
     if (pressed & BTN_CIRCLE)
     {
       if (m_first_language && m_panel.setting == SET_LANGUAGE)
@@ -4736,7 +5899,7 @@ void Menu::Impl::HandleInput(uint32_t pressed)
           if (BezelProject::Has(system.key))
             keys.push_back(system.key);
         }
-        const BezelProject::Downloaded deleted = BezelProject::DeleteAll(m_data_dir, keys);
+        const BezelProject::Downloaded deleted = BezelProject::DeleteAll(UserDir(), keys);
         m_bezels_counted = false;
         ShowToast("Bezels deleted: " + std::to_string(deleted.files) + " (" +
                       std::to_string((deleted.bytes + (1 << 19)) >> 20) + " MB)",
@@ -4756,9 +5919,19 @@ void Menu::Impl::HandleInput(uint32_t pressed)
       Play(go ? "confirm" : "back");
       return;
     }
+    if (m_panel.setting == SET_SEND_LOG || m_panel.setting == SET_SEND_LOG_ASK)
+    {
+      SendLogChoice();  // (00.91)
+      return;
+    }
     if (m_panel.setting == SET_UPDATES || m_panel.setting == SET_UPDATE_NOTICE)
     {
       UpdatePanelChoice();
+      return;
+    }
+    if (m_panel.setting >= SET_PORTABLE && m_panel.setting <= SET_PORTABLE_WARNING)
+    {
+      PortablePanelChoice();  // (00.87)
       return;
     }
     if (m_panel.setting >= 0)
@@ -4803,6 +5976,16 @@ void Menu::Impl::HandleInput(uint32_t pressed)
                                      std::string("Its file is deleted from the drive:"),
                          file, "", "Its saves stay (Saved Data)."};
         Play("menu");
+        return;
+      }
+      if (choice == "Play Online")
+      {
+        OpenOnlineHost(item.game);  // (00.23: a private or a public room)
+        return;
+      }
+      if (choice == "Link Cable Online")
+      {
+        OpenOnlineHost(item.game, true);  // (00.95: a Game Boy link cable room)
         return;
       }
       if (choice == "Rename")
@@ -4948,7 +6131,7 @@ void Menu::Impl::HandleInput(uint32_t pressed)
         // One default game: setting another replaces it, the same game again removes it.
         const bool remove = m_prefs.default_game == game.rom.path;
         m_prefs.default_game = remove ? "" : game.rom.path;
-        m_prefs.Save(m_data_dir + "/xmb.ini");
+        m_prefs.Save(UserDir() + "/xmb.ini");
         BuildItems();
         m_panel.title = remove ? "Remove Default Game" : "Set as Default Game";
         m_panel.options.clear();
@@ -4965,6 +6148,9 @@ void Menu::Impl::HandleInput(uint32_t pressed)
     Play("confirm");
     return;
   }
+  // (00.85) The Online tab's table: its rows and its buttons (the tabs' and the columns' stay as they are).
+  if (m_category == static_cast<int>(Category::Online) && OnlineTabInput(pressed))
+    return;
 
   auto& items = m_items[m_category];
   int& selected = m_selected[m_category];
@@ -5058,7 +6244,7 @@ void Menu::Impl::HandleInput(uint32_t pressed)
     while (sort < std::size(SORT_NAMES) && m_prefs.sort != SORT_NAMES[sort][0])
       sort++;
     m_prefs.sort = SORT_NAMES[(sort + 1) % std::size(SORT_NAMES)][0];
-    m_prefs.Save(m_data_dir + "/xmb.ini");
+    m_prefs.Save(UserDir() + "/xmb.ini");
     const int game = items.empty() ? -1 : items[selected].game;
     BuildItems();
     const auto& sorted = m_items[m_category];
@@ -5097,7 +6283,7 @@ void Menu::Impl::HandleInput(uint32_t pressed)
     else
     {
       m_prefs.ra_filter = m_prefs.ra_filter == "off" ? "known" : m_prefs.ra_filter == "known" ? "progress" : "off";
-      m_prefs.Save(m_data_dir + "/xmb.ini");
+      m_prefs.Save(UserDir() + "/xmb.ini");
       RebuildGameLists(true);
       m_sort_shown = 2.5f;
       if (!Library())
@@ -5143,7 +6329,7 @@ void Menu::Impl::HandleInput(uint32_t pressed)
 void Menu::Impl::LoadFavorites()
 {
   m_favorites.clear();
-  std::ifstream file(m_data_dir + "/favorites.ini");
+  std::ifstream file(UserDir() + "/favorites.ini");
   std::string line;
   while (std::getline(file, line))
   {
@@ -5160,7 +6346,7 @@ void Menu::Impl::SaveFavorites() const
                      "# nes/<file name> for a NES game)\n";
   for (const std::string& id : m_favorites)
     text += id + "\n";
-  WriteTextFile(m_data_dir + "/favorites.ini", text);
+  WriteTextFile(UserDir() + "/favorites.ini", text);
 }
 
 bool Menu::Impl::IsFavorite(int game) const
@@ -5368,7 +6554,7 @@ void Menu::Impl::ActivateItem(const Item& item)
     m_launch = item.game;
     m_launch_time = 0.0f;
     m_prefs.last_game = m_games[item.game].rom.path;
-    m_prefs.Save(m_data_dir + "/xmb.ini");
+    m_prefs.Save(UserDir() + "/xmb.ini");
     m_games[item.game].played = static_cast<int64_t>(std::time(nullptr));
     SavePlayed();
     Play("launch");
@@ -5411,7 +6597,7 @@ void Menu::Impl::ActivateItem(const Item& item)
 void Menu::Impl::LoadNames()
 {
   m_names.clear();
-  std::ifstream file(m_data_dir + "/names.ini");
+  std::ifstream file(UserDir() + "/names.ini");
   std::string line;
   while (std::getline(file, line))
   {
@@ -5429,7 +6615,7 @@ void Menu::Impl::SaveNames() const
   std::string text = "# EmuSuNi: your names for games (Triangle -> Rename): <game key><tab><name>\n";
   for (const auto& [key, name] : m_names)
     text += key + "\t" + name + "\n";
-  WriteTextFile(m_data_dir + "/names.ini", text);
+  WriteTextFile(UserDir() + "/names.ini", text);
 }
 
 void Menu::Impl::RenameGame(const std::string& key, const std::string& typed)
@@ -5451,7 +6637,16 @@ void Menu::Impl::RenameGame(const std::string& key, const std::string& typed)
   Log("renamed " + key + " -> " + (name.empty() ? own : name));
   m_ratings.erase(key);  // (its rating by its new name: StartRatings)
   m_rating_asked.erase(key);
-  RefreshGames();
+  // (00.85) The name on the game now, without reading every folder again (nothing changed on the drive): the games by
+  // title again, the stars of its new name, the marks of the games' new order.
+  const std::array<std::string, CATEGORY_COUNT> selected = SelectedPaths();
+  const std::string online = m_online_game >= 0 && m_online_game < static_cast<int>(m_games.size()) ?
+                                 m_games[static_cast<size_t>(m_online_game)].rom.path :
+                                 std::string();
+  ApplyNames();
+  StartRatings();
+  StartAchievementMarks();
+  GamesChanged(selected, online);
   ShowToast(name.empty() || name == own ? "Its own name again" : "Renamed", 0);  // (the keyboard's OK: its sound)
 }
 
@@ -5489,6 +6684,59 @@ std::string Menu::Impl::AchievementsDetail() const
   default:
     return "Not logged in";
   }
+}
+
+void Menu::Impl::OpenVoicePanel()
+{
+  m_panel = {};
+  m_panel.open = true;
+  m_panel.setting = SET_VOICE;
+  m_panel.title = "Voice Chat";
+  BuildVoiceRows();
+  m_panel.selected = 0;
+  MoveSettingRow(0);
+}
+
+// Settings -> Voice Chat (00.23): Voice's rows; its notes (Test Microphone's progress and result) over header lines of
+// the panel's width, translated here; the level meter's bar as it is. The selection stays on its row.
+void Menu::Impl::BuildVoiceRows()
+{
+  const int at = m_panel.selected;
+  const std::string selected =
+      at >= 0 && at < static_cast<int>(m_panel.rows.size()) ? m_panel.rows[at].key : std::string();
+  std::vector<SettingRow> rows;
+  for (const Voice::Row& row : Voice::PanelRows())
+  {
+    if (!row.key.empty())
+    {
+      SettingRow setting{row.label, row.value, row.key};
+      setting.help = row.help;
+      rows.push_back(std::move(setting));
+    }
+    else if (!row.value.empty() || row.label.empty())
+    {
+      rows.push_back({row.label, row.value, "", true});  // (the meter: its bar and its level; or a gap)
+    }
+    else
+    {
+      const std::string wrapped = WrapText(m_bold, 26, PS4Lang::T(row.label), 880.0f - 120.0f);
+      for (size_t start = 0; start <= wrapped.size();)
+      {
+        const size_t end = std::min(wrapped.find('\n', start), wrapped.size());
+        rows.push_back({wrapped.substr(start, end - start), "", "", true});
+        start = end + 1;
+      }
+    }
+  }
+  m_panel.rows = std::move(rows);
+  m_panel.selected = 0;
+  for (size_t i = 0; i < m_panel.rows.size(); i++)
+  {
+    if (!selected.empty() && m_panel.rows[i].key == selected)
+      m_panel.selected = static_cast<int>(i);
+  }
+  if (m_panel.rows[m_panel.selected].header)
+    MoveSettingRow(1);
 }
 
 void Menu::Impl::OpenAchievementsPanel()
@@ -5564,6 +6812,15 @@ void Menu::Impl::UpdateAchievements(float dt)
   {
     m_ra_lib_time = 1.0f;
     RefreshAchievementMarks();
+    if (m_ra_counts_due && m_time - m_ra_rebuilt >= 3.0f && RaFilterOn())
+    {
+      m_ra_counts_due = false;  // (00.85: the filter's counts that waited)
+      m_ra_rebuilt = m_time;
+      if (m_panel.open || m_keyboard)
+        m_ra_rebuild = true;
+      else
+        RebuildGameLists(true);
+    }
   }
   // (00.80) The filter's lists made again once the panel or the keyboard that held them back is gone.
   if (m_ra_rebuild && !m_panel.open && !m_keyboard)
@@ -6050,20 +7307,38 @@ void Menu::Impl::RefreshAchievementMarks()
   if (version == m_ra_lib_version)
     return;
   m_ra_lib_version = version;
-  const std::map<std::string, Achievements::LibraryInfo> infos = Achievements::GetLibraryInfos();
-  bool changed = false;
-  for (Game& game : m_games)
+  // (00.85) Only the games whose state may have changed (the files hashed since; every game after a new list, a
+  // console's list, the account's progress): before, every game's each second while the files were hashed. Each by
+  // its place in the list given to SetLibrary (StartAchievementMarks: m_games' order; its key checks it).
+  bool all = false;
+  const std::vector<Achievements::LibraryChange> changes = Achievements::TakeLibraryChanges(&all);
+  bool changed = false, moved = false;  // moved: a game into or out of the filter's lists
+  for (const Achievements::LibraryChange& change : changes)
   {
-    const auto it = infos.find(game.rom.key);
-    const Achievements::LibraryInfo info = it != infos.end() ? it->second : Achievements::LibraryInfo{};
-    changed = changed || info.state != game.ra.state || info.progress != game.ra.progress ||
-              info.unlocked != game.ra.unlocked || info.achievements != game.ra.achievements;
+    if (change.index >= m_games.size() || m_games[change.index].rom.key != change.key)
+      continue;
+    Game& game = m_games[change.index];
+    const Achievements::LibraryInfo& info = change.info;
+    const bool differs = info.state != game.ra.state || info.progress != game.ra.progress ||
+                         info.unlocked != game.ra.unlocked || info.achievements != game.ra.achievements;
+    const bool passed = differs && RaFilterPasses(game);
     game.ra = info;
+    changed = changed || differs;
+    moved = moved || (differs && passed != RaFilterPasses(game));
   }
   // (00.80) The RetroAchievements filter follows the games as they're checked (each list keeps its selected game) -
   // not under an open panel or the keyboard, whose game must stay where it is: after them (UpdateAchievements).
+  // (00.85: a game into or out of the lists at once; the count alone - "checking 1200 of 3585..." - every 3 s at most:
+  // each time is every list made again.)
   if (changed && RaFilterOn())
   {
+    if (!moved && m_time - m_ra_rebuilt < 3.0f)
+    {
+      m_ra_counts_due = true;
+      return;
+    }
+    m_ra_counts_due = false;
+    m_ra_rebuilt = m_time;
     if (m_panel.open || m_keyboard)
       m_ra_rebuild = true;
     else
@@ -6080,6 +7355,15 @@ bool Menu::Impl::RaFilterPasses(const Game& game) const
     return false;
   return m_prefs.ra_filter != "progress" ||
          (info.progress && info.unlocked > 0 && info.unlocked < info.achievements);
+}
+
+std::string Menu::Impl::RaFilterHiddenLine(int c) const
+{
+  const int shown = m_ra_emptied[c] ? 0 : static_cast<int>(m_items[c].size());
+  const int hidden = std::max(0, m_ra_count[c].total - shown);
+  return std::string(m_prefs.ra_filter == "progress" ? "Only games with achievements in progress" :
+                                                       "Only games with achievements") +
+         "  -  " + std::to_string(hidden) + " hidden  -  Touchpad: show every game";
 }
 
 // The filter's line under a list's title: its count, and the check still going on ("checking 1200 of 3585...").
@@ -6236,7 +7520,7 @@ void Menu::Impl::UpdateFind(float dt)
     else if (result.ok)
     {
       // The new cover: shown at once (the old picture's texture goes).
-      m_cover_files[Lower(result.key)] = result.path;
+      CoverSaved(Lower(result.key), result.path);
       for (size_t i = 0; i < m_games.size(); i++)
       {
         if (m_games[i].rom.key != result.key)
@@ -6294,7 +7578,7 @@ void Menu::Impl::UpdateFind(float dt)
       {
         std::lock_guard lock(m_find_mutex);
         m_find_jobs.push_back({1, m_find_system, m_find_titles, "", want,
-                               m_data_dir + "/covers/.preview" + std::to_string(++m_preview_serial) + ".png"});
+                               UserDir() + "/covers/.preview" + std::to_string(++m_preview_serial) + ".png"});
       }
       m_find_wake.notify_one();
     }
@@ -6309,7 +7593,7 @@ void Menu::Impl::FindWorker()
 {
   std::map<std::pair<int, bool>, std::vector<std::string>> lists;
   std::map<std::pair<int, bool>, std::shared_ptr<const CoverDownload::Prepared>> prepared;  // for Closest()
-  const std::string covers = m_data_dir + "/covers", ca = m_assets_dir + "/xmb/cacert.pem";
+  const std::string covers = UserDir() + "/covers", ca = m_assets_dir + "/xmb/cacert.pem";
   for (;;)
   {
     FindJob job;
@@ -6378,16 +7662,33 @@ void Menu::Impl::FindWorker()
 // Settings' line for it: how many games have no cover picture.
 std::string Menu::Impl::NoCoverDetail() const
 {
-  int missing = 0;
-  for (const Game& game : m_games)
-    missing += HasCover(game.rom) ? 0 : 1;
+  // (00.85: counted once until the covers or the games change - each game's names looked up: with 30 000 games a
+  // moment, which every list made again and every cover downloaded took.)
+  if (m_no_cover_count < 0)
+  {
+    m_no_cover_count = 0;
+    for (const Game& game : m_games)
+      m_no_cover_count += HasCover(game.rom) ? 0 : 1;
+  }
+  const int missing = m_no_cover_count;
   return missing == 0 ? std::string("Every game has a cover") :
                         std::to_string(missing) + (missing == 1 ? " game" : " games");
 }
 
-// Settings' count again when covers come (BuildItems isn't called for them).
+// Settings' count again when covers come (BuildItems isn't called for them): counted again in the frames' loop, once
+// a second at most (00.85: a download brings covers every frame).
 void Menu::Impl::RefreshNoCoverItem()
 {
+  m_no_cover_count = -1;
+  m_no_cover_due = true;
+}
+
+void Menu::Impl::UpdateNoCoverItem()
+{
+  if (!m_no_cover_due || m_time - m_no_cover_time < 1.0f)
+    return;
+  m_no_cover_due = false;
+  m_no_cover_time = m_time;
   for (Item& item : m_items[static_cast<int>(Category::Settings)])
   {
     if (item.setting == SET_NO_COVER)
@@ -6625,17 +7926,17 @@ void Menu::Impl::DeleteGames(const std::vector<std::string>& paths)
 {
   int deleted = 0;
   std::string error;
+  // (00.85: the games by file once - Clean Up deletes thousands of a big library's games, each looked for among all.)
+  std::unordered_map<std::string, std::vector<size_t>> by_path;
+  for (size_t i = 0; i < m_games.size(); i++)
+    by_path[m_games[i].rom.path].push_back(i);
+  std::set<std::string> gone;
   for (const std::string& path : paths)
   {
     std::vector<std::string> files = {path};
-    for (const Game& game : m_games)
-    {
-      if (game.rom.path == path)
-      {
-        files = Library::GameFiles(game.rom);
-        break;
-      }
-    }
+    const auto found = by_path.find(path);
+    if (found != by_path.end())
+      files = Library::GameFiles(m_games[found->second.front()].rom);
     bool all = true;
     for (const std::string& file : files)
     {
@@ -6653,17 +7954,38 @@ void Menu::Impl::DeleteGames(const std::vector<std::string>& paths)
     if (all)
     {
       deleted++;
-      for (const Game& game : m_games)
+      gone.insert(path);
+      if (found != by_path.end())
       {
-        if (game.rom.path == path)
-          m_favorites.erase(game.rom.key);
+        for (const size_t i : found->second)
+          m_favorites.erase(m_games[i].rom.key);
       }
       if (m_prefs.default_game == path)
         m_prefs.default_game.clear();
     }
   }
-  m_prefs.Save(m_data_dir + "/xmb.ini");
+  m_prefs.Save(UserDir() + "/xmb.ini");
   SaveFavorites();
+  // (00.85) The games deleted leave the lists at once (their files are gone); the read on its thread then finds what
+  // else changed.
+  if (!gone.empty())
+  {
+    const std::array<std::string, CATEGORY_COUNT> selected = SelectedPaths();
+    const std::string online = m_online_game >= 0 && m_online_game < static_cast<int>(m_games.size()) ?
+                                   m_games[static_cast<size_t>(m_online_game)].rom.path :
+                                   std::string();
+    for (const Game& game : m_games)
+    {
+      if (gone.count(game.rom.path) && m_console_games[static_cast<size_t>(game.rom.system)] > 0)
+        m_console_games[static_cast<size_t>(game.rom.system)]--;
+    }
+    m_games.erase(std::remove_if(m_games.begin(), m_games.end(),
+                                 [&gone](const Game& game) { return gone.count(game.rom.path) > 0; }),
+                  m_games.end());
+    m_games_fingerprint = 0;  // (the read's games, whatever they are, come in)
+    StartAchievementMarks();  // (the games' new places in m_games)
+    GamesChanged(selected, online);
+  }
   RefreshGames();
   const int failed = static_cast<int>(paths.size()) - deleted;
   if (failed == 0)
@@ -6702,6 +8024,8 @@ std::string Menu::Impl::OptionHelp(const std::string& option) const
       {"Delete", "Deletes for good: it can't be brought back."},
       {"Reset everything", "Every setting, global and per game, back to the default."},
       {"Internal Storage", "New covers are saved in the PS4's own storage, as before."},
+      {"With My Data (USB Drive)", "New covers are saved with your data on the USB drive (EmuSuNi-Portable/covers). "
+                                   "Nothing to move: the covers of both places are shown."},
       {"USB Drive", "New covers are saved on the USB drive (EmuSuNi/covers): the PS4's storage stays free. "
                     "Without the drive they go to the internal storage."},
       // (Updates, 00.73.)
@@ -6719,9 +8043,2432 @@ std::string Menu::Impl::OptionHelp(const std::string& option) const
       {"Download Now", "Downloads LaunchBox's database (about 110 MB, in the background) and keeps its ratings of "
                        "your consoles' games (a few MB). Again after 60 days."},
       {"Download Again", "Downloads LaunchBox's database again (about 110 MB) for its newest ratings."},
+      // (Online play, 00.23.)
+      {"Play Online", "Makes a room for this game on EmuSuNi's server: a friend joins it with its code (or anyone, a "
+                      "public room), and you play together as on one console."},
+      // (00.85: the Online tab's table lists every room - a private one without its code.)
+      {"Private Room", "Only those you tell its code can join (the Online tab lists it, without its code)."},
+      {"Public Room", "Anyone can join it from the Online tab. Voice chat starts off for everyone."},
+      {"Choose Together", "A room without a game: once your friend is in, you both see the games you both have (the "
+                          "same file) and you pick one; after its match, another one, without joining again."},
+      {"Close Room", "Closes the room: no one can join it any more."},
+      {"Leave Room", "Leaves the room."},
+      {"Play Anyway", "Your file of this game isn't the host's (another version or dump): it may go out of step, "
+                      "which the match corrects, or not start at all."},
   };
   const auto it = HELP.find(option);
   return it == HELP.end() ? std::string() : it->second;
+}
+
+// ---- Online play (00.23, src/Netplay.h) ----
+
+// A game's identity for a room: its console, title, CRC32 and size (each file read once a session). A renamed game
+// keeps its own title (the other console knows it by that one).
+bool Menu::Impl::OnlineGameInfo(int game, NetProto::GameInfo* info)
+{
+  if (game < 0 || game >= static_cast<int>(m_games.size()))
+    return false;
+  const Library::Game& rom = m_games[static_cast<size_t>(game)].rom;
+  auto it = m_online_crcs.find(rom.path);
+  if (it == m_online_crcs.end())
+  {
+    uint32_t crc = 0;
+    uint64_t size = 0;
+    if (!Netplay::GameCrc(rom.path, &crc, &size))
+      return false;
+    it = m_online_crcs.emplace(rom.path, std::make_pair(crc, size)).first;
+  }
+  info->console = GetSystem(rom.system).key;
+  info->title = rom.title;
+  if (rom.custom_title)
+  {
+    std::string region, tags;
+    Library::ParseName(rom.id, &info->title, &region, &tags);
+  }
+  info->crc = it->second.first;
+  info->size = it->second.second;
+  return true;
+}
+
+// (00.95) The players a room for the game may take: those the game takes at once (NetplayLibrary::Players; not known:
+// as many as the ports) on the console's ports - 4 with its adapter (Multiplayer.h: the game's Multiplayer Adapter Off,
+// 2) or on a console of 4 (the N64, the Dreamcast, the NAOMI, the Atomiswave, the Arcade, the PC Engine's TurboTap), 2
+// on the others -, 2 to NetProto::MAX_MEMBERS. A Choose Together room (game -1): MAX_MEMBERS.
+int Menu::Impl::OnlinePlayersMost(int game) const
+{
+  if (game < 0 || game >= static_cast<int>(m_games.size()))
+    return NetProto::MAX_MEMBERS;
+  const Library::Game& rom = m_games[static_cast<size_t>(game)].rom;
+  const SystemId id = rom.system;
+  int ports = 2;
+  if (Multiplayer::HasAdapter(id))
+    ports = Settings::Get("multiplayer_adapter", rom.key) == "off" ? 2 : 4;
+  else if (id == SystemId::N64 || id == SystemId::DC || id == SystemId::NAOMI || id == SystemId::ATOMISWAVE ||
+           id == SystemId::ARCADE || id == SystemId::PCE)
+    ports = 4;
+  uint32_t crc = 0;
+  uint64_t size = 0;
+  NetplayLibrary::Lookup(rom.path, &crc, &size);
+  const int players = NetplayLibrary::Players(GetSystem(id).key, rom.id, crc);
+  return std::clamp(players > 0 ? std::min(players, ports) : ports, 2, NetProto::MAX_MEMBERS);
+}
+
+// (00.95) Play Online's Players: what it does, and how far it goes.
+std::string Menu::Impl::OnlinePlayersHelp() const
+{
+  return "Up to " + std::to_string(m_online_players) + " players in the room (Left / Right: 2 to " +
+         std::to_string(m_online_players_most) + "). The match starts with those in it when you press Start.";
+}
+
+// The room's game among ours: the same file (its CRC32 and size: only our files of its size are read), else a game of
+// the same title (another version or dump: an arcade romset's zip made otherwise is the same set - the core checks its
+// files - so it counts as the same); *index its m_games' index.
+NetProto::LobbyGame Menu::Impl::FindOnlineGame(const NetProto::GameInfo& game, int* index)
+{
+  using NetProto::LobbyGame;
+  *index = -1;
+  // (00.95) A Game Boy link cable room: its game among our Game Boy and Game Boy Color games, the same file only (Game
+  // Boy 1 runs the same ROM on both consoles).
+  const bool link = game.console == NetProto::GBLINK;
+  const System* system = link ? &GetSystem(SystemId::GB) : SystemByKey(game.console);
+  if (!system)
+    return LobbyGame::Missing;
+  auto title_key = [](const std::string& title) {
+    std::string key;
+    for (const char c : title)
+    {
+      if (std::isalnum(static_cast<unsigned char>(c)))
+        key += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
+    return key;
+  };
+  const std::string wanted = title_key(game.title);
+  int by_title = -1;
+  for (size_t i = 0; i < m_games.size(); i++)
+  {
+    const Library::Game& rom = m_games[i].rom;
+    if (link ? rom.system != SystemId::GB && rom.system != SystemId::GBC : rom.system != system->id)
+      continue;
+    NetProto::GameInfo mine;
+    if (rom.size == game.size && OnlineGameInfo(static_cast<int>(i), &mine) && mine.crc == game.crc)
+    {
+      *index = static_cast<int>(i);
+      return LobbyGame::Same;
+    }
+    std::string own = rom.title, region, tags;
+    if (rom.custom_title)
+      Library::ParseName(rom.id, &own, &region, &tags);
+    if (by_title < 0 && !wanted.empty() && title_key(own) == wanted)
+      by_title = static_cast<int>(i);
+  }
+  if (by_title < 0 || link)
+    return LobbyGame::Missing;
+  *index = by_title;
+  return IsRomsetSystem(system->id) ? LobbyGame::Same : LobbyGame::Different;
+}
+
+// (00.95) A Game Boy link cable room: the guest's game for Game Boy 2 among ours - the same file (console, CRC32, size).
+int Menu::Impl::FindLinkGame(const NetProto::LibraryGame& game)
+{
+  for (size_t i = 0; i < m_games.size(); i++)
+  {
+    const Library::Game& rom = m_games[i].rom;
+    if ((rom.system != SystemId::GB && rom.system != SystemId::GBC) || GetSystem(rom.system).key != game.console ||
+        rom.size != game.size)
+      continue;
+    NetProto::GameInfo mine;
+    if (OnlineGameInfo(static_cast<int>(i), &mine) && mine.crc == game.crc)
+      return static_cast<int>(i);
+  }
+  return -1;
+}
+
+// A guest: its game for Game Boy 2 (m_online_link_game) and its battery save - RAM and clock, as mGBA keeps them - to
+// the host.
+void Menu::Impl::SayLinkGame()
+{
+  NetProto::GameInfo info;
+  if (!OnlineGameInfo(m_online_link_game, &info))
+    return;
+  NetProto::LibraryGame g;
+  g.console = info.console;
+  g.crc = info.crc;
+  g.size = info.size;
+  const Library::Game& rom = m_games[static_cast<size_t>(m_online_link_game)].rom;
+  const std::vector<uint8_t> save = GbLink::ReadSave(rom.key, static_cast<uint64_t>(std::time(nullptr)));
+  Netplay::SetLinkGame(g, info.title, GbLink::PackSave(save));
+  m_online_link_said = true;
+  Log("online: our game for Game Boy 2: " + rom.path + " (its save: " + std::to_string(save.size()) + " bytes)");
+}
+
+// A guest's own game for Game Boy 2: one of its Game Boy and Game Boy Color games (Circle: back to the room).
+void Menu::Impl::OpenLinkGamePicker()
+{
+  m_panel = {};
+  m_panel.open = true;
+  m_panel.setting = SET_OL_LINKGAME;
+  m_panel.title = "Your Game";
+  m_panel.lines = {"", "The game of your Game Boy (Game Boy 2).", "The other console needs its file too."};
+  m_online_actions.clear();
+  for (size_t i = 0; i < m_games.size(); i++)
+  {
+    const Library::Game& rom = m_games[i].rom;
+    if (rom.system != SystemId::GB && rom.system != SystemId::GBC)
+      continue;
+    if (static_cast<int>(i) == m_online_link_game)
+      m_panel.selected = static_cast<int>(m_online_actions.size());
+    m_panel.options.push_back(rom.title);
+    m_online_actions.push_back("lg:" + std::to_string(i));
+  }
+  Play("menu");
+}
+
+// Before Emulator::Run of a link cable match: both games as this console has them, ours, the guest's save (the host's).
+void Menu::Impl::SetGbLinkMatch()
+{
+  const bool host = Netplay::IsHost();
+  GbLink::Match match;
+  const int games[2] = {m_online_game, m_online_link_game};
+  for (int i = 0; i < 2; i++)
+  {
+    if (games[i] < 0 || games[i] >= static_cast<int>(m_games.size()))
+      return;
+    const Library::Game& rom = m_games[static_cast<size_t>(games[i])].rom;
+    NetProto::GameInfo info;
+    OnlineGameInfo(games[i], &info);
+    match.games[i].path = rom.path;
+    match.games[i].key = rom.key;
+    match.games[i].title = rom.title;
+    match.games[i].system = rom.system;
+    match.games[i].crc = info.crc;
+    match.games[i].size = info.size;
+  }
+  match.local = host ? 0 : 1;
+  if (host)
+  {
+    const std::vector<uint8_t> packed = Netplay::LinkGuestSave();
+    if (!GbLink::UnpackSave(packed.data(), packed.size(), &match.guest_save))
+      Log("online: the guest's Game Boy save didn't come whole");
+  }
+  GbLink::Set(match);
+}
+
+// The Online tab (00.23): Settings -> Online Play, and every way back to online play, land there.
+void Menu::Impl::OpenOnlinePanel()
+{
+  m_panel.open = false;
+  m_category = static_cast<int>(Category::Online);
+  m_category_pos = static_cast<float>(ColumnIndex(m_category));
+  m_tab_pos = static_cast<float>(LibraryTab());
+  BuildOnlineItems();
+  Play("menu");
+}
+
+// The Online tab has no rows of items (00.85: its table, BuildOnlineTable, instead; until 00.84 its settings were rows
+// here - they are Online Settings' now, Options in the table).
+void Menu::Impl::BuildOnlineItems()
+{
+  m_items[static_cast<int>(Category::Online)].clear();
+}
+
+// The Online tab's actions (its table's buttons, Online Settings' rows, and their panels' options). False: not one of
+// them.
+bool Menu::Impl::OnlineAction(const std::string& action)
+{
+  // (00.85) Back to Online Settings, on the row of what was done.
+  const auto back_to_settings = [this](const std::string& key) { OpenOnlineSettings(key); };
+  if (action == "replace_yes" || action == "replace_no")
+  {
+    // (00.86) "You already have a room open": closed (then what was asked), or kept.
+    std::function<void()> then;
+    then.swap(m_online_after_close);
+    m_panel.open = false;
+    if (action == "replace_no")
+    {
+      Play("back");
+      return true;
+    }
+    Log("online: our room closed to make or join another");
+    Netplay::Leave();
+    Netplay::TakeError();
+    if (then)
+      then();
+    else
+      Play("confirm");
+  }
+  else if (action == "join")
+  {
+    if (AskCloseRoom(true, [this] { OnlineAction("join"); }))
+      return true;  // (00.86)
+    m_panel.open = false;
+    AskText(
+        "Join with Code", "",
+        [this](const std::string& code) {
+          if (NetProto::NormalizeCode(code).empty())
+            return;
+          m_online_found = NetProto::LobbyGame::Looking;
+          m_online_game = -1;
+          m_online_library_sent = false;
+          Netplay::Join(code, m_data_dir);
+          OpenOnlineRoom();
+        },
+        8, TextKeyboard::Mode::Plain, "The 6 letters and numbers of your friend's room.");
+  }
+  else if (action == "together")
+  {
+    OpenOnlineHost(-1);  // (00.23: a room without a game - Choose Together)
+  }
+  else if (action == "with_game")
+  {
+    // A room for one game: Triangle -> Play Online on it (the games' tab).
+    m_panel.open = false;
+    m_category = static_cast<int>(Category::Games);
+    m_category_pos = static_cast<float>(ColumnIndex(m_category));
+    m_tab_pos = static_cast<float>(LibraryTab());
+    ShowToast("Pick a game, then Triangle -> Play Online", 0);
+    Play("confirm");
+  }
+  else if (action == "nick")
+  {
+    // (00.23) The name the others see in rooms: the PS4 user's unless one is typed here (16 letters, filtered). (The
+    // keyboard over Online Settings: Cancel leaves it there.)
+    AskText(
+        "Nickname", Netplay::GetNickname(m_data_dir),
+        [this, back_to_settings](const std::string& nick) {
+          Netplay::SetNickname(m_data_dir, nick);
+          back_to_settings("ol:nick");
+        },
+        static_cast<uint32_t>(NetProto::NICK_LETTERS), TextKeyboard::Mode::Text,
+        "The name other players see. Left empty: your PS4 user's name.");
+  }
+  else if (action == "hide")
+  {
+    Netplay::SetHideAddress(m_data_dir, !Netplay::HideAddress(m_data_dir));
+    back_to_settings("ol:hide");
+    Play("confirm");
+  }
+  else if (action == "bar")
+  {
+    Netplay::SetLatencyBar(m_data_dir, !Netplay::LatencyBar(m_data_dir));
+    back_to_settings("ol:bar");
+    Play("confirm");
+  }
+  else if (action == "profile_on" || action == "profile_off")
+  {
+    UsageStats::SetProfile(action == "profile_on");
+    BuildItems();  // (Settings -> Anonymous Statistics: on with it)
+    back_to_settings("ol:profile");
+    if (action == "profile_on")
+      ShowToast("Your profile's code comes in a moment", 0);
+    Play("confirm");
+  }
+  else if (action == "public_on" || action == "public_off")
+  {
+    UsageStats::SetPublicProfile(action == "public_on");
+    back_to_settings("ol:public");
+    Play("confirm");
+  }
+  else if (action == "delete_profile")
+  {
+    UsageStats::DeleteProfile();
+    back_to_settings("ol:profile");
+    ShowToast("Your profile is being deleted", 0);
+    Play("confirm");
+  }
+  else if (action == "back")
+  {
+    // (Profile Code's OK, Delete My Profile's Cancel: back to Online Settings, on that row.)
+    back_to_settings(m_panel.setting == SET_OL_CODE ? "ol:code" : "ol:delete");
+    Play("back");
+  }
+  else
+  {
+    return false;
+  }
+  return true;
+}
+
+// ---- My Stats (00.23, src/MyStats.h): this PS4's own numbers, never sent ----
+std::string Menu::Impl::MyStatsDetail() const
+{
+  int64_t seconds = 0;
+  for (const MyStats::Game& g : MyStats::Games())
+    seconds += g.seconds;
+  if (seconds <= 0)
+    return "Nothing played yet";
+  char hours[32];
+  std::snprintf(hours, sizeof(hours), "%.1f", static_cast<double>(seconds) / 3600.0);
+  return std::string(hours) + " h played";
+}
+
+void Menu::Impl::OpenMyStats()
+{
+  m_panel = {};
+  m_panel.open = true;
+  m_panel.setting = SET_MY_STATS;
+  m_panel.title = "My Stats";
+  const std::vector<MyStats::Game> games = MyStats::Games();
+  int64_t seconds = 0;
+  int sessions = 0, online = 0;
+  std::map<std::string, int64_t> consoles;
+  for (const MyStats::Game& g : games)
+  {
+    seconds += g.seconds;
+    sessions += g.sessions;
+    online += g.online;
+    consoles[g.console] += g.seconds;
+  }
+  auto hours = [](int64_t s) {
+    char text[32];
+    std::snprintf(text, sizeof(text), "%.1f h", static_cast<double>(s) / 3600.0);
+    return std::string(text);
+  };
+  auto title_of = [this](const std::string& path) {
+    for (const Game& game : m_games)
+    {
+      if (game.rom.path == path)
+        return game.rom.title;
+    }
+    const size_t slash = path.find_last_of('/');
+    std::string name = path.substr(slash == std::string::npos ? 0 : slash + 1);
+    return name.substr(0, name.rfind('.'));
+  };
+  std::vector<std::string>& lines = m_panel.lines;
+  lines.push_back("");
+  lines.push_back("Time played: " + hours(seconds));
+  lines.push_back("Games played: " + std::to_string(games.size()));
+  lines.push_back("Sessions: " + std::to_string(sessions));
+  lines.push_back("Online matches: " + std::to_string(online));
+  const Achievements::History history = Achievements::GetHistory();
+  uint32_t unlocked = 0, with = 0;
+  for (const Achievements::HistoryGame& g : history.games)
+  {
+    unlocked += g.unlocked;
+    with += g.unlocked > 0 ? 1 : 0;
+  }
+  const Achievements::Account account = Achievements::GetAccount();
+  if (!account.user.empty())
+    lines.push_back("Achievements: " + std::to_string(unlocked) + " in " + std::to_string(with) + " games (" +
+                    std::to_string(account.casual_points + account.points) + " points)");
+  else
+    lines.push_back("Achievements: log in to RetroAchievements");
+  if (!games.empty())
+  {
+    lines.push_back("");
+    lines.push_back("Most played:");
+    for (size_t i = 0; i < games.size() && i < 5; i++)
+      lines.push_back(title_of(games[i].path) + ": " + hours(games[i].seconds));
+    const auto last = std::max_element(games.begin(), games.end(),
+                                       [](const MyStats::Game& a, const MyStats::Game& b) { return a.last < b.last; });
+    lines.push_back("");
+    lines.push_back("Last played: " + title_of(last->path) + " (" + AchievementDate(last->last) + ")");
+    std::vector<std::pair<int64_t, std::string>> by;
+    for (const auto& [key, s] : consoles)
+      by.emplace_back(s, key);
+    std::sort(by.rbegin(), by.rend());
+    std::string line = "Consoles: ";
+    for (size_t i = 0; i < by.size() && i < 3; i++)
+    {
+      const System* system = SystemByKey(by[i].second);
+      line += (i ? ", " : "") + std::string(system ? system->tab : by[i].second.c_str()) + " " + hours(by[i].first);
+    }
+    lines.push_back(line);
+  }
+  Play("menu");
+}
+
+// A game's Triangle -> Play Online: a private room or a public one. (game -1: a Choose Together room.)
+// (00.86) Our room is open (being made, or waiting in the room - not a match): it stays while we go elsewhere.
+bool Menu::Impl::HostingRoom() const
+{
+  return Netplay::Hosting();
+}
+
+// (00.86) One room at a time: while ours is open, making or joining another asks first - "close it?" (Yes: closed, then
+// `then`; No or Circle: nothing). False: no room of ours, `then` is the caller's to do.
+bool Menu::Impl::AskCloseRoom(bool join, std::function<void()> then)
+{
+  if (!HostingRoom())
+    return false;
+  m_online_after_close = std::move(then);
+  m_panel = {};
+  m_panel.open = true;
+  m_panel.setting = SET_OL_REPLACE;
+  m_panel.title = join ? "Join a Room" : "Create Room";
+  m_panel.lines = {"", "You already have a room open.",
+                   join ? "Close it and join this one?" : "Close it and create a new one?"};
+  m_panel.options = {"Yes", "No"};
+  m_online_actions = {"replace_yes", "replace_no"};
+  m_panel.selected = 1;  // (No: a room with someone in it isn't closed by one press too many)
+  Play("menu");
+  return true;
+}
+
+void Menu::Impl::OpenOnlineHost(int game, bool link)
+{
+  if (game >= static_cast<int>(m_games.size()))
+    return;
+  if (AskCloseRoom(false, [this, game, link] { OpenOnlineHost(game, link); }))
+    return;  // (00.86)
+  m_online_game = game;
+  m_online_link = link && game >= 0;
+  m_panel = {};
+  m_panel.open = true;
+  m_panel.setting = SET_ONLINE_HOST;
+  m_panel.title = game < 0 ? "Choose Together" : "Play Online";
+  m_panel.options = {"Private Room", "Public Room"};
+  m_online_actions = {"private", "public"};
+  // (00.95) Players: how many the room takes - at first the game's (2 when they aren't known), Left / Right change it;
+  // not there when the game or its console takes 2.
+  m_online_players_most = OnlinePlayersMost(game);
+  m_online_players = 2;
+  if (game >= 0)
+  {
+    const Library::Game& rom = m_games[static_cast<size_t>(game)].rom;
+    uint32_t crc = 0;
+    uint64_t size = 0;
+    NetplayLibrary::Lookup(rom.path, &crc, &size);
+    const int players = NetplayLibrary::Players(GetSystem(rom.system).key, rom.id, crc);
+    m_online_players = std::clamp(players, 2, m_online_players_most);
+  }
+  if (m_online_players_most > 2)
+  {
+    m_panel.options.push_back("Players: " + std::to_string(m_online_players));
+    m_online_actions.push_back("players");
+    m_panel.helps = {"", "", OnlinePlayersHelp()};
+  }
+  if (game < 0)
+    m_panel.lines = {"", "A room without a game: once your", "friend is in, you both see the games",
+                     "you both have, and you pick one.", "",
+                     "Private: your friend joins with its code.", "Public: anyone can join it."};
+  else if (m_online_link)
+  {
+    // (00.95) A Game Boy link cable room: two players, each with a Game Boy of its own.
+    m_panel.title = "Link Cable Online";
+    m_panel.lines = {"", m_games[static_cast<size_t>(game)].rom.title, "",
+                     "Your Game Boy plays this game; your", "friend's, the game it chooses.",
+                     "Each console needs both games.", "", "Private: your friend joins with its code.",
+                     "Public: anyone can join it."};
+  }
+  else
+    m_panel.lines = {"", m_games[static_cast<size_t>(game)].rom.title, "",
+                     "Private: your friend joins with its code.", "Public: anyone can join it.", "",
+                     "The other console needs this game too."};
+  Play("menu");
+}
+
+// The games of the consoles that play online, their files hashed on NetplayLibrary's thread (the files known by their
+// size and time aren't read again): the Choose Together rooms' lists.
+void Menu::Impl::StartOnlineLibrary()
+{
+  std::vector<NetplayLibrary::File> files;
+  for (const Game& game : m_games)
+  {
+    const System& system = GetSystem(game.rom.system);
+    if (Netplay::RulesFor(system.key).online && game.rom.discs.size() <= 1)
+      files.push_back({system.key, game.rom.path, game.rom.id});
+  }
+  NetplayLibrary::Start(m_data_dir, files);
+  m_online_library_sent = false;
+}
+
+void Menu::Impl::OpenOnlineRoom()
+{
+  m_panel = {};
+  m_panel.open = true;
+  m_panel.setting = SET_ONLINE_ROOM;
+  m_online_actions.clear();  // (00.86: the panel before's aren't this one's selection)
+  BuildOnlinePanel();
+}
+
+// (00.86) The notice of a player asking to join our room: Left / Right (Up / Down) choose Accept or Reject, Cross does
+// it - Accept opens the room (on Start once the player is ready) -, Circle answers later (in the room, while the
+// request lasts: the Online tab's table has it on top).
+void Menu::Impl::OnlineAskInput(uint32_t pressed)
+{
+  const Netplay::View v = Netplay::GetView();
+  if (v.asking < 0)
+  {
+    m_online_ask = -1;
+    return;
+  }
+  if (pressed & (BTN_LEFT | BTN_RIGHT | BTN_UP | BTN_DOWN))
+  {
+    m_online_ask_choice = 1 - m_online_ask_choice;
+    Play("move");
+    return;
+  }
+  if (pressed & BTN_CIRCLE)
+  {
+    m_online_ask = -1;
+    Log("online: the request to join left for later");
+    ShowToast("Answer it in your room: Online tab", 0);
+    Play("back");
+    return;
+  }
+  if (!(pressed & BTN_CROSS))
+    return;
+  const int member = v.asking;
+  m_online_ask = -1;
+  if (m_online_ask_choice == 0)
+  {
+    Netplay::Admit(member);
+    m_online_prefer = "start";
+    OpenOnlineRoom();
+    Play("confirm");
+  }
+  else
+  {
+    Netplay::Refuse(member);
+    ShowToast(v.asking_nick + " was not accepted", 0);
+    Play("back");
+  }
+}
+
+// (00.86) The notice over the screen's middle: who asks (nickname, time zone), the room's game, the seconds left, Accept
+// and Reject; the screen behind dimmed. Its buttons are the hints' (Cross, Circle: Later).
+void Menu::Impl::DrawOnlineAsk(ImDrawList* dl, float dt)
+{
+  if (m_online_ask < 0)
+  {
+    m_online_ask_slide = 0.0f;
+    return;
+  }
+  Approach(m_online_ask_slide, 1.0f, 14.0f, dt);
+  const Netplay::View v = Netplay::GetView();
+  if (v.asking < 0)
+    return;
+  const Theme& theme = CurrentTheme();
+  const bool light = theme.text != 0xFFFFFF;
+  const float a = std::min(1.0f, m_online_ask_slide * 1.5f);
+  dl->AddRectFilled(ImVec2(0, 0), ImVec2(W, H), Rgba(0x000000, 0.50f * a));
+  constexpr float BOX_W = 1000.0f, BOX_H = 400.0f, PAD = 44.0f;
+  const float x0 = W * 0.5f - BOX_W * 0.5f;
+  const float y0 = H * 0.5f - BOX_H * 0.5f + (1.0f - m_online_ask_slide) * 40.0f;
+  dl->AddRectFilled(ImVec2(x0, y0), ImVec2(x0 + BOX_W, y0 + BOX_H),
+                    light ? Rgba(0xFFFFFF, 0.96f * a) : Rgba(0x0B0A14, 0.94f * a), 22.0f);
+  dl->AddRect(ImVec2(x0, y0), ImVec2(x0 + BOX_W, y0 + BOX_H), Rgba(theme.wave, 0.9f * a), 22.0f, 0, 2.5f);
+  float y = y0 + PAD - 6.0f;
+  Text(dl, m_bold, 34, ImVec2(x0 + PAD, y), Rgba(theme.wave, a), "Join Request", false);
+  y += 62.0f;
+  const std::string who =
+      v.asking_nick + (v.asking_region.empty() ? "" : " (" + v.asking_region + ")") + " wants to join your room";
+  Text(dl, m_bold, 32, ImVec2(x0 + PAD, y), Rgba(theme.text, a), Fit(m_bold, 32, who, BOX_W - PAD * 2), false);
+  y += 52.0f;
+  const System* system = SystemByKey(v.game.console);
+  const std::string game = v.together ? std::string("Choose Together: you pick a game you both have.") :
+                                        "Game: " + v.game.title + (system ? std::string(" (") + system->tab + ")" : "");
+  Text(dl, m_font, 28, ImVec2(x0 + PAD, y), Rgba(theme.text, 0.85f * a), Fit(m_font, 28, game, BOX_W - PAD * 2),
+       false);
+  y += 44.0f;
+  Text(dl, m_font, 26, ImVec2(x0 + PAD, y), Rgba(theme.text, 0.6f * a),
+       "Answer within " + std::to_string(v.asking_seconds) + " s", false);
+  // Accept and Reject, side by side.
+  constexpr float BTN_W = 300.0f, BTN_H = 66.0f, GAP = 40.0f;
+  const float by = y0 + BOX_H - PAD - BTN_H;
+  const float bx = W * 0.5f - BTN_W - GAP * 0.5f;
+  static const char* const LABELS[] = {"Accept", "Reject"};
+  for (int i = 0; i < 2; i++)
+  {
+    const bool sel = i == m_online_ask_choice;
+    const ImVec2 p0(bx + static_cast<float>(i) * (BTN_W + GAP), by), p1(p0.x + BTN_W, by + BTN_H);
+    dl->AddRectFilled(p0, p1, sel ? Rgba(theme.wave, 0.35f * a) : Rgba(theme.text, 0.06f * a), 14.0f);
+    dl->AddRect(p0, p1, sel ? Rgba(theme.wave, a) : Rgba(theme.text, 0.25f * a), 14.0f, 0, sel ? 2.5f : 1.5f);
+    const float tw = TextWidth(sel ? m_bold : m_font, 32, LABELS[i]);
+    Text(dl, sel ? m_bold : m_font, 32, ImVec2(p0.x + (BTN_W - tw) * 0.5f, by + (BTN_H - 32.0f) * 0.5f - 4.0f),
+         Rgba(theme.text, a), LABELS[i], false);
+  }
+}
+
+// The room's panel as it is now (every frame it shows: UpdateOnline).
+void Menu::Impl::BuildOnlinePanel()
+{
+  using NetProto::LobbyGame;
+  using Netplay::Phase;
+  const Netplay::View v = Netplay::GetView();
+  std::vector<std::string> options, actions, lines;
+  // The room. (A Choose Together room with its two players: the list of the games both have. 00.86: the other one in
+  // it - accepted by the host -, not one asking to join or a guest waiting for the host's answer.)
+  bool other = false;
+  for (const Netplay::PlayerView& p : v.players)
+    other = other || (!p.me && !p.asking);
+  if (v.together && v.phase == Phase::Room && other && !v.waiting_host)
+  {
+    m_online_prefer.clear();  // (its rows: no Start to wait for)
+    BuildTogetherRows(v);
+    return;
+  }
+  m_together.on = false;
+  m_panel.rows.clear();
+  const std::string you = " (you)";
+  if (v.phase == Phase::Off)
+  {
+    m_panel.title = "Online Play";
+    lines.push_back("");
+    const std::string wrapped = WrapText(m_font, 28, PS4Lang::T(v.error.empty() ? "The room closed" : v.error), 540);
+    for (size_t start = 0; start <= wrapped.size();)
+    {
+      const size_t end = std::min(wrapped.find('\n', start), wrapped.size());
+      lines.push_back(wrapped.substr(start, end - start));
+      start = end + 1;
+    }
+    options = {"OK"};
+    actions = {"close"};
+  }
+  else if (v.phase == Phase::Connecting)
+  {
+    m_panel.title = v.host ? "Play Online" : "Online Room";
+    lines = {"", "Connecting to the online server..."};
+    options = {v.host ? "Close Room" : "Leave Room"};
+    actions = {"leave"};
+  }
+  else
+  {
+    m_panel.title = v.host ? "Play Online" : "Online Room";
+    const System* system = SystemByKey(v.game.console);
+    if (v.host)
+    {
+      lines.push_back(v.is_public ? "Public room: anyone can join it." : "Private room: tell your friend the code.");
+    }
+    else
+    {
+      lines.push_back("Room " + v.code);
+      for (const Netplay::PlayerView& p : v.players)
+      {
+        if (p.id == 0)
+          lines.push_back("Host: " + p.nick + (p.region.empty() ? "" : " (" + p.region + ")"));
+      }
+    }
+    // (Short: under the code and the options the panel holds about seven lines above its help text.)
+    if (v.together)
+      lines.push_back("Choose Together: you pick a game you both have.");
+    else if (v.link)
+      lines.push_back("Link cable: " + v.game.title + " (Game Boy 1)");  // (00.95)
+    else
+      lines.push_back("Game: " + v.game.title + (system ? std::string(" (") + system->tab + ")" : std::string()));
+    if (!v.host && !v.together)
+    {
+      const std::string mine = m_online_game >= 0 && m_online_game < static_cast<int>(m_games.size()) ?
+                                   m_games[static_cast<size_t>(m_online_game)].rom.title :
+                                   std::string();
+      lines.push_back(m_online_found == LobbyGame::Same      ? std::string("You have this game.") :
+                      m_online_found == LobbyGame::Missing   ? std::string("You haven't got this game.") :
+                      m_online_found == LobbyGame::Looking   ? std::string("Looking for it in your games...") :
+                                                                "Yours is another version: " + mine);
+    }
+    int guests = 0, in_room = 0;
+    for (const Netplay::PlayerView& p : v.players)
+      in_room += p.asking ? 0 : 1;
+    // (00.95) A room of three or four: how many are in it; a guest who has the game says nothing more (the lines fit).
+    if (v.max_players > 2)
+      lines.push_back("Players: " + std::to_string(in_room) + " of " + std::to_string(v.max_players));
+    for (const Netplay::PlayerView& p : v.players)
+    {
+      if (p.me)
+      {
+        lines.push_back(p.nick + you);
+        continue;
+      }
+      if (p.asking)
+        continue;  // (00.86: asking to join - the request's lines below, not one of the room's players yet)
+      guests += p.id != 0 ? 1 : 0;
+      lines.push_back(p.nick + " - " + (p.ping_ms >= 0 ? std::to_string(p.ping_ms) + " ms" : std::string("...")));
+      if (v.host && !(v.max_players > 2 && p.game == LobbyGame::Same))
+      {
+        lines.push_back(p.game == LobbyGame::Same      ? p.nick + " has the game" :
+                        p.game == LobbyGame::Different ? p.nick + " plays another version" :
+                        p.game == LobbyGame::Missing   ? p.nick + " hasn't got the game" :
+                        p.game == LobbyGame::Asking    ? p.nick + " has another version: choosing" :
+                                                         p.nick + " is looking for the game");
+      }
+    }
+    // (00.95) A Game Boy link cable room: the game of Game Boy 2 - the guest's own -, and whether the host has it.
+    if (v.link)
+    {
+      if (!v.link_game_in && v.host)
+        lines.push_back("Your friend is choosing its game...");
+      else if (v.link_game_in)
+        lines.push_back((v.host ? std::string("Their game: ") : std::string("Your game: ")) + v.link_title +
+                        " (Game Boy 2)");
+      if (v.link_game_in && v.link_found == LobbyGame::Missing)
+        lines.push_back(v.host ? "You haven't got it: they choose another." : "The host hasn't got it: choose another.");
+    }
+    if (v.hidden)
+      lines.push_back("Your address is hidden.");
+    if (v.phase == Phase::Starting || v.phase == Phase::Playing)
+    {
+      lines.push_back("Starting...");
+    }
+    else if (v.host)
+    {
+      if (v.asking >= 0)
+      {
+        // (00.86) A player asks to join: Accept or Reject, first.
+        lines.push_back(v.asking_nick + (v.asking_region.empty() ? "" : " (" + v.asking_region + ")") +
+                        " wants to join your room");
+        lines.push_back("Answer within " + std::to_string(v.asking_seconds) + " s");
+        options.push_back("Accept");
+        actions.push_back("accept:" + std::to_string(v.asking));
+        options.push_back("Reject");
+        actions.push_back("reject:" + std::to_string(v.asking));
+      }
+      else
+      {
+        lines.push_back(guests == 0  ? "Waiting for a player..." :
+                        v.can_start  ? "Press Start to play." :
+                        guests == 1  ? "Waiting for the player..." :
+                                       "Waiting for the players...");  // (00.95)
+      }
+      if (v.can_start)
+      {
+        options.push_back("Start");
+        actions.push_back("start");
+      }
+      for (const Netplay::PlayerView& p : v.players)
+      {
+        if (!p.me && !p.asking)
+        {
+          options.push_back("Remove " + p.nick);
+          actions.push_back("kick:" + std::to_string(p.id));
+        }
+      }
+      options.push_back("Close Room");
+      actions.push_back("leave");
+    }
+    else if (v.waiting_host)
+    {
+      // (00.86) Our request to join, until the host answers (Circle or Leave Room: we stop asking).
+      lines.push_back("Waiting for the host to accept you...");
+      lines.push_back("The host has " + std::to_string(v.waiting_seconds) + " s to answer");
+      options.push_back("Leave Room");
+      actions.push_back("leave");
+    }
+    else
+    {
+      lines.push_back("Waiting for the host to start...");
+      if (v.link && m_online_found == LobbyGame::Same)
+      {
+        options.push_back("Choose Your Game");  // (00.95: Game Boy 2's)
+        actions.push_back("linkgame");
+      }
+      if (m_online_found == LobbyGame::Asking)
+      {
+        options.push_back("Play Anyway");
+        actions.push_back("anyway");
+      }
+      options.push_back("Leave Room");
+      actions.push_back("leave");
+    }
+  }
+  // (The selection stays on its action.)
+  const std::string was = m_panel.selected >= 0 && m_panel.selected < static_cast<int>(m_online_actions.size()) ?
+                              m_online_actions[static_cast<size_t>(m_panel.selected)] :
+                              std::string();
+  m_panel.options = std::move(options);
+  m_panel.lines = std::move(lines);
+  m_online_actions = std::move(actions);
+  m_panel.selected = 0;
+  bool kept = false;
+  for (size_t i = 0; i < m_online_actions.size(); i++)
+  {
+    if (m_online_actions[i] == was)
+    {
+      m_panel.selected = static_cast<int>(i);
+      kept = true;
+    }
+  }
+  // (00.86) A request that came while the panel shows: on Accept. A player just accepted: on Start once the player is
+  // ready. A player's option gone under the selection (answered, expired, left): none selected until the player moves
+  // ("-") - a second Cross on that place isn't Remove or Close Room.
+  if (!kept && m_online_prefer.empty() &&
+      (was.rfind("accept:", 0) == 0 || was.rfind("reject:", 0) == 0 || was.rfind("kick:", 0) == 0))
+    m_online_prefer = "-";
+  if (!m_online_prefer.empty())
+  {
+    bool found = false;
+    for (size_t i = 0; i < m_online_actions.size() && !found; i++)
+    {
+      if (m_online_actions[i].rfind(m_online_prefer, 0) == 0)
+      {
+        m_panel.selected = static_cast<int>(i);
+        found = true;
+      }
+    }
+    if (found || v.phase != Phase::Room)
+      m_online_prefer.clear();
+    else
+      m_panel.selected = -1;
+  }
+}
+
+// A Choose Together room with its players (00.92: the whole screen, DrawTogetherScreen): how far the lists are, the
+// games both have - titles and covers from this console's own games -, those known to take 2 players or more first (a
+// known single-player game left out), those not known after them while Show All Common Games is on (Square), by
+// console in tabs (L1 / R1: every console's first, then each console's with games, in the consoles' order, with how
+// many); the host picks one (Cross), a guest suggests one (the host sees it marked). The tab and the selected game
+// stay (by their console, by the game) while the lists change.
+void Menu::Impl::BuildTogetherRows(const Netplay::View& v)
+{
+  m_panel.options.clear();
+  m_panel.lines.clear();
+  m_panel.rows.clear();
+  m_online_actions.clear();
+  m_panel.title = v.host ? "Room " + v.code : std::string("Online Room");
+  TogetherScreen& t = m_together;
+  t.on = true;
+  t.status.clear();
+  t.known = t.unknown = 0;
+  std::vector<TogetherCard> all;
+  // (00.95) The room's players (each console's): a game for fewer is left out as a single-player one - three or four
+  // play only games for that many.
+  int need = 0;
+  for (const Netplay::PlayerView& p : v.players)
+    need += p.asking ? 0 : std::max(1, p.locals);
+  need = std::max(need, 2);
+  t.need = need;
+  const NetplayLibrary::Progress progress = NetplayLibrary::GetProgress();
+  if (!progress.finished)
+    t.status = "Looking at your games: " + std::to_string(progress.done) + " of " + std::to_string(progress.total);
+  else if (!v.common_ready)
+    t.status = v.host ? (need > 2 ? "Waiting for the other players' games..." : "Waiting for the other player's games...") :
+                        (need > 2 ? "Waiting for the games you all have..." : "Waiting for the games you both have...");
+  else
+  {
+    for (const NetProto::LibraryGame& g : v.common)
+    {
+      const auto at = m_online_library.find(g);
+      if (at == m_online_library.end())
+        continue;
+      const Library::Game& rom = m_games[static_cast<size_t>(at->second)].rom;
+      TogetherCard card;
+      card.game = at->second;
+      card.players = NetplayLibrary::Players(g.console, rom.id, g.crc);
+      card.suggested = v.has_suggestion && v.suggested == g;
+      if (card.players > 0 && card.players < need)
+        continue;  // (a game for one player: nothing to play together; 00.95: for fewer than the room's players)
+      t.unknown += card.players == 0 ? 1 : 0;
+      t.known += card.players > 0 ? 1 : 0;
+      if (card.players == 0 && !m_online_show_all)
+        continue;
+      all.push_back(card);
+    }
+    std::stable_sort(all.begin(), all.end(), [this](const TogetherCard& a, const TogetherCard& b) {
+      if ((a.players == 0) != (b.players == 0))
+        return a.players != 0;
+      return m_games[static_cast<size_t>(a.game)].rom.title < m_games[static_cast<size_t>(b.game)].rom.title;
+    });
+    if (all.empty() && need > 2)
+      t.status = t.unknown > 0 ? "No game you all have is known to take " + std::to_string(need) +
+                                     " players: Square shows them all" :
+                                 "You have no games for " + std::to_string(need) + " players in common";
+    else if (all.empty())
+      t.status = t.unknown > 0 ? "No game you both have is known to take 2 players: Square shows them all" :
+                                 "You have no games in common";
+  }
+  // (00.92) A new room: on the tab of the Online tab's console filter (once both lists have games of it).
+  if (v.code != m_together_room)
+  {
+    m_together_room = v.code;
+    const std::vector<std::string> consoles = OnlineConsoles();
+    m_together_tab = consoles[static_cast<size_t>(std::clamp(m_online_filter_console, 0,
+                                                             static_cast<int>(consoles.size()) - 1))];
+    m_together_game = -1;
+    m_together_said.clear();
+  }
+  // The tabs: every console's, then each console with games.
+  t.tabs = {""};
+  t.counts = {static_cast<int>(all.size())};
+  for (const System& system : Systems())
+  {
+    int n = 0;
+    for (const TogetherCard& card : all)
+      n += GetSystem(m_games[static_cast<size_t>(card.game)].rom.system).key == std::string(system.key) ? 1 : 0;
+    if (n > 0)
+    {
+      t.tabs.push_back(system.key);
+      t.counts.push_back(n);
+    }
+  }
+  t.tab = 0;
+  for (size_t i = 0; i < t.tabs.size(); i++)
+  {
+    if (t.tabs[i] == m_together_tab)
+      t.tab = static_cast<int>(i);
+  }
+  t.cards.clear();
+  for (const TogetherCard& card : all)
+  {
+    if (t.tab == 0 || GetSystem(m_games[static_cast<size_t>(card.game)].rom.system).key == t.tabs[static_cast<size_t>(t.tab)])
+      t.cards.push_back(card);
+  }
+  t.index = 0;
+  for (size_t i = 0; i < t.cards.size(); i++)
+  {
+    if (t.cards[i].game == m_together_game)
+      t.index = static_cast<int>(i);
+  }
+  m_together_game = t.cards.empty() ? -1 : t.cards[static_cast<size_t>(t.index)].game;
+  // (00.92) In the log once the lists are in, and when the tab or the counts change: each tab's games, the one shown.
+  if (v.common_ready)
+  {
+    std::string said = "online: Choose Together: " + std::to_string(t.known) + " games for " + std::to_string(need) +
+                       " players or more, " +
+                       std::to_string(t.unknown) + " not known (" + (m_online_show_all ? "shown" : "hidden") +
+                       "); tabs:";
+    for (size_t i = 0; i < t.tabs.size(); i++)
+    {
+      const System* system = t.tabs[i].empty() ? nullptr : SystemByKey(t.tabs[i]);
+      said += std::string(i == 0 ? " " : ", ") + (system ? system->tab : "All") + " " + std::to_string(t.counts[i]);
+    }
+    const std::string& tab = t.tabs[static_cast<size_t>(t.tab)];
+    const System* shown = tab.empty() ? nullptr : SystemByKey(tab);
+    said += std::string("; showing ") + (shown ? shown->tab : "All") + " (" + std::to_string(t.cards.size()) + ")";
+    if (said != m_together_said)
+    {
+      m_together_said = said;
+      Log(said);
+    }
+  }
+}
+
+// (00.92) A Choose Together room's screen, the whole screen over the menu: the title and the room's code (the host's),
+// the players' latency bar (or, hidden, their pings), the console tabs with how many games each, the tab's games as
+// cards - cover, title, console and players - scrolling by rows with the selection; the lists' progress instead while
+// they come. Its buttons are DrawHints'.
+void Menu::Impl::DrawTogetherScreen(ImDrawList* dl, float dt)
+{
+  const float a = m_panel.slide;
+  const Theme& theme = CurrentTheme();
+  const bool light = theme.text != 0xFFFFFF;
+  const uint32_t AMBER = light ? 0x9A5C00 : 0xFFC870;
+  const Netplay::View v = Netplay::GetView();
+  TogetherScreen& t = m_together;
+  // (Players' and games' own words - nicknames, titles - drawn as they are, not looked up in the language file.)
+  const auto raw = [dl](ImFont* font, float size, ImVec2 at, ImU32 color, const std::string& text) {
+    dl->AddText(font, size, at, color, text.c_str());
+  };
+  const auto raw_w = [](ImFont* font, float size, const std::string& text) {
+    return font->CalcTextSizeA(size, FLT_MAX, 0.0f, text.c_str()).x;
+  };
+  dl->AddRectFilled(ImVec2(0, 0), ImVec2(W, H), light ? Rgba(0xF4F4F8, 0.97f * a) : Rgba(0x06060A, 0.95f * a));
+  constexpr float X0 = 80.0f;
+  const float x1 = W - 80.0f;
+  // The title, the room's code (the host's), the versions' check and how many games; what the room says.
+  Text(dl, m_bold, 44, ImVec2(X0, 52), Rgba(theme.text, a), "Choose Together");
+  if (v.host && !v.code.empty())
+    raw(m_bold, 32, ImVec2(X0 + TextWidth(m_bold, 44, "Choose Together") + 30.0f, 62), Rgba(theme.wave, a),
+        PS4Lang::T("Room " + v.code));
+  std::string sub = PS4Lang::T(std::string(t.need > 2 ? "Same EmuSuNi version on all: " : "Same EmuSuNi version on both: ") +
+                               App::VERSION);
+  if (t.status.empty())
+    sub += "  \xC2\xB7  " + PS4Lang::T(t.known == 1 ? std::string("1 game you can play together") :
+                                                      std::to_string(t.known) + " games you can play together");
+  raw(m_font, 24, ImVec2(X0, 118), Rgba(theme.text, 0.7f * a), sub);
+  if (!v.notice.empty())
+    raw(m_font, 24, ImVec2(X0, 152), Rgba(AMBER, a), Fit(m_font, 24, PS4Lang::T(v.notice), x1 - X0 - 440.0f));
+  // The players: the latency bar, or (hidden) each one's nickname and ping.
+  std::vector<Netplay::PlayerView> players;
+  for (const Netplay::PlayerView& p : v.players)
+  {
+    if (!p.asking)
+      players.push_back(p);
+  }
+  if (Netplay::GetStatus().latency_bar)
+  {
+    NetplayUi::DrawLatencyBar(dl, m_font, m_bold, players, ImVec2(x1, players.size() > 3 ? 28.0f : 40.0f), 0, a);
+  }
+  else
+  {
+    float py = 52.0f;
+    for (const Netplay::PlayerView& p : players)
+    {
+      if (p.me)
+        continue;
+      const std::string line = p.nick + (p.region.empty() ? "" : " (" + p.region + ")") + "  " +
+                               (p.ping_ms >= 0 ? std::to_string(p.ping_ms) + " ms" : std::string("..."));
+      raw(m_font, 26, ImVec2(x1 - raw_w(m_font, 26, line), py), Rgba(theme.text, 0.85f * a), line);
+      py += 36.0f;
+    }
+  }
+  // The tabs: L1, every console's and each console's with its count, R1 (scrolled to keep the chosen one in view).
+  constexpr float TAB_Y = 196.0f, TAB_H = 46.0f, TAB_FONT = 24.0f, GLYPH = 36.0f;
+  std::vector<std::string> labels;
+  std::vector<float> widths;
+  for (size_t i = 0; i < t.tabs.size(); i++)
+  {
+    const System* system = t.tabs[i].empty() ? nullptr : SystemByKey(t.tabs[i]);
+    labels.push_back((system ? std::string(system->tab) : PS4Lang::T("All")) + "  " + std::to_string(t.counts[i]));
+    widths.push_back(raw_w(m_bold, TAB_FONT, labels.back()) + 36.0f);
+  }
+  float x = X0 + PS4Glyphs::Draw(dl, m_bold, "L1", X0, TAB_Y + TAB_H * 0.5f, GLYPH, a) + 14.0f;
+  const float tabs_end = x1 - PS4Glyphs::Width("R1", GLYPH) - 14.0f;
+  size_t first = 0;
+  const auto span = [&](size_t from, size_t to) {
+    float w = 0.0f;
+    for (size_t i = from; i <= to && i < widths.size(); i++)
+      w += widths[i] + 10.0f;
+    return w;
+  };
+  while (first < static_cast<size_t>(t.tab) && span(first, static_cast<size_t>(t.tab)) > tabs_end - x)
+    first++;
+  for (size_t i = first; i < labels.size() && x + widths[i] <= tabs_end; i++)
+  {
+    const bool on = static_cast<int>(i) == t.tab;
+    const ImVec2 p0(x, TAB_Y), p1(x + widths[i], TAB_Y + TAB_H);
+    const System* system = t.tabs[i].empty() ? nullptr : SystemByKey(t.tabs[i]);
+    if (on)
+    {
+      dl->AddRectFilled(p0, p1, Rgba(system ? system->color : theme.wave, a * 0.9f), TAB_H * 0.5f);
+      dl->AddRect(p0, p1, Rgba(0xFFFFFF, a * 0.5f), TAB_H * 0.5f, 0, 2.0f);
+    }
+    else
+    {
+      dl->AddRectFilled(p0, p1, light ? Rgba(0xFFFFFF, a * 0.7f) : Rgba(0xFFFFFF, a * 0.06f), TAB_H * 0.5f);
+      dl->AddRect(p0, p1, Rgba(theme.text, a * 0.18f), TAB_H * 0.5f, 0, 1.5f);
+    }
+    raw(m_bold, TAB_FONT, ImVec2(x + 18.0f, TAB_Y + (TAB_H - TAB_FONT) * 0.5f - 3.0f),
+        on ? Rgba(0xFFFFFF, a) : Rgba(theme.text, a * 0.7f), labels[i]);
+    x += widths[i] + 10.0f;
+  }
+  PS4Glyphs::Draw(dl, m_bold, "R1", x + 4.0f, TAB_Y + TAB_H * 0.5f, GLYPH, a);
+  // The games, or why there are none yet.
+  const float top = 272.0f, bottom = H - 128.0f;
+  if (t.cards.empty())
+  {
+    const std::string text = PS4Lang::T(t.status.empty() ? std::string("You have no games in common") : t.status);
+    raw(m_bold, 32, ImVec2((W - raw_w(m_bold, 32, text)) * 0.5f, (top + bottom) * 0.5f - 20.0f),
+        Rgba(theme.text, 0.8f * a), text);
+    return;
+  }
+  constexpr int COLS = TogetherScreen::COLS;
+  constexpr float GAP = 20.0f, CARD_H = 212.0f, BOX_H = 136.0f;  // (three rows: 21 games in view)
+  const float card_w = (x1 - X0 - GAP * static_cast<float>(COLS - 1)) / static_cast<float>(COLS);
+  const int count = static_cast<int>(t.cards.size());
+  const int rows = (count + COLS - 1) / COLS;
+  const float visible = std::max(1.0f, std::floor((bottom - top + GAP) / (CARD_H + GAP)));
+  const float target = std::clamp(static_cast<float>(t.index / COLS) - std::floor((visible - 1.0f) * 0.5f), 0.0f,
+                                  std::max(0.0f, static_cast<float>(rows) - visible));
+  Approach(t.scroll, target, 14.0f, dt);
+  dl->PushClipRect(ImVec2(X0 - 8.0f, top - 8.0f), ImVec2(x1 + 8.0f, bottom + 8.0f), true);
+  for (int i = 0; i < count; i++)
+  {
+    const float cy = top + (static_cast<float>(i / COLS) - t.scroll) * (CARD_H + GAP);
+    if (cy > bottom || cy + CARD_H < top)
+      continue;
+    const TogetherCard& card = t.cards[static_cast<size_t>(i)];
+    const Library::Game& rom = m_games[static_cast<size_t>(card.game)].rom;
+    const System& system = GetSystem(rom.system);
+    const float cx = X0 + static_cast<float>(i % COLS) * (card_w + GAP);
+    const bool sel = i == t.index;
+    // (A card half out of the box fades at its edge.)
+    const float edge = std::clamp(std::min((cy - top) / 60.0f, (bottom - cy - CARD_H) / 60.0f) + 1.0f, 0.25f, 1.0f);
+    const float ca = a * edge;
+    const ImVec2 c0(cx, cy), c1(cx + card_w, cy + CARD_H);
+    if (sel)
+    {
+      dl->AddRectFilled(c0, c1, Rgba(theme.wave, ca * 0.22f), 14.0f);
+      dl->AddRect(c0, c1, Rgba(theme.wave, ca), 14.0f, 0, 3.0f);
+    }
+    else
+    {
+      dl->AddRectFilled(c0, c1, light ? Rgba(0xFFFFFF, ca * 0.8f) : Rgba(0xFFFFFF, ca * 0.05f), 14.0f);
+    }
+    // The cover, fit in its box (its own shape), else a tile in its console's colour.
+    const ImVec2 b0(cx + 12.0f, cy + 10.0f), b1(cx + card_w - 12.0f, cy + 10.0f + BOX_H);
+    float aspect = 0.7f;
+    const ImTextureID cover = Cover(card.game, &aspect);
+    if (cover != ImTextureID{})
+    {
+      const float bw = b1.x - b0.x, bh = b1.y - b0.y;
+      float w = bh * std::max(0.2f, aspect), h = bh;
+      if (w > bw)
+      {
+        w = bw;
+        h = bw / std::max(0.2f, aspect);
+      }
+      const ImVec2 p0((b0.x + b1.x - w) * 0.5f, (b0.y + b1.y - h) * 0.5f);
+      dl->AddImageRounded(ImTextureRef(cover), p0, ImVec2(p0.x + w, p0.y + h), ImVec2(0, 0), ImVec2(1, 1),
+                          IM_COL32(255, 255, 255, static_cast<int>(ca * 255)), 6.0f);
+    }
+    else
+    {
+      dl->AddRectFilled(b0, b1, Rgba(system.color, ca * 0.9f), 8.0f);
+      DrawCartridgeIcon(dl, ImVec2((b0.x + b1.x) * 0.5f, (b0.y + b1.y) * 0.5f), 48.0f, Rgba(0xFFFFFF, ca * 0.85f),
+                        Rgba(system.color, ca));
+    }
+    // The title; under it the console (every console's tab), the players, the guest's suggestion.
+    raw(m_bold, 23, ImVec2(cx + 12.0f, cy + BOX_H + 16.0f), Rgba(theme.text, ca),
+        Fit(m_bold, 23, rom.title, card_w - 24.0f));
+    std::string info = card.players > 0 ? std::to_string(card.players) + "P" : std::string("?");
+    if (t.tab == 0)
+      info = std::string(system.tab) + "  \xC2\xB7  " + info;
+    raw(m_font, 21, ImVec2(cx + 12.0f, cy + BOX_H + 46.0f), Rgba(theme.text, ca * 0.65f), info);
+    if (card.suggested)
+    {
+      const std::string& mark = PS4Lang::T("Suggested");
+      const float mw = raw_w(m_bold, 19, mark) + 18.0f;
+      const ImVec2 m0(cx + card_w - 12.0f - mw, cy + BOX_H + 44.0f), m1(cx + card_w - 12.0f, cy + BOX_H + 70.0f);
+      dl->AddRectFilled(m0, m1, Rgba(theme.wave, ca * 0.9f), 14.0f);
+      raw(m_bold, 19, ImVec2(m0.x + 9.0f, m0.y + 3.0f), Rgba(0xFFFFFF, ca), mark);
+    }
+  }
+  dl->PopClipRect();
+  // More rows than fit: where the view is, at the right.
+  if (static_cast<float>(rows) > visible)
+  {
+    const float track_x = x1 + 24.0f, h = bottom - top;
+    dl->AddRectFilled(ImVec2(track_x, top), ImVec2(track_x + 4.0f, top + h), Rgba(theme.text, a * 0.10f), 2.0f);
+    const float thumb = std::max(30.0f, h * visible / static_cast<float>(rows));
+    const float at = top + (h - thumb) * t.scroll / std::max(1.0f, static_cast<float>(rows) - visible);
+    dl->AddRectFilled(ImVec2(track_x, at), ImVec2(track_x + 4.0f, at + thumb), Rgba(theme.wave, a * 0.8f), 2.0f);
+  }
+  // The selected game: when its number of players isn't known, said under the cards.
+  if (t.cards[static_cast<size_t>(t.index)].players == 0)
+    Text(dl, m_font, 22, ImVec2(X0, bottom + 14.0f), Rgba(theme.text, 0.6f * a),
+         "How many players it takes isn't known.");
+}
+
+// (00.92) A Choose Together room's screen: arrows through the cards, L1 / R1 the console tabs, Cross plays the game
+// (the host) or suggests it (a guest), Square Show All Common Games, Triangle Close Room (a guest: Leave Room). (Circle
+// is OnlinePanelInput's: the host's room stays open, a guest leaves.)
+bool Menu::Impl::TogetherInput(uint32_t pressed)
+{
+  TogetherScreen& t = m_together;
+  constexpr int COLS = TogetherScreen::COLS;
+  const int count = static_cast<int>(t.cards.size());
+  const auto select = [&](int to) {
+    if (to == t.index || to < 0 || to >= count)
+      return;
+    t.index = to;
+    m_together_game = t.cards[static_cast<size_t>(to)].game;
+    Play("move");
+  };
+  if (pressed & (BTN_LEFT | BTN_RIGHT))
+  {
+    const uint32_t arrow = (pressed & BTN_LEFT) ? BTN_LEFT : BTN_RIGHT;
+    select(MenuNav::Step(t.index, arrow == BTN_LEFT ? -1 : 1, count, Fresh(arrow)));
+    return true;
+  }
+  if (pressed & (BTN_UP | BTN_DOWN))
+  {
+    // (A row up or down; down to a shorter last row: its last card.)
+    if (pressed & BTN_UP)
+      select(t.index - COLS);
+    else if (t.index + COLS < count)
+      select(t.index + COLS);
+    else if (t.index / COLS < (count - 1) / COLS)
+      select(count - 1);
+    return true;
+  }
+  if (pressed & (BTN_L1 | BTN_R1))
+  {
+    const uint32_t button = (pressed & BTN_L1) ? BTN_L1 : BTN_R1;
+    const int tabs = static_cast<int>(t.tabs.size());
+    const int next = MenuNav::Step(t.tab, button == BTN_L1 ? -1 : 1, tabs, Fresh(button));
+    if (tabs > 1 && next != t.tab)
+    {
+      m_together_tab = t.tabs[static_cast<size_t>(next)];
+      m_together_game = -1;
+      t.scroll = 0.0f;
+      BuildOnlinePanel();
+      Play("category");
+    }
+    return true;
+  }
+  if (pressed & BTN_SQUARE)
+  {
+    if (t.unknown > 0)
+    {
+      m_online_show_all = !m_online_show_all;
+      BuildOnlinePanel();
+      ShowToast(m_online_show_all ? (t.need > 2 ? "Every game you all have, also those whose players aren't known" :
+                                                  "Every game you both have, also those whose players aren't known") :
+                                    "The games known to take " + std::to_string(t.need) + " players or more",
+                0);
+      Play("category");
+    }
+    return true;
+  }
+  if (pressed & BTN_TRIANGLE)
+  {
+    Netplay::Leave();
+    Netplay::TakeError();
+    m_panel.open = false;
+    Play("back");
+    return true;
+  }
+  if ((pressed & BTN_CROSS) && count > 0)
+    TogetherPick(t.cards[static_cast<size_t>(t.index)].game);
+  return true;
+}
+
+// A Choose Together room's game chosen: the host plays it with the other player now, a guest suggests it.
+void Menu::Impl::TogetherPick(int game)
+{
+  NetProto::GameInfo info;
+  if (!OnlineGameInfo(game, &info))
+  {
+    Play("error");
+    return;
+  }
+  if (Netplay::GetView().host)
+  {
+    if (!Netplay::PickGame(info))
+    {
+      ShowToast("The other player isn't ready yet", 0);
+      Play("error");
+    }
+    return;
+  }
+  NetProto::LibraryGame g;
+  g.console = info.console;
+  g.crc = info.crc;
+  g.size = info.size;
+  Netplay::Suggest(g);
+  ShowToast("Suggested to the host", 0);
+  Play("confirm");
+}
+
+// (00.23) The players with EmuSuNi open now, as the server counts the anonymous statistics' heartbeats.
+std::string Menu::Impl::OnlineNowLine() const
+{
+  const int n = UsageStats::OnlineNow();
+  if (n < 0)
+    return "";
+  return n == 1 ? std::string("1 player online now") : std::to_string(n) + " players online now";
+}
+
+// ---- The Online tab's table (00.85) ----
+
+// The console filter's choices: every console (""), then each one that plays online, in the consoles' list's order.
+std::vector<std::string> Menu::Impl::OnlineConsoles() const
+{
+  std::vector<std::string> keys = {""};
+  for (const System& system : Systems())
+  {
+    if (Netplay::RulesFor(system.key).online)
+      keys.push_back(system.key);
+  }
+  return keys;
+}
+
+// Under the tab's title: the players online now and the rooms there are, each part translated ("Play with friends
+// anywhere" until either is known).
+std::string Menu::Impl::OnlineSummary() const
+{
+  const std::string now = OnlineNowLine();
+  std::string line = now.empty() ? std::string() : PS4Lang::T(now);
+  if (m_online_listed)
+  {
+    // (00.92: a filter on - how many it leaves of them.)
+    const int rooms = std::max(m_online_last_total, static_cast<int>(m_online_last.size()));
+    const bool filtered = m_online_filter_console != 0 || m_online_filter_type != 0;
+    line += (line.empty() ? "" : "  \xC2\xB7  ") +
+            PS4Lang::T(filtered       ? std::to_string(m_online_shown) + " of " + std::to_string(m_online_others) +
+                                      (m_online_others == 1 ? " room shown" : " rooms shown") :
+                       rooms == 1 ? std::string("1 room") :
+                                    std::to_string(rooms) + " rooms");
+  }
+  return line.empty() ? PS4Lang::T("Play with friends anywhere") : line;
+}
+
+// The table as it is now (every frame the tab shows): the player's own room on top while there is one, then the last
+// list that came - each room's game looked for among ours once (its file's CRC32 and size, else its title) - through
+// the filters. The selection stays on its room (by its number in the list) wherever the room moves, else on its row.
+void Menu::Impl::BuildOnlineTable()
+{
+  using NetProto::LobbyGame;
+  using Netplay::Phase;
+  const Netplay::View v = Netplay::GetView();
+  // (00.86: the host's room open lists them too, on its connection.)
+  if ((v.phase == Phase::Browsing || HostingRoom()) && v.rooms_done)
+  {
+    m_online_last = v.rooms;
+    m_online_last_total = v.rooms_total;
+    m_online_listed = true;
+  }
+  const bool in_room =
+      v.phase == Phase::Connecting || v.phase == Phase::Room || v.phase == Phase::Starting || v.phase == Phase::Playing;
+  const std::vector<std::string> consoles = OnlineConsoles();
+  m_online_filter_console = std::clamp(m_online_filter_console, 0, static_cast<int>(consoles.size()) - 1);
+  const std::string& console = consoles[static_cast<size_t>(m_online_filter_console)];
+  std::vector<OnlineRow> rows;
+  if (in_room)
+  {
+    // Ours, as the room is: its game, host, players, the other player's ping (the filters leave it there).
+    OnlineRow mine;
+    mine.key = "mine";
+    mine.mine = true;
+    mine.together = v.together;
+    mine.found = LobbyGame::Same;
+    mine.game = v.together ? -1 : m_online_game;
+    mine.room.code = v.code;
+    mine.room.game = v.game;
+    if (v.together)
+      mine.room.game.console = NetProto::TOGETHER;
+    mine.room.is_public = v.is_public;
+    mine.room.playing = v.phase == Phase::Starting || v.phase == Phase::Playing;
+    // (00.86: its players - not one asking to join.)
+    size_t players = 0;
+    for (const Netplay::PlayerView& p : v.players)
+      players += p.asking ? 0 : 1;
+    mine.room.players = static_cast<uint8_t>(std::clamp<size_t>(players, 1, NetProto::MAX_MEMBERS));
+    mine.room.max_players = static_cast<uint8_t>(v.max_players);  // (00.95: 2 to 4)
+    for (const Netplay::PlayerView& p : v.players)
+    {
+      if (p.id == 0)
+      {
+        mine.room.host = p.nick;
+        mine.room.region = p.region;
+      }
+      if (!p.me && p.ping_ms >= 0)
+        mine.ping_ms = p.ping_ms;
+    }
+    rows.push_back(std::move(mine));
+  }
+  // (00.86) Ours in the list, private (listed without its code): by its host - us -, time zone and game.
+  std::string my_nick;
+  std::string my_region;
+  for (const Netplay::PlayerView& p : v.players)
+  {
+    if (p.me)
+    {
+      my_nick = NetProto::CleanNick(p.nick);
+      my_region = p.region;
+    }
+  }
+  int others = 0, shown = 0;
+  for (const Netplay::RoomView& r : m_online_last)
+  {
+    const NetProto::RoomEntry& room = r.room;
+    if (in_room && !v.code.empty() && room.code == v.code)
+      continue;  // (ours: on top)
+    if (in_room && v.host && !room.is_public && !v.is_public && room.host == my_nick && room.region == my_region &&
+        room.game.console == (v.together ? std::string(NetProto::TOGETHER) : v.game.console) &&
+        room.game.crc == (v.together ? 0u : v.game.crc) && room.game.size == (v.together ? 0u : v.game.size))
+      continue;
+    others++;
+    const bool together = room.game.console == NetProto::TOGETHER;
+    // (00.92, the owner: "the filters change nothing" - a Choose Together room was in every console's list, and with
+    // one or two rooms, ours on top and such a one, no filter took any away. Its games are any console's: it is in
+    // All's list only, its console "Any".)
+    if (!console.empty() && room.game.console != console)
+      continue;
+    if ((m_online_filter_type == 1 && !room.is_public) || (m_online_filter_type == 2 && room.is_public))
+      continue;
+    shown++;
+    OnlineRow row;
+    row.room = room;
+    row.key = room.id != 0 ? "id:" + std::to_string(room.id) : "code:" + room.code;
+    row.ping_ms = r.ping_ms;
+    row.together = together;
+    if (together)
+    {
+      row.found = LobbyGame::Same;  // (the games both have: once in)
+    }
+    else
+    {
+      const std::string key = room.game.console + '\n' + std::to_string(room.game.crc) + '\n' +
+                              std::to_string(room.game.size) + '\n' + room.game.title;
+      auto mark = m_online_marks.find(key);
+      if (mark == m_online_marks.end())
+      {
+        int index = -1;
+        const LobbyGame found = FindOnlineGame(room.game, &index);
+        mark = m_online_marks.emplace(key, std::make_pair(found, index)).first;
+      }
+      row.found = mark->second.first;
+      row.game = mark->second.second;
+    }
+    rows.push_back(std::move(row));
+  }
+  // (00.92) The filters and what they leave, in the log when either changes.
+  m_online_shown = shown;
+  m_online_others = others;
+  static const char* const TYPES[] = {"every type", "public", "private"};
+  const System* filter_system = console.empty() ? nullptr : SystemByKey(console);
+  const std::string said = std::string("online: the rooms' filters: console ") +
+                           (filter_system ? filter_system->tab : "All") + ", " +
+                           TYPES[std::clamp(m_online_filter_type, 0, 2)] + ": " + std::to_string(shown) + " of " +
+                           std::to_string(others) + " rooms" + (in_room ? " (ours on top)" : "");
+  if (m_online_listed && said != m_online_filter_said)
+  {
+    m_online_filter_said = said;
+    Log(said);
+  }
+  const int c = static_cast<int>(Category::Online);
+  const int count = static_cast<int>(rows.size());
+  int at = -1;
+  for (int i = 0; i < count && !m_online_row_key.empty(); i++)
+  {
+    if (rows[static_cast<size_t>(i)].key == m_online_row_key)
+      at = i;
+  }
+  if (at < 0)
+    at = std::clamp(m_online_index, 0, std::max(0, count - 1));
+  else if (at != m_online_index)
+    m_item_pos[c] += static_cast<float>(at - m_online_index);  // (rooms came or went above it: the view with it)
+  m_online_index = at;
+  m_selected[c] = at;
+  m_online_row_key = count > 0 ? rows[static_cast<size_t>(at)].key : std::string();
+  m_online_rows = std::move(rows);
+}
+
+// The tab's buttons (true: the press was its): Up / Down the rooms (the XMB's L1 / R1 five at a time), Cross joins the
+// selected one, Square makes a room, Triangle joins one by its code, Options opens Online Settings, L2 the next
+// console, R2 the next type. L1 / R1 (the Library's tabs), Left / Right (the XMB's columns) stay the menu's.
+bool Menu::Impl::OnlineTabInput(uint32_t pressed)
+{
+  const int c = static_cast<int>(Category::Online);
+  const int count = static_cast<int>(m_online_rows.size());
+  const auto select = [&](int to) {
+    if (to == m_online_index || to < 0 || to >= count)
+      return;
+    if (std::abs(to - m_online_index) > 5)
+      m_item_pos[c] = static_cast<float>(to);  // (round the list: there at once)
+    m_online_index = to;
+    m_selected[c] = to;
+    m_online_row_key = m_online_rows[static_cast<size_t>(to)].key;
+    Play("move");
+  };
+  if (pressed & (BTN_UP | BTN_DOWN))
+  {
+    const uint32_t arrow = (pressed & BTN_UP) ? BTN_UP : BTN_DOWN;
+    if (count > 0)
+      select(MenuNav::Step(m_online_index, arrow == BTN_UP ? -1 : 1, count, Fresh(arrow)));
+    return true;
+  }
+  if (!Library() && (pressed & (BTN_L1 | BTN_R1)))
+  {
+    const uint32_t button = (pressed & BTN_L1) ? BTN_L1 : BTN_R1;
+    if (count > 0)
+      select(MenuNav::Jump(m_online_index, button == BTN_L1 ? -5 : 5, count, Fresh(button)));
+    return true;
+  }
+  if (pressed & (BTN_CROSS | BTN_SQUARE | BTN_TRIANGLE))
+  {
+    // In a room whose panel something else closed (an error said at the menu's start): back to it, not out of it.
+    // (00.86: the host's room open while the host is here is the table's own - Cross on it goes back to it, another
+    // room or a new one asks first to close it.)
+    const Netplay::Phase phase = Netplay::GetView().phase;
+    if (phase != Netplay::Phase::Off && phase != Netplay::Phase::Browsing && !HostingRoom())
+    {
+      OpenOnlineRoom();
+      Play("menu");
+      return true;
+    }
+  }
+  if (pressed & BTN_CROSS)
+  {
+    if (m_online_index >= 0 && m_online_index < count)
+      JoinOnlineRow(m_online_rows[static_cast<size_t>(m_online_index)]);
+    else
+      Play("error");
+    return true;
+  }
+  if (pressed & BTN_SQUARE)
+  {
+    if (!AskCloseRoom(false, [this] { OpenSettingPanel(SET_OL_CREATE); }))
+      OpenSettingPanel(SET_OL_CREATE);
+    return true;
+  }
+  if (pressed & BTN_TRIANGLE)
+  {
+    OnlineAction("join");
+    return true;
+  }
+  if (pressed & BTN_OPTIONS)
+  {
+    OpenSettingPanel(SET_OL_SETTINGS);
+    return true;
+  }
+  if (pressed & (BTN_L2 | BTN_R2))
+  {
+    if (pressed & BTN_L2)
+      m_online_filter_console = (m_online_filter_console + 1) % static_cast<int>(OnlineConsoles().size());
+    else
+      m_online_filter_type = (m_online_filter_type + 1) % 3;
+    BuildOnlineTable();
+    Play("category");
+    return true;
+  }
+  return false;
+}
+
+// Cross on a room: a public one is joined at once (its code is in the list), a private one with its code - asked for,
+// as its host told it. One that can't be joined says why.
+void Menu::Impl::JoinOnlineRow(const OnlineRow& row)
+{
+  using NetProto::LobbyGame;
+  const NetProto::RoomEntry& room = row.room;
+  if (row.mine)
+  {
+    OpenOnlineRoom();
+    Play("menu");
+    return;
+  }
+  std::string why;
+  if (!room.app_version.empty() && room.app_version != App::VERSION)
+    why = "This room is for EmuSuNi " + room.app_version;
+  else if (room.playing)
+    why = "This room's match has started";
+  else if (room.players >= room.max_players)
+    why = "This room is full";
+  else if (!row.together && row.found == LobbyGame::Missing)
+    why = "You haven't got this game";
+  if (!why.empty())
+  {
+    ShowToast(why, 0);
+    Play("error");
+    return;
+  }
+  if (AskCloseRoom(true, [this, row] { JoinOnlineRow(row); }))
+    return;  // (00.86: our room first)
+  const auto join = [this](const std::string& code) {
+    m_online_found = LobbyGame::Looking;
+    m_online_game = -1;
+    m_online_library_sent = false;
+    Netplay::Join(code, m_data_dir);
+    OpenOnlineRoom();
+  };
+  if (room.is_public && !room.code.empty())
+  {
+    join(room.code);
+    Play("confirm");
+    return;
+  }
+  AskText(
+      "Room Code", "",
+      [this, join](const std::string& typed) {
+        const std::string code = NetProto::NormalizeCode(typed);
+        if (code.empty())
+          return;
+        if (!NetProto::ValidCode(code))
+        {
+          ShowToast("That isn't a room code: 6 letters and numbers", 0);
+          Play("error");
+          return;
+        }
+        join(code);
+      },
+      8, TextKeyboard::Mode::Plain, "This room is private: type the code its host gave you.");
+}
+
+// Options in the table: Online Settings (until 00.84 the tab's own rows). Made again in place (a toggle) keeps the
+// panel where it is; `select`: the row to be on.
+void Menu::Impl::OpenOnlineSettings(const std::string& select)
+{
+  const bool again = m_panel.open && m_panel.setting == SET_OL_SETTINGS;
+  const float slide = again ? m_panel.slide : 0.0f;
+  std::string row = select;
+  if (row.empty() && again && m_panel.selected >= 0 && m_panel.selected < static_cast<int>(m_panel.rows.size()))
+    row = m_panel.rows[static_cast<size_t>(m_panel.selected)].key;
+  m_panel = {};
+  m_panel.open = true;
+  m_panel.setting = SET_OL_SETTINGS;
+  m_panel.title = "Online Settings";
+  m_panel.slide = slide;
+  BuildOnlineSettingsRows();
+  m_panel.selected = 0;
+  for (size_t i = 0; i < m_panel.rows.size(); i++)
+  {
+    if (m_panel.rows[i].key == row)
+      m_panel.selected = static_cast<int>(i);
+  }
+}
+
+// What Online Settings' rows show that changes by itself (the profile's code comes, its deletion ends).
+std::string Menu::Impl::OnlineSettingsSignature() const
+{
+  const UsageStats::Profile profile = UsageStats::GetProfile();
+  return std::string(profile.on ? "1" : "0") + (profile.is_public ? "1" : "0") + (profile.deleting ? "1" : "0") +
+         profile.code;
+}
+
+void Menu::Impl::BuildOnlineSettingsRows()
+{
+  const std::string was = m_panel.selected >= 0 && m_panel.selected < static_cast<int>(m_panel.rows.size()) ?
+                              m_panel.rows[static_cast<size_t>(m_panel.selected)].key :
+                              std::string();
+  const UsageStats::Profile profile = UsageStats::GetProfile();
+  const bool hide = Netplay::HideAddress(m_data_dir);
+  std::vector<SettingRow> rows;
+  const auto add = [&rows](const std::string& label, const std::string& value, const std::string& key,
+                           const std::string& help) {
+    SettingRow row{label, value, key};
+    row.help = help;
+    rows.push_back(std::move(row));
+  };
+  add("Nickname", Netplay::GetNickname(m_data_dir), "ol:nick",
+      "The name other players see in rooms (16 letters at most). Left empty: your PS4 user's name.");
+  add("Hide My Address", hide ? "On" : "Off", "ol:hide",
+      hide ? "Everything goes through EmuSuNi's server: the other player never sees your address (a little more delay)." :
+             "Your connection goes straight to the other console when it can (the least delay).");
+  // (00.92) Each player's ping and connection, in the room and over the game.
+  add("Latency Bar", Netplay::LatencyBar(m_data_dir) ? "On" : "Off", "ol:bar",
+      "Each player's ping and connection - green good, amber fair, red bad - in the room and in the game's corner: it "
+      "shows whose connection makes the match wait.");
+  add("Online Profile", profile.on ? "On" : "Off", "ol:profile",
+      "On: EmuSuNi's server keeps your history (time played by game and console, sessions, online matches) and gives "
+      "you a code that opens it on EmuSuNi's website. Off (the default): nothing of yours is kept.");
+  if (profile.on)
+    add("Public Profile", profile.is_public ? "On" : "Off", "ol:public",
+        "On: your nickname, country and hours are in the website's rankings. Off: only your code opens your profile.");
+  if (!profile.code.empty())
+    add("Profile Code", profile.code, "ol:code",
+        "Opens your profile on EmuSuNi's website (Statistics -> My Profile). Anyone with the code sees it: keep it.");
+  if (!profile.code.empty() || profile.on || profile.deleting)
+    add("Delete My Profile", profile.deleting ? "Being deleted..." : "", "ol:delete",
+        "Deletes your profile on EmuSuNi's server: its time played, sessions and online matches. My Stats on this PS4 "
+        "stay.");
+  add("My Stats", MyStatsDetail(), "ol:stats",
+      "This PS4's own numbers: time played, games, sessions, online matches. They are never sent.");
+  m_panel.rows = std::move(rows);
+  m_panel.selected = 0;
+  for (size_t i = 0; i < m_panel.rows.size(); i++)
+  {
+    if (!was.empty() && m_panel.rows[i].key == was)
+      m_panel.selected = static_cast<int>(i);
+  }
+  m_online_signature = OnlineSettingsSignature();
+}
+
+// The table in a box (x0 to x1, top to bottom): the filters' chips (L2: the console, R2: every room, public or
+// private), the columns' names, then the rooms - each its game (its cover when it is one of ours, and whether it is),
+// console, host and time zone, players, type, status and ping -, scrolling with the selection; instead, when there are
+// none, why (looking, the server's answer, none yet: Square makes one). summary: the players and rooms line first (the
+// XMB's; the Library's page title has it). Its sizes are those the menus draw already (the font atlas's).
+void Menu::Impl::DrawOnlineTable(ImDrawList* dl, float alpha, float x0, float x1, float top, float bottom,
+                                 bool summary)
+{
+  using NetProto::LobbyGame;
+  if (alpha <= 0.01f)
+    return;
+  const Theme& theme = CurrentTheme();
+  const int c = static_cast<int>(Category::Online);
+  const Netplay::View v = Netplay::GetView();
+  // (A light theme - dark text -: darker greens and ambers, and its rows and chips lighter than the page.)
+  const bool light = theme.text != 0xFFFFFF;
+  const uint32_t GREEN = light ? 0x1E7F46 : 0x5BD38A, AMBER = light ? 0x9A5C00 : 0xFFC870,
+                 RED = light ? 0xB3261E : 0xFF8A80, BLUE = light ? 0x245FA8 : 0x5AA9FF;
+  const ImU32 plain = light ? Rgba(0xFFFFFF, alpha * 0.55f) : Rgba(0x000000, alpha * 0.22f);
+  // (Players' and games' own words - nicknames, titles - drawn as they are, not looked up in the language file.)
+  const auto raw = [dl](ImFont* font, float size, ImVec2 at, ImU32 color, const std::string& text) {
+    dl->AddText(font, size, at, color, text.c_str());
+  };
+  float y = top;
+  if (summary)
+  {
+    raw(m_bold, 26, ImVec2(x0 + 2, y), Rgba(theme.wave, alpha), OnlineSummary());
+    y += 46.0f;
+  }
+  // The filters: L2 and the consoles on the left, R2 and the types on the right; the chosen ones lit as the tabs' bar
+  // lights its tab.
+  constexpr float CHIP_H = 38.0f, CHIP_FONT = 22.0f, GLYPH_H = 34.0f;
+  const auto chip_w = [this](const std::string& label) { return TextWidth(m_bold, CHIP_FONT, label) + 30.0f; };
+  const auto chip = [&](float x, const std::string& label, bool on) {
+    const float w = chip_w(label);
+    const ImVec2 p0(x, y), p1(x + w, y + CHIP_H);
+    if (on)
+    {
+      dl->AddRectFilled(p0, p1, Rgba(theme.wave, alpha * 0.45f), CHIP_H * 0.5f);
+      dl->AddRect(p0, p1, Rgba(theme.wave, alpha * 0.95f), CHIP_H * 0.5f, 0, 2.0f);
+    }
+    else
+    {
+      dl->AddRectFilled(p0, p1, plain, CHIP_H * 0.5f);
+      dl->AddRect(p0, p1, Rgba(theme.text, alpha * 0.18f), CHIP_H * 0.5f, 0, 1.5f);
+    }
+    Text(dl, m_bold, CHIP_FONT, ImVec2(x + 15.0f, y + (CHIP_H - CHIP_FONT) * 0.5f - 3.0f),
+         Rgba(theme.text, alpha * (on ? 1.0f : 0.65f)), label, false);
+    return w;
+  };
+  const std::vector<std::string> consoles = OnlineConsoles();
+  float x = x0;
+  x += PS4Glyphs::Draw(dl, m_bold, "L2", x, y + CHIP_H * 0.5f, GLYPH_H, alpha) + 12.0f;
+  for (size_t i = 0; i < consoles.size(); i++)
+  {
+    const System* system = consoles[i].empty() ? nullptr : SystemByKey(consoles[i]);
+    x += chip(x, system ? system->tab : "All", static_cast<int>(i) == m_online_filter_console) + 8.0f;
+  }
+  static const char* const TYPES[] = {"All", "Public", "Private"};
+  float types_w = PS4Glyphs::Width("R2", GLYPH_H) + 12.0f;
+  for (const char* type : TYPES)
+    types_w += chip_w(type) + 8.0f;
+  x = x1 - types_w + 8.0f;
+  x += PS4Glyphs::Draw(dl, m_bold, "R2", x, y + CHIP_H * 0.5f, GLYPH_H, alpha) + 12.0f;
+  for (int i = 0; i < 3; i++)
+    x += chip(x, TYPES[i], i == m_online_filter_type) + 8.0f;
+  y += CHIP_H + 22.0f;
+
+  // The columns: the game the widest, then console, host, players, type, status, and the ping at the right.
+  const float w = x1 - x0;
+  const float col_console = x0 + w * 0.40f, col_host = x0 + w * 0.49f, col_players = x0 + w * 0.655f,
+              col_type = x0 + w * 0.73f, col_status = x0 + w * 0.825f, ping_r = x1 - 22.0f;
+  constexpr float HEAD = 22.0f;
+  const ImU32 head = Rgba(theme.text, alpha * 0.55f);
+  Text(dl, m_bold, HEAD, ImVec2(x0 + 22.0f, y), head, "Game", false);
+  Text(dl, m_bold, HEAD, ImVec2(col_console, y), head, "Console", false);
+  Text(dl, m_bold, HEAD, ImVec2(col_host, y), head, "Host", false);
+  Text(dl, m_bold, HEAD, ImVec2(col_players, y), head, "Players", false);
+  Text(dl, m_bold, HEAD, ImVec2(col_type, y), head, "Room Type", false);
+  Text(dl, m_bold, HEAD, ImVec2(col_status, y), head, "Status", false);
+  Text(dl, m_bold, HEAD, ImVec2(ping_r - TextWidth(m_bold, HEAD, "Ping"), y), head, "Ping", false);
+  y += 32.0f;
+  dl->AddLine(ImVec2(x0, y), ImVec2(x1, y), Rgba(theme.text, alpha * 0.12f), 1.5f);
+  y += 12.0f;
+
+  const float list_top = y;
+  const int count = static_cast<int>(m_online_rows.size());
+  if (count == 0)
+  {
+    // None: looking (a turning arc), the server's answer and the next try, or none yet (Square makes one) - or none
+    // the filters leave.
+    const float cx = (x0 + x1) * 0.5f, cy = list_top + std::min(170.0f, (bottom - list_top) * 0.35f);
+    const auto centered = [&](ImFont* font, float size, float at, ImU32 color, const std::string& english) {
+      const std::string& shown = PS4Lang::T(english);
+      raw(font, size, ImVec2(cx - TextWidth(font, size, shown) * 0.5f, at), color, shown);
+    };
+    const bool failed = v.phase == Netplay::Phase::Off && !v.error.empty();
+    if (!failed && !m_online_listed)
+    {
+      const float turn = m_time * 5.0f;
+      dl->PathArcTo(ImVec2(cx, cy), 26.0f, turn, turn + 4.4f, 32);
+      dl->PathStroke(Rgba(theme.wave, alpha), 0, 5.0f);
+      centered(m_bold, 28, cy + 52.0f, Rgba(theme.text, alpha * 0.85f), "Looking for rooms...");
+      return;
+    }
+    DrawCategoryIcon(dl, Category::Online, ImVec2(cx, cy), 84.0f, Rgba(theme.text, alpha * 0.22f));
+    if (failed)
+    {
+      std::stringstream wrapped(WrapText(m_bold, 28, PS4Lang::T(v.error), std::min(1100.0f, w - 120.0f)));
+      float at = cy + 66.0f;
+      for (std::string line; std::getline(wrapped, line); at += 38.0f)
+        raw(m_bold, 28, ImVec2(cx - TextWidth(m_bold, 28, line) * 0.5f, at), Rgba(theme.text, alpha * 0.9f), line);
+      centered(m_font, 24, at + 10.0f, Rgba(theme.text, alpha * 0.6f), "Trying again in a moment...");
+      return;
+    }
+    const bool filtered = !m_online_last.empty();
+    centered(m_bold, 32, cy + 62.0f, Rgba(theme.text, alpha), filtered ? "No rooms match these filters" : "No rooms yet");
+    const float ly = cy + 116.0f;
+    const ImU32 line = Rgba(theme.text, alpha * 0.8f);
+    if (filtered)
+    {
+      const std::string& text = PS4Lang::T("Change the filters");
+      const float glyphs = PS4Glyphs::Width("L2", GLYPH_H) + 8.0f + PS4Glyphs::Width("R2", GLYPH_H) + 12.0f;
+      float lx = cx - (glyphs + TextWidth(m_font, 26, text)) * 0.5f;
+      lx += PS4Glyphs::Draw(dl, m_bold, "L2", lx, ly + 16.0f, GLYPH_H, alpha) + 8.0f;
+      lx += PS4Glyphs::Draw(dl, m_bold, "R2", lx, ly + 16.0f, GLYPH_H, alpha) + 12.0f;
+      raw(m_font, 26, ImVec2(lx, ly), line, text);
+    }
+    else
+    {
+      // "Press [Square] to create one" (two pieces translated: the button between them).
+      const std::string& before = PS4Lang::T("Press");
+      const std::string& after = PS4Lang::T("to create one");
+      const float bw = TextWidth(m_font, 26, before), gw = PS4Glyphs::Width("Square", GLYPH_H);
+      float lx = cx - (bw + 10.0f + gw + 10.0f + TextWidth(m_font, 26, after)) * 0.5f;
+      raw(m_font, 26, ImVec2(lx, ly), line, before);
+      lx += bw + 10.0f;
+      lx += PS4Glyphs::Draw(dl, m_bold, "Square", lx, ly + 16.0f, GLYPH_H, alpha) + 10.0f;
+      raw(m_font, 26, ImVec2(lx, ly), line, after);
+    }
+    return;
+  }
+
+  constexpr float ROW_H = 78.0f, GAP = 8.0f;
+  // (Scrolled by whole rows once the selection settles - the top row whole, the selected one about the middle -, the
+  // one under the last whole row fading out: more below.)
+  const float visible = std::max(1.0f, std::floor((bottom - list_top) / ROW_H));
+  const float scroll = std::clamp(m_item_pos[c] - std::floor((visible - 1.0f) * 0.5f), 0.0f,
+                                  std::max(0.0f, static_cast<float>(count) - visible));
+  // (A room's panel over the table: ours lit, the others dimmed - the last list, not asked for meanwhile. 00.86: the
+  // host's room open while its panel is closed leaves the table as it is - lists, selection - ours on top.)
+  const bool in_room = (v.phase == Netplay::Phase::Connecting || v.phase == Netplay::Phase::Room ||
+                        v.phase == Netplay::Phase::Starting || v.phase == Netplay::Phase::Playing) &&
+                       !(HostingRoom() && !(m_panel.open && m_panel.setting == SET_ONLINE_ROOM));
+  dl->PushClipRect(ImVec2(x0 - 4.0f, list_top - 4.0f), ImVec2(x1 + 4.0f, bottom + 4.0f), true);
+  for (int i = 0; i < count; i++)
+  {
+    const float ry = list_top + (static_cast<float>(i) - scroll) * ROW_H;
+    if (ry < list_top - ROW_H || ry > bottom)
+      continue;
+    const OnlineRow& row = m_online_rows[static_cast<size_t>(i)];
+    const NetProto::RoomEntry& room = row.room;
+    const bool sel = i == m_online_index && !in_room;
+    const float rh = ROW_H - GAP, cy = ry + rh * 0.5f;
+    const ImVec2 r0(x0, ry), r1(x1, ry + rh);
+    const bool other_version = !room.app_version.empty() && room.app_version != App::VERSION;
+    const bool full = room.players >= room.max_players;
+    const bool joinable = !row.mine && !room.playing && !full && !other_version &&
+                          (row.together || row.found != LobbyGame::Missing);
+    // (A row half out of the list's box fades out at its edge.)
+    const float edge = std::clamp(std::min((ry - list_top) / 36.0f, (bottom - ry - rh) / 36.0f) + 1.0f, 0.0f, 1.0f);
+    const float ra = alpha * edge;
+    const float a = ra * (row.mine || sel || (joinable && !in_room) ? 1.0f : 0.55f);
+    if (sel)
+    {
+      dl->AddRectFilled(r0, r1, Rgba(theme.wave, ra * 0.20f), 14.0f);
+      dl->AddRect(r0, r1, Rgba(theme.wave, ra), 14.0f, 0, 2.5f);
+    }
+    else
+    {
+      dl->AddRectFilled(r0, r1, light ? Rgba(0xFFFFFF, ra * 0.55f) : Rgba(0x000000, ra * 0.22f), 14.0f);
+      if (row.mine)
+        dl->AddRect(r0, r1, Rgba(theme.wave, ra * 0.7f), 14.0f, 0, 2.0f);
+    }
+    if (row.mine)
+      dl->AddRectFilled(ImVec2(x0 + 4.0f, ry + 12.0f), ImVec2(x0 + 10.0f, ry + rh - 12.0f), Rgba(theme.wave, ra),
+                        3.0f);
+    // The game: its cover when it is one of ours (fit in the box, its own shape), else a tile in its console's
+    // colour; a Choose Together room's two cards.
+    const bool link_room = room.game.console == NetProto::GBLINK;  // (00.95: a Game Boy link cable room)
+    const System* system = link_room ? &GetSystem(SystemId::GB) : SystemByKey(room.game.console);
+    const ImVec2 b0(x0 + 22.0f, cy - 30.0f), b1(x0 + 68.0f, cy + 30.0f);
+    float aspect = 0.7f;
+    const ImTextureID cover =
+        row.game >= 0 && row.game < static_cast<int>(m_games.size()) ? Cover(row.game, &aspect) : ImTextureID{};
+    if (row.together)
+    {
+      dl->AddRectFilled(ImVec2(b0.x + 12.0f, b0.y), ImVec2(b1.x + 2.0f, b1.y - 10.0f), Rgba(theme.wave, a * 0.45f),
+                        6.0f);
+      dl->AddRectFilled(ImVec2(b0.x, b0.y + 10.0f), ImVec2(b1.x - 10.0f, b1.y), Rgba(theme.wave, a * 0.9f), 6.0f);
+      const uint32_t wave = theme.wave;  // (its "?" dark on a bright wave colour - the Super Famicom's gold -)
+      const float bright =
+          (0.299f * ((wave >> 16) & 0xFF) + 0.587f * ((wave >> 8) & 0xFF) + 0.114f * (wave & 0xFF)) / 255.0f;
+      raw(m_bold, 26, ImVec2(b0.x + 10.0f, b0.y + 20.0f), bright > 0.62f ? Rgba(0x000000, a * 0.75f) : Rgba(0xFFFFFF, a),
+          "?");
+    }
+    else if (cover != ImTextureID{})
+    {
+      const float bw = b1.x - b0.x, bh = b1.y - b0.y;
+      float cw = bh * std::max(0.2f, aspect), ch = bh;
+      if (cw > bw)
+      {
+        cw = bw;
+        ch = bw / std::max(0.2f, aspect);
+      }
+      const ImVec2 p0((b0.x + b1.x - cw) * 0.5f, cy - ch * 0.5f);
+      dl->AddImageRounded(ImTextureRef(cover), p0, ImVec2(p0.x + cw, p0.y + ch), ImVec2(0, 0), ImVec2(1, 1),
+                          IM_COL32(255, 255, 255, static_cast<int>(a * 255)), 4.0f);
+    }
+    else
+    {
+      const uint32_t tile = system ? system->color : 0x5C6070;
+      dl->AddRectFilled(b0, b1, Rgba(tile, a * 0.9f), 6.0f);
+      dl->AddRect(b0, b1, Rgba(0xFFFFFF, a * 0.2f), 6.0f, 0, 1.5f);
+      DrawCartridgeIcon(dl, ImVec2((b0.x + b1.x) * 0.5f, cy), 28.0f, Rgba(0xFFFFFF, a * 0.85f), Rgba(tile, a));
+    }
+    const float tx = x0 + 86.0f, title_w = col_console - tx - 18.0f;
+    std::string title = row.together ? PS4Lang::T("Choose Together") : room.game.title;
+    if (row.mine && !row.together && room.game.console.empty())
+      title = PS4Lang::T("Joining the room...");
+    raw(m_bold, 28, ImVec2(tx, ry + 7.0f), Rgba(theme.text, a), Fit(m_bold, 28, title, title_w));
+    // Under it: ours, another version's, whether the game is in ours.
+    std::string sub = "Not in your games";
+    uint32_t sub_color = RED;
+    std::string sub_after;  // (00.86: a private room's code after "Your room")
+    if (row.mine && v.asking >= 0)
+    {
+      sub = v.asking_nick + " wants to join";  // (00.86: Cross - the room, its Accept and Reject)
+      sub_color = AMBER;
+    }
+    else if (row.mine)
+    {
+      sub = "Your room";
+      sub_color = theme.wave;
+      if (!v.is_public && !v.code.empty())
+        sub_after = "  \xC2\xB7  " + v.code;
+    }
+    else if (other_version)
+    {
+      sub = "Needs EmuSuNi " + room.app_version;
+      sub_color = AMBER;
+    }
+    else if (row.together)
+    {
+      sub = "Any game you both have";
+      sub_color = theme.text;
+    }
+    else if (row.found == LobbyGame::Same)
+    {
+      sub = "In your games";
+      sub_color = GREEN;
+    }
+    else if (row.found == LobbyGame::Different)
+    {
+      sub = "Another version in your games";
+      sub_color = AMBER;
+    }
+    raw(m_font, 22, ImVec2(tx, ry + 41.0f), Rgba(sub_color, a * (sub_color == theme.text ? 0.6f : 0.95f)),
+        Fit(m_font, 22, PS4Lang::T(sub) + sub_after, title_w));
+    // The console: a pill in its colour, its tab's name (a Choose Together room: any).
+    if (row.together || system)
+    {
+      const std::string label = row.together ? std::string("Any") : link_room ? std::string("GB Link") :
+                                                                                std::string(system->tab);
+      const uint32_t pill = row.together ? 0x6A6F7D : system->color;
+      const float pw = TextWidth(m_bold, 22, label) + 24.0f;
+      const ImVec2 p0(col_console, cy - 16.0f), p1(col_console + pw, cy + 16.0f);
+      dl->AddRectFilled(p0, p1, Rgba(pill, a * 0.95f), 16.0f);
+      dl->AddRect(p0, p1, Rgba(0xFFFFFF, a * 0.25f), 16.0f, 0, 1.5f);
+      Text(dl, m_bold, 22, ImVec2(col_console + 12.0f, cy - 14.0f), Rgba(0xFFFFFF, a), label, false);
+    }
+    // The host and its time zone.
+    const float host_w = col_players - col_host - 16.0f;
+    raw(m_font, 26, ImVec2(col_host, ry + 9.0f), Rgba(theme.text, a),
+        Fit(m_font, 26, room.host.empty() ? std::string("-") : room.host, host_w));
+    if (!room.region.empty())
+      raw(m_font, 22, ImVec2(col_host, ry + 42.0f), Rgba(theme.text, a * 0.55f), room.region);
+    // The players: a figure for each place (lit: taken), and how many. (00.95: four smaller and closer, to fit.)
+    const int places = std::clamp<int>(room.max_players, 1, NetProto::MAX_MEMBERS);
+    const float step = places > 3 ? 17.0f : 22.0f, size = places > 3 ? 0.8f : 1.0f;
+    for (int k = 0; k < places; k++)
+    {
+      const float px = col_players + 10.0f + static_cast<float>(k) * step;
+      const ImU32 figure = Rgba(theme.text, a * (k < room.players ? 0.95f : 0.28f));
+      dl->AddCircleFilled(ImVec2(px, cy - 9.0f * size), 6.0f * size, figure, 16);
+      dl->PathArcTo(ImVec2(px, cy + 12.0f * size), 10.0f * size, IM_PI, 2.0f * IM_PI, 12);
+      dl->PathFillConvex(figure);
+    }
+    raw(m_bold, 24, ImVec2(col_players + 10.0f + static_cast<float>(places) * step + 2.0f, cy - 15.0f),
+        Rgba(theme.text, a), std::to_string(room.players) + "/" + std::to_string(room.max_players));
+    // Its type: a globe (public) or a padlock (private: its code from its host).
+    const float ix = col_type + 12.0f;
+    const ImU32 icon = Rgba(theme.text, a * 0.9f);
+    if (room.is_public)
+    {
+      DrawCategoryIcon(dl, Category::Online, ImVec2(ix, cy), 24.0f, icon);
+    }
+    else
+    {
+      dl->AddRectFilled(ImVec2(ix - 9.0f, cy - 3.0f), ImVec2(ix + 9.0f, cy + 12.0f), icon, 3.0f);
+      dl->PathArcTo(ImVec2(ix, cy - 3.0f), 6.0f, IM_PI, 2.0f * IM_PI, 12);
+      dl->PathStroke(icon, 0, 3.0f);
+    }
+    Text(dl, m_font, 24, ImVec2(col_type + 32.0f, cy - 15.0f), Rgba(theme.text, a),
+         room.is_public ? "Public" : "Private", false);
+    // Its status: waiting for players, full, playing (ours: connecting first).
+    const bool connecting = row.mine && v.phase == Netplay::Phase::Connecting;
+    const char* status = connecting ? "Connecting..." : room.playing ? "Playing" : full ? "Full" : "Waiting";
+    const uint32_t dot = connecting ? 0x8A90A0 : room.playing ? BLUE : full ? AMBER : GREEN;
+    dl->AddCircleFilled(ImVec2(col_status + 8.0f, cy), 7.0f, Rgba(dot, a), 16);
+    Text(dl, m_font, 24, ImVec2(col_status + 24.0f, cy - 15.0f), Rgba(theme.text, a), status, false);
+    // The ping: estimated (the host's round trip to the server and ours) - in our room, the other player's own.
+    const std::string ping = row.ping_ms > 0 ? (row.mine ? "" : "~") + std::to_string(row.ping_ms) + " ms" : "-";
+    const uint32_t ping_color = row.ping_ms <= 0 ? theme.text : row.ping_ms < 90 ? GREEN : row.ping_ms < 170 ? AMBER : RED;
+    raw(m_bold, 24, ImVec2(ping_r - TextWidth(m_bold, 24, ping), cy - 15.0f),
+        Rgba(ping_color, a * (row.ping_ms > 0 ? 1.0f : 0.5f)), ping);
+  }
+  dl->PopClipRect();
+  // More rooms than fit: where the view is, at the right.
+  if (static_cast<float>(count) > visible)
+  {
+    const float track_x = x1 + 12.0f, h = bottom - list_top - GAP;
+    dl->AddRectFilled(ImVec2(track_x, list_top), ImVec2(track_x + 4.0f, list_top + h), Rgba(theme.text, alpha * 0.10f),
+                      2.0f);
+    const float thumb = std::max(30.0f, h * visible / static_cast<float>(count));
+    const float at = list_top + (h - thumb) * scroll / std::max(1.0f, static_cast<float>(count) - visible);
+    dl->AddRectFilled(ImVec2(track_x, at), ImVec2(track_x + 4.0f, at + thumb), Rgba(theme.wave, alpha * 0.8f), 2.0f);
+  }
+}
+
+// Every frame: the room's network while there is one; a guest's game looked for once the room's game is known; the
+// match's start (the game played: the host's, or the one the guest found); the panel as the room is now.
+void Menu::Impl::UpdateOnline()
+{
+  using NetProto::LobbyGame;
+  // (00.23) The Online tab: its games' files hashed (for Choose Together) and the players online asked for when it
+  // is entered. (00.85) Online Settings' rows made again when what they show changes (the profile's code comes).
+  const bool on_tab = m_category == static_cast<int>(Category::Online);
+  if (on_tab && !m_online_tab_entered)
+  {
+    StartOnlineLibrary();
+    UsageStats::Refresh();
+    m_online_entered = m_time;
+    m_online_marks.clear();  // (the rooms' games looked for again: the games may have changed meanwhile)
+  }
+  m_online_tab_entered = on_tab;
+  if (m_panel.open && m_panel.setting == SET_OL_SETTINGS && OnlineSettingsSignature() != m_online_signature)
+    BuildOnlineSettingsRows();
+  const bool shown = m_panel.open && m_panel.setting == SET_ONLINE_ROOM;
+  // (00.86) Our room ended while we were elsewhere (the server lost it; a game played alone that took long to load):
+  // said once the menu shows (closed by us - Close Room, another room - nothing to say).
+  {
+    const bool hosting = HostingRoom();
+    if (m_online_was_hosting && !hosting && !shown && !m_intro)
+    {
+      const Netplay::View v = Netplay::GetView();
+      if (v.phase == Netplay::Phase::Off && !v.error.empty())
+      {
+        Log("online: our room closed while we were elsewhere: " + v.error);
+        ShowToast("Your room closed: " + v.error, 0);
+        Netplay::TakeError();
+      }
+      m_online_was_hosting = false;
+    }
+    else if (hosting)
+    {
+      m_online_was_hosting = true;
+    }
+  }
+  // (00.85) The table's list: asked for once the tab is there a moment (an XMB column passed on the way asks for
+  // nothing), again every few seconds, a while after a failure; let go when the tab is left or a game starts. Not
+  // while the room's panel shows: the room has the connection then. (00.86: our room open, its panel closed - the
+  // list on the room's connection.)
+  {
+    const Netplay::View v = Netplay::GetView();
+    if (v.phase == Netplay::Phase::Browsing && (!on_tab || m_launch >= 0))
+    {
+      Netplay::Leave();
+    }
+    else if (on_tab && m_launch < 0 && !shown && m_time - m_online_entered >= 0.3f)
+    {
+      if (v.phase == Netplay::Phase::Off && !v.error.empty() && m_online_retry_at <= 0.0f)
+      {
+        m_online_retry_at = m_time + 10.0f;  // (the table says why meanwhile)
+        m_online_last.clear();
+        m_online_listed = false;
+      }
+      if (v.phase == Netplay::Phase::Off && (v.error.empty() || m_time >= m_online_retry_at))
+      {
+        m_online_retry_at = 0.0f;
+        m_online_refresh_at = m_time + 5.0f;
+        Netplay::Browse("", m_data_dir);
+      }
+      else if (v.phase == Netplay::Phase::Browsing && v.rooms_done && m_time >= m_online_refresh_at)
+      {
+        m_online_refresh_at = m_time + 5.0f;
+        Netplay::RefreshRooms();
+      }
+      else if (v.host && v.phase == Netplay::Phase::Room && m_time >= m_online_refresh_at)
+      {
+        m_online_refresh_at = m_time + 5.0f;
+        Netplay::RefreshRooms();  // (00.86: ignored while one is on its way)
+      }
+    }
+  }
+  if (!shown && Netplay::GetView().phase == Netplay::Phase::Off)
+  {
+    m_online_ask = -1;
+    if (on_tab)
+      BuildOnlineTable();
+    return;
+  }
+  Netplay::Update();
+  const Netplay::View v = Netplay::GetView();
+  // (00.86) A player asking to join our room: a notice over whatever shows - once a keyboard, a launch or the start's
+  // animation is over -, not over the room's panel (its Accept, selected, and Reject are there). Gone with the request
+  // (answered, expired, the player left); Circle leaves it for the room.
+  if (v.asking < 0 || shown)
+    m_online_ask = -1;
+  if (v.asking >= 0 && v.asking_serial != m_online_ask_serial)
+  {
+    const bool can_show = !m_keyboard && !m_capture && m_launch < 0 && !m_intro && !Tour::Active();
+    if (shown || can_show)
+    {
+      m_online_ask_serial = v.asking_serial;
+      Log("online: " + v.asking_nick + " asks to join our room");
+      if (shown)
+      {
+        m_online_prefer = "accept";
+      }
+      else
+      {
+        m_online_ask = v.asking;
+        m_online_ask_choice = 0;
+      }
+      Play("menu");
+    }
+  }
+  // A Choose Together room: this console's games to it once every file is hashed (each one's file found again by its
+  // console, CRC32 and size: the common list's titles and covers are this console's).
+  if (v.together && v.phase == Netplay::Phase::Room && !m_online_library_sent && NetplayLibrary::GetProgress().finished)
+  {
+    m_online_library_sent = true;
+    m_online_library.clear();
+    std::vector<NetProto::LibraryGame> mine;
+    for (size_t i = 0; i < m_games.size(); i++)
+    {
+      const System& system = GetSystem(m_games[i].rom.system);
+      NetProto::LibraryGame g;
+      g.console = system.key;
+      if (!Netplay::RulesFor(system.key).online || !NetplayLibrary::Lookup(m_games[i].rom.path, &g.crc, &g.size))
+        continue;
+      if (m_online_library.emplace(g, static_cast<int>(i)).second)
+        mine.push_back(g);
+    }
+    Netplay::SetLibrary(mine, true);
+  }
+  // A Choose Together match: the game the host picked, found among ours by its file.
+  if (v.together && v.phase != Netplay::Phase::Room)
+  {
+    NetProto::LibraryGame g;
+    g.console = v.game.console;
+    g.crc = v.game.crc;
+    g.size = v.game.size;
+    const auto at = m_online_library.find(g);
+    m_online_game = at == m_online_library.end() ? -1 : at->second;
+  }
+  if (v.phase == Netplay::Phase::Room && !v.host && !v.together && m_online_found == LobbyGame::Looking &&
+      !v.game.console.empty())
+  {
+    m_online_found = FindOnlineGame(v.game, &m_online_game);
+    if (m_online_found == LobbyGame::Different)
+      m_online_found = LobbyGame::Asking;  // (the player says: Play Anyway)
+    Netplay::SetLobbyGame(m_online_found);
+    Log(std::string("online: the room's game ") + v.game.title + ": " +
+        (m_online_found == LobbyGame::Same     ? "the same file here" :
+         m_online_found == LobbyGame::Asking   ? "another version here" :
+                                                  "not here"));
+    m_online_link_game = -1;
+    m_online_link_said = false;
+  }
+  // (00.95) A Game Boy link cable room. A guest: its game for Game Boy 2 - at first the room's - and its save, said
+  // once it has the room's game. The host: the guest's game looked for among ours.
+  if (v.link && v.phase == Netplay::Phase::Room && !v.host && m_online_found == LobbyGame::Same && !m_online_link_said)
+  {
+    if (m_online_link_game < 0)
+      m_online_link_game = m_online_game;
+    SayLinkGame();
+  }
+  if (v.link && v.phase == Netplay::Phase::Room && v.host && v.link_game_in && v.link_found == LobbyGame::Looking)
+  {
+    m_online_link_game = FindLinkGame(v.link_game);
+    Netplay::SetLinkGameFound(m_online_link_game >= 0);
+    Log("online: the guest's game for Game Boy 2 " + v.link_title + ": " +
+        (m_online_link_game >= 0 ? "the same file here" : "not here"));
+  }
+  if (Netplay::TakeStart())
+  {
+    if (m_online_game >= 0 && m_online_game < static_cast<int>(m_games.size()) && m_launch < 0)
+    {
+      m_panel.open = false;
+      m_launch = m_online_game;
+      m_launch_online = true;  // (00.86: its end's error is the match's)
+      m_launch_time = 0.0f;
+      m_games[static_cast<size_t>(m_online_game)].played = static_cast<int64_t>(std::time(nullptr));
+      SavePlayed();
+      Play("launch");
+      Log("online: the match starts with " + m_games[static_cast<size_t>(m_online_game)].rom.path);
+    }
+    else
+    {
+      Netplay::Leave();
+      ShowToast("The game isn't in your games: you left the room", 0);
+    }
+  }
+  if (on_tab)
+    BuildOnlineTable();
+  if (shown && m_launch < 0)
+    BuildOnlinePanel();
+}
+
+// The online panels' buttons (true: one of them is open, the press is theirs).
+bool Menu::Impl::OnlinePanelInput(uint32_t pressed)
+{
+  const int setting = m_panel.setting;
+  if (setting != SET_ONLINE && setting != SET_ONLINE_HOST && setting != SET_ONLINE_ROOM && setting != SET_OL_SETTINGS &&
+      setting != SET_OL_CREATE && setting != SET_OL_PROFILE && setting != SET_OL_PUBLIC && setting != SET_OL_CODE &&
+      setting != SET_OL_DELETE && setting != SET_MY_STATS && setting != SET_OL_REPLACE && setting != SET_OL_LINKGAME)
+    return false;
+  // (00.95) A link cable room's game for Game Boy 2: Circle back to the room.
+  if (setting == SET_OL_LINKGAME && (pressed & BTN_CIRCLE))
+  {
+    OpenOnlineRoom();
+    Play("back");
+    return true;
+  }
+  // (00.85) Online Settings' pages: Circle back to it, on their row (My Stats: Cross too - it has nothing to choose).
+  const char* settings_row = setting == SET_OL_PROFILE ? "ol:profile" : setting == SET_OL_PUBLIC ? "ol:public" :
+                             setting == SET_OL_CODE    ? "ol:code" :
+                             setting == SET_OL_DELETE  ? "ol:delete" :
+                             setting == SET_MY_STATS   ? "ol:stats" :
+                                                         nullptr;
+  if (settings_row && ((pressed & BTN_CIRCLE) || (setting == SET_MY_STATS && (pressed & BTN_CROSS))))
+  {
+    OpenOnlineSettings(settings_row);
+    Play("back");
+    return true;
+  }
+  if (setting == SET_MY_STATS)
+    return true;
+  if (pressed & BTN_CIRCLE)
+  {
+    // Out of the room (it is left; why it ended, if it did, was said here: the Online tab's table doesn't say it again).
+    // (00.86) The host's room stays open: back to the menus - the Online tab's table has it on top (Close Room closes
+    // it). A guest leaves, as before (its request to join too).
+    if (setting == SET_ONLINE_ROOM && HostingRoom())
+    {
+      m_panel.open = false;
+      m_online_prefer.clear();
+      Log("online: our room stays open while we are elsewhere");
+      ShowToast("Your room stays open: the Online tab takes you back to it", 0);
+      Play("back");
+      return true;
+    }
+    if (setting == SET_ONLINE_ROOM)
+    {
+      Netplay::Leave();
+      Netplay::TakeError();
+    }
+    if (setting == SET_OL_REPLACE)
+      m_online_after_close = nullptr;  // (00.86: kept - nothing else done)
+    if (setting == SET_ONLINE_HOST)
+    {
+      if (m_online_game < 0)
+        OpenOnlinePanel();  // (Choose Together: back to Online Play)
+      else
+        OpenGameOptions();
+      return true;
+    }
+    m_panel.open = false;
+    Play("back");
+    return true;
+  }
+  if (setting == SET_ONLINE_ROOM && m_together.on)
+    return TogetherInput(pressed);  // (00.92: a Choose Together room's screen)
+  if (setting == SET_OL_SETTINGS)
+  {
+    // (00.85) Online Settings: Cross on a row opens its page (or does it: Nickname's keyboard, Hide My Address on or
+    // off - Left / Right too).
+    if (pressed & (BTN_UP | BTN_DOWN))
+    {
+      MoveSettingRow((pressed & BTN_UP) ? -1 : 1, Fresh((pressed & BTN_UP) ? BTN_UP : BTN_DOWN));
+      Play("move");
+    }
+    if (m_panel.selected < 0 || m_panel.selected >= static_cast<int>(m_panel.rows.size()))
+      return true;
+    const std::string key = m_panel.rows[static_cast<size_t>(m_panel.selected)].key;
+    if (key == "ol:hide" && (pressed & (BTN_CROSS | BTN_LEFT | BTN_RIGHT)))
+      OnlineAction("hide");
+    else if (key == "ol:bar" && (pressed & (BTN_CROSS | BTN_LEFT | BTN_RIGHT)))
+      OnlineAction("bar");
+    else if (!(pressed & BTN_CROSS))
+      return true;
+    else if (key == "ol:nick")
+      OnlineAction("nick");
+    else if (key == "ol:stats")
+      OpenMyStats();
+    else
+      OpenSettingPanel(key == "ol:profile" ? SET_OL_PROFILE : key == "ol:public" ? SET_OL_PUBLIC :
+                       key == "ol:code"    ? SET_OL_CODE :
+                                             SET_OL_DELETE);
+    return true;
+  }
+  const int count = static_cast<int>(m_panel.options.size());
+  // (00.95) Play Online's Players: Left / Right (Cross: one more, round to 2).
+  if (setting == SET_ONLINE_HOST && m_panel.selected >= 0 &&
+      m_panel.selected < static_cast<int>(m_online_actions.size()) &&
+      m_online_actions[static_cast<size_t>(m_panel.selected)] == "players" &&
+      (pressed & (BTN_LEFT | BTN_RIGHT | BTN_CROSS)))
+  {
+    const int span = m_online_players_most - 1;
+    const int step = (pressed & BTN_LEFT) ? -1 : 1;
+    m_online_players = 2 + ((m_online_players - 2 + step) % span + span) % span;
+    m_panel.options[static_cast<size_t>(m_panel.selected)] = "Players: " + std::to_string(m_online_players);
+    if (static_cast<size_t>(m_panel.selected) < m_panel.helps.size())
+      m_panel.helps[static_cast<size_t>(m_panel.selected)] = OnlinePlayersHelp();
+    Play("move");
+    return true;
+  }
+  for (const uint32_t arrow : {BTN_UP, BTN_DOWN})
+  {
+    const int next = count > 0 ? MenuNav::Step(m_panel.selected, arrow == BTN_UP ? -1 : 1, count, Fresh(arrow)) : 0;
+    if ((pressed & arrow) && next != m_panel.selected)
+    {
+      m_panel.selected = next;
+      m_online_prefer.clear();  // (00.86: the player's choice from now on)
+      Play("move");
+    }
+  }
+  if (!(pressed & BTN_CROSS) || m_panel.selected < 0 || m_panel.selected >= static_cast<int>(m_online_actions.size()))
+    return true;
+  const std::string action = m_online_actions[static_cast<size_t>(m_panel.selected)];
+  if (OnlineAction(action))
+    return true;
+  if (action == "linkgame")
+  {
+    OpenLinkGamePicker();  // (00.95)
+    return true;
+  }
+  if (action.rfind("lg:", 0) == 0)
+  {
+    m_online_link_game = std::atoi(action.c_str() + 3);
+    SayLinkGame();  // (the host looks for it again)
+    OpenOnlineRoom();
+    Play("confirm");
+    return true;
+  }
+  if ((action == "private" || action == "public") && m_online_game < 0)
+  {
+    // A Choose Together room (its games' list once the other player is in).
+    m_online_library_sent = false;
+    StartOnlineLibrary();
+    Netplay::HostTogether(action == "public", m_data_dir, m_online_players);
+    OpenOnlineRoom();
+    Play("confirm");
+  }
+  else if (action == "private" || action == "public")
+  {
+    NetProto::GameInfo info;
+    if (!OnlineGameInfo(m_online_game, &info))
+    {
+      ShowToast("The game's file can't be read", 0);
+      Play("error");
+      return true;
+    }
+    m_online_found = NetProto::LobbyGame::Same;
+    // (00.95) A Game Boy link cable room: its console the link's, two players.
+    m_online_link_game = -1;
+    m_online_link_said = false;
+    if (m_online_link)
+      info.console = NetProto::GBLINK;
+    Netplay::Host(info, action == "public", m_data_dir, m_online_link ? 2 : m_online_players);
+    OpenOnlineRoom();
+    Play("confirm");
+  }
+  else if (action == "start")
+  {
+    if (!Netplay::StartMatch())
+    {
+      ShowToast("The other player isn't ready yet", 0);
+      Play("error");
+    }
+  }
+  else if (action.rfind("kick:", 0) == 0)
+  {
+    Netplay::Kick(std::atoi(action.c_str() + 5));
+    Play("confirm");
+  }
+  else if (action.rfind("accept:", 0) == 0)
+  {
+    // (00.86) The player asking to join is let in; the selection waits for Start (BuildOnlinePanel).
+    Netplay::Admit(std::atoi(action.c_str() + 7));
+    m_online_prefer = "start";
+    Play("confirm");
+  }
+  else if (action.rfind("reject:", 0) == 0)
+  {
+    const Netplay::View v = Netplay::GetView();
+    Netplay::Refuse(std::atoi(action.c_str() + 7));
+    ShowToast(v.asking_nick + " was not accepted", 0);
+    Play("back");
+  }
+  else if (action == "anyway")
+  {
+    m_online_found = NetProto::LobbyGame::Different;
+    Netplay::SetLobbyGame(NetProto::LobbyGame::Different);
+    Play("confirm");
+  }
+  else if (action == "leave" || action == "close")
+  {
+    Netplay::Leave();
+    Netplay::TakeError();  // (00.85: said here already - the table doesn't say it again)
+    m_panel.open = false;
+    Play("back");
+  }
+  return true;
 }
 
 // ---- Updates (00.73, src/Update.h) ----
@@ -6928,6 +10675,7 @@ void Menu::Impl::UpdatePanelChoice()
   {
     // The PS4 finishes installing the update once the app is closed (as with a game's update).
     Log("update: the player closes EmuSuNi to finish the update");
+    Netplay::Leave();  // (00.86: our room, open in the background, closes with the app - the others told)
     LogSync();
     sceSystemServiceLoadExec("exit", nullptr);
     return;
@@ -6960,9 +10708,710 @@ void Menu::Impl::UpdateUpdater()
         item.detail = detail;
     }
   }
-  if (!m_panel.open && !m_intro && !m_keyboard && !m_capture && m_launch < 0 && !Tour::Active() &&
-      Update::NoticeWanted())
+  // (00.89) The statistics' notice first (once), then the update's; the statistics start once it is gone.
+  const bool idle = !m_panel.open && !m_intro && !m_keyboard && !m_capture && m_launch < 0 && !Tour::Active();
+  // (00.91) A send under way or done: its panel follows it.
+  if (m_panel.open && m_panel.setting == SET_SEND_LOG && LogReport::GetStatus().serial != m_report_serial)
+    BuildSendLogPanel();
+  if (idle && m_stats_notice)
+    OpenStatsNotice();
+  else if (idle && m_report_ask)
+    OpenCrashQuestion();
+  else if (m_stats_waiting && !m_stats_notice && !(m_panel.open && m_panel.setting == SET_STATS_NOTICE))
+    StartStats();
+  else if (idle && Update::NoticeWanted())
     OpenUpdatePanel(true);
+}
+
+// ---- Portable data (00.87, src/Portable.h) ----
+
+std::string Menu::Impl::PortableDetail() const
+{
+  if (Portable::Lost())
+    return "Drive removed: saving to this PS4";
+  if (Portable::Active())
+    return "On: " + Portable::DriveRoot();
+  return "Off";
+}
+
+namespace
+{
+// A panel's text, translated first and wrapped to its width, line by line into `lines` (as the update panel's).
+void AddWrapped(const std::function<std::string(const std::string&)>& wrap, const std::string& text,
+                std::vector<std::string>* lines)
+{
+  std::istringstream in(wrap(PS4Lang::T(text)));
+  for (std::string line; std::getline(in, line);)
+    lines->push_back(line);
+}
+}  // namespace
+
+// Settings -> Keep My Data on the USB Drive: on a drive (Turn On, or a drive's data: Use It, Add My Data), in use (Turn
+// Off, with the copy back or not), or the drive in use taken out (Restart Now).
+void Menu::Impl::OpenPortablePanel()
+{
+  m_panel = {};
+  m_panel.open = true;
+  m_panel.setting = SET_PORTABLE;
+  m_panel.title = "Data on a USB Drive";
+  m_portable_actions.clear();
+  std::vector<std::string> lines = {""};
+  const auto wrap = [this](const std::string& text) { return WrapText(m_font, 28, text, 550.0f); };
+  auto add = [&](const std::string& text) { AddWrapped(wrap, text, &lines); };
+  auto option = [this](const std::string& label, const std::string& action, const std::string& help) {
+    m_panel.options.push_back(label);
+    m_portable_actions.push_back(action);
+    m_panel.helps.push_back(help);
+  };
+  if (Portable::Lost())
+  {
+    add("The USB drive with your data was removed: saving to this PS4 until EmuSuNi starts again with it.");
+    option("Restart Now", "restart",
+           "EmuSuNi closes and opens again: with the drive's data if it is connected, else with this PS4's.");
+    option("OK", "back", "");
+  }
+  else if (Portable::Active())
+  {
+    add("On: your saves, settings and game list are on the USB drive:");
+    lines.push_back(Portable::DataFolder());
+    lines.push_back("");
+    add("BIOS files: put yours in EmuSuNi-Portable/system on the drive to use them on any PS4.");
+    option("Turn Off and Copy Back", "off_copy",
+           "Copies the drive's data to this PS4 (what it hasn't got, or has older; nothing is deleted), then EmuSuNi "
+           "restarts with this PS4's data.");
+    option("Turn Off", "off", "EmuSuNi restarts with this PS4's own data, as it was. The drive keeps its data.");
+    option("Cancel", "back", "");
+  }
+  else
+  {
+    // The drives the menu knows now (its last look), never one that looks like the PS4's own storage.
+    std::vector<std::string> drives;
+    for (const std::string& drive : m_places.drives)
+    {
+      if (!Library::LooksLikePs4Storage(drive))
+        drives.push_back(drive);
+    }
+    const std::vector<Portable::DriveData> found = Portable::Look(drives);
+    const bool one = drives.size() == 1;
+    for (const std::string& drive : drives)
+    {
+      const bool data = std::any_of(found.begin(), found.end(),
+                                    [&drive](const Portable::DriveData& d) { return d.root == drive; });
+      if (!data)
+      {
+        option(one ? std::string("Turn On") : "Turn On: " + drive, "on:" + drive,
+               "Copies your data to the drive (its folder EmuSuNi-Portable; nothing here is deleted), then EmuSuNi "
+               "restarts and uses it.");
+        continue;
+      }
+      option(one ? std::string("Use the Drive's Data") : "Use the Data on " + drive, "use:" + drive,
+             "EmuSuNi restarts and plays with the drive's data (from this PS4 or another). This PS4's own data isn't "
+             "changed.");
+      option(one ? std::string("Add My Data and Use It") : "Add My Data to " + drive, "merge:" + drive,
+             "Copies to the drive what it hasn't got of your data (its own files are kept), then EmuSuNi restarts and "
+             "uses it.");
+    }
+    if (drives.empty())
+    {
+      add("Connect a USB drive (exFAT or FAT32) to keep your data on it.");
+      lines.push_back("");
+    }
+    add("Your saves, states, settings, cheats, bezels, covers and game list in EmuSuNi-Portable on a USB drive: take "
+        "it to another PS4 with EmuSuNi.");
+    if (m_panel.options.size() < 3)
+    {
+      lines.push_back("");
+      add("Not copied: your RetroAchievements login, online profile and statistics. BIOS files neither: put yours in "
+          "EmuSuNi-Portable/system on the drive.");
+    }
+    option("Cancel", "back", "");
+  }
+  m_panel.lines = std::move(lines);
+  Play("menu");
+}
+
+// A drive with portable data the menu's look found: never answered for on this PS4 (Use it? Yes / No), or used here
+// (Restart Now / Later: the next start uses it).
+void Menu::Impl::OpenPortableQuestion(bool notice)
+{
+  m_panel = {};
+  m_panel.open = true;
+  m_panel.title = "Data on a USB Drive";
+  m_portable_actions.clear();
+  std::vector<std::string> lines = {""};
+  const auto wrap = [this](const std::string& text) { return WrapText(m_font, 28, text, 550.0f); };
+  auto add = [&](const std::string& text) { AddWrapped(wrap, text, &lines); };
+  auto option = [this](const std::string& label, const std::string& action, const std::string& help) {
+    m_panel.options.push_back(label);
+    m_portable_actions.push_back(action);
+    m_panel.helps.push_back(help);
+  };
+  if (!notice)
+  {
+    m_panel.setting = SET_PORTABLE_ASK;
+    add("This USB drive (" + m_portable_drive + ") has EmuSuNi data: saves, settings, cheats, covers and a game list.");
+    lines.push_back("");
+    add("Use the data on this drive?");
+    lines.push_back("");
+    add("This PS4's own data isn't changed, and is used again when the drive isn't there.");
+    option("Yes", "yes", "EmuSuNi restarts with the drive's data (this PS4 remembers it: next time at once).");
+    option("No", "no", "This PS4's own data. Settings -> Keep My Data on the USB Drive can still use the drive's.");
+  }
+  else
+  {
+    m_panel.setting = SET_PORTABLE_NOTICE;
+    add("The USB drive with your EmuSuNi data (" + m_portable_drive + ") is connected: it is used from the next start.");
+    option("Restart Now", "restart", "EmuSuNi closes and opens again with the drive's data.");
+    option("Later", "back", "");
+  }
+  m_panel.lines = std::move(lines);
+  Play("menu");
+}
+
+void Menu::Impl::OpenPortableWarning(const std::string& warning)
+{
+  m_panel = {};
+  m_panel.open = true;
+  m_panel.setting = SET_PORTABLE_WARNING;
+  m_panel.title = "Data on a USB Drive";
+  m_portable_actions.clear();
+  std::vector<std::string> lines = {""};
+  const auto wrap = [this](const std::string& text) { return WrapText(m_font, 28, text, 550.0f); };
+  AddWrapped(wrap, warning, &lines);
+  if (Portable::Lost())
+  {
+    lines.push_back("");
+    AddWrapped(wrap, "Games start again once EmuSuNi restarts.", &lines);
+    m_panel.options.push_back("Restart Now");
+    m_portable_actions.push_back("restart");
+    m_panel.helps.push_back(
+        "EmuSuNi closes and opens again: with the drive's data if it is connected, else with this PS4's.");
+  }
+  m_panel.options.push_back("OK");
+  m_portable_actions.push_back("back");
+  m_panel.helps.push_back("");
+  m_panel.lines = std::move(lines);
+  for (Item& item : m_items[static_cast<int>(Category::Settings)])
+  {
+    if (item.setting == SET_PORTABLE)
+      item.detail = PortableDetail();
+  }
+  Play("error");
+}
+
+// ---- The anonymous statistics' notice (00.89) ----
+
+// Whether it goes is the owner's (STATS_NOTICE). Once: at the first start with the statistics - a new install, or the
+// first after the update that brought them (v00.23) -, before any heartbeat: UsageStats starts once it is answered or
+// closed (its first heartbeat 10 s later), so Turn Them Off sends nothing at all. settings.ini "stats_notice" says it
+// was shown. data_dir/stats-notice-test shows it at every start (to see it on the PS4 before it goes).
+constexpr bool STATS_NOTICE = false;
+
+bool Menu::Impl::StatsNoticeWanted() const
+{
+  if (FileExists(m_data_dir + "/stats-notice-test"))
+    return true;
+  if (!STATS_NOTICE)
+    return false;
+  for (const auto& [key, value] : Settings::GlobalValues())
+  {
+    if (key == "stats_notice")
+      return false;
+  }
+  return true;
+}
+
+void Menu::Impl::OpenStatsNotice()
+{
+  m_stats_notice = false;
+  Settings::Set("stats_notice", "shown");
+  m_panel = {};
+  m_panel.open = true;
+  m_panel.setting = SET_STATS_NOTICE;
+  m_panel.title = "Anonymous Statistics";
+  std::vector<std::string> lines = {""};
+  const auto wrap = [this](const std::string& text) { return WrapText(m_font, 28, text, 550.0f); };
+  auto add = [&](const std::string& text) { AddWrapped(wrap, text, &lines); };
+  add("EmuSuNi sends anonymous statistics: how many use it and from which countries, its version, the PS4's "
+      "language, the console and the game played (a checksum or a disc's code, never a file's name).");
+  lines.push_back("");
+  add("Never sent: names, PSN, your list of games, your files. The server keeps no address.");
+  lines.push_back("");
+  add("Off, nothing at all is sent. Change it any time: Settings -> Anonymous Statistics.");
+  m_panel.options = {"OK", "Turn Them Off"};
+  m_panel.helps = {"They stay as they are. They show which consoles and games to improve first.",
+                   "Nothing is sent. Online play still works; the online profile needs them."};
+  m_panel.lines = std::move(lines);
+  Log("stats: the notice shown");
+  Play("menu");
+}
+
+void Menu::Impl::StartStats()
+{
+  if (!m_stats_waiting)
+    return;
+  m_stats_waiting = false;
+  UsageStats::Start(m_data_dir, App::VERSION);
+}
+
+// ---- How to Help (00.90) ----
+
+// Settings -> How to Help: EmuSuNi is free, and asks for no money (FinalBurn Neo's licence forbids asking for donations
+// for a project with its code: assets/licenses): a star on GitHub, a report with the log, a word to others. The PS4
+// opens no link: the project's website (00.95: emusuni.com - before, its GitHub page) as a QR code under its address
+// (assets/xmb/help-qr.png, scripts/make-help-qr.py), drawn by DrawSidePanel.
+void Menu::Impl::OpenHelpPanel()
+{
+  m_panel.title = "How to Help";
+  std::vector<std::string> lines = {""};
+  AddWrapped([this](const std::string& text) { return WrapText(m_font, 28, text, 550.0f); },
+             "EmuSuNi is free. You can help it without spending anything:", &lines);
+  lines.push_back("");
+  for (const char* text : {"Give it a star on GitHub.",
+                           "Report what fails in GitHub's Issues, with /data/EmuSuNi/emusuni.log attached.",
+                           "Tell others about it and share your videos."})
+  {
+    // A dash, the lines after it under its text.
+    std::istringstream in(WrapText(m_font, 28, PS4Lang::T(text), 520.0f));
+    std::string line;
+    for (bool first = true; std::getline(in, line); first = false)
+      lines.push_back((first ? "- " : "   ") + line);
+  }
+  lines.push_back("");
+  lines.push_back("emusuni.com");
+  m_panel.lines = std::move(lines);
+  if (m_help_qr == ImTextureID{})
+    m_help_qr = LoadPngTexture(m_assets_dir + "/xmb/help-qr.png");
+}
+
+// ---- Send Log (00.91, src/LogReport.h) ----
+
+// Settings -> Send Log: what goes and Send (a send under way: how it goes).
+void Menu::Impl::OpenSendLogPanel()
+{
+  m_report_confirm = LogReport::GetStatus().state != LogReport::State::Sending;
+  BuildSendLogPanel();
+}
+
+// The panel as the send is: asked (what goes, Send / Cancel), sending, sent (its code, big: DrawSidePanel), or not sent
+// (why, Try Again / Close). Made again when the send's state changes (UpdateUpdater); the slide as it is.
+void Menu::Impl::BuildSendLogPanel()
+{
+  const LogReport::Status status = LogReport::GetStatus();
+  m_report_serial = status.serial;
+  m_panel.open = true;
+  m_panel.setting = SET_SEND_LOG;
+  m_panel.title = "Send Log";
+  m_panel.options.clear();
+  m_panel.helps.clear();
+  m_panel.rows.clear();
+  m_panel.selected = 0;
+  std::vector<std::string> lines = {""};
+  const auto wrap = [this](const std::string& text) { return WrapText(m_font, 28, text, 550.0f); };
+  auto add = [&](const std::string& text) { AddWrapped(wrap, text, &lines); };
+  if (m_report_confirm || status.state == LogReport::State::Idle)
+  {
+    add("EmuSuNi's log goes to its creator, to find what went wrong: what the app did this time and the time before "
+        "(games started, settings, errors), how it closed (crash.log) and its version.");
+    lines.push_back("");
+    add("Not sent: your games, saves or other files. Your nickname and user names are taken out; the server keeps "
+        "only the country, never your address, and deletes the log after 90 days.");
+    lines.push_back("");
+    add("You get a code: write it in your report on GitHub (Issues) or Telegram.");
+    m_panel.options = {"Send", "Cancel"};
+    m_panel.helps = {"Sends the log now (a few seconds).", "Nothing is sent."};
+  }
+  else if (status.state == LogReport::State::Sending)
+  {
+    add("Sending the log to EmuSuNi's server...");
+  }
+  else if (status.state == LogReport::State::Sent)
+  {
+    m_panel.title = "Log Sent";
+    lines.clear();  // (under the code)
+    add("This is its code: write it in your report on GitHub (Issues) or Telegram, with what happened.");
+    m_panel.options = {"OK"};
+    m_panel.helps = {"Closes this. Settings -> Send Log sends a new one."};
+  }
+  else
+  {
+    add(status.plain);
+    m_panel.options = {"Try Again", "Close"};
+    m_panel.helps = {"Sends the log again.", "Nothing is sent."};
+  }
+  m_panel.lines = std::move(lines);
+}
+
+void Menu::Impl::SendLogChoice()
+{
+  const std::string option = m_panel.selected >= 0 && m_panel.selected < static_cast<int>(m_panel.options.size()) ?
+                                 m_panel.options[static_cast<size_t>(m_panel.selected)] :
+                                 std::string();
+  if (option == "Send" || option == "Try Again" || option == "Yes, Send It")
+  {
+    StartSendingLog();
+    return;
+  }
+  m_panel.open = false;
+  Play(option == "OK" ? "confirm" : "back");
+}
+
+// The send begun (src/LogReport.h): this player's own names taken out by the app, the server's address on its thread.
+void Menu::Impl::StartSendingLog()
+{
+  LogReport::Ask ask;
+  ask.data_dir = m_data_dir;
+  const std::string ra_user = Achievements::GetAccount().user;
+  if (!ra_user.empty())
+    ask.names.emplace_back(ra_user, "<ra-user>");
+  const std::string nickname = Netplay::GetNickname(m_data_dir);
+  if (!nickname.empty())
+    ask.names.emplace_back(nickname, "<player>");
+  const std::string data_dir = m_data_dir;
+  ask.server = [data_dir] {
+    const std::vector<std::string> servers = Netplay::MainServers(data_dir, 5.0);
+    return servers.empty() ? std::string() : servers.front();
+  };
+  m_report_confirm = false;
+  LogReport::Send(ask);
+  BuildSendLogPanel();
+  Play("confirm");
+}
+
+// At the start after EmuSuNi closed by itself (src/LogReport.h CrashToAsk), once the menu is free: send its log? Asked
+// once (Circle too counts as No).
+void Menu::Impl::OpenCrashQuestion()
+{
+  m_report_ask = false;
+  LogReport::CrashAnswered(m_data_dir);
+  m_panel = {};
+  m_panel.open = true;
+  m_panel.setting = SET_SEND_LOG_ASK;
+  m_panel.title = "EmuSuNi Closed";
+  std::vector<std::string> lines = {""};
+  const auto wrap = [this](const std::string& text) { return WrapText(m_font, 28, text, 550.0f); };
+  AddWrapped(wrap, "EmuSuNi closed by itself last time.", &lines);
+  lines.push_back("");
+  AddWrapped(wrap,
+             "Send its log to its creator, to find why? It has what the app did, how it closed and its version. Your "
+             "nickname and user names are taken out; the server keeps only the country, never your address, for 90 "
+             "days.",
+             &lines);
+  m_panel.options = {"Yes, Send It", "No"};
+  m_panel.helps = {"Sends it now: you get a code to write in a report on GitHub or Telegram.",
+                   "Nothing is sent. Settings -> Send Log can send it later."};
+  m_panel.lines = std::move(lines);
+  Log("report: asked after EmuSuNi closed by itself");
+  Play("menu");
+}
+
+void Menu::Impl::PortablePanelChoice()
+{
+  const size_t at = static_cast<size_t>(m_panel.selected);
+  const std::string action = at < m_portable_actions.size() ? m_portable_actions[at] : std::string("back");
+  const auto after = [&action](const std::string& head) {
+    return action.compare(0, head.size(), head) == 0 ? action.substr(head.size()) : std::string();
+  };
+  if (action == "back")
+  {
+    m_panel.open = false;
+    Play("back");
+  }
+  else if (action == "restart")
+  {
+    RestartApp("the player chose Restart Now");
+  }
+  else if (action == "stop")
+  {
+    if (m_portable_progress)
+      m_portable_progress->stop = true;
+    Play("back");
+  }
+  else if (action == "yes" || action == "no")
+  {
+    Portable::Remember(m_portable_id, action);
+    if (action == "yes")
+    {
+      RestartApp("the data on " + m_portable_drive + " is used");
+      return;
+    }
+    m_panel.open = false;
+    ShowToast("This PS4's data is used", 0);
+    Play("back");
+  }
+  else if (action == "off")
+  {
+    Portable::Remember(Portable::DriveId(), "off");
+    RestartApp("the data on the USB drive is turned off");
+  }
+  else if (action == "off_copy")
+  {
+    StartPortableCopy(Portable::Copying::Back, Portable::DriveRoot(), Portable::Policy::Newer);
+  }
+  else if (const std::string drive = after("on:"); !drive.empty())
+  {
+    // (A drive without portable data: what a copy cut before left there is its own - newer files go over it.)
+    StartPortableCopy(Portable::Copying::ToDrive, drive, Portable::Policy::Newer);
+  }
+  else if (const std::string drive = after("merge:"); !drive.empty())
+  {
+    StartPortableCopy(Portable::Copying::ToDrive, drive, Portable::Policy::Missing);
+  }
+  else if (const std::string drive = after("use:"); !drive.empty())
+  {
+    const std::string id = Portable::DriveDataId(drive);
+    if (id.empty())
+    {
+      ShowToast("The drive's data can't be read", 0);
+      Play("error");
+      return;
+    }
+    Portable::Remember(id, "yes");
+    RestartApp("the data on " + drive + " is used");
+  }
+}
+
+// The copy on a thread of its own, its page as it goes: this PS4's data to a drive (Turn On, Add My Data) or the drive's
+// to this PS4 (Turn Off and Copy Back). The page stays until it ends (Stop stops it at its next file).
+void Menu::Impl::StartPortableCopy(Portable::Copying copying, const std::string& drive, Portable::Policy policy)
+{
+  if (m_portable_thread.joinable() || drive.empty())
+    return;
+  Portable::CopyPlan plan;
+  plan.copying = copying;
+  plan.policy = policy;
+  plan.drive = drive;
+  if (copying == Portable::Copying::ToDrive)
+  {
+    plan.from = m_data_dir;
+    plan.to = Portable::FolderOf(drive);
+    plan.writer = Portable::NewWord();
+  }
+  else
+  {
+    plan.from = Portable::DataFolder();
+    plan.to = m_data_dir;
+  }
+  m_prefs.Save(UserDir() + "/xmb.ini");  // (the menu's as it is now: in the copy)
+  m_portable_plan = plan;
+  m_portable_progress = std::make_unique<Portable::CopyProgress>();
+  m_portable_ok = m_portable_ended = false;
+  Log("portable: copying " + plan.from + " -> " + plan.to +
+      (policy == Portable::Policy::Missing ? " (what it hasn't got)" : " (what it hasn't got or has older)"));
+  Portable::CopyProgress* progress = m_portable_progress.get();
+  m_portable_thread = std::thread([plan, progress] { Portable::CopyData(plan, progress); });
+  m_panel = {};
+  m_panel.open = true;
+  m_panel.setting = SET_PORTABLE_COPY;
+  BuildPortableCopyPanel();
+  Play("confirm");
+}
+
+bool Menu::Impl::PortableCopyBusy() const
+{
+  return m_portable_progress && !m_portable_ended;
+}
+
+void Menu::Impl::BuildPortableCopyPanel()
+{
+  m_portable_built = m_time;
+  if (!m_portable_progress)
+    return;
+  Portable::CopyProgress& p = *m_portable_progress;
+  const bool to_drive = m_portable_plan.copying == Portable::Copying::ToDrive;
+  m_panel.title = to_drive ? "Copying Your Data" : "Copying to This PS4";
+  m_panel.options.clear();
+  m_panel.helps.clear();
+  m_portable_actions.clear();
+  std::vector<std::string> lines = {""};
+  const auto wrap = [this](const std::string& text) { return WrapText(m_font, 28, text, 550.0f); };
+  auto add = [&](const std::string& text) { AddWrapped(wrap, text, &lines); };
+  auto mb = [](uint64_t bytes) { return std::to_string((bytes + (1u << 19)) >> 20); };
+  if (!m_portable_ended)
+  {
+    lines.push_back(to_drive ? m_portable_plan.to : m_portable_plan.from);
+    lines.push_back("");
+    if (p.listing.load())
+    {
+      lines.push_back("Looking at your data...");
+    }
+    else
+    {
+      lines.push_back(std::to_string(p.looked.load()) + " of " + std::to_string(p.files.load()) + " files");
+      lines.push_back(mb(p.bytes_done.load()) + " of " + mb(p.bytes_total.load()) + " MB");
+    }
+    lines.push_back("");
+    add("A copy: nothing is deleted.");
+    m_panel.options = {"Stop"};
+    m_portable_actions = {"stop"};
+    m_panel.helps = {"Stops the copy: nothing is turned on or off (what was copied stays)."};
+  }
+  else if (m_portable_ok)
+  {
+    add(to_drive ? "Done: your data is on the drive." : "Done: the drive's data is on this PS4.");
+    lines.push_back("");
+    lines.push_back(std::to_string(p.copied.load()) + " files copied");
+    if (p.kept.load() > 0)
+      add(std::to_string(p.kept.load()) +
+          (to_drive ? " of your files were on the drive already: the drive's were kept." :
+                      " files of this PS4 are newer: they were kept."));
+    if (p.refused.load() > 0)
+      add(std::to_string(p.refused.load()) + " files have names a USB drive doesn't take: they stay on this PS4.");
+    lines.push_back("");
+    add(to_drive ? "EmuSuNi restarts to use the drive." : "EmuSuNi restarts with this PS4's data.");
+    m_panel.options = {"Restart Now"};
+    m_portable_actions = {"restart"};
+    m_panel.helps = {"EmuSuNi closes and opens again with the data chosen."};
+  }
+  else
+  {
+    std::string error;
+    {
+      std::lock_guard lock(p.mutex);
+      error = p.error;
+    }
+    if (error == "stopped")
+    {
+      add("Stopped: nothing was turned on or off.");
+    }
+    else
+    {
+      add(to_drive ? "Not turned on: a file couldn't be copied." : "Not turned off: a file couldn't be copied.");
+      lines.push_back("");
+      AddWrapped(wrap, error, &lines);
+      lines.push_back("");
+      add("Is the drive full? Nothing was deleted.");
+    }
+    m_panel.options = {"OK"};
+    m_portable_actions = {"back"};
+    m_panel.helps = {""};
+  }
+  m_panel.lines = std::move(lines);
+}
+
+// Every frame: the copy's page as it goes and its end; then, with the menu free, a warning waiting (the drive in use
+// taken out, a write to it failed, it didn't answer at the start), a drive's question or notice.
+void Menu::Impl::UpdatePortable()
+{
+  if (m_portable_progress && !m_portable_ended && m_portable_progress->done.load())
+  {
+    if (m_portable_thread.joinable())
+      m_portable_thread.join();
+    m_portable_ended = true;
+    Portable::CopyProgress& p = *m_portable_progress;
+    std::string error;
+    {
+      std::lock_guard lock(p.mutex);
+      error = p.error;
+    }
+    m_portable_ok = p.failed.load() == 0 && error.empty();
+    const bool to_drive = m_portable_plan.copying == Portable::Copying::ToDrive;
+    if (m_portable_ok && to_drive)
+    {
+      // The drive's portable.ini last (a copy cut before it isn't portable data), this PS4's answer: turned on here.
+      const std::string id = Portable::MarkDrive(m_portable_plan.drive);
+      if (id.empty())
+      {
+        m_portable_ok = false;
+        std::lock_guard lock(p.mutex);
+        p.error = Portable::FolderOf(m_portable_plan.drive) + "/" + Portable::MARKER + ": can't be written";
+      }
+      else
+      {
+        Portable::Remember(id, "home");
+        Portable::SetLibraryWriter(m_portable_plan.writer, id);
+      }
+    }
+    else if (m_portable_ok)
+    {
+      Portable::Remember(Portable::DriveId(), "off");
+    }
+    LogF("portable: the copy %s: %d files, %d copied, %d kept (the other side's), %d the same, %d names refused, %d "
+         "failed%s%s",
+         m_portable_ok ? "is done" : "ended without turning anything on or off", p.files.load(), p.copied.load(),
+         p.kept.load(), p.same.load(), p.refused.load(), p.failed.load(), error.empty() ? "" : ": ", error.c_str());
+    m_panel = {};
+    m_panel.open = true;
+    m_panel.setting = SET_PORTABLE_COPY;
+    BuildPortableCopyPanel();
+    Play(m_portable_ok ? "confirm" : "error");
+  }
+  else if (PortableCopyBusy() && m_panel.open && m_panel.setting == SET_PORTABLE_COPY && m_time - m_portable_built > 0.25f)
+  {
+    BuildPortableCopyPanel();
+  }
+  if (const std::string warning = Portable::TakeWarning(); !warning.empty())
+  {
+    m_portable_warning = warning;
+    for (Item& item : m_items[static_cast<int>(Category::Settings)])
+    {
+      if (item.setting == SET_PORTABLE)
+        item.detail = PortableDetail();
+    }
+  }
+  if (m_panel.open || m_intro || m_keyboard || m_capture || m_launch >= 0 || Tour::Active())
+    return;
+  if (!m_portable_warning.empty())
+  {
+    OpenPortableWarning(m_portable_warning);
+    m_portable_warning.clear();
+  }
+  else if (!m_portable_pending.empty())
+  {
+    OpenPortableQuestion(m_portable_pending == "notice");
+    m_portable_pending.clear();
+  }
+}
+
+// The drives the menu found (its reads, its looks): the one in use still there; another's portable data asked about
+// (never answered on this PS4) or told about (used here: the next start uses it), once a session each.
+void Menu::Impl::PortableLook(const std::vector<std::string>& drives)
+{
+  if (m_portable_looked && drives == m_portable_drives)
+    return;
+  m_portable_looked = true;
+  m_portable_drives = drives;
+  Portable::CheckDrive();  // (the one in use taken out: its warning, the fallback)
+  for (const Portable::DriveData& data : Portable::Look(drives))
+  {
+    if (data.in_use || !m_portable_said.insert(data.id).second)
+      continue;
+    if (Portable::Active() || Portable::Lost())
+    {
+      Log("portable: " + data.root + " has portable data too (" + data.id + "): one drive's at a time, not used");
+      continue;
+    }
+    if (data.answer == "no" || data.answer == "off")
+    {
+      Log("portable: " + data.root + " has portable data (" + data.id + "), \"" + data.answer +
+          "\" on this PS4: not used (Settings -> Keep My Data on the USB Drive)");
+      continue;
+    }
+    m_portable_drive = data.root;
+    m_portable_id = data.id;
+    m_portable_pending = data.answer.empty() ? "ask" : "notice";
+    Log("portable: " + data.root + " has portable data (" + data.id + "): " +
+        (data.answer.empty() ? "the player is asked whether to use it" : "used from the next start (said so)"));
+    break;
+  }
+}
+
+// EmuSuNi again, to read the player's data from where it is now (as the start watchdog restarts it: src/StartGuard.cpp).
+// Still here after 5 s: it closes instead (the next start uses that data).
+void Menu::Impl::RestartApp(const std::string& why)
+{
+  Log("portable: EmuSuNi restarts: " + why);
+  m_prefs.Save(UserDir() + "/xmb.ini");
+  Netplay::Leave();
+  LogSync();
+  const int result = sceSystemServiceLoadExec("/app0/eboot.bin", nullptr);
+  LogF("portable: restart asked (%#x)", static_cast<unsigned>(result));
+  LogSync();
+  for (int i = 0; i < 50; i++)
+    sceKernelUsleep(100000);
+  Log("portable: EmuSuNi wasn't restarted: it closes (its next start uses the data chosen)");
+  LogSync();
+  sceSystemServiceLoadExec("exit", nullptr);
 }
 
 // A command of the screenshot tour (Tour.h).
@@ -7032,7 +11481,7 @@ void Menu::Impl::TourCommand(const std::string& command)
   }
   else if (word == "tab")
   {
-    // A page by its console's key ("arcade"), or all / favorites / settings (a console not shown: All), and on
+    // A page by its console's key ("arcade"), or all / favorites / online / settings (a console not shown: All), and on
     // it the first game whose title has the words after it ("tab snes donkey kong").
     const size_t gap = rest.find(' ');
     const std::string name = rest.substr(0, gap), wanted = gap == std::string::npos ? "" : Lower(rest.substr(gap + 1));
@@ -7043,6 +11492,8 @@ void Menu::Impl::TourCommand(const std::string& command)
       page = static_cast<int>(Category::Favorites);
     else if (name == "settings")
       page = static_cast<int>(Category::Settings);
+    else if (name == "online")
+      page = static_cast<int>(Category::Online);
     else if (const System* system = SystemByKey(name))
       page = ListOfSystem(system->id);
     if (page < 0)
@@ -7124,11 +11575,12 @@ std::string Menu::Impl::SortName() const
   return SORT_NAMES[0][1];
 }
 
-// data_dir/played.ini: "<Unix time> <game path>" per line.
+// data_dir/played.ini: "<Unix time> <game path>" per line. (00.87: a game on a USB drive with the player's portable
+// data: its path relative to the drive, "<drive>/Roms/...", src/Portable.h.)
 void Menu::Impl::LoadPlayed()
 {
   std::map<std::string, int64_t> played;
-  std::ifstream file(m_data_dir + "/played.ini");
+  std::ifstream file(UserDir() + "/played.ini");
   std::string line;
   while (std::getline(file, line))
   {
@@ -7136,7 +11588,7 @@ void Menu::Impl::LoadPlayed()
       line.pop_back();
     const size_t space = line.find(' ');
     if (space != std::string::npos && space > 0)
-      played[line.substr(space + 1)] = std::atoll(line.c_str());
+      played[Portable::FromStored(line.substr(space + 1))] = std::atoll(line.c_str());  // (00.87: src/Portable.h)
   }
   for (Game& game : m_games)
   {
@@ -7149,13 +11601,13 @@ void Menu::Impl::SavePlayed() const
 {
   std::map<std::string, int64_t> played;
   {
-    std::ifstream file(m_data_dir + "/played.ini");
+    std::ifstream file(UserDir() + "/played.ini");
     std::string line;
     while (std::getline(file, line))
     {
       const size_t space = line.find(' ');
       if (space != std::string::npos && space > 0)
-        played[line.substr(space + 1)] = std::atoll(line.c_str());
+        played[Portable::FromStored(line.substr(space + 1))] = std::atoll(line.c_str());
     }
   }
   for (const Game& game : m_games)
@@ -7165,8 +11617,8 @@ void Menu::Impl::SavePlayed() const
   }
   std::string text;
   for (const auto& [path, when] : played)
-    text += std::to_string(when) + " " + path + "\n";
-  WriteTextFile(m_data_dir + "/played.ini", text);
+    text += std::to_string(when) + " " + Portable::ToStored(path) + "\n";
+  WriteTextFile(UserDir() + "/played.ini", text);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -7744,9 +12196,87 @@ void Menu::Impl::DrawCategoryIcon(ImDrawList* dl, Category category, ImVec2 c, f
                       r * 0.03f);
     break;
   }
+  case Category::A2600Games:
+  {
+    // (00.90) The 2600's joystick seen from the front: its square base, the fire button at its top left, the rubber
+    // boot in the middle and the stick standing up from it (no overlap: the colour can be see-through).
+    const ImU32 hole = IM_COL32(0, 0, 0, 130);
+    dl->AddRectFilled(ImVec2(c.x - r * 0.9f, c.y - r * 0.02f), ImVec2(c.x + r * 0.9f, c.y + r * 0.9f), color, r * 0.14f);
+    dl->AddCircleFilled(ImVec2(c.x - r * 0.56f, c.y + r * 0.24f), r * 0.16f, hole, 16);  // the fire button
+    dl->AddCircleFilled(ImVec2(c.x, c.y + r * 0.46f), r * 0.3f, hole, 24);             // the boot
+    dl->AddRectFilled(ImVec2(c.x - r * 0.1f, c.y - r * 0.92f), ImVec2(c.x + r * 0.1f, c.y - r * 0.07f), color,
+                      r * 0.08f, ImDrawFlags_RoundCornersTop);  // the stick
+    break;
+  }
+  case Category::A7800Games:
+  {
+    // (00.90) The 7800's joystick: its low base with a groove, the tall grip on it with a button on either side of its
+    // top.
+    const ImU32 hole = IM_COL32(0, 0, 0, 130);
+    dl->AddRectFilled(ImVec2(c.x - r * 0.9f, c.y + r * 0.44f), ImVec2(c.x + r * 0.9f, c.y + r * 0.92f), color, r * 0.14f);
+    dl->AddRectFilled(ImVec2(c.x - r * 0.62f, c.y + r * 0.62f), ImVec2(c.x + r * 0.62f, c.y + r * 0.7f), hole);
+    dl->AddRectFilled(ImVec2(c.x - r * 0.3f, c.y - r * 0.92f), ImVec2(c.x + r * 0.3f, c.y + r * 0.4f), color, r * 0.28f,
+                      ImDrawFlags_RoundCornersTop);  // the grip
+    for (const float side : {-1.0f, 1.0f})
+      dl->AddCircleFilled(ImVec2(c.x + side * r * 0.3f, c.y - r * 0.52f), r * 0.13f, hole, 16);  // its buttons
+    break;
+  }
+  case Category::JaguarGames:
+  {
+    // (00.90) The Jaguar's pad: its wide body with the D-pad at the left and A, B, C at the right, the number pad's
+    // twelve keys below in the middle.
+    const ImU32 hole = IM_COL32(0, 0, 0, 130);
+    const ImVec2 p0(c.x - r * 0.95f, c.y - r * 0.72f), p1(c.x + r * 0.95f, c.y + r * 0.12f);
+    dl->AddRectFilled(p0, p1, color, r * 0.36f);
+    dl->AddRectFilled(ImVec2(c.x - r * 0.46f, p1.y), ImVec2(c.x + r * 0.46f, c.y + r * 0.94f), color, r * 0.14f,
+                      ImDrawFlags_RoundCornersBottom);  // the number pad's part
+    const ImVec2 dp(c.x - r * 0.55f, c.y - r * 0.32f);
+    const float arm = r * 0.22f, thick = r * 0.07f;
+    dl->AddRectFilled(ImVec2(dp.x - arm, dp.y - thick), ImVec2(dp.x + arm, dp.y + thick), hole);
+    dl->AddRectFilled(ImVec2(dp.x - thick, dp.y - arm), ImVec2(dp.x + thick, dp.y + arm), hole);
+    for (int k = 0; k < 3; k++)
+      dl->AddCircleFilled(ImVec2(c.x + r * (0.32f + k * 0.2f), c.y - r * (0.16f + k * 0.16f)), r * 0.09f, hole, 12);
+    for (int row = 0; row < 4; row++)
+    {
+      for (int col = 0; col < 3; col++)
+      {
+        const ImVec2 k0(c.x + r * (-0.36f + col * 0.26f), c.y + r * (0.2f + row * 0.18f));
+        dl->AddRectFilled(k0, ImVec2(k0.x + r * 0.2f, k0.y + r * 0.11f), hole, r * 0.03f);
+      }
+    }
+    break;
+  }
+#ifdef EMUSUNI_OPENBOR
+  case Category::OpenborGames:
+  {
+    // (with-openbor) A beat 'em up's fist seen from the front: four knuckles on the back of the hand, the thumb across
+    // it (no overlap: the colour can be see-through). A stand-in until Frontend draws OpenBOR's own icon.
+    const ImU32 hole = IM_COL32(0, 0, 0, 130);
+    for (int k = 0; k < 4; k++)
+    {
+      const float x0 = c.x + r * (-0.72f + k * 0.37f);
+      dl->AddRectFilled(ImVec2(x0, c.y - r * 0.78f), ImVec2(x0 + r * 0.33f, c.y - r * 0.12f), color, r * 0.15f);
+    }
+    dl->AddRectFilled(ImVec2(c.x - r * 0.72f, c.y - r * 0.06f), ImVec2(c.x + r * 0.76f, c.y + r * 0.86f), color,
+                      r * 0.2f);  // the back of the hand
+    dl->AddRectFilled(ImVec2(c.x - r * 0.62f, c.y + r * 0.1f), ImVec2(c.x + r * 0.3f, c.y + r * 0.26f), hole,
+                      r * 0.08f);  // the thumb's edge
+    break;
+  }
+#endif
   case Category::Favorites:
     DrawStar(dl, c, r * 0.95f, color);
     break;
+  case Category::Online:
+  {
+    // (00.23) A globe: its outline, the equator and two meridians.
+    dl->AddCircle(c, r * 0.85f, color, 48, r * 0.12f);
+    dl->AddLine(ImVec2(c.x - r * 0.85f, c.y), ImVec2(c.x + r * 0.85f, c.y), color, r * 0.1f);
+    dl->AddEllipse(c, ImVec2(r * 0.38f, r * 0.85f), color, 0.0f, 40, r * 0.1f);
+    dl->AddLine(ImVec2(c.x - r * 0.72f, c.y - r * 0.45f), ImVec2(c.x + r * 0.72f, c.y - r * 0.45f), color, r * 0.07f);
+    dl->AddLine(ImVec2(c.x - r * 0.72f, c.y + r * 0.45f), ImVec2(c.x + r * 0.72f, c.y + r * 0.45f), color, r * 0.07f);
+    break;
+  }
   case Category::SavedData:
     DrawCartridgeIcon(dl, c, s * 0.9f, color, IM_COL32(0, 0, 0, 110));
     break;
@@ -7764,10 +12294,27 @@ void Menu::Impl::DrawCategoryIcon(ImDrawList* dl, Category category, ImVec2 c, f
   }
 }
 
+// (00.88) The mark of a console that plays online: the Online tab's globe, white on a disc of the theme's colour.
+void Menu::Impl::DrawOnlineMark(ImDrawList* dl, ImVec2 c, float size, float alpha)
+{
+  const Theme& theme = CurrentTheme();
+  const float r = size * 0.5f;
+  dl->AddCircleFilled(c, r, Rgba(theme.wave, 0.95f * alpha), 32);
+  dl->AddCircle(c, r, Rgba(0x000000, 0.35f * alpha), 32, std::max(1.0f, size * 0.04f));
+  DrawCategoryIcon(dl, Category::Online, c, size * 0.78f, Rgba(0xFFFFFF, alpha));
+}
+
 void Menu::Impl::DrawItem(ImDrawList* dl, const Item& item, float y, bool selected, float alpha)
 {
   const Theme& theme = CurrentTheme();
   const float x = 470.0f;
+  // (00.85) Menu Size: the row drawn at its usual size, then shrunk around its icon's middle (ScaleDrawn) - inside a
+  // clip as big as can be meanwhile, so that no text near the screen's edge is left out as it is made (ImGui drops the
+  // lines outside the clip), which shrunk would be in view.
+  const float menu_scale = s_menu_scale;
+  const int first_vertex = dl->VtxBuffer.Size;
+  if (menu_scale != 1.0f)
+    dl->PushClipRect(ImVec2(-W, -H), ImVec2(W * 2.0f, H * 2.0f), false);
   const float icon_h = selected ? 96.0f : 72.0f;
   const float icon_w = icon_h * 3.0f;
   const ImVec2 icon_min(x - icon_w * 0.5f, y - icon_h * 0.5f);
@@ -7831,8 +12378,9 @@ void Menu::Impl::DrawItem(ImDrawList* dl, const Item& item, float y, bool select
 
   const float tx = x + icon_w * 0.5f + 36.0f;
   const float title_size = selected ? 46.0f : 36.0f;
+  // (The screen's right margin as it is once shrunk: a smaller Menu Size has room for more of a long name.)
   Text(dl, m_bold, title_size, ImVec2(tx, y - title_size * 0.62f), text,
-       Fit(m_bold, title_size, item.label, W - tx - 80));
+       Fit(m_bold, title_size, item.label, x + (W - 80 - x) / menu_scale - tx));
   float sx = tx;
   const float sub_y = y + title_size * 0.42f;
   if (item.game >= 0)
@@ -7863,6 +12411,11 @@ void Menu::Impl::DrawItem(ImDrawList* dl, const Item& item, float y, bool select
   }
   if (!item.detail.empty())
     Text(dl, m_font, 26.0f, ImVec2(sx, sub_y + 1), Rgba(theme.text, alpha * 0.75f), item.detail);
+  if (menu_scale != 1.0f)
+  {
+    ScaleDrawn(dl, first_vertex, ImVec2(x, y), menu_scale);
+    dl->PopClipRect();
+  }
 }
 
 void Menu::Impl::DrawSidePanel(ImDrawList* dl, float dt)
@@ -7870,6 +12423,12 @@ void Menu::Impl::DrawSidePanel(ImDrawList* dl, float dt)
   Approach(m_panel.slide, m_panel.open ? 1.0f : 0.0f, 16.0f, dt);
   if (m_panel.slide < 0.01f)
     return;
+  // (00.92) A Choose Together room with its players: the whole screen.
+  if (m_panel.setting == SET_ONLINE_ROOM && m_together.on)
+  {
+    DrawTogetherScreen(dl, dt);
+    return;
+  }
   const Theme& theme = CurrentTheme();
   const float width = m_panel.rows.empty() ? 640.0f : 880.0f;
   const float x0 = W - width * m_panel.slide;
@@ -7895,14 +12454,47 @@ void Menu::Impl::DrawSidePanel(ImDrawList* dl, float dt)
                  IM_COL32(255, 255, 255, static_cast<int>(255 * m_panel.slide)));
   }
   float y = 230;
+  // (00.23) Online play's room: its code, big (the host reads it out to a friend).
+  const Netplay::View online = m_panel.setting == SET_ONLINE_ROOM ? Netplay::GetView() : Netplay::View();
+  if (m_panel.setting == SET_ONLINE_ROOM && online.host && !online.code.empty())
+  {
+    Text(dl, m_bold, 120, ImVec2(x0 + 50, 200), Rgba(theme.wave, m_panel.slide), online.code);
+    y = 360;
+  }
+  // (00.92) The room's players: the latency bar, top right, once another one is in.
+  if (m_panel.setting == SET_ONLINE_ROOM && online.phase == Netplay::Phase::Room && Netplay::GetStatus().latency_bar)
+  {
+    std::vector<Netplay::PlayerView> players;
+    bool other = false;
+    for (const Netplay::PlayerView& p : online.players)
+    {
+      if (p.asking)
+        continue;
+      players.push_back(p);
+      other = other || !p.me;
+    }
+    if (other)
+      NetplayUi::DrawLatencyBar(dl, m_font, m_bold, players, ImVec2(x0 + width - 30.0f, 30.0f), 0, m_panel.slide);
+  }
+  // (00.91) A log sent: its code, big (the player writes it in a report).
+  if (m_panel.setting == SET_SEND_LOG && LogReport::GetStatus().state == LogReport::State::Sent)
+  {
+    Text(dl, m_bold, 120, ImVec2(x0 + 50, 200), Rgba(theme.wave, m_panel.slide), LogReport::GetStatus().code);
+    y = 360;
+  }
+  // (00.95) A room of three or four, its players' lines and options: everything closer, clear of the help text.
+  const bool crowded = m_panel.setting == SET_ONLINE_ROOM && m_panel.lines.size() + m_panel.options.size() > 10;
   if (!m_panel.options.empty())
   {
-    for (size_t i = 0; i < m_panel.options.size(); i++, y += 62)
+    // (00.88) The options closer when they would reach the help text at the bottom (a long list: the Game menu).
+    const float step = std::clamp((H - 196.0f - y) / static_cast<float>(m_panel.options.size()),
+                                  crowded ? 46.0f : 50.0f, crowded ? 50.0f : 62.0f);
+    for (size_t i = 0; i < m_panel.options.size(); i++, y += step)
     {
       const bool sel = static_cast<int>(i) == m_panel.selected;
       if (sel)
       {
-        dl->AddRectFilled(ImVec2(x0 + 30, y - 6), ImVec2(W - 30, y + 52),
+        dl->AddRectFilled(ImVec2(x0 + 30, y - 6), ImVec2(W - 30, y + step - 10),
                           Rgba(theme.wave, 0.30f * m_panel.slide), 10.0f);
       }
       Text(dl, sel ? m_bold : m_font, 34, ImVec2(x0 + 60, y), text, m_panel.options[i]);
@@ -7910,7 +12502,9 @@ void Menu::Impl::DrawSidePanel(ImDrawList* dl, float dt)
     // What the selected option does, at the bottom.
     if (m_panel.selected >= 0 && m_panel.selected < static_cast<int>(m_panel.options.size()))
     {
-      const std::string help = OptionHelp(m_panel.options[m_panel.selected]);
+      const size_t at = static_cast<size_t>(m_panel.selected);
+      const std::string help = at < m_panel.helps.size() && !m_panel.helps[at].empty() ? m_panel.helps[at] :
+                                                                                    OptionHelp(m_panel.options[at]);
       if (!help.empty())
       {
         const std::string wrapped = WrapText(m_font, 25, PS4Lang::T(help), width - 100);
@@ -7920,20 +12514,30 @@ void Menu::Impl::DrawSidePanel(ImDrawList* dl, float dt)
     }
   }
   // A long panel (About) closer, clear of the button hints at the bottom.
-  const float line_step = m_panel.lines.size() > 18 ? 38.0f : 42.0f;
+  const float line_step = crowded ? 34.0f : m_panel.lines.size() > 18 ? 38.0f : 42.0f;
+  const float line_size = crowded ? 26.0f : 28.0f;
   for (const std::string& line : m_panel.lines)
   {
     // Information's rating: its stars at the line's end.
     constexpr float STAR_R = 12.0f;
     const bool stars = m_panel.stars >= 0 && line == m_panel.stars_line;
     const float room = stars ? RatingWidth(STAR_R) + 20.0f : 0.0f;
-    Text(dl, m_font, 28, ImVec2(x0 + 50, y), text, Fit(m_font, 28, line, width - 90 - room));
+    Text(dl, m_font, line_size, ImVec2(x0 + 50, y), text, Fit(m_font, line_size, line, width - 90 - room));
     if (stars)
     {
       DrawRating(dl, m_star, ImVec2(x0 + width - 40 - RatingWidth(STAR_R) * 0.5f, y + 17), STAR_R, m_panel.stars,
                  Rgba(theme.text, 0.30f * m_panel.slide), m_panel.slide);
     }
     y += line_step;
+  }
+  if (m_panel.setting == SET_HELP && m_help_qr != ImTextureID{})
+  {
+    // (00.90) How to Help: the project's page as a QR code, under its address, at its own size (205: sharp), clear of
+    // the button hints.
+    constexpr float QR = 205.0f;
+    const ImVec2 p0(x0 + 50, std::min(y + 8, H - 160 - QR));
+    dl->AddImage(ImTextureRef(m_help_qr), p0, ImVec2(p0.x + QR, p0.y + QR), ImVec2(0, 0), ImVec2(1, 1),
+                 IM_COL32(255, 255, 255, static_cast<int>(255 * m_panel.slide)));
   }
   if (!m_panel.rows.empty())
   {
@@ -7979,8 +12583,23 @@ void Menu::Impl::DrawSidePanel(ImDrawList* dl, float dt)
       float label_x = x0 + 60;
       if (row.icon != ImTextureID{})
       {
-        dl->AddImage(ImTextureRef(row.icon), ImVec2(label_x, ry + 1), ImVec2(label_x + 52, ry + 46),
-                     ImVec2(0, 0), ImVec2(1, 1), IM_COL32(255, 255, 255, static_cast<int>(255 * m_panel.slide)));
+        // (00.89) In its own proportion, centred in the 52 x 45 box on a dark ground (not stretched).
+        constexpr float BOX_W = 52.0f, BOX_H = 45.0f;
+        float w = BOX_W, h = BOX_H;
+        if (row.icon_aspect > 0.0f)
+        {
+          h = BOX_W / row.icon_aspect;
+          if (h > BOX_H)
+          {
+            h = BOX_H;
+            w = BOX_H * row.icon_aspect;
+          }
+          dl->AddRectFilled(ImVec2(label_x, ry + 1), ImVec2(label_x + BOX_W, ry + 1 + BOX_H),
+                            Rgba(0x000000, 0.35f * m_panel.slide), 4.0f);
+        }
+        const ImVec2 q0(label_x + (BOX_W - w) * 0.5f, ry + 1 + (BOX_H - h) * 0.5f);
+        dl->AddImage(ImTextureRef(row.icon), q0, ImVec2(q0.x + w, q0.y + h), ImVec2(0, 0), ImVec2(1, 1),
+                     IM_COL32(255, 255, 255, static_cast<int>(255 * m_panel.slide)));
         label_x += 66;
       }
       else if (!row.picture.empty())
@@ -8027,7 +12646,9 @@ void Menu::Impl::DrawSidePanel(ImDrawList* dl, float dt)
     {
       const SettingRow& row = m_panel.rows[m_panel.selected];
       std::string help;
-      if (m_capture)
+      if (m_capture && m_capture_step == 1)
+        help = "Now hold together the buttons it presses, then let them go...  (5 s: cancel)";
+      else if (m_capture)
         help = "Press the DualShock 4 button for " + row.label + "...  (5 s: cancel)";
       else if (!row.help.empty())
         help = row.help;  // (made with the row: RetroAchievements' history, 00.75)
@@ -8042,6 +12663,8 @@ void Menu::Impl::DrawSidePanel(ImDrawList* dl, float dt)
         help = arcade_button ?
                    "Cross: press a new button. Left: none. Neo Geo games: A, B, C, D are Buttons 3, 1, 4, 2 (Square, "
                    "Cross, Triangle, Circle). Six-button fighters: punches 3, 4, 6; kicks 1, 2, 5." :
+               index < bindings.size() && Controls::TakesSticks(bindings[index]) ?
+                   "Cross: press a new button or push a stick for it. Left: none. D-Pad: Left/Right to choose." :
                    "Cross: press a new button for it. Left: none. D-Pad: Left/Right to choose.";
         // A NAOMI's or Atomiswave's buttons (Flycast's: the cabinet's own numbers), TEST and SERVICE, Gun Reload.
         if (IsFlycastBoard(m_controls_system) && index < bindings.size())
@@ -8070,6 +12693,19 @@ void Menu::Impl::DrawSidePanel(ImDrawList* dl, float dt)
         if (index < bindings.size() && std::string(bindings[index].key) == "fast_forward")
           help = "Cross: press a new button. Left: none. Held, the game runs faster (how fast: Fast Forward in the "
                  "game's settings). A button the console uses too does both.";
+        // (00.89) Macros: several buttons in one.
+        if (index < bindings.size() && Controls::IsMacro(bindings[index]))
+          help = "Several buttons in one (fighting games). Cross: press the macro's button, then hold together the "
+                 "buttons it presses and let them go. Left: none. Its button stops doing what it did.";
+        // (00.90, GitHub #45) The N64's sticks: what they do whatever the rows say.
+        if (m_controls_system == SystemId::N64 && index < bindings.size())
+        {
+          if (bindings[index].stick_group)
+            help = "Left/Right: which controls move the N64's D-pad. The left stick is always its control stick.";
+          else if (std::string(bindings[index].key).rfind("c_", 0) == 0)
+            help = "Cross: press a new button or push a stick. Left: none. The right stick presses the C buttons in "
+                   "any case.";
+        }
       }
       else if (row.key == "__ctlreset__")
         help = "Back to the default layout.";
@@ -8218,7 +12854,7 @@ void Menu::Impl::DrawHints(ImDrawList* dl)
     dl->AddRectFilledMultiColor(ImVec2(0, H - 150), ImVec2(W, H), Rgba(shade, 0.0f), Rgba(shade, 0.0f),
                                 Rgba(shade, 0.8f), Rgba(shade, 0.8f));
   }
-  auto hint = [&](const char* label, const char* glyph) {
+  auto hint = [&](const std::string& label, const char* glyph) {
     const float tw = TextWidth(m_font, 28, label);
     x -= tw;
     Text(dl, m_font, 28, ImVec2(x, y - 17), text, label);
@@ -8252,6 +12888,31 @@ void Menu::Impl::DrawHints(ImDrawList* dl)
       x -= 40.0f;
     }
   }
+  else if (m_online_ask >= 0)
+  {
+    // (00.86) A player asking to join: the notice's buttons.
+    hint("Later", "Circle");
+    hint("Select", "Cross");
+  }
+  else if (m_panel.open && m_panel.setting == SET_ONLINE_ROOM && m_together.on)
+  {
+    // (00.92) A Choose Together room's screen.
+    const bool host = Netplay::GetView().host;
+    hint("Back", "Circle");
+    if (!m_together.cards.empty())
+      hint(host ? "Play" : "Suggest", "Cross");
+    if (m_together.unknown > 0)
+      hint(m_online_show_all ? "Only " + std::to_string(m_together.need) + "+ Players" : std::string("Show All"),
+           "Square");
+    hint(host ? "Close Room" : "Leave Room", "Triangle");
+    if (m_together.tabs.size() > 1)
+    {
+      hint("Console", "R1");
+      x += 32.0f - PS4Glyphs::Width("L1", 36);
+      PS4Glyphs::Draw(dl, m_bold, "L1", x, y, 36, 0.9f);
+      x -= 40.0f;
+    }
+  }
   else if (m_panel.open)
   {
     hint("Back", "Circle");
@@ -8259,6 +12920,19 @@ void Menu::Impl::DrawHints(ImDrawList* dl)
       hint("Select", "Cross");
     if (!m_panel.rows.empty())
       hint(m_panel.setting == SET_NO_COVER ? "Select" : "Change", "Cross");
+  }
+  else if (m_category == static_cast<int>(Category::Online))
+  {
+    // (00.85) The Online column's table.
+    hint("Online Settings", "Options");
+    hint("Join with Code", "Triangle");
+    hint("Create Room", "Square");
+    hint("Room Type", "R2");
+    hint("Console", "L2");
+    // (00.86: Cross on our own room goes back to it.)
+    const bool mine = m_online_index >= 0 && m_online_index < static_cast<int>(m_online_rows.size()) &&
+                      m_online_rows[static_cast<size_t>(m_online_index)].mine;
+    hint(mine ? "Go to Your Room" : "Join", "Cross");
   }
   else
   {
@@ -8463,6 +13137,7 @@ float Menu::Impl::DrawConsoleInfo(ImDrawList* dl, SystemId id, float alpha)
 
 void Menu::Impl::Draw(float dt)
 {
+  s_menu_scale = MenuScaleOf(Settings::Get("menu_size"));  // (00.85: Settings -> Menu Size, at once)
   if (Library())
     DrawLibraryBackground();
   else
@@ -8500,6 +13175,8 @@ void Menu::Impl::Draw(float dt)
       const float size = 92.0f + 34.0f * focus;
       const float alpha = 0.55f + 0.45f * focus;
       DrawCategoryIcon(dl, static_cast<Category>(c), ImVec2(x, row_y), size, Rgba(theme.text, alpha));
+      if (PlaysOnline(c))
+        DrawOnlineMark(dl, ImVec2(x + size * 0.46f, row_y - size * 0.40f), size * 0.36f, alpha);
       if (focus > 0.05f)
       {
         // Under Settings' icon, the name of its page when one is open.
@@ -8512,6 +13189,9 @@ void Menu::Impl::Draw(float dt)
     const float switch_alpha =
         std::max(0.0f, 1.0f - std::abs(m_category_pos - ColumnIndex(c)) * 2.0f) * m_page_alpha;
     const auto& items = m_items[c];
+    // (00.85) Menu Size: the rows as much closer as they are smaller (DrawItem shrinks each), fading as far down the
+    // screen as before - so more of them in view.
+    const float menu_scale = s_menu_scale;
     for (int i = 0; i < static_cast<int>(items.size()); i++)
     {
       const float rel = static_cast<float>(i) - m_item_pos[c];
@@ -8519,18 +13199,21 @@ void Menu::Impl::Draw(float dt)
       float alpha;
       if (rel >= -0.5f)
       {
-        y = 470.0f + rel * 120.0f + (rel > 0.5f ? 40.0f : rel * 80.0f);
-        alpha = rel < 0.5f ? 1.0f : std::max(0.0f, 0.85f - (rel - 1.0f) * 0.12f);
+        y = 470.0f + (rel * 120.0f + (rel > 0.5f ? 40.0f : rel * 80.0f)) * menu_scale;
+        alpha = rel < 0.5f ? 1.0f : std::max(0.0f, 0.85f - (rel - 1.0f) * 0.12f * menu_scale);
       }
       else
       {
-        y = 120.0f + (rel + 1.0f) * 100.0f;
-        alpha = std::max(0.0f, 0.55f + (rel + 1.0f) * 0.2f);
+        y = 120.0f + (rel + 1.0f) * 100.0f * menu_scale;
+        alpha = std::max(0.0f, 0.55f + (rel + 1.0f) * 0.2f * menu_scale);
       }
       if (y < -80.0f || y > H + 80.0f || alpha <= 0.01f)
         continue;
       DrawItem(dl, items[i], y, i == m_selected[c], alpha * switch_alpha);
     }
+    // (00.85) The Online column: its table under the icons, the whole width (no items of its own).
+    if (c == static_cast<int>(Category::Online))
+      DrawOnlineTable(dl, switch_alpha, 150.0f, W - 90.0f, 384.0f, 935.0f, true);
     if (m_prefs.clock)
     {
       const std::time_t now = std::time(nullptr);
@@ -8541,6 +13224,10 @@ void Menu::Impl::Draw(float dt)
       const float tw = TextWidth(m_bold, 40, clock);
       Text(dl, m_bold, 40, ImVec2(W - 110 - tw, 70), Rgba(theme.text, 0.95f), clock);
     }
+    // (00.89) The RetroAchievements filter on in a list of games: said all the time (it is kept between runs) with
+    // how to turn it off - not only in a toast when it changes.
+    if (RaFilterOn() && IsGameList(c))
+      Text(dl, m_font, 26, ImVec2(150.0f, H - 190.0f), Rgba(0xFFC83C, switch_alpha), RaFilterHiddenLine(c));
     DrawEmblem(dl, ImVec2(110, 90), 70, 0.9f);
     // The version under the emblem.
     const std::string version = std::string("v") + App::VERSION;
@@ -8559,8 +13246,9 @@ void Menu::Impl::Draw(float dt)
     DrawKeyboard(dl, dt);
     DrawSidePanel(dl, dt);
   }
+  DrawOnlineAsk(dl, dt);  // (00.86: a player asking to join our room, over everything)
   DrawToast(dl, dt);
-  if (Library() && m_panel.slide < 0.5f)
+  if (Library() && m_panel.slide < 0.5f && m_online_ask < 0)
     DrawLibraryHints(dl);
   else
     DrawHints(dl);
@@ -8923,8 +13611,9 @@ void Menu::Impl::DrawLibrary(ImDrawList* dl, float dt)
   const float area_l = 470.0f, area_r = W - (m_prefs.clock ? 310.0f : 165.0f);
   const float center = (area_l + area_r) * 0.5f, half = (area_r - area_l) * 0.5f;
   std::vector<float> tab_w(TAB_COUNT);
+  constexpr float MARK = 30.0f;  // (00.88) the globe after the name of a console that plays online
   for (int i = 0; i < TAB_COUNT; i++)
-    tab_w[i] = TextWidth(m_bold, TAB_FONT, TabName(tabs[i])) + PAD * 2;
+    tab_w[i] = TextWidth(m_bold, TAB_FONT, TabName(tabs[i])) + PAD * 2 + (PlaysOnline(tabs[i]) ? MARK + 8 : 0);
   auto wrap = [TAB_COUNT](int i) { return ((i % TAB_COUNT) + TAB_COUNT) % TAB_COUNT; };
   const int base = static_cast<int>(std::floor(m_tab_pos));
   const float frac = m_tab_pos - static_cast<float>(base);
@@ -8948,6 +13637,9 @@ void Menu::Impl::DrawLibrary(ImDrawList* dl, float dt)
     const float fade = std::clamp((half - std::abs(mid - center)) / FADE, 0.0f, 1.0f);
     Text(dl, sel ? m_bold : m_font, TAB_FONT, ImVec2(mid - tab_w[i] * 0.5f + PAD, BAR_Y + 12),
          Rgba(theme.text, (sel ? 1.0f : 0.72f) * fade), TabName(tabs[i]), sel);
+    if (PlaysOnline(tabs[i]))
+      DrawOnlineMark(dl, ImVec2(mid + tab_w[i] * 0.5f - PAD - MARK * 0.5f, BAR_Y + BAR_H * 0.5f), MARK,
+                     (sel ? 1.0f : 0.72f) * fade);
   };
   // To the right from tab `base`, then to the left, until past the bar's ends.
   {
@@ -9006,6 +13698,12 @@ void Menu::Impl::DrawLibrary(ImDrawList* dl, float dt)
   case Category::AtomiswaveGames:
   case Category::SaturnGames:
   case Category::PceGames:
+  case Category::A2600Games:
+  case Category::A7800Games:
+  case Category::JaguarGames:
+#ifdef EMUSUNI_OPENBOR
+  case Category::OpenborGames:
+#endif
   case Category::Favorites:
     DrawLibraryGames(dl, alpha, m_category);
     break;
@@ -9034,7 +13732,7 @@ void Menu::Impl::DrawLibraryGames(ImDrawList* dl, float alpha, int c)
                                                     "Your games";
   std::string sub;
   if (RaFilterOn() && (any || m_ra_emptied[c]))
-    sub = RaFilterLine(c) + "  -  " + SortName();  // (00.80: "With achievements: 438 of 793  -  A-Z")
+    sub = RaFilterHiddenLine(c) + "  -  " + SortName();  // (00.89: was "With achievements: 438 of 793")
   else if (any)
     sub = std::to_string(count) + (count == 1 ? " game" : " games") + "  -  " + SortName();
   else if (m_all_covered[c])
@@ -9042,7 +13740,7 @@ void Menu::Impl::DrawLibraryGames(ImDrawList* dl, float alpha, int c)
   else if (!m_search.empty())
     sub = "0 games";
   else
-    sub = favorites ? "No favorites yet" : "No games yet";
+    sub = favorites ? "No favorites yet" : m_reading_shown >= 0 ? "Reading your games..." : "No games yet";
   if (!m_search.empty())
     sub += "  -  Search: " + m_search;
   if (m_dl_thread.joinable() && !m_dl_done)
@@ -9056,13 +13754,22 @@ void Menu::Impl::DrawLibraryGames(ImDrawList* dl, float alpha, int c)
     if (!ratings.empty())
       sub += "  -  " + ratings;
   }
+  const int reading = m_reading_shown;  // (00.85: a read of the games going on: its count, UpdateReadingItems')
+  if (any && reading >= 0)
+    sub += "  -  Reading your games... " + std::to_string(reading) + " found";
   DrawPageTitle(dl, static_cast<Category>(c), page_title, sub, alpha,
                 alpha * (m_sort_shown > 0.0f ? 1.0f : 0.85f));
   if (!any)
   {
     std::string line1;
     std::vector<std::string> lines;  // smaller, under it
-    if (m_all_covered[c])
+    if (reading >= 0 && m_search.empty() && !m_all_covered[c] && !m_ra_emptied[c] && !favorites)
+    {
+      line1 = "Reading your games...";
+      if (reading > 0)
+        lines = {std::to_string(reading) + " found so far"};
+    }
+    else if (m_all_covered[c])
     {
       line1 = m_search.empty() ? "Every game has a cover" : "Every game found has a cover";
       lines = {"Options shows every game again"};
@@ -9082,7 +13789,7 @@ void Menu::Impl::DrawLibraryGames(ImDrawList* dl, float alpha, int c)
     else if (favorites)
     {
       line1 = "No favorites yet";
-      lines = {"Press L2 on a game in the Library (or Triangle: Add to Favorites)."};
+      lines = {"Press L2 on a game to add it (again to take it out)."};
     }
     else if (list_system >= 0)
     {
@@ -9152,13 +13859,17 @@ void Menu::Impl::DrawLibraryGames(ImDrawList* dl, float alpha, int c)
   // The row: neighbours smaller and turned slightly towards the middle, farther ones behind.
   const float pos = m_item_pos[c];
   const int selected = m_selected[c];
-  const float BASE_H = 420.0f - 190.0f * k, FLOOR_Y = 720.0f - 230.0f * k;
+  // (00.85) Menu Size: the covers and the room between them smaller (BASE_H, and so spread), on the same floor; the row
+  // as much longer as they are smaller, its farthest covers fading out as before (more of them in view).
+  const float menu_scale = s_menu_scale;
+  const float BASE_H = (420.0f - 190.0f * k) * menu_scale, FLOOR_Y = 720.0f - 230.0f * k;
   const float spread = BASE_H / 420.0f;
+  const float reach = 6.0f / menu_scale;  // (the farthest covers drawn, fading out over the last one and a half)
   std::vector<std::pair<float, int>> order;
   for (int i = 0; i < count; i++)
   {
     const float d = static_cast<float>(i) - pos;
-    if (std::abs(d) < 6.5f)
+    if (std::abs(d) < reach + 0.5f)
       order.push_back({std::abs(d), i});
   }
   std::sort(order.begin(), order.end(), [](const auto& x, const auto& y) { return x.first > y.first; });
@@ -9202,7 +13913,7 @@ void Menu::Impl::DrawLibraryGames(ImDrawList* dl, float alpha, int c)
       a.y += tilt;
       dd.y -= tilt;
     }
-    const float fade = std::clamp((6.0f - ad) / 1.5f, 0.0f, 1.0f);
+    const float fade = std::clamp((reach - ad) / 1.5f, 0.0f, 1.0f);
     const float dim = 1.0f - 0.22f * near;
     placed.push_back({i, game, d, ad, a, b, cc, dd, alpha * fade * dim});
     if (i == selected)
@@ -9561,10 +14272,22 @@ void Menu::Impl::DrawLibrarySaves(ImDrawList* dl, float alpha)
     const int col = shown % 4, row = shown / 4;
     const ImVec2 p0(PANE_X + 40 + col * (cell_w + 24), TOP + 70 + row * (cell_h + 70));
     const ImVec2 p1(p0.x + cell_w, p0.y + cell_h);
-    const ImTextureID picture = StatePicture(save.id, slot);
+    float ratio = 8.0f / 7.0f;
+    const ImTextureID picture = StatePicture(save.id, slot, &ratio);
     if (picture != ImTextureID{})
-      dl->AddImage(ImTextureRef(picture), p0, p1, ImVec2(0, 0), ImVec2(1, 1),
+    {
+      // (00.89) The picture in its own proportion, centred in its cell (not stretched to 8:7).
+      float w = cell_w, h = cell_w / std::max(ratio, 0.1f);
+      if (h > cell_h)
+      {
+        h = cell_h;
+        w = cell_h * ratio;
+      }
+      const ImVec2 q0(p0.x + (cell_w - w) * 0.5f, p0.y + (cell_h - h) * 0.5f);
+      dl->AddRectFilled(p0, p1, Rgba(0x000000, alpha * 0.35f), 6.0f);
+      dl->AddImage(ImTextureRef(picture), q0, ImVec2(q0.x + w, q0.y + h), ImVec2(0, 0), ImVec2(1, 1),
                    IM_COL32(255, 255, 255, static_cast<int>(alpha * 255)));
+    }
     else
       dl->AddRectFilled(p0, p1, Rgba(0x8A90A0, alpha * 0.4f), 8.0f);
     dl->AddRect(p0, p1, Rgba(theme.text, alpha * 0.25f), 6.0f, 0, 1.5f);
@@ -9584,10 +14307,19 @@ void Menu::Impl::DrawLibraryList(ImDrawList* dl, float alpha)
   const int c = m_category;
   const auto& items = m_items[c];
   const bool themes = c == static_cast<int>(Category::Themes);
-  DrawPageTitle(dl, themes ? Category::Themes : Category::Settings, themes ? "Themes" : "Settings",
-                themes ? "Colours and wallpapers (PNG in " + m_data_dir + "/themes)" :
-                         "Saved data, themes, emulation, controls, folders and more",
-                alpha, alpha * 0.85f);
+  const bool online = c == static_cast<int>(Category::Online);
+  if (online)
+  {
+    // (00.85) The rooms' table under the title (the players online and the rooms beside the globe).
+    DrawPageTitle(dl, Category::Online, "Online", OnlineSummary(), alpha, alpha * 0.85f);
+    DrawOnlineTable(dl, alpha, 90.0f, W - 90.0f, 258.0f, 960.0f, false);
+    return;
+  }
+  else
+    DrawPageTitle(dl, themes ? Category::Themes : Category::Settings, themes ? "Themes" : "Settings",
+                  themes ? "Colours and wallpapers (PNG in " + UserDir() + "/themes)" :
+                           "Saved data, themes, emulation, controls, folders and more",
+                  alpha, alpha * 0.85f);
   constexpr float X = 90.0f, ROW_H = 84.0f, TOP = 280.0f, BOTTOM = 960.0f;
   const float right = W - 90.0f;
   const float visible = (BOTTOM - TOP) / ROW_H;
@@ -9677,6 +14409,20 @@ void Menu::Impl::DrawLibraryHints(ImDrawList* dl)
     }
     return;
   }
+  if (m_category == static_cast<int>(Category::Online))
+  {
+    // (00.85) The Online tab's table. (00.86: Cross on our own room goes back to it.)
+    const bool mine = m_online_index >= 0 && m_online_index < static_cast<int>(m_online_rows.size()) &&
+                      m_online_rows[static_cast<size_t>(m_online_index)].mine;
+    left("D-Pad", "Browse");
+    left("Cross", mine ? "Go to Your Room" : "Join");
+    right("Options", "Online Settings");
+    right("Triangle", "Join with Code");
+    right("Square", "Create Room");
+    right("R2", "Room Type");
+    right("L2", "Console");
+    return;
+  }
   const bool games = IsGameList(m_category);
   const auto& items = m_items[m_category];
   const bool has_game = games && !items.empty() && items[0].game >= 0;
@@ -9723,6 +14469,12 @@ bool Menu::Impl::Run(Library::Game* result)
   m_keyboard = false;
   m_keyboard_slide = 0.0f;
   m_toast_time = 0.0f;
+  // (00.85) A read of the games a game's start stopped (HoldRead): again now, the look at the places with it.
+  if (m_read_resume)
+  {
+    m_read_resume = false;
+    AskRead(true, true);
+  }
   // A drive plugged in or taken out while a game ran: the games read again (the first time, as just read).
   CheckPlaces(true);
   UpdateShownConsoles();
@@ -9761,22 +14513,19 @@ bool Menu::Impl::Run(Library::Game* result)
         (m_rating_copy.there ? "the copy of " + m_rating_copy.date + " is 60 days old" : std::string("none yet")) + ")");
     StartRatingsDownload();
   }
-  if (!m_dl_auto)
-  {
-    m_dl_auto = true;
-    if (MissingCovers())
-    {
-      Log("covers: downloading the missing ones in the background");
-      StartCoverDownload();
-    }
-  }
+  // (00.85) The read waits while a game runs (Library::ScanProgress::pause), and goes on now; the missing covers are
+  // downloaded once the start's read has the games and the covers (StartCoversOnce, else in the frames' loop).
+  m_running = true;
+  m_read_progress.pause = false;
+  StartCoversOnce();
   // Game Bezels (00.80): nothing comes while a game runs; a download a cut stopped (the app closed, the connection
   // lost) goes on in the background when the menu first opens.
   m_bezel_download.Pause(false);
+  NetplayLibrary::Pause(false);  // (00.23: the games' files hashed again, if any is left)
   if (!m_bezel_resume_tried)
   {
     m_bezel_resume_tried = true;
-    const std::vector<std::string> pending = BezelProject::Downloader::Pending(m_data_dir);
+    const std::vector<std::string> pending = BezelProject::Downloader::Pending(UserDir());
     if (!pending.empty() && !m_bezel_download.Busy())
       StartBezelDownload(pending, true);
   }
@@ -9786,6 +14535,13 @@ bool Menu::Impl::Run(Library::Game* result)
   {
     m_update_started = true;
     Update::Start(m_data_dir, App::VERSION);
+    // (00.23: off in Settings -> Anonymous Statistics) (00.89) Once the notice is answered, when there is one.
+    m_stats_notice = StatsNoticeWanted();
+    m_stats_waiting = m_stats_notice;
+    if (!m_stats_waiting)
+      UsageStats::Start(m_data_dir, App::VERSION);
+    // (00.91) EmuSuNi closed by itself last time (crash.log grew, or the start watchdog restarted it): ask to send it.
+    m_report_ask = LogReport::CrashToAsk(m_data_dir, StartGuard::Restarted());
   }
   // The first start (no language chosen yet): the language list first, on the PS4's own language.
   {
@@ -9820,7 +14576,7 @@ bool Menu::Impl::Run(Library::Game* result)
   {
     m_panel = {};
     m_panel.open = true;
-    m_panel.title = "The game couldn't start";
+    m_panel.title = m_pending_title.empty() ? std::string("The game couldn't start") : m_pending_title;
     m_panel.lines = {""};
     for (size_t start = 0; start <= m_pending_error.size();)
     {
@@ -9829,6 +14585,21 @@ bool Menu::Impl::Run(Library::Game* result)
       start = end + 1;
     }
     m_pending_error.clear();
+  }
+  // (00.23) Back from a Choose Together match: its room again, the games both have to pick another. (00.86) Back from
+  // a game played alone while our room stayed open: the room again only when someone is in it or asks to join (the
+  // in-game menu's Accept Player ends the game for that) - else the menu as it was.
+  {
+    const Netplay::View v = Netplay::GetView();
+    bool other = false;
+    for (const Netplay::PlayerView& p : v.players)
+      other = other || !p.me;
+    if (!m_panel.open && v.phase == Netplay::Phase::Room && (!v.host || other))
+    {
+      OpenOnlineRoom();
+      if (v.host && v.asking < 0)
+        m_online_prefer = "start";
+    }
   }
 
   auto last = Clock::now();
@@ -9862,6 +14633,10 @@ bool Menu::Impl::Run(Library::Game* result)
     // A drive plugged in (CheckPlaces' look on its thread), Consoles Shown (the Settings page, a console's first
     // or last game, the tour's "set"): the games and the tabs follow.
     PlacesLooked();
+    TakeRead();  // (00.85: the read's covers and games, "Reading your games..." as it goes)
+    UpdateReadingItems();
+    StartCoversOnce();
+    UpdateNoCoverItem();
     UpdateShownConsoles();
     // While the tour plays, the controller is left out (a press would change what it shows).
     const bool touring = Tour::Active();
@@ -9889,8 +14664,14 @@ bool Menu::Impl::Run(Library::Game* result)
     UpdateBezelDownload();  // (Game Bezels, 00.80)
     UpdateCheatFinder();
     UpdateAchievements(dt);  // (RetroAchievements, 00.73: the login as it goes, rc_client's waiting work)
+    // (00.23) Voice Chat: Test Microphone's progress and level meter while its panel shows; it stops when it closes.
+    const bool voice_shown = m_panel.open && m_panel.setting == SET_VOICE;
+    if (Voice::PanelUpdate(voice_shown) && voice_shown)
+      BuildVoiceRows();
     UpdateFind(dt);
     UpdateUpdater();
+    UpdatePortable();  // (00.87: the copy of the player's data, a drive's question, the warnings)
+    UpdateOnline();  // (00.23: the room as it goes; the match's start)
     // Without Cover: the games whose covers were just saved leave the lists, each list keeping its
     // place (the next game without a cover). Not while a game's options are open: Cross there acts
     // on the selected item (HandleInput, "Game").
@@ -9917,19 +14698,25 @@ bool Menu::Impl::Run(Library::Game* result)
 
     if (m_launch >= 0 && m_launch_time >= 0.75f)
     {
+      if (m_launch_online && Netplay::LinkRoom())
+        SetGbLinkMatch();  // (00.95: the Game Boy link cable's two games, src/GbLink.h)
       *result = m_games[m_launch].rom;
       picked = true;
       break;
     }
   }
   m_input.Close();
+  Voice::PanelUpdate(false);  // (00.23: Test Microphone stops with the menu)
   m_audio.Stop();
   ForgetStatePictures();
+  m_running = false;
+  HoldRead();  // (00.85: no read of the games while the game runs)
   m_dl_pause = true;
   m_rating_matcher.Pause(true);  // (its games wait while a game runs, and the ratings' download)
   Achievements::PauseLibrary(true);  // (the RetroAchievements marks' hashing too, 00.77)
   m_rating_download.Pause(true);
   m_bezel_download.Pause(true);  // (Game Bezels, 00.80: the file coming stops, its part kept for afterwards)
+  NetplayLibrary::Pause(true);  // (00.23: no game file hashed while a game runs)
   if (m_find_thread.joinable())
   {
     {

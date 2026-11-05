@@ -9,9 +9,11 @@
 #pragma once
 
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <map>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "Systems.h"
@@ -115,8 +117,69 @@ struct Found
   std::array<std::vector<std::string>, SYSTEM_COUNT> folders;  // the folders looked in
   std::array<std::vector<int>, SYSTEM_COUNT> found_in;         // how many games each of them gave
   std::array<int, SYSTEM_COUNT> counts{};                      // each console's games
+  bool stopped = false;  // ScanProgress::stop ended the read before its end: these aren't all the games
 };
-Found ScanAll(const std::array<std::string, SYSTEM_COUNT>& chosen, const Places& places);
+// ---- Big libraries (00.85) ----
+// What a read learns of a file by looking inside it - the console of a .zip's ROM, a CD track's data, a disc's console,
+// a NAOMI cartridge's header, the files a .cue, .gdi or .m3u names - with the file's size and date then. ScanAll looks
+// inside a file once for every console of a shared folder (before 00.85: once per console, each .zip of a drive whose
+// top folder every console was given opened twenty times), and takes again what an earlier read learnt of a file that
+// still has the same size and date: the menu keeps these in its cache (SaveCache), so the read of each start lists the
+// folders but opens only the files that are new or changed.
+struct FileFacts
+{
+  uint64_t size = 0;
+  int64_t time = 0;     // modified (seconds)
+  unsigned looked = 0;  // which of these were looked at (Library.cpp's LOOKED_*)
+  int zip = -1;         // a .zip: its ROM's console (a SystemId), -1 none
+  bool cd_data = false, cd_playstation = false;  // a CD track: a data track (an ISO 9660 volume), a PlayStation disc's
+  bool dreamcast = false, psp = false;           // a disc image: a Dreamcast GD-ROM's, a PSP game's
+  bool saturn = false;                           // an image whose first sector is a Saturn disc's
+  bool naomi = false;                            // a NAOMI cartridge image, and its header's names:
+  std::string naomi_japan, naomi_usa, naomi_export;
+  bool naomi_vertical = false;
+  std::vector<std::string> listed;  // a .cue, .gdi or .m3u: the files it names (as ListedFiles gives them)
+};
+using Contents = std::unordered_map<std::string, FileFacts>;  // by the file's path
+// A read as it goes, for the menu's line ("Reading your games... 12345") and from the menu: stop (the read ends at its
+// next file; what it found then is incomplete: Found::stopped), pause (it waits between files while a game runs).
+struct ScanProgress
+{
+  std::atomic<int> games{0};  // found so far (a game a later step leaves out - a disc's track, one found twice - too)
+  std::atomic<bool> stop{false}, pause{false};
+};
+// Every console's games, as above; with a progress (its games counted up, its stop and pause followed) and the files'
+// contents: what an earlier read learnt of them in, what this one learnt of the files it looked at out (a read stopped
+// before its end keeps the earlier read's others too). The games are the same as without them.
+Found ScanAll(const std::array<std::string, SYSTEM_COUNT>& chosen, const Places& places, ScanProgress* progress = nullptr,
+              Contents* contents = nullptr);
+// The library's cache (00.85, the menu's data_dir/cache/library.tsv): what the last read found - each console's folder
+// asked for, the places, every game as ScanAll gave it - and what it learnt of the files. A start shows those games at
+// once (made by the same version, the same folders asked for) while its read looks again on a thread (Menu.cpp). One
+// line per thing, tab-separated; written whole through a temporary file (a cut leaves the one before); a file made by
+// another version or cut short is no cache. The contents are kept while the consoles' table is the same (their
+// extensions decide a .zip's console): `facts_ok` false - another table - leaves them out.
+struct Cache
+{
+  std::string version;                           // the app's version that made it
+  // (00.87) Who wrote it, on a USB drive's portable data (src/Portable.h's LibraryWriter): "" elsewhere.
+  std::string writer;
+  std::array<std::string, SYSTEM_COUNT> chosen;  // each console's folder asked for (Game Folders, else its default)
+  Places places;
+  Found found;
+  Contents contents;
+  bool facts_ok = false;
+};
+// (00.87) drive: the portable data's drive (src/Portable.h) - its files' paths written relative to it
+// (src/DrivePaths.h), read back with its root of now; "" (the PS4's own cache) as before. writer: a word written with
+// it (Cache::writer).
+bool SaveCache(const std::string& path, const std::string& version, const std::array<std::string, SYSTEM_COUNT>& chosen,
+               const Places& places, const Found& found, const Contents& contents, const std::string& drive = {},
+               const std::string& writer = {});
+bool LoadCache(const std::string& path, Cache* cache, const std::string& drive = {});
+// A short sum of everything a read found (its games' every field, in order, and the folders): two reads that found the
+// same have the same one, so the menu leaves its games as they are when nothing changed (no reorder, no reload).
+uint64_t Fingerprint(const Found& found);
 // The consoles that get a tab (Settings -> Consoles Shown), in `order`: all of them ("all", or an unknown
 // mode), those with games ("games": games[id] > 0), or those not turned off ("chosen": `off` lists their
 // keys, "psp,dc"). All of them when that would leave none.
@@ -128,6 +191,14 @@ std::vector<SystemId> ShownConsoles(const std::vector<SystemId>& order, const st
 std::string UsbCoversFolder(const std::vector<std::string>& drives);
 // The covers folders the drives have now (<drive>/EmuSuNi/covers, any letters' case): the menu shows them all.
 std::vector<std::string> UsbCoversFolders(const std::vector<std::string>& drives);
+
+// (00.87) Where the marks of a game's missing BIOS (an Arcade's, a NAOMI's, an Atomiswave's: Game::missing) look for
+// it: the app's system folder (data_dir/system), unless the start said another for the console (the BIOS on a USB
+// drive's portable data, src/Portable.h). Set before the first read.
+void SetSystemFolder(SystemId system, const std::string& folder);
+std::string SystemFolder(SystemId system);
+// (00.87) The portable data's folder on a USB drive (src/Portable.h): saves, BIOS, covers, never games - not read.
+inline constexpr const char* PORTABLE_FOLDER = "EmuSuNi-Portable";
 
 // ---- The consoles' folders, made by the app (00.63) ----
 // Does the drive look like the PS4's own storage (its games under user/app, user/patch, user/addcont, as on an

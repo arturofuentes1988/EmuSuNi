@@ -45,6 +45,7 @@
 #     charges from the app's start.
 #   - The uGUI error screen's 4.5 MB Chinese font is left out (its 8x8 one instead): the screen is never
 #     shown in the app.
+#   - (00.89) The MIPS III's own profile (Killer Instinct's CPU) in the app's log every 10 s of its time.
 #   - Its driver list can be started and closed again: BurnLibInit copies every driver's names and points
 #     the drivers at the copies, BurnLibExit freed them without putting the originals back or forgetting
 #     the freed arrays, and the next BurnLibInit freed them again (RetroArch unloads the core between
@@ -360,6 +361,16 @@ patch('burner/libretro/ugui_tools.c',
 patch('burner/libretro/Makefile.common',
       b'\t$(UGUI_DIR)/SourceHanSansCN_Medium_13X17.c \\\n',
       b'')
+# (00.89) The MIPS III's own profile in the app's log (Killer Instinct 1 and 2, the only boards with that CPU: an R4600
+# at 100 MHz in a cached interpreter, 59-65% of their speed on the PS4 in #26 and #35): every 10 s of the game's MIPS
+# time, how much of it the idle detection skipped and its 8 hottest blocks with their instructions - where a frame's
+# time goes, before anything is changed there. Two stores a block run; FinalBurn Neo prints it at its debug level,
+# which the app drops: at its UI level instead.
+M3 = 'cpu/mips3/mips3.cpp'
+patch(M3, b'#define MIPS3_PROFILE\t\t0\n', b'#define MIPS3_PROFILE\t\t1 // EmuSuNi: in the app\'s log\n')
+patch(M3, b'\tconst INT32 TOP = 12;\n', b'\tconst INT32 TOP = 8; // EmuSuNi: 12\n')
+patch(M3, b'bprintf(PRINT_NORMAL, _T("MIPS3 profile:', b'bprintf(PRINT_UI, _T("MIPS3 profile:')
+patch(M3, b'bprintf(PRINT_NORMAL, _T("MIPS3 hot', b'bprintf(PRINT_UI, _T("MIPS3 hot')
 
 # The console drivers left out: their sources are taken from the copy (a copy of git's tree each time,
 # the stamp above sees to that), and their drivers from the list the core is made with. The list is

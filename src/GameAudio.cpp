@@ -15,6 +15,7 @@
 #include <orbis/libkernel.h>
 
 #include "Log.h"
+#include "Voice.h"
 
 // libkernel's affinity call as it really is (OpenOrbis declares it without parameters): bit n of
 // the mask is core n.
@@ -593,6 +594,7 @@ void GameAudio::Loop()
   while (!m_stop)
   {
     const uint32_t sound = MakePeriod(out.data());
+    Voice::Mix(out.data(), PERIOD);  // (00.23: the voice chat's voices over the game, also when it is muted)
     const int result = AudioPort::Output(out.data());
     m_outputs.fetch_add(1, std::memory_order_relaxed);
     if (result >= 0)

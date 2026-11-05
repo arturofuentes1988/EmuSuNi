@@ -20,10 +20,17 @@ void emusuni_log_line(const char* text);  // src/Log.cpp
 int emusuni_free_disk_space(const char* path, int64_t* out)
 {
   enum { FREEBSD_STATFS_VERSION = 0x20030518 };
-  const int64_t ASSUMED = (int64_t)2 << 30, MOST = (int64_t)1 << 44;
+  // (00.90) Less than LEAST is taken for a wrong reading (a player's PS5 wouldn't save PSP games, v00.22): the game is
+  // told LEAST and tries; a save that really doesn't fit fails as it is written, and the game hears the memory stick is
+  // full ("EmuSuNi: save NOT written", scripts/build-psp-core.sh).
+  const int64_t ASSUMED = (int64_t)2 << 30, MOST = (int64_t)1 << 44, LEAST = (int64_t)64 << 20;
   static int logged = 0;
   int64_t space = ASSUMED;
   const char* how = "assumed";
+  // The kernel's fields as read, for the log.
+  uint32_t version = 0;
+  uint64_t bsize = 0;
+  int64_t bavail = 0;
   const int fd = open(path, O_RDONLY);
   if (fd >= 0)
   {
@@ -33,9 +40,6 @@ int emusuni_free_disk_space(const char* path, int64_t* out)
     {
       // The kernel's layout: f_version, f_type, then f_flags, f_bsize, f_iosize, f_blocks, f_bfree,
       // f_bavail as 64-bit words.
-      uint32_t version;
-      uint64_t bsize;
-      int64_t bavail;
       memcpy(&version, buf, sizeof(version));
       memcpy(&bsize, buf + 16, sizeof(bsize));
       memcpy(&bavail, buf + 48, sizeof(bavail));
@@ -67,10 +71,17 @@ int emusuni_free_disk_space(const char* path, int64_t* out)
   {
     how = "can't open the folder, assumed";
   }
-  if (!logged)
+  const int64_t measured = space;
+  if (space < LEAST)
+    space = LEAST;
+  static int logged_low = 0;
+  if (!logged || (measured < LEAST && !logged_low))
   {
-    char line[320];
-    snprintf(line, sizeof(line), "disk: free space at %s: %lld MiB (%s)", path, (long long)(space >> 20), how);
+    logged_low |= measured < LEAST;
+    char line[384];
+    snprintf(line, sizeof(line), "disk: free space at %s: %lld MiB (%s%s; statfs version %#x, block %llu, available %lld)",
+             path, (long long)(space >> 20), how, measured < LEAST ? ", too little to be right: 64 MiB told" : "",
+             (unsigned)version, (unsigned long long)bsize, (long long)bavail);
     emusuni_log_line(line);
     logged = 1;
   }

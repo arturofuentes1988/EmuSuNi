@@ -245,6 +245,12 @@ std::unordered_map<std::string, HashedFile> s_lib_hashes;  // by path
 std::vector<LibraryFile> s_lib_files;
 bool s_lib_work = false, s_lib_paused = false, s_lib_force = false, s_lib_started = false;
 int s_lib_version = 0;
+// (00.85) What changed since the menu last took the marks (TakeLibraryChanges): the files of s_lib_files hashed since
+// (their index), or everything (a new list, a console's list, the account's progress, a game played). Each list
+// SetLibrary gives has a serial: a run of an older list marks none of the new one's files.
+std::vector<size_t> s_lib_dirty;
+bool s_lib_dirty_all = true;
+unsigned s_lib_serial = 0;
 std::condition_variable& s_lib_wake = *new std::condition_variable;  // (never destroyed: its thread waits on it)
 bool (*s_rom_reader)(const std::string&, SystemId, std::vector<uint8_t>*, std::string*) = nullptr;
 Net::Session& s_lib_session = *new Net::Session;
@@ -339,6 +345,12 @@ std::string CorePart(SystemId system, const std::string& library_version)
   case SystemId::THREEDS: name = "azahar_libretro"; break;
   case SystemId::SATURN: name = "yabasanshiro_libretro"; break;
   case SystemId::PCE: name = "mednafen_pce_fast_libretro"; break;
+  case SystemId::A2600: name = "stella_libretro"; break;  // (00.90)
+  case SystemId::A7800: name = "prosystem_libretro"; break;
+  case SystemId::JAGUAR: name = "virtualjaguar_libretro"; break;
+#ifdef EMUSUNI_OPENBOR
+  case SystemId::OPENBOR: break;  // (with-openbor: no achievements, ConsoleId 0)
+#endif
   }
   if (!name)
     return {};
@@ -1693,6 +1705,7 @@ void RecordGame(rc_client_t* client)
                  s_played.end());
   s_played.emplace_back(user, std::move(g));
   s_lib_version++;  // (the marks' progress, 00.77)
+  s_lib_dirty_all = true;
   SaveHistory();
 }
 
@@ -2637,6 +2650,7 @@ constexpr uint32_t SYNC_CONSOLES[] = {
     RC_CONSOLE_NINTENDO_DS,    RC_CONSOLE_PSP,           RC_CONSOLE_DREAMCAST,           RC_CONSOLE_SG1000,
     RC_CONSOLE_MASTER_SYSTEM,  RC_CONSOLE_GAME_GEAR,     RC_CONSOLE_MEGA_DRIVE,          RC_CONSOLE_ARCADE,
     RC_CONSOLE_SATURN,         RC_CONSOLE_PC_ENGINE,  // (00.82)
+    RC_CONSOLE_ATARI_2600,     RC_CONSOLE_ATARI_7800,    RC_CONSOLE_ATARI_JAGUAR,  // (00.90)
 };
 constexpr size_t SYNC_TITLES = 90;  // games' names asked for at once (the server takes 99 at most)
 
@@ -2650,6 +2664,7 @@ void SyncEnd(const std::string& error)
   {
     s_account_games = std::move(s_sync_found);
     s_lib_version++;  // (the marks' progress, 00.77)
+    s_lib_dirty_all = true;
     s_account_user = s_user;
     s_synced = static_cast<int64_t>(std::time(nullptr));
     s_sync_error.clear();
@@ -3830,6 +3845,7 @@ int64_t ApplyKnown(uint32_t console, const std::string& text)
     s_known_hashes[hash] = known;
   s_known_fetched[console] = fetched;
   s_lib_version++;
+  s_lib_dirty_all = true;  // (a console's list: every game of it may be known now)
   return fetched;
 }
 
@@ -4032,9 +4048,10 @@ bool LibraryInterrupted()
   return s_lib_paused || s_lib_work;
 }
 
-void LibraryRun(const std::vector<LibraryFile>& files, bool force)
+void LibraryRun(const std::vector<LibraryFile>& files, unsigned serial, bool force)
 {
   const auto start = Clock::now();
+  auto saved = start;  // (the hashes' file written every 30 s of hashing at most: 00.85)
   static bool loaded = false;  // (the library's thread's own)
   static std::set<uint32_t> known_loaded;
   static std::set<std::string> checked;  // the files whose date was looked at this session
@@ -4079,8 +4096,9 @@ void LibraryRun(const std::vector<LibraryFile>& files, bool force)
   uint64_t bytes = 0;
   double slowest = 0.0;
   std::string slowest_path;
-  for (const LibraryFile& file : files)
+  for (size_t index = 0; index < files.size(); index++)
   {
+    const LibraryFile& file = files[index];
     if (LibraryInterrupted())
       break;
     if (checked.count(file.path))
@@ -4124,9 +4142,16 @@ void LibraryRun(const std::vector<LibraryFile>& files, bool force)
       kept.console = console;
       kept.hash = hash;
       s_lib_version++;
+      if (serial == s_lib_serial)
+        s_lib_dirty.push_back(index);  // (the menu takes this game's mark only: TakeLibraryChanges)
     }
-    if (hashed % 50 == 0)
+    // (00.85: every 30 s, not every 50 files - the file has every file's hash: with 30 000 games it was written whole
+    // 600 times in one run.)
+    if (Clock::now() - saved > std::chrono::seconds(30))
+    {
       SaveLibraryHashes();
+      saved = Clock::now();
+    }
   }
   if (hashed > 0)
     SaveLibraryHashes();
@@ -4162,15 +4187,17 @@ void* LibraryMain(void*)
   {
     std::vector<LibraryFile> files;
     bool force;
+    unsigned serial;
     {
       std::unique_lock lock(s_mutex);
       s_lib_wake.wait(lock, [] { return s_lib_work && !s_lib_paused; });
       s_lib_work = false;
       files = s_lib_files;
+      serial = s_lib_serial;
       force = s_lib_force;
       s_lib_force = false;
     }
-    LibraryRun(files, force);
+    LibraryRun(files, serial, force);
   }
   return nullptr;
 }
@@ -4182,6 +4209,10 @@ void SetLibrary(const std::vector<LibraryFile>& files)
   {
     std::lock_guard lock(s_mutex);
     s_lib_files = files;
+    s_lib_serial++;
+    s_lib_dirty.clear();
+    s_lib_dirty_all = true;
+    s_lib_version++;  // (the menu takes the new list's marks)
     s_lib_work = true;
     if (!s_lib_started)
     {
@@ -4216,10 +4247,13 @@ void PauseLibrary(bool pause)
   s_lib_wake.notify_all();
 }
 
-std::map<std::string, LibraryInfo> GetLibraryInfos()
+std::vector<LibraryChange> TakeLibraryChanges(bool* all)
 {
-  std::map<std::string, LibraryInfo> out;
+  std::vector<LibraryChange> out;
   std::lock_guard lock(s_mutex);
+  *all = s_lib_dirty_all;
+  if (!s_lib_dirty_all && s_lib_dirty.empty())
+    return out;
   // The account's progress by game: its games (the last update), and those played here after it.
   std::unordered_map<uint32_t, uint32_t> progress;  // (unlocked)
   if (!s_user.empty() && s_account_user == s_user)
@@ -4234,8 +4268,7 @@ std::map<std::string, LibraryInfo> GetLibraryInfos()
     uint32_t& unlocked = progress[game.game_id];
     unlocked = std::max(unlocked, game.unlocked);
   }
-  for (const LibraryFile& file : s_lib_files)
-  {
+  auto info_of = [&progress](const LibraryFile& file) {
     LibraryInfo info;
     const auto hashed = s_lib_hashes.find(file.path);
     if (hashed != s_lib_hashes.end())
@@ -4268,8 +4301,26 @@ std::map<std::string, LibraryInfo> GetLibraryInfos()
         }
       }
     }
-    out[file.key] = info;
+    return info;
+  };
+  if (s_lib_dirty_all)
+  {
+    out.reserve(s_lib_files.size());
+    for (size_t i = 0; i < s_lib_files.size(); i++)
+      out.push_back({i, s_lib_files[i].key, info_of(s_lib_files[i])});
   }
+  else
+  {
+    std::sort(s_lib_dirty.begin(), s_lib_dirty.end());
+    s_lib_dirty.erase(std::unique(s_lib_dirty.begin(), s_lib_dirty.end()), s_lib_dirty.end());
+    for (const size_t i : s_lib_dirty)
+    {
+      if (i < s_lib_files.size())
+        out.push_back({i, s_lib_files[i].key, info_of(s_lib_files[i])});
+    }
+  }
+  s_lib_dirty.clear();
+  s_lib_dirty_all = false;
   return out;
 }
 
@@ -4541,6 +4592,7 @@ void CheckVersions(const LibraryFile& file, const std::string& title, int serial
     s_lib_hashes[file.path] =
         HashedFile{static_cast<uint64_t>(st.st_size), static_cast<int64_t>(st.st_mtime), console, hash};
     s_lib_version++;
+    s_lib_dirty_all = true;  // (one file of the list, rarely: every game's mark again)
   }
   const bool listed = console != 0 && EnsureKnown(console);
   Versions found;
@@ -4697,6 +4749,15 @@ uint32_t ConsoleId(SystemId system)
   case SystemId::THREEDS: return RC_CONSOLE_NINTENDO_3DS;
   case SystemId::SATURN: return RC_CONSOLE_SATURN;
   case SystemId::PCE: return RC_CONSOLE_PC_ENGINE;  // (00.82)
+  // (00.90) Atari's: a 2600's and a Jaguar's file hashed whole, a 7800's without its .a78 header (rcheevos' rhash).
+  case SystemId::A2600: return RC_CONSOLE_ATARI_2600;
+  case SystemId::A7800: return RC_CONSOLE_ATARI_7800;
+  case SystemId::JAGUAR: return RC_CONSOLE_ATARI_JAGUAR;
+#ifdef EMUSUNI_OPENBOR
+  // (with-openbor) RetroAchievements has no OpenBOR: its .pak files are never identified nor hashed (0: "no
+  // achievements for this console").
+  case SystemId::OPENBOR: return 0;
+#endif
   }
   return 0;
 }

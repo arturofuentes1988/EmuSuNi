@@ -58,6 +58,10 @@
 #     the game ends, a state is saved or loaded, a reset; the renderer without -ffast-math; PGO
 #     (scripts/saturn-core.profdata.xz). The pictures checked on the PC against 00.68's renderer, every one of both
 #     games' runs, in a deterministic test mode (the emulation waiting for the 68000's thread at every tenth of a line).
+#   - 00.85 (a player: saving a state closed the app): the states made and read in memory (open_memstream, fmemopen),
+#     not in a tmpfile() - the PS4 has no /tmp for it, so the state went into a NULL FILE -; a state of another size
+#     than the frontend's room refused, not copied past its end; the VDP1's frame buffer in a state through the heap,
+#     not 256 KiB of the main thread's stack; the renderer's threads idle before the state's size is measured too.
 # Its libretro API becomes yabasanshiro_retro_* and everything else in it private (CMakeLists.txt's FCEUmm way).
 # The object is checked at the end: only that API defined globally, no weak references, no operator new/delete of
 # its own, no static array of 64 KiB or more, every symbol it needs in the PS4 libraries or the app.
@@ -257,13 +261,33 @@ patch('libretro/libretro.c',
       '#ifdef EMUSUNI_PORT\n'
       '   { extern int emusuni_sh2_skip; emusuni_sh2_skip = -1; } /* EmuSuNi: EMUSUNI_SATURN_SH2_SKIP read for this game */\n'
       '#endif\n')
+# (00.85: the state's size too - it is the state made once, and its picture's size is the VDP2's thread's.)
 for head in ('void retro_unload_game(void)\n{\n', 'bool retro_serialize(void *data, size_t size)\n{\n',
-             'bool retro_unserialize(const void *data, size_t size)\n{\n', 'void retro_reset(void)\n{\n'):
+             'bool retro_unserialize(const void *data, size_t size)\n{\n', 'void retro_reset(void)\n{\n',
+             'size_t retro_serialize_size(void)\n{\n'):
     patch('libretro/libretro.c', head,
           head + '#ifdef EMUSUNI_SOFT\n   emusuni_soft_quiesce(); /* EmuSuNi: the renderer\'s threads idle first */\n#endif\n')
 patch('libretro/libretro.c',
       '\n}\n\nvoid retro_run(void)\n',
       '\n}\n#endif\n\nvoid retro_run(void)\n')
+# (00.85) A state that couldn't be made, or one of another size than the room the frontend made for it (its
+# retro_serialize_size), is no state: upstream copied the frontend's size from it whatever it was - from NULL when
+# YabSaveStateBuffer failed (a crash), past its end when it was smaller, part of it when it was bigger.
+patch('libretro/libretro.c',
+      '   int error = YabSaveStateBuffer (&buffer, &out_size);\n\n   memcpy(data, buffer, size);\n',
+      '   int error = YabSaveStateBuffer (&buffer, &out_size);\n\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '   if (error || buffer == NULL || out_size != size)\n'
+      '   {\n'
+      '      /* EmuSuNi: no state, or not the size the frontend made room for: not saved */\n'
+      '      if (log_cb)\n'
+      '         log_cb(RETRO_LOG_ERROR, "state: not made (error %d, %u bytes for %u)\\n", error, (unsigned)out_size,\n'
+      '                (unsigned)size);\n'
+      '      free(buffer);\n'
+      '      return false;\n'
+      '   }\n'
+      '#endif\n'
+      '   memcpy(data, buffer, size);\n')
 
 # --- vdp1.cpp: VIDDummy's end of frame as the GL renderer's (YuiSwapBuffers); its frame buffer reads from memory ---
 patch('vdp1.cpp',
@@ -582,6 +606,111 @@ patch('memory.c',
       '  free(p);\n'
       '}\n\n'
       '#elif defined(NX)\n\nvoid * YabMemMap(char * filename, u32 size ) {\n')
+# (00.85) A state made and read in memory. YabSaveStateBuffer and YabLoadStateBuffer (libretro.c's states) wrote it
+# into a tmpfile(), which the PS4's libc.a (musl's) opens as /tmp/tmpfile_XXXXXX - and a PS4 app's sandbox has no /tmp:
+# tmpfile() gave NULL after its 100 tries, the state was written into a NULL FILE, and the app closed (a player of
+# v00.22: "intenté guardar partida con L3+R3 y me expulsa del juego al menú principal de PS4, no guarda nada"; the PC,
+# with its /tmp, never showed it - the PC check with tmpfile() made to give NULL closed the same way, a SIGSEGV). Now
+# the state is made in a stream of memory and read back from the frontend's own memory (emusuni_saturn_state.c, below:
+# fopencookie, in the PS4's libc.a as in the PC's - the same code on both; glibc's open_memstream put the end of a
+# stream at its last write, the header's, so the PC measured 20 bytes), and a stream that can't be made is an error,
+# never a NULL FILE.
+patch('memory.c',
+      '   fp = tmpfile();\n\n'
+      '   ScspLockThread();\n   status = YabSaveStateStream(fp);\n   ScspUnLockThread();\n\n'
+      '   if (status != 0)\n   {\n      fclose(fp);\n      return status;\n   }\n\n'
+      '   fseek(fp, 0, SEEK_END);\n   *size = ftell(fp);\n   fseek(fp, 0, SEEK_SET);\n\n'
+      '   if (buffer != NULL)\n   {\n      *buffer = malloc(*size);\n      num_read = fread(*buffer, 1, *size, fp);\n   }\n\n'
+      '   fclose(fp);\n   return 0;\n}\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '   {\n'
+      '      /* EmuSuNi: made in memory, not in a tmpfile() (/tmp/tmpfile_XXXXXX: no /tmp on the PS4, a NULL FILE) */\n'
+      '      FILE * emusuni_state_writer(void **, size_t *);\n'
+      '      void * memory = NULL;\n'
+      '      size_t length = 0;\n'
+      '      (void)num_read;\n'
+      '      fp = emusuni_state_writer(&memory, &length);\n'
+      '      if (fp == NULL)\n'
+      '         return -1;\n'
+      '      ScspLockThread();\n'
+      '      status = YabSaveStateStream(fp);\n'
+      '      ScspUnLockThread();\n'
+      '      fclose(fp); /* (the state and its length given back: NULL if a write found no memory) */\n'
+      '      if (status == 0 && (memory == NULL || length == 0))\n'
+      '         status = -1;\n'
+      '      if (status != 0)\n'
+      '      {\n'
+      '         free(memory);\n'
+      '         return status;\n'
+      '      }\n'
+      '      *size = length;\n'
+      '      if (buffer != NULL)\n'
+      '         *buffer = memory;\n'
+      '      else\n'
+      '         free(memory);\n'
+      '      return 0;\n'
+      '   }\n'
+      '#else\n'
+      '   fp = tmpfile();\n\n'
+      '   ScspLockThread();\n   status = YabSaveStateStream(fp);\n   ScspUnLockThread();\n\n'
+      '   if (status != 0)\n   {\n      fclose(fp);\n      return status;\n   }\n\n'
+      '   fseek(fp, 0, SEEK_END);\n   *size = ftell(fp);\n   fseek(fp, 0, SEEK_SET);\n\n'
+      '   if (buffer != NULL)\n   {\n      *buffer = malloc(*size);\n      num_read = fread(*buffer, 1, *size, fp);\n   }\n\n'
+      '   fclose(fp);\n   return 0;\n'
+      '#endif\n}\n')
+patch('memory.c',
+      '   fp = tmpfile();\n   fwrite(buffer, 1, size, fp);\n\n   fseek(fp, 0, SEEK_SET);\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '   {\n'
+      '      /* EmuSuNi: read from the frontend\'s memory itself, not from a copy in a tmpfile() (none on the PS4) */\n'
+      '      FILE * emusuni_state_reader(const void *, size_t);\n'
+      '      if (buffer == NULL || size == 0)\n'
+      '         return -1;\n'
+      '      fp = emusuni_state_reader(buffer, size);\n'
+      '      if (fp == NULL)\n'
+      '         return -1;\n'
+      '   }\n'
+      '#else\n'
+      '   fp = tmpfile();\n   fwrite(buffer, 1, size, fp);\n\n   fseek(fp, 0, SEEK_SET);\n'
+      '#endif\n')
+# (00.85) The VDP1's back frame buffer in a state through the heap: upstream copied it into 256 KiB of the stack, of the
+# thread that saves or loads the state (the app's emulation thread: the PS4's main thread). Word by word if there is no
+# memory for it (the same bytes either way).
+patch('vdp1.cpp',
+      '   u16 back_framebuffer[0x20000] = { 0 };\n',
+      '   u16 *back_framebuffer = (u16 *)calloc(0x20000, sizeof(u16)); /* EmuSuNi: the heap, not 256 KiB of stack */\n',
+      count=2)
+patch('vdp1.cpp',
+      '   for (i = 0; i < 0x20000; i++)\n      back_framebuffer[i] = Vdp1FrameBufferReadWord(i<<1);\n',
+      '   for (i = 0; i < 0x20000; i++)\n'
+      '   {\n'
+      '      u16 word = Vdp1FrameBufferReadWord(i<<1);\n'
+      '      if (back_framebuffer != NULL)\n'
+      '         back_framebuffer[i] = word;\n'
+      '      else\n'
+      '         ywrite(&check, (void *)&word, 2, 1, fp); /* EmuSuNi: no memory for the copy */\n'
+      '   }\n')
+patch('vdp1.cpp',
+      '   ywrite(&check, (void *)back_framebuffer, 0x40000, 1, fp);\n#endif\n',
+      '   if (back_framebuffer != NULL)\n'
+      '      ywrite(&check, (void *)back_framebuffer, 0x40000, 1, fp);\n'
+      '   free(back_framebuffer);\n'
+      '#endif\n')
+patch('vdp1.cpp',
+      '   yread(&check, (void *)back_framebuffer, 0x40000, 1, fp);\n\n'
+      '   for (i = 0; i < 0x20000; i++)\n      Vdp1FrameBufferWriteWord(i<<1, back_framebuffer[i]);\n',
+      '   if (back_framebuffer != NULL)\n'
+      '      yread(&check, (void *)back_framebuffer, 0x40000, 1, fp);\n\n'
+      '   for (i = 0; i < 0x20000; i++)\n'
+      '   {\n'
+      '      u16 word = 0;\n'
+      '      if (back_framebuffer != NULL)\n'
+      '         word = back_framebuffer[i];\n'
+      '      else\n'
+      '         yread(&check, (void *)&word, 2, 1, fp); /* EmuSuNi: no memory for the copy */\n'
+      '      Vdp1FrameBufferWriteWord(i<<1, word);\n'
+      '   }\n'
+      '   free(back_framebuffer);\n')
 
 # --- Musashi: its handler table and cycle counts on the heap (built once, by m68k_init) ---
 patch('musashi/m68kops.c',
@@ -1002,6 +1131,152 @@ void Vdp2GetInterlaceInfo(int * start_line, int * line_increment) { *start_line 
 #endif
 STUBS
 write_if_changed "$OUT/include/emusuni_saturn_stubs.c"
+# (00.85) The states' streams of memory (memory.c's YabSaveStateBuffer and YabLoadStateBuffer, patched above).
+cat > "$OUT/include/emusuni_saturn_state.c.new" <<'STATE'
+/* Generated by scripts/build-saturn-core.sh (00.85): a Saturn state made and read in memory, not in a tmpfile() (the
+   PS4's libc opens /tmp/tmpfile_XXXXXX, and a PS4 app has no /tmp). A FILE of fopencookie() (the PS4's libc.a has it,
+   as glibc does: the same code on both), whose end is the furthest byte written - the state's header sizes are
+   written last, at its start (glibc's open_memstream put the end at that last write). */
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+#include <errno.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/types.h>
+
+struct emusuni_state_stream
+{
+   unsigned char *data;  /* the state */
+   size_t length;        /* its end: the furthest byte written, or the state read */
+   size_t room;          /* the memory made for it (writing) */
+   size_t position;
+   int failed;           /* a write found no memory */
+   void **out;           /* writing: where its bytes go when it is closed (NULL if a write failed) */
+   size_t *out_length;
+};
+
+static ssize_t emusuni_state_read(void *cookie, char *buffer, size_t size)
+{
+   struct emusuni_state_stream *s = (struct emusuni_state_stream *)cookie;
+   size_t left = s->position < s->length ? s->length - s->position : 0;
+   if (size > left)
+      size = left;
+   memcpy(buffer, s->data + s->position, size);
+   s->position += size;
+   return (ssize_t)size;
+}
+
+static ssize_t emusuni_state_write(void *cookie, const char *buffer, size_t size)
+{
+   struct emusuni_state_stream *s = (struct emusuni_state_stream *)cookie;
+   size_t end = s->position + size;
+   if (s->failed || s->out == NULL || end < s->position)
+      return 0;
+   if (end > s->room)
+   {
+      /* (A Saturn state is about 9 MiB with the 4 MiB cartridge: a few doublings from 1 MiB.) */
+      size_t room = s->room ? s->room : (size_t)1 << 20;
+      unsigned char *data;
+      while (room < end)
+         room *= 2;
+      data = (unsigned char *)realloc(s->data, room);
+      if (data == NULL)
+      {
+         s->failed = 1;
+         return 0;
+      }
+      s->data = data;
+      s->room = room;
+   }
+   if (s->position > s->length)
+      memset(s->data + s->length, 0, s->position - s->length); /* (a seek past the end: zeros up to it) */
+   memcpy(s->data + s->position, buffer, size);
+   s->position = end;
+   if (end > s->length)
+      s->length = end;
+   return (ssize_t)size;
+}
+
+static int emusuni_state_seek(void *cookie, off_t *offset, int whence)
+{
+   struct emusuni_state_stream *s = (struct emusuni_state_stream *)cookie;
+   long long base = whence == SEEK_SET ? 0 : whence == SEEK_CUR ? (long long)s->position :
+                    whence == SEEK_END ? (long long)s->length : -1;
+   if (base < 0 || (long long)*offset < -base)
+   {
+      errno = EINVAL;
+      return -1;
+   }
+   s->position = (size_t)(base + (long long)*offset);
+   *offset = (off_t)s->position;
+   return 0;
+}
+
+static int emusuni_state_close(void *cookie)
+{
+   struct emusuni_state_stream *s = (struct emusuni_state_stream *)cookie;
+   if (s->out != NULL)
+   {
+      if (s->failed)
+      {
+         free(s->data);
+         s->data = NULL;
+         s->length = 0;
+      }
+      *s->out = s->data;
+      *s->out_length = s->length;
+   }
+   free(s);
+   return 0;
+}
+
+static FILE *emusuni_state_open(struct emusuni_state_stream *s, const char *mode)
+{
+   cookie_io_functions_t io;
+   FILE *f;
+   io.read = emusuni_state_read;
+   io.write = emusuni_state_write;
+   io.seek = emusuni_state_seek;
+   io.close = emusuni_state_close;
+   f = s ? fopencookie(s, mode, io) : NULL;
+   if (f == NULL && s != NULL)
+   {
+      free(s->out != NULL ? s->data : NULL);
+      free(s);
+   }
+   return f;
+}
+
+/* A stream that makes a state as it is written: once closed, *data is its bytes (malloc's: the caller frees them;
+   NULL if a write found no memory) and *length their count. */
+FILE *emusuni_state_writer(void **data, size_t *length)
+{
+   struct emusuni_state_stream *s = (struct emusuni_state_stream *)calloc(1, sizeof(*s));
+   *data = NULL;
+   *length = 0;
+   if (s != NULL)
+   {
+      s->out = data;
+      s->out_length = length;
+   }
+   return emusuni_state_open(s, "w+b");
+}
+
+/* A stream that reads the state at data (the frontend's: not copied, not written). */
+FILE *emusuni_state_reader(const void *data, size_t size)
+{
+   struct emusuni_state_stream *s = (struct emusuni_state_stream *)calloc(1, sizeof(*s));
+   if (s != NULL)
+   {
+      s->data = (unsigned char *)data;
+      s->length = size;
+   }
+   return emusuni_state_open(s, "rb");
+}
+STATE
+write_if_changed "$OUT/include/emusuni_saturn_state.c"
 # The PC measurement's timers (SATURN_PROF=1): the software renderer's frame parts, on the calling thread's CPU clock.
 cat > "$OUT/include/emusuni_soft_prof.c.new" <<'PROF'
 /* Generated by scripts/build-saturn-core.sh (SATURN_PROF=1): the CPU time of the software renderer's frame parts. */
@@ -2845,7 +3120,7 @@ set(SOURCES
   ${S}/musashi/m68kopdm.c ${S}/m68kmusashi.c
   ${S}/libretro/libretro.c
   ${S}/Counter.cpp ${S}/vdp1.cpp ${S}/vdp2.cpp
-  ${EMUSUNI_INCLUDE}/emusuni_saturn_stubs.c)
+  ${EMUSUNI_INCLUDE}/emusuni_saturn_stubs.c ${EMUSUNI_INCLUDE}/emusuni_saturn_state.c)
 add_library(yabasanshiro_libretro STATIC ${SOURCES})
 target_include_directories(yabasanshiro_libretro PRIVATE ${EMUSUNI_INCLUDE} ${S}/libretro ${S} ${L}/include
   ${S}/musashi ${CHDR}/include ${LZMA}/include ${FLAC}/include ${FLAC}/src/include ${ZLIB})

@@ -6,6 +6,7 @@
 #include <cctype>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -13,8 +14,12 @@
 #include <set>
 
 #include <minizip/unzip.h>
+#include <strings.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #include "Arcade.h"
+#include "DrivePaths.h"
 #include "Log.h"
 #include "Naomi.h"
 
@@ -23,6 +28,8 @@ namespace Library
 namespace
 {
 constexpr long MAX_ROM = 96L * 1024 * 1024;  // the biggest N64 cartridges are 64 MiB
+// (00.90) The biggest .bin taken for an Atari 2600 cartridge: a Genesis cartridge is 128 KiB or more.
+constexpr uint64_t A2600_BIN_MAX = 64 * 1024;
 
 std::string Lower(std::string text)
 {
@@ -75,6 +82,11 @@ const System* GoToZipRom(unzFile zip, const System* system)
     const System* of = SystemOfFile(name);
     if (!of || info.uncompressed_size == 0 || info.uncompressed_size > MAX_ROM)
       continue;
+#ifdef EMUSUNI_A2600
+    // (00.90) A small .bin is an Atari 2600 cartridge, not a Genesis one (IsGameOf).
+    if (of->id == SystemId::MD && HasExtension(name, {".bin"}) && info.uncompressed_size <= A2600_BIN_MAX)
+      of = &GetSystem(SystemId::A2600);
+#endif
     const bool own = system && HasOwnExtension(*system, name), plain = !HasExtension(name, {".md", ".bin"});
     const int rank = (own ? 2 : 0) + (plain ? 1 : 0);
     if (rank > best || (rank == best && !plain && info.uncompressed_size > best_size))
@@ -319,23 +331,11 @@ bool IsPspDisc(const std::string& path)
 }
 
 #ifdef EMUSUNI_SATURN
-// A Saturn disc: its first sector begins with "SEGA SEGASATURN " (at 0 in a 2048-byte image, at 16 in a raw 2352-byte
-// one): an .iso's, the first track of a .cue (its first FILE), the .mdf beside an .mds. A .chd is compressed: its
-// folder says (Roms/saturn).
-bool IsSaturnDisc(const std::string& path)
+// A Saturn disc's first sector: it begins with "SEGA SEGASATURN " (at 0 in a 2048-byte image, at 16 in a raw 2352-byte
+// one). The disc is an .iso's, the first track of a .cue (its first FILE), the .mdf beside an .mds (Reader::Saturn); a
+// .chd is compressed: its folder says (Roms/saturn).
+bool SaturnSector(const std::string& image)
 {
-  std::string image = path;
-  if (HasExtension(path, {".cue"}))
-  {
-    const std::vector<std::string> tracks = ListedFiles(path);
-    if (tracks.empty())
-      return false;
-    image = tracks.front();
-  }
-  else if (HasExtension(path, {".mds"}))
-    image = std::filesystem::path(path).replace_extension(".mdf").string();
-  else if (!HasExtension(path, {".iso"}))
-    return false;
   FILE* file = fopen(image.c_str(), "rb");
   if (!file)
     return false;
@@ -404,18 +404,356 @@ int TrackNumber(const std::string& name, std::string* base)
   return std::atoi(lower.c_str() + open + 7);
 }
 
+// ---- The read of the folders (00.85: big libraries) ----
+
+// FileFacts::looked: what was looked at of the file.
+constexpr unsigned LOOKED_ZIP = 1, LOOKED_CD = 2, LOOKED_DREAMCAST = 4, LOOKED_PSP = 8, LOOKED_NAOMI = 16,
+                   LOOKED_LISTED = 32, LOOKED_SATURN = 64;
+
+// One read of the folders (ScanAll's, Scan's, CountGames'): each folder's entries read once, each file's size and date
+// asked once, and what is inside a file looked at once, whichever console asks - a folder shared by several consoles
+// (the same one, or one inside another) was read once per console before 00.85, each .zip of it opened once per
+// console: on a PS4, where each look at a USB drive costs about a millisecond, a drive whose top folder every console
+// was given took most of an hour - and a file an earlier read looked inside (`before`: the menu's cache) isn't opened
+// again while its size and date are the same. What this read learnt of the files goes to `after`. The games found are
+// those the files themselves would give: the same answers, asked of the drive fewer times.
+class Reader
+{
+public:
+  Reader(Contents* before, Contents* after, ScanProgress* progress)
+      : m_before(before), m_after(after ? after : &m_own), m_progress(progress)
+  {
+  }
+  struct Entry
+  {
+    std::string name;  // its file name (its path: the folder's / name, as the folder's directory_iterator gives it)
+    bool folder = false;
+    bool link = false;  // a symbolic link: Exists asks the drive about it
+  };
+  struct Listing
+  {
+    std::vector<Entry> entries;  // in the folder's own order
+    bool failed = false;         // it couldn't be read (to its end): Exists asks the drive
+  };
+
+  // A folder's entries, read the first time (as each loop over a directory_iterator did: up to the first error; a
+  // folder that isn't there has none).
+  const Listing& List(const std::string& folder)
+  {
+    const auto known = m_listings.find(folder);
+    if (known != m_listings.end())
+      return known->second;
+    Listing listing;
+    std::error_code ec;
+    // (Not a range-for: its ++ throws when the drive goes away during the read; increment(ec) just stops.)
+    std::filesystem::directory_iterator it(folder, ec), end;
+    if (ec)
+    {
+      listing.failed = ec != std::errc::no_such_file_or_directory && ec != std::errc::not_a_directory;
+    }
+    else
+    {
+      for (; !ec && it != end; it.increment(ec))
+      {
+        Entry entry;
+        entry.name = it->path().filename().string();
+        std::error_code type_error;
+        entry.folder = it->is_directory(type_error);
+        entry.link = it->is_symlink(type_error);
+        listing.entries.push_back(std::move(entry));
+      }
+      listing.failed = static_cast<bool>(ec);
+    }
+    return m_listings.emplace(folder, std::move(listing)).first->second;
+  }
+
+  // A file's size as std::filesystem::file_size gives it (a file that isn't a regular one, or isn't there: -1).
+  uint64_t Size(const std::string& path)
+  {
+    const Stat& stat = StatOf(path);
+    return stat.regular ? stat.size : static_cast<uint64_t>(-1);
+  }
+
+  // Does the file exist (as FileExists says)? Answered from its folder's entries when they say it surely: its name
+  // there (not a link), or no name like it in any letters' case - a USB drive's FAT or exFAT finds "MSLUG.ZIP" for
+  // mslug.zip, the PS4's own storage doesn't -; else (a name only in another case, a link, a folder that couldn't be
+  // read) the drive is asked, once.
+  bool Exists(const std::string& path)
+  {
+    const auto known = m_exists.find(path);
+    if (known != m_exists.end())
+      return known->second;
+    bool exists = false, sure = false;
+    const size_t slash = path.rfind('/');
+    if (slash != std::string::npos && slash > 0 && slash + 1 < path.size())
+    {
+      const Listing& listing = List(path.substr(0, slash));
+      const std::string name = path.substr(slash + 1), lower = Lower(name);
+      bool like = false;
+      for (const Entry& entry : listing.entries)
+      {
+        if (entry.name == name && !entry.link)
+        {
+          exists = sure = true;
+          break;
+        }
+        like = like || Lower(entry.name) == lower;
+      }
+      sure = sure || (!like && !listing.failed);
+    }
+    if (!sure)
+      exists = FileExists(path);
+    m_exists.emplace(path, exists);
+    return exists;
+  }
+
+  // What is inside a file, looked at once (or the earlier read's, the file the same).
+  const System* ZipSystem(const std::string& path)
+  {
+    FileFacts* facts = Facts(path);
+    if (!facts)
+      return SystemOfZip(path);
+    if (!(facts->looked & LOOKED_ZIP))
+    {
+      const System* system = SystemOfZip(path);
+      facts->zip = system ? static_cast<int>(system->id) : -1;
+      facts->looked |= LOOKED_ZIP;
+    }
+    const SystemId id = static_cast<SystemId>(facts->zip);
+    return facts->zip >= 0 && facts->zip < SYSTEM_COUNT && HasSystem(id) ? &GetSystem(id) : nullptr;
+  }
+  CdTrack Track(const std::string& path)
+  {
+    FileFacts* facts = Facts(path);
+    if (!facts)
+      return ReadCdTrack(path);
+    if (!(facts->looked & LOOKED_CD))
+    {
+      const CdTrack track = ReadCdTrack(path);
+      facts->cd_data = track.data;
+      facts->cd_playstation = track.playstation;
+      facts->looked |= LOOKED_CD;
+    }
+    CdTrack track;
+    track.data = facts->cd_data;
+    track.playstation = facts->cd_playstation;
+    return track;
+  }
+  // IsDreamcastDisc: a .gdi or .cdi by its name, a .cue or .chd by what it holds, an .m3u by its first disc (that
+  // file's own fact), anything else isn't.
+  bool Dreamcast(const std::string& path)
+  {
+    if (HasExtension(path, {".gdi", ".cdi"}))
+      return true;
+    if (HasExtension(path, {".m3u"}))
+    {
+      const auto known = m_dreamcast_lists.find(path);
+      if (known != m_dreamcast_lists.end())
+        return known->second;
+      const std::vector<std::string>& discs = Listed(path);
+      const bool dc = !discs.empty() && !HasExtension(discs.front(), {".m3u"}) && Dreamcast(discs.front());
+      m_dreamcast_lists.emplace(path, dc);
+      return dc;
+    }
+    if (!HasExtension(path, {".cue", ".chd"}))
+      return false;
+    FileFacts* facts = Facts(path);
+    if (!facts)
+      return IsDreamcastDisc(path);
+    if (!(facts->looked & LOOKED_DREAMCAST))
+    {
+      facts->dreamcast = IsDreamcastDisc(path);
+      facts->looked |= LOOKED_DREAMCAST;
+    }
+    return facts->dreamcast;
+  }
+  bool Psp(const std::string& path)
+  {
+    if (!HasExtension(path, {".iso", ".pbp", ".chd"}))
+      return false;  // (IsPspDisc's answer for any other file)
+    FileFacts* facts = Facts(path);
+    if (!facts)
+      return IsPspDisc(path);
+    if (!(facts->looked & LOOKED_PSP))
+    {
+      facts->psp = IsPspDisc(path);
+      facts->looked |= LOOKED_PSP;
+    }
+    return facts->psp;
+  }
+#ifdef EMUSUNI_SATURN
+  // A Saturn disc (until 00.85 IsSaturnDisc): the first sector of an .iso, of a .cue's first track, of the .mdf beside
+  // an .mds (each file's own fact: a track changed is looked at again).
+  bool Saturn(const std::string& path)
+  {
+    std::string image = path;
+    if (HasExtension(path, {".cue"}))
+    {
+      const std::vector<std::string>& tracks = Listed(path);
+      if (tracks.empty())
+        return false;
+      image = tracks.front();
+    }
+    else if (HasExtension(path, {".mds"}))
+    {
+      image = std::filesystem::path(path).replace_extension(".mdf").string();
+    }
+    else if (!HasExtension(path, {".iso"}))
+    {
+      return false;
+    }
+    FileFacts* facts = Facts(image);
+    if (!facts)
+      return SaturnSector(image);
+    if (!(facts->looked & LOOKED_SATURN))
+    {
+      facts->saturn = SaturnSector(image);
+      facts->looked |= LOOKED_SATURN;
+    }
+    return facts->saturn;
+  }
+#endif
+  bool NaomiImage(const std::string& path, Naomi::Image* image)
+  {
+    FileFacts* facts = Facts(path);
+    if (!facts)
+      return Naomi::ReadImage(path, image);
+    if (!(facts->looked & LOOKED_NAOMI))
+    {
+      Naomi::Image read;
+      facts->naomi = Naomi::ReadImage(path, &read);
+      facts->naomi_japan = read.japan;
+      facts->naomi_usa = read.usa;
+      facts->naomi_export = read.export_title;
+      facts->naomi_vertical = read.vertical;
+      facts->looked |= LOOKED_NAOMI;
+    }
+    if (facts->naomi)
+    {
+      image->japan = facts->naomi_japan;
+      image->usa = facts->naomi_usa;
+      image->export_title = facts->naomi_export;
+      image->vertical = facts->naomi_vertical;
+    }
+    return facts->naomi;
+  }
+  // ListedFiles(path), read once.
+  const std::vector<std::string>& Listed(const std::string& path)
+  {
+    FileFacts* facts = Facts(path);
+    if (!facts)
+    {
+      m_unkept_lists[path] = ListedFiles(path);
+      return m_unkept_lists[path];
+    }
+    if (!(facts->looked & LOOKED_LISTED))
+    {
+      facts->listed = ListedFiles(path);
+      facts->looked |= LOOKED_LISTED;
+    }
+    return facts->listed;
+  }
+
+  // Asked to stop (a game running meanwhile: waits until it ends)?
+  bool Stopped()
+  {
+    if (!m_progress)
+      return false;
+    while (m_progress->pause.load() && !m_progress->stop.load())
+      usleep(100 * 1000);
+    return m_progress->stop.load();
+  }
+  void GameFound()
+  {
+    if (m_progress)
+      m_progress->games++;
+  }
+  // The end of a read: the earlier read's facts of the files this one didn't reach kept (it stopped before its end:
+  // they are still the same files, as far as anyone knows), else dropped (files gone); only the files looked inside
+  // are kept.
+  void Finish(bool stopped)
+  {
+    for (auto it = m_after->begin(); it != m_after->end();)
+      it = it->second.looked == 0 ? m_after->erase(it) : std::next(it);
+    if (stopped && m_before)
+    {
+      for (auto& [path, facts] : *m_before)
+        m_after->emplace(path, std::move(facts));
+    }
+    if (m_before)
+      m_before->clear();
+  }
+
+private:
+  struct Stat
+  {
+    bool ok = false, regular = false;
+    uint64_t size = 0;
+    int64_t time = 0;
+  };
+  const Stat& StatOf(const std::string& path)
+  {
+    const auto known = m_stats.find(path);
+    if (known != m_stats.end())
+      return known->second;
+    Stat stat;
+    struct stat st;
+    if (::stat(path.c_str(), &st) == 0)
+    {
+      stat.ok = true;
+      stat.regular = S_ISREG(st.st_mode);
+      stat.size = static_cast<uint64_t>(st.st_size);
+      stat.time = static_cast<int64_t>(st.st_mtime);
+    }
+    return m_stats.emplace(path, stat).first->second;
+  }
+  // The file's facts in this read (the earlier read's when the file has the same size and date); nullptr when the
+  // drive can't say its size (then each question goes to the file itself, as before).
+  FileFacts* Facts(const std::string& path)
+  {
+    const auto known = m_after->find(path);
+    if (known != m_after->end())
+      return &known->second;
+    const Stat& stat = StatOf(path);
+    if (!stat.ok)
+      return nullptr;
+    FileFacts facts;
+    if (m_before)
+    {
+      const auto old = m_before->find(path);
+      if (old != m_before->end())
+      {
+        if (old->second.size == stat.size && old->second.time == stat.time)
+          facts = std::move(old->second);
+        m_before->erase(old);
+      }
+    }
+    facts.size = stat.size;
+    facts.time = stat.time;
+    return &m_after->emplace(path, std::move(facts)).first->second;
+  }
+
+  Contents* m_before;
+  Contents m_own;
+  Contents* m_after;
+  ScanProgress* m_progress;
+  std::unordered_map<std::string, Listing> m_listings;
+  std::unordered_map<std::string, Stat> m_stats;
+  std::unordered_map<std::string, bool> m_exists, m_dreamcast_lists;
+  std::unordered_map<std::string, std::vector<std::string>> m_unkept_lists;
+};
+
 // The files the .cue files in a folder name (their tracks), in lower case: the .bin files that aren't games of their
 // own. (A PlayStation .bin is a game only when no .cue names it: 00.81.)
-std::set<std::string> CueTracks(const std::filesystem::path& folder)
+std::set<std::string> CueTracks(Reader& reader, const std::filesystem::path& folder)
 {
   std::set<std::string> tracks;
-  std::error_code ec;
-  for (std::filesystem::directory_iterator it(folder, ec), end; !ec && it != end; it.increment(ec))
+  for (const Reader::Entry& entry : reader.List(folder.string()).entries)
   {
-    const std::string path = it->path().string();
+    const std::string path = (folder / entry.name).string();
     if (!HasExtension(path, {".cue"}))
       continue;
-    for (const std::string& track : ListedFiles(path))
+    for (const std::string& track : reader.Listed(path))
       tracks.insert(Lower(std::filesystem::path(track).lexically_normal().string()));
   }
   return tracks;
@@ -426,7 +764,8 @@ std::set<std::string> CueTracks(const std::filesystem::path& folder)
 // Color's folder is the Game Boy Color's, and the other way round: the folder says where it goes.
 // So for a .iso, .chd or .pbp in the PlayStation's or the PSP's own folder; in a shared folder
 // what is inside it says.
-bool IsGameOf(const std::filesystem::path& path, const System& system, bool open_zips = true)
+// (00.85: what is inside a file through the read's Reader, looked at once whichever console asks.)
+bool IsGameOf(Reader& reader, const std::filesystem::path& path, const System& system, bool open_zips = true)
 {
   const std::string name = path.filename().string();
   if (system.id == SystemId::ARCADE)
@@ -446,7 +785,7 @@ bool IsGameOf(const std::filesystem::path& path, const System& system, bool open
     if (system.id == SystemId::NAOMI && Naomi::IsImageName(name))
     {
       Naomi::Image image;
-      return Naomi::ReadImage(path.string(), &image);
+      return reader.NaomiImage(path.string(), &image);
     }
     if (!HasExtension(name, {".zip", ".7z"}))
       return false;
@@ -454,14 +793,14 @@ bool IsGameOf(const std::filesystem::path& path, const System& system, bool open
     return set && Naomi::Plays(system.id, *set);
   }
   if (HasExtension(name, {".zip"}))
-    return !system.by_path && (!open_zips || SystemOfZip(path.string()) == &system);  // no zipped CDs
+    return !system.by_path && (!open_zips || reader.ZipSystem(path.string()) == &system);  // no zipped CDs
   // A PlayStation disc's .bin without its .cue (00.81: two players' games didn't show; the core reads it as one data
   // track, its sector size from what it holds): a CD's data track; in a folder another console shares, a PlayStation
   // disc's (its volume's system name). Not a BIOS, a CD's audio track or a cartridge. (One a .cue names is that
   // .cue's track: ScanFolder leaves it out before this.)
   if (system.id == SystemId::PS1 && HasExtension(name, {".bin"}))
   {
-    const CdTrack track = ReadCdTrack(path.string());
+    const CdTrack track = reader.Track(path.string());
     return track.data && (!open_zips || track.playstation);
   }
   // (00.82) A PC Engine CD System Card (syscard3.pce, gexpress.pce, a "[BIOS] ..." one) is no HuCard game (00.82's
@@ -472,9 +811,22 @@ bool IsGameOf(const std::filesystem::path& path, const System& system, bool open
     if (lower.rfind("syscard", 0) == 0 || lower.rfind("gexpress", 0) == 0 || lower.find("[bios]") != std::string::npos)
       return false;
   }
+#ifdef EMUSUNI_A2600
+  // (00.90) A .bin is a Genesis cartridge's file and an Atari 2600 cartridge's (AtariAge's sets and most others): the
+  // 2600's are 64 KiB or less (a few homebrews more: their .a26), the Genesis's 128 KiB or more - its size says whose.
+  if ((system.id == SystemId::A2600 || system.id == SystemId::MD) && HasExtension(name, {".bin"}))
+  {
+    const uint64_t size = reader.Size(path.string());
+    const bool atari = size > 0 && size <= A2600_BIN_MAX;
+    if (system.id == SystemId::A2600)
+      return atari;
+    if (atari)
+      return false;
+  }
+#endif
   // ...and a CD's data track is no Genesis cartridge in a folder they share with the PlayStation.
   if (system.id == SystemId::MD && open_zips && HasSystem(SystemId::PS1) &&
-      HasExtension(name, {".bin"}) && ReadCdTrack(path.string()).data)
+      HasExtension(name, {".bin"}) && reader.Track(path.string()).data)
     return false;
   const System* of = SystemOfFile(name);
   if (DiscFamily(of) && DiscFamily(&system) && HasOwnExtension(system, name))
@@ -486,11 +838,11 @@ bool IsGameOf(const std::filesystem::path& path, const System& system, bool open
       owners += HasSystem(id) && HasOwnExtension(GetSystem(id), name) ? 1 : 0;
     if (owners < 2 || !open_zips)
       return true;
-    SystemId disc = HasSystem(SystemId::DC) && IsDreamcastDisc(path.string()) ? SystemId::DC :
-                    HasSystem(SystemId::PSP) && IsPspDisc(path.string())    ? SystemId::PSP :
-                                                                              SystemId::PS1;
+    SystemId disc = HasSystem(SystemId::DC) && reader.Dreamcast(path.string()) ? SystemId::DC :
+                    HasSystem(SystemId::PSP) && reader.Psp(path.string())      ? SystemId::PSP :
+                                                                                 SystemId::PS1;
 #ifdef EMUSUNI_SATURN
-    if (disc == SystemId::PS1 && IsSaturnDisc(path.string()))
+    if (disc == SystemId::PS1 && reader.Saturn(path.string()))
       disc = SystemId::SATURN;
 #endif
     return disc == system.id;
@@ -529,7 +881,7 @@ const std::set<std::string>& GenericNames()
 // drive's letters' case doesn't matter, the core's does), the driver's full name its title (a clone's
 // with its parent's), the region what the name says, no tags; its covers by the full name, then the
 // parent's; the zips it may need and hasn't got beside it, in system/fbneo or in system.
-void ArcadeGame(Game* game, const std::string& folder)
+void ArcadeGame(Reader& reader, Game* game, const std::string& folder)
 {
   game->id = Lower(game->id);
   game->key = GetSystem(SystemId::ARCADE).prefix + game->id;
@@ -542,15 +894,17 @@ void ArcadeGame(Game* game, const std::string& folder)
   game->cover_names = {Arcade::CoverName(driver->title)};
   if (const Arcade::Driver* parent = Arcade::Parent(*driver))
     game->cover_names.push_back(Arcade::CoverName(parent->title));
-  game->missing = Arcade::Missing(*driver, folder, std::string(App::DATA_DIR) + "/system");
+  game->missing = Arcade::Missing(*driver, folder, SystemFolder(SystemId::ARCADE),
+                                  [&reader](const std::string& path) { return reader.Exists(path); });
 }
 
 // A NAOMI or Atomiswave game from Flycast's set (src/Naomi.h), as an arcade game: the set's name in lower case is
 // its id, its full name its title (a clone's with its parent's), the region what the name says, no tags; its
 // covers by the full name, then the parent's; what it needs that isn't there (its BIOS's zip, a clone's parent, a
 // GD-ROM game's disc image) in the places the core looks.
-void BoardGame(Game* game, const std::string& folder)
+void BoardGame(Reader& reader, Game* game, const std::string& folder)
 {
+  const auto exists = [&reader](const std::string& path) { return reader.Exists(path); };
   // A NAOMI cartridge image (.dat, .bin): its file's name is its id, as a console's ROM's; its title its set's name
   // when the file's or the header's names one (Naomi::MatchImage), else the file's (or the header's), with the
   // file's own region and tags; its covers by the file's name (libretro's names for these dumps), then the set's and
@@ -558,7 +912,7 @@ void BoardGame(Game* game, const std::string& folder)
   if (Naomi::IsImageName(game->path))
   {
     Naomi::Image image;
-    Naomi::ReadImage(game->path, &image);
+    reader.NaomiImage(game->path, &image);
     const Naomi::Set* set = Naomi::MatchImage(game->title, image);
     game->cover_names = {Arcade::CoverName(std::filesystem::path(game->path).stem().string())};
     if (set)
@@ -568,7 +922,7 @@ void BoardGame(Game* game, const std::string& folder)
         game->cover_names.push_back(Arcade::CoverName(parent->title));
     }
     game->title = Naomi::ImageTitle(game->title, image, set);
-    game->missing = Naomi::ImageMissing(folder, std::string(App::DATA_DIR) + "/system");
+    game->missing = Naomi::ImageMissing(folder, SystemFolder(game->system), exists);
     return;
   }
   game->id = Lower(game->id);
@@ -582,7 +936,7 @@ void BoardGame(Game* game, const std::string& folder)
   game->cover_names = {Arcade::CoverName(set->title)};
   if (const Naomi::Set* parent = Naomi::Parent(*set))
     game->cover_names.push_back(Arcade::CoverName(parent->title));
-  game->missing = Naomi::Missing(*set, folder, std::string(App::DATA_DIR) + "/system");
+  game->missing = Naomi::Missing(*set, folder, SystemFolder(game->system), exists);
 }
 
 // The name a file's folder gives it - the folder's, or the game's folder above a folder per disc named
@@ -594,7 +948,7 @@ void FolderName(const std::filesystem::path& folder, int depth, int stem_disc, s
   *disc = stem_disc > 0 ? stem_disc : folder_disc;
 }
 
-void ScanFolder(const std::filesystem::path& folder, int depth, const System& system, bool open_zips,
+void ScanFolder(Reader& reader, const std::filesystem::path& folder, int depth, const System& system, bool open_zips,
                 std::vector<Game>* games)
 {
   const size_t first = games->size();
@@ -606,54 +960,55 @@ void ScanFolder(const std::filesystem::path& folder, int depth, const System& sy
   // (the folder's .cue names, listed at its first .bin) -; the .cue files read only for another .bin (once).
   bool cue_names_listed = false, cue_tracks_read = false;
   std::set<std::string> cue_names, cue_tracks;
-  std::error_code ec;
-  // (Not a range-for: its ++ throws when the drive goes away during the scan; increment(ec) just stops.)
-  for (std::filesystem::directory_iterator it(folder, ec), end; !ec && it != end; it.increment(ec))
+  // (00.85: the folder's entries as the read has them - read once, whichever console comes -; the drive going away
+  // during the read ends them, as it ended the directory_iterator.)
+  const Reader::Listing& listing = reader.List(folder.string());
+  for (const Reader::Entry& entry : listing.entries)
   {
-    const std::filesystem::directory_entry& entry = *it;
-    const std::string name = entry.path().filename().string();
+    if (reader.Stopped())
+      return;
+    const std::string& name = entry.name;
     if (name.empty() || name[0] == '.' || name == "System Volume Information" ||
-        name == "$RECYCLE.BIN")
+        name == "$RECYCLE.BIN" ||
+        strcasecmp(name.c_str(), PORTABLE_FOLDER) == 0)  // (00.87: the portable data's folder, src/Portable.h)
     {
       continue;
     }
-    std::error_code type_error;
-    if (entry.is_directory(type_error))
+    const std::filesystem::path path = folder / name;
+    if (entry.folder)
     {
       if (depth < 4)
-        ScanFolder(entry.path(), depth + 1, system, open_zips, games);
+        ScanFolder(reader, path, depth + 1, system, open_zips, games);
       continue;
     }
     if (bin && HasExtension(name, {".cue", ".gdi"}))
-      lists.push_back(entry.path().string());
+      lists.push_back(path.string());
     if (system.id == SystemId::PS1 && HasExtension(name, {".bin"}))
     {
       if (!cue_names_listed)
       {
-        std::error_code list_error;
-        for (std::filesystem::directory_iterator cue(folder, list_error), stop; !list_error && cue != stop;
-             cue.increment(list_error))
+        for (const Reader::Entry& cue : listing.entries)
         {
-          if (HasExtension(cue->path().filename().string(), {".cue"}))
-            cue_names.insert(Lower(cue->path().stem().string()));
+          if (HasExtension(cue.name, {".cue"}))
+            cue_names.insert(Lower(std::filesystem::path(cue.name).stem().string()));
         }
         cue_names_listed = true;
       }
-      const std::string stem = Lower(entry.path().stem().string());
+      const std::string stem = Lower(path.stem().string());
       std::string untracked;
       if (cue_names.count(stem) > 0 || (TrackNumber(stem, &untracked) > 0 && cue_names.count(untracked) > 0))
         continue;
       if (!cue_tracks_read && !cue_names.empty())
-        cue_tracks = CueTracks(folder);
+        cue_tracks = CueTracks(reader, folder);
       cue_tracks_read = true;
-      if (cue_tracks.count(Lower(entry.path().lexically_normal().string())) > 0)
+      if (cue_tracks.count(Lower(path.lexically_normal().string())) > 0)
         continue;
     }
-    if (!IsGameOf(entry.path(), system, open_zips))
+    if (!IsGameOf(reader, path, system, open_zips))
       continue;
     Game game;
-    game.path = entry.path().string();
-    game.id = entry.path().stem().string();
+    game.path = path.string();
+    game.id = path.stem().string();
     // A plain name in a folder named after the game - "disc.gdi", "EBOOT.PBP", or only the disc's
     // ("CD1.chd") - the folder names it (with the disc).
     const int stem_disc = BareDiscLabel(game.id);
@@ -673,14 +1028,14 @@ void ScanFolder(const std::filesystem::path& folder, int depth, const System& sy
       game.id = untracked;
     game.system = system.id;
     game.key = system.prefix + game.id;
-    std::error_code size_error;
-    game.size = entry.file_size(size_error);
+    game.size = reader.Size(game.path);
     ParseName(game.id, &game.title, &game.region, &game.tags);
     if (system.id == SystemId::ARCADE)
-      ArcadeGame(&game, folder.string());
+      ArcadeGame(reader, &game, folder.string());
     else if (IsFlycastBoard(system.id))
-      BoardGame(&game, folder.string());
+      BoardGame(reader, &game, folder.string());
     games->push_back(std::move(game));
+    reader.GameFound();
   }
   if (IsRomsetSystem(system.id))
     return;  // (a romset is one zip: no discs, no tracks)
@@ -692,7 +1047,7 @@ void ScanFolder(const std::filesystem::path& folder, int depth, const System& sy
     std::set<std::string> tracks;
     for (const std::string& list : lists)
     {
-      for (const std::string& track : ListedFiles(list))
+      for (const std::string& track : reader.Listed(list))
         tracks.insert(Lower(track));
     }
     if (!tracks.empty())
@@ -712,7 +1067,7 @@ void ScanFolder(const std::filesystem::path& folder, int depth, const System& sy
   {
     if (!HasExtension((*games)[i].path, {".m3u"}))
       continue;
-    for (const std::string& disc : ListedFiles((*games)[i].path))
+    for (const std::string& disc : reader.Listed((*games)[i].path))
       discs.insert(disc);
   }
   if (!discs.empty())
@@ -1088,36 +1443,60 @@ std::vector<std::string> LoneTracks(const std::string& path)
   return tracks;
 }
 
-std::vector<Game> Scan(const std::string& folder, SystemId system, bool open_zips)
+namespace
+{
+// One folder of one console (Scan's work) with the read's Reader: by title, then by file name. (00.85: the titles in
+// lower case made once each, not twice per comparison - the same comparisons, so the same order.)
+std::vector<Game> ScanWith(Reader& reader, const std::string& folder, SystemId system, bool open_zips)
 {
   std::vector<Game> games;
-  ScanFolder(folder, 0, GetSystem(system), open_zips, &games);
+  ScanFolder(reader, folder, 0, GetSystem(system), open_zips, &games);
   if (system == SystemId::PS1 || system == SystemId::DC)
     GroupDiscs(GetSystem(system), folder, &games);
-  std::sort(games.begin(), games.end(), [](const Game& a, const Game& b) {
-    const std::string la = Lower(a.title), lb = Lower(b.title);
-    return la != lb ? la < lb : a.id < b.id;
+  // (What is sorted holds a string, as a Game does: libc++'s std::sort works the same way on both - it sorts longer
+  // runs by insertion for a type cheap to copy -, so two games alike in both, one title and one file name found in two
+  // folders, come out in the order sorting the games themselves gave them.)
+  struct Keyed
+  {
+    std::string lower;
+    size_t index;
+  };
+  std::vector<Keyed> order(games.size());
+  for (size_t i = 0; i < games.size(); i++)
+    order[i] = {Lower(games[i].title), i};
+  std::sort(order.begin(), order.end(), [&games](const Keyed& a, const Keyed& b) {
+    return a.lower != b.lower ? a.lower < b.lower : games[a.index].id < games[b.index].id;
   });
-  return games;
+  std::vector<Game> sorted;
+  sorted.reserve(games.size());
+  for (const Keyed& keyed : order)
+    sorted.push_back(std::move(games[keyed.index]));
+  return sorted;
+}
+}  // namespace
+
+std::vector<Game> Scan(const std::string& folder, SystemId system, bool open_zips)
+{
+  Reader reader(nullptr, nullptr, nullptr);
+  return ScanWith(reader, folder, system, open_zips);
 }
 
 int CountGames(const std::string& folder, SystemId system)
 {
   int count = 0;
-  std::error_code ec;
+  Reader reader(nullptr, nullptr, nullptr);
   // (A PlayStation .bin a .cue here names is that .cue's track, not a game: 00.81.)
   const std::set<std::string> cue_tracks =
-      system == SystemId::PS1 ? CueTracks(std::filesystem::path(folder)) : std::set<std::string>();
-  for (std::filesystem::directory_iterator it(folder, ec), end; !ec && it != end; it.increment(ec))
+      system == SystemId::PS1 ? CueTracks(reader, std::filesystem::path(folder)) : std::set<std::string>();
+  for (const Reader::Entry& entry : reader.List(folder).entries)
   {
-    const std::filesystem::directory_entry& entry = *it;
-    std::error_code type_error;
+    const std::filesystem::path path = std::filesystem::path(folder) / entry.name;
     const System& console = GetSystem(system);
-    if (cue_tracks.count(Lower(entry.path().lexically_normal().string())) > 0)
+    if (cue_tracks.count(Lower(path.lexically_normal().string())) > 0)
       continue;
-    if (!entry.is_directory(type_error) &&
-        (IsGameOf(entry.path(), console) ||
-         (GameBoyFamily(&console) && GameBoyFamily(SystemOfFile(entry.path().filename().string())))))
+    if (!entry.folder &&
+        (IsGameOf(reader, path, console) ||
+         (GameBoyFamily(&console) && GameBoyFamily(SystemOfFile(entry.name)))))
       count++;
   }
   return count;
@@ -1247,6 +1626,25 @@ size_t DriveRootLength(const std::string& path)
 }
 }  // namespace
 
+namespace
+{
+std::array<std::string, SYSTEM_COUNT> s_system_folders;  // (00.87) SetSystemFolder's ("": data_dir/system)
+}
+
+void SetSystemFolder(SystemId system, const std::string& folder)
+{
+  const size_t id = static_cast<size_t>(system);
+  if (id < s_system_folders.size())
+    s_system_folders[id] = folder;
+}
+
+std::string SystemFolder(SystemId system)
+{
+  const size_t id = static_cast<size_t>(system);
+  return id < s_system_folders.size() && !s_system_folders[id].empty() ? s_system_folders[id] :
+                                                                         std::string(App::DATA_DIR) + "/system";
+}
+
 std::vector<std::string> UsbDrives(const std::string& root)
 {
   // (A mount point without a drive is an empty folder: FTP shows /mnt/usb1 so on a PS4 with one stick.)
@@ -1351,8 +1749,15 @@ bool IsRomsFolder(const std::string& folder, const std::string& key, const std::
   return top == Lower(TidyPath(data_dir)) || (DriveRootLength(top) > 0 && DriveRootLength(top) == top.size());
 }
 
-Found ScanAll(const std::array<std::string, SYSTEM_COUNT>& chosen, const Places& places)
+Found ScanAll(const std::array<std::string, SYSTEM_COUNT>& chosen, const Places& places, ScanProgress* progress,
+              Contents* contents)
 {
+  // (00.85) One Reader for every console: a folder two consoles share is read once, what is inside a file looked at
+  // once; the contents an earlier read learnt come in, this read's go out.
+  Contents before;
+  if (contents)
+    before.swap(*contents);
+  Reader reader(&before, contents, progress);
   Found found;
   std::array<std::vector<std::string>, SYSTEM_COUNT> keys;
   for (const System& system : Systems())
@@ -1384,8 +1789,11 @@ Found ScanAll(const std::array<std::string, SYSTEM_COUNT>& chosen, const Places&
     std::set<std::string> seen;
     for (size_t f = 0; f < found.folders[id].size(); f++)
     {
+      found.stopped = found.stopped || reader.Stopped();
+      if (found.stopped)
+        break;  // (the games found are dropped: no folder read more)
       int here = 0;
-      for (Game& game : Scan(found.folders[id][f], system.id, shared(id, keys[id][f])))
+      for (Game& game : ScanWith(reader, found.folders[id][f], system.id, shared(id, keys[id][f])))
       {
         if (!seen.insert(PathKey(game.path, places.drives)).second)
           continue;  // (a folder inside another one of the console's)
@@ -1394,8 +1802,11 @@ Found ScanAll(const std::array<std::string, SYSTEM_COUNT>& chosen, const Places&
       }
       found.found_in[id].push_back(here);
       found.counts[id] += here;
+      found.stopped = found.stopped || reader.Stopped();
     }
   }
+  if (contents)
+    reader.Finish(found.stopped);
   return found;
 }
 
@@ -1542,5 +1953,386 @@ FolderMaking MakeConsoleFolders(const std::string& roms)
     }
   }
   return result;
+}
+
+// ---- The library's cache (00.85) ----
+
+namespace
+{
+// The file's own layout; FACTS_FORMAT: what FileFacts' fields mean (a change of how a file is looked inside: more).
+constexpr int CACHE_FORMAT = 1, FACTS_FORMAT = 1;
+
+// A text as the file has it: a tab, a line's end, a backslash and the lists' separator (0x1F) escaped.
+void PutEscaped(std::string* line, const std::string& text)
+{
+  for (const char c : text)
+  {
+    switch (c)
+    {
+    case '\\': *line += "\\\\"; break;
+    case '\t': *line += "\\t"; break;
+    case '\n': *line += "\\n"; break;
+    case '\r': *line += "\\r"; break;
+    case '\x1f': *line += "\\u"; break;
+    default: line->push_back(c);
+    }
+  }
+}
+
+void PutField(std::string* line, const std::string& text)
+{
+  line->push_back('\t');
+  PutEscaped(line, text);
+}
+
+// A list in one field: how many, then each item escaped after a 0x1F (the only ones there: an item's own is escaped).
+void PutList(std::string* line, const std::vector<std::string>& list)
+{
+  *line += "\t" + std::to_string(list.size());
+  for (const std::string& item : list)
+  {
+    line->push_back('\x1f');
+    PutEscaped(line, item);
+  }
+}
+
+// A line's fields as the file has them (escaped: the tabs left are the fields' separators).
+std::vector<std::string> FieldsOf(const std::string& line)
+{
+  std::vector<std::string> fields;
+  size_t start = 0;
+  for (;;)
+  {
+    const size_t tab = line.find('\t', start);
+    fields.push_back(line.substr(start, tab == std::string::npos ? std::string::npos : tab - start));
+    if (tab == std::string::npos)
+      break;
+    start = tab + 1;
+  }
+  return fields;
+}
+
+std::string TextOf(const std::string& field)
+{
+  std::string text;
+  text.reserve(field.size());
+  for (size_t i = 0; i < field.size(); i++)
+  {
+    if (field[i] != '\\' || i + 1 >= field.size())
+    {
+      text.push_back(field[i]);
+      continue;
+    }
+    const char next = field[++i];
+    text.push_back(next == 't' ? '\t' : next == 'n' ? '\n' : next == 'r' ? '\r' : next == 'u' ? '\x1f' : next);
+  }
+  return text;
+}
+
+// PutList's field back (false: not one of its fields).
+bool ListOf(const std::string& field, std::vector<std::string>* list)
+{
+  list->clear();
+  size_t at = field.find('\x1f');
+  const size_t count = std::strtoul(field.substr(0, at).c_str(), nullptr, 10);
+  while (at != std::string::npos)
+  {
+    const size_t next = field.find('\x1f', at + 1);
+    list->push_back(TextOf(field.substr(at + 1, next == std::string::npos ? std::string::npos : next - at - 1)));
+    at = next;
+  }
+  return list->size() == count;
+}
+
+// FNV-1a, 64 bits.
+void Mix(uint64_t* sum, const std::string& text)
+{
+  for (const char c : text)
+  {
+    *sum ^= static_cast<unsigned char>(c);
+    *sum *= 0x100000001B3ull;
+  }
+  *sum ^= 0xFF;  // (between fields: "ab"+"c" isn't "a"+"bc")
+  *sum *= 0x100000001B3ull;
+}
+
+// The consoles' table as far as a file's facts go (each console's key, extensions and way of reading its games): the
+// facts of another table (another version that added a console or an extension) aren't taken.
+std::string FactsSignature()
+{
+  uint64_t sum = 0xCBF29CE484222325ull;
+  Mix(&sum, std::to_string(FACTS_FORMAT));
+  for (const System& system : Systems())
+  {
+    Mix(&sum, std::to_string(static_cast<int>(system.id)) + system.key + (system.by_path ? "p" : "c"));
+    for (const std::string& extension : system.extensions)
+      Mix(&sum, extension);
+  }
+  char text[24];
+  std::snprintf(text, sizeof(text), "%016llx", static_cast<unsigned long long>(sum));
+  return text;
+}
+}  // namespace
+
+uint64_t Fingerprint(const Found& found)
+{
+  uint64_t sum = 0xCBF29CE484222325ull;
+  for (const Game& game : found.games)
+  {
+    Mix(&sum, std::to_string(static_cast<int>(game.system)));
+    for (const std::string* field : {&game.path, &game.id, &game.title, &game.region, &game.tags, &game.key})
+      Mix(&sum, *field);
+    Mix(&sum, std::to_string(game.size) + (game.custom_title ? "+" : "-"));
+    for (const std::vector<std::string>* list : {&game.discs, &game.cover_names, &game.missing})
+    {
+      Mix(&sum, std::to_string(list->size()));
+      for (const std::string& item : *list)
+        Mix(&sum, item);
+    }
+  }
+  for (size_t id = 0; id < found.folders.size(); id++)
+  {
+    for (size_t f = 0; f < found.folders[id].size(); f++)
+      Mix(&sum, std::to_string(id) + ":" + found.folders[id][f] + ":" +
+                    (f < found.found_in[id].size() ? std::to_string(found.found_in[id][f]) : std::string("-")));
+  }
+  return sum;
+}
+
+bool SaveCache(const std::string& path, const std::string& version, const std::array<std::string, SYSTEM_COUNT>& chosen,
+               const Places& places, const Found& found, const Contents& contents, const std::string& drive,
+               const std::string& writer)
+{
+  // (00.87) A path on the portable data's drive, relative to it (src/DrivePaths.h); as it is without one.
+  auto stored = [&drive](const std::string& text) { return DrivePaths::Stored(text, drive); };
+  auto stored_list = [&](const std::vector<std::string>& list) {
+    std::vector<std::string> out;
+    out.reserve(list.size());
+    for (const std::string& item : list)
+      out.push_back(stored(item));
+    return out;
+  };
+  // Line by line into a temporary file (no copy of it all in memory: 30 000 games are several MB), then in place.
+  const std::string temp = path + ".tmp";
+  FILE* file = std::fopen(temp.c_str(), "wb");
+  if (!file)
+    return false;
+  bool ok = true;
+  std::string line;
+  auto put = [&]() {
+    line.push_back('\n');
+    ok = ok && std::fwrite(line.data(), 1, line.size(), file) == line.size();
+    line.clear();
+  };
+  line = "# EmuSuNi: the games as the last read found them, shown at the next start while it reads them again "
+         "(made by the app; deleting it only makes that start read them first)";
+  put();
+  line = "V\t" + std::to_string(CACHE_FORMAT);
+  PutField(&line, version);
+  PutField(&line, FactsSignature());
+  put();
+  if (!writer.empty())
+  {
+    line = "W";
+    PutField(&line, writer);
+    put();
+  }
+  for (const System& system : Systems())
+  {
+    line = std::string("C\t") + system.key;
+    PutField(&line, chosen[static_cast<size_t>(system.id)]);  // (00.87: as the menu gives them - Menu.cpp's StoredChosen)
+    put();
+  }
+  for (const std::string& each : places.drives)
+  {
+    line = "D";
+    PutField(&line, stored(each));
+    put();
+  }
+  for (const auto& [key, folders] : places.folders)
+  {
+    for (const std::string& folder : folders)
+    {
+      line = "P";
+      PutField(&line, key);
+      PutField(&line, stored(folder));
+      put();
+    }
+  }
+  for (const System& system : Systems())
+  {
+    const size_t id = static_cast<size_t>(system.id);
+    for (size_t f = 0; f < found.folders[id].size() && f < found.found_in[id].size(); f++)
+    {
+      line = std::string("L\t") + system.key;
+      PutField(&line, stored(found.folders[id][f]));
+      line += "\t" + std::to_string(found.found_in[id][f]);
+      put();
+    }
+  }
+  for (const Game& game : found.games)
+  {
+    line = std::string("G\t") + GetSystem(game.system).key;
+    PutField(&line, stored(game.path));
+    for (const std::string* field : {&game.id, &game.title, &game.region, &game.tags})
+      PutField(&line, *field);
+    line += "\t" + std::to_string(game.size);
+    PutField(&line, game.key);
+    line += game.custom_title ? "\t1" : "\t0";
+    PutList(&line, drive.empty() ? game.discs : stored_list(game.discs));
+    PutList(&line, game.cover_names);
+    PutList(&line, game.missing);
+    put();
+  }
+  for (const auto& [file_path, facts] : contents)
+  {
+    line = "F";
+    PutField(&line, stored(file_path));
+    line += "\t" + std::to_string(facts.size) + "\t" + std::to_string(facts.time) + "\t" + std::to_string(facts.looked) +
+            "\t" + std::to_string(facts.zip) + "\t" + (facts.cd_data ? "d" : "-") + (facts.cd_playstation ? "p" : "-") +
+            (facts.dreamcast ? "g" : "-") + (facts.psp ? "u" : "-") + (facts.naomi ? "n" : "-") +
+            (facts.naomi_vertical ? "v" : "-") + (facts.saturn ? "s" : "-");
+    PutField(&line, facts.naomi_japan);
+    PutField(&line, facts.naomi_usa);
+    PutField(&line, facts.naomi_export);
+    PutList(&line, drive.empty() ? facts.listed : stored_list(facts.listed));
+    put();
+  }
+  // The end: a file cut short (no end, other counts) is no cache.
+  line = "E\t" + std::to_string(found.games.size()) + "\t" + std::to_string(contents.size());
+  put();
+  ok = std::fflush(file) == 0 && ok;
+  fsync(fileno(file));
+  ok = std::fclose(file) == 0 && ok;
+  if (!ok || std::rename(temp.c_str(), path.c_str()) != 0)
+  {
+    std::remove(temp.c_str());
+    return false;
+  }
+  return true;
+}
+
+bool LoadCache(const std::string& path, Cache* cache, const std::string& drive)
+{
+  // (00.87) A path relative to the portable data's drive (src/DrivePaths.h): on the drive as it is now.
+  auto path_of = [&drive](const std::string& field) { return DrivePaths::Resolved(TextOf(field), drive); };
+  auto resolve = [&drive](std::vector<std::string>* list) {
+    if (!drive.empty())
+    {
+      for (std::string& item : *list)
+        item = DrivePaths::Resolved(item, drive);
+    }
+  };
+  *cache = Cache();
+  std::ifstream in(path, std::ios::binary);
+  if (!in)
+    return false;
+  bool versioned = false, ended = false;
+  std::string line;
+  while (std::getline(in, line))
+  {
+    if (line.empty() || line[0] == '#')
+      continue;
+    const std::vector<std::string> f = FieldsOf(line);
+    const std::string& type = f[0];
+    if (!versioned)
+    {
+      // The first line: the layout this reads, the version that made it, its consoles' table.
+      if (type != "V" || f.size() < 4 || std::atoi(f[1].c_str()) != CACHE_FORMAT)
+        return false;
+      cache->version = TextOf(f[2]);
+      cache->facts_ok = f[3] == FactsSignature();
+      versioned = true;
+      continue;
+    }
+    if (ended)
+      return false;  // (something after the end: not this app's file)
+    if (type == "C" && f.size() >= 3)
+    {
+      if (const System* system = SystemByKey(f[1]))
+        cache->chosen[static_cast<size_t>(system->id)] = TextOf(f[2]);  // (as written: compared as they are)
+    }
+    else if (type == "W" && f.size() >= 2)
+    {
+      cache->writer = TextOf(f[1]);  // (00.87)
+    }
+    else if (type == "D" && f.size() >= 2)
+    {
+      cache->places.drives.push_back(path_of(f[1]));
+    }
+    else if (type == "P" && f.size() >= 3)
+    {
+      cache->places.folders[TextOf(f[1])].push_back(path_of(f[2]));
+    }
+    else if (type == "L" && f.size() >= 4)
+    {
+      const System* system = SystemByKey(f[1]);
+      if (!system)
+        return false;
+      const size_t id = static_cast<size_t>(system->id);
+      const int found_in = std::atoi(f[3].c_str());
+      cache->found.folders[id].push_back(path_of(f[2]));
+      cache->found.found_in[id].push_back(found_in);
+      cache->found.counts[id] += found_in;
+    }
+    else if (type == "G" && f.size() >= 13)
+    {
+      const System* system = SystemByKey(f[1]);
+      if (!system)
+        return false;  // (a console this build hasn't: another build's file)
+      Game game;
+      game.system = system->id;
+      game.path = path_of(f[2]);
+      game.id = TextOf(f[3]);
+      game.title = TextOf(f[4]);
+      game.region = TextOf(f[5]);
+      game.tags = TextOf(f[6]);
+      game.size = std::strtoull(f[7].c_str(), nullptr, 10);
+      game.key = TextOf(f[8]);
+      game.custom_title = f[9] == "1";
+      if (!ListOf(f[10], &game.discs) || !ListOf(f[11], &game.cover_names) || !ListOf(f[12], &game.missing))
+        return false;
+      resolve(&game.discs);
+      cache->found.games.push_back(std::move(game));
+    }
+    else if (type == "F" && f.size() >= 11)
+    {
+      if (!cache->facts_ok)
+        continue;
+      FileFacts facts;
+      facts.size = std::strtoull(f[2].c_str(), nullptr, 10);
+      facts.time = std::strtoll(f[3].c_str(), nullptr, 10);
+      facts.looked = static_cast<unsigned>(std::strtoul(f[4].c_str(), nullptr, 10));
+      facts.zip = std::atoi(f[5].c_str());
+      const std::string& flags = f[6];
+      auto flag = [&flags](size_t at, char c) { return at < flags.size() && flags[at] == c; };
+      facts.cd_data = flag(0, 'd');
+      facts.cd_playstation = flag(1, 'p');
+      facts.dreamcast = flag(2, 'g');
+      facts.psp = flag(3, 'u');
+      facts.naomi = flag(4, 'n');
+      facts.naomi_vertical = flag(5, 'v');
+      facts.saturn = flag(6, 's');
+      facts.naomi_japan = TextOf(f[7]);
+      facts.naomi_usa = TextOf(f[8]);
+      facts.naomi_export = TextOf(f[9]);
+      if (!ListOf(f[10], &facts.listed))
+        return false;
+      resolve(&facts.listed);
+      cache->contents[path_of(f[1])] = std::move(facts);
+    }
+    else if (type == "E" && f.size() >= 3)
+    {
+      ended = std::strtoull(f[1].c_str(), nullptr, 10) == cache->found.games.size() &&
+              (!cache->facts_ok || std::strtoull(f[2].c_str(), nullptr, 10) == cache->contents.size());
+      if (!ended)
+        return false;
+    }
+    else
+    {
+      return false;  // (a line this version doesn't know: no cache rather than a part of one)
+    }
+  }
+  return versioned && ended;
 }
 }  // namespace Library

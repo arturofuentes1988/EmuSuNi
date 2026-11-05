@@ -8,8 +8,13 @@
 #include <iterator>
 #include <map>
 #include <mutex>
+#include <set>
 
 #include "Log.h"
+
+#ifdef __PS4__
+#include <minizip/unzip.h>
+#endif
 
 #ifdef EMUSUNI_ARCADE
 // scripts/build-arcade-core.sh: every driver of the core, one call of `add` each.
@@ -55,6 +60,30 @@ std::string Lower(std::string text)
   std::transform(text.begin(), text.end(), text.begin(),
                  [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
   return text;
+}
+
+// (00.90) The names of the files in a zip, in lower case and without their folders, added to `names` (none from a .7z,
+// a zip that isn't there or can't be read; none on the PC, whose tests link no zip reader).
+void AddZipNames(const std::string& path, std::set<std::string>* names)
+{
+#ifdef __PS4__
+  unzFile zip = unzOpen(path.c_str());
+  if (!zip)
+    return;
+  for (int at = unzGoToFirstFile(zip); at == UNZ_OK; at = unzGoToNextFile(zip))
+  {
+    unz_file_info info;
+    char name[256];
+    if (unzGetCurrentFileInfo(zip, &info, name, sizeof(name), nullptr, 0, nullptr, 0) != UNZ_OK)
+      continue;
+    const std::string file = name;
+    names->insert(Lower(file.substr(file.find_last_of('/') + 1)));
+  }
+  unzClose(zip);
+#else
+  (void)path;
+  (void)names;
+#endif
 }
 
 std::mutex s_mutex;
@@ -197,6 +226,12 @@ std::string CoverName(const std::string& title)
 
 std::vector<std::string> Missing(const Driver& driver, const std::string& folder, const std::string& system_dir)
 {
+  return Missing(driver, folder, system_dir, FileExists);
+}
+
+std::vector<std::string> Missing(const Driver& driver, const std::string& folder, const std::string& system_dir,
+                                 const std::function<bool(const std::string&)>& exists)
+{
   std::vector<std::string> missing;
   for (const std::string& set : {driver.bios, driver.parent})
   {
@@ -206,7 +241,7 @@ std::vector<std::string> Missing(const Driver& driver, const std::string& folder
     for (const std::string& dir : {folder, system_dir + "/fbneo", system_dir})
     {
       for (const char* extension : {".zip", ".7z"})
-        found = found || FileExists(dir + "/" + set + extension);
+        found = found || exists(dir + "/" + set + extension);
     }
     if (!found)
       missing.push_back(set + ".zip");
@@ -216,6 +251,12 @@ std::vector<std::string> Missing(const Driver& driver, const std::string& folder
 
 std::string LoadError(const std::string& core_text, const std::vector<std::string>& not_found,
                       const std::string& system_dir)
+{
+  return LoadError(core_text, not_found, system_dir, std::string());
+}
+
+std::string LoadError(const std::string& core_text, const std::vector<std::string>& not_found,
+                      const std::string& system_dir, const std::string& game_path)
 {
   const auto has = [&](const char* part) { return core_text.find(part) != std::string::npos; };
   std::string error;
@@ -252,7 +293,7 @@ std::string LoadError(const std::string& core_text, const std::vector<std::strin
   constexpr size_t MAX_ROMS = 6;
   const std::string with_name = "ROM with name ", with_crc = " and CRC 0x", is_missing = " is missing";
   std::string verify;
-  std::vector<std::string> roms;
+  std::vector<std::string> roms, rom_names;
   size_t more = 0;
   bool none = false;
   for (size_t start = 0; start < core_text.size();)
@@ -273,8 +314,11 @@ std::string LoadError(const std::string& core_text, const std::vector<std::strin
     {
       const size_t crc = line.find(with_crc), tail = line.find(is_missing);
       if (crc != std::string::npos && tail != std::string::npos && tail > crc)
-        roms.push_back(line.substr(with_name.size(), crc - with_name.size()) + " (CRC " +
-                       line.substr(crc + with_crc.size(), tail - crc - with_crc.size()) + ")");
+      {
+        rom_names.push_back(line.substr(with_name.size(), crc - with_name.size()));
+        roms.push_back(rom_names.back() + " (CRC " + line.substr(crc + with_crc.size(), tail - crc - with_crc.size()) +
+                       ")");
+      }
     }
     else if (line.rfind("And ", 0) == 0 && line.size() > 12 && line.compare(line.size() - 8, 8, " more...") == 0)
     {
@@ -283,6 +327,38 @@ std::string LoadError(const std::string& core_text, const std::vector<std::strin
     else if (line.find("None of those archives") != std::string::npos)
     {
       none = true;
+    }
+  }
+  // (00.90) A ROM it wants whose name is in the game's zip, or in its parent's or BIOS set's where the core looks for
+  // them, is there with other contents (the core takes ROMs by their CRCs): a romset of another version - MAME's, or
+  // another FinalBurn Neo's -, the usual case of "the arcade games don't load" (players, 30-10-2026).
+  if (has("missing files for THIS VERSION") && !rom_names.empty() && !game_path.empty())
+  {
+    std::set<std::string> names;
+    AddZipNames(game_path, &names);
+    const size_t slash = game_path.find_last_of('/');
+    const std::string folder = slash == std::string::npos ? std::string(".") : game_path.substr(0, slash);
+    std::string set = game_path.substr(slash == std::string::npos ? 0 : slash + 1);
+    set = set.substr(0, set.rfind('.'));
+    if (const Driver* driver = Find(set))
+    {
+      for (const std::string& zip_set : {driver->bios, driver->parent})
+      {
+        if (zip_set.empty())
+          continue;
+        for (const std::string& dir : {folder, system_dir + "/fbneo", system_dir})
+          AddZipNames(dir + "/" + zip_set + ".zip", &names);
+      }
+    }
+    size_t other = 0;
+    for (const std::string& rom : rom_names)
+      other += names.count(Lower(rom));
+    if (other > 0)
+    {
+      LogF("arcade: %zu of the %zu ROMs it lacks are in its zips with other contents: another version of the romset",
+           other, rom_names.size());
+      error = "This romset is another version:\nits ROMs are there with other data.\nEmuSuNi needs the romsets made for\n"
+              "FinalBurn Neo 1.0.0.03 (not MAME's)";
     }
   }
   // First what can be done at once: the zips that go with the game and aren't beside it (a Neo Geo game

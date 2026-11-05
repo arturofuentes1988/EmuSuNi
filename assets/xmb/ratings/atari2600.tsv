@@ -1,0 +1,656 @@
+# EmuSuNi star ratings (scripts/make-ratings.py): the Atari 2600 names and each one's game in the LaunchBox
+# Games Database (its id: the app downloads LaunchBox's ratings itself, src/Ratings.h).
+# Names: No-Intro's and Redump's, from libretro-database's metadat (github.com/libretro/libretro-database, CC BY-SA 4.0).
+# Matched with LaunchBox's Metadata.xml of 2026-11-01. This file is under CC BY-SA 4.0.
+# name<TAB>LaunchBox id
+3-D Genesis	122826
+3-D Ghost Attack	132267
+3-D Havoc	132268
+3-D Tic-Tac-Toe	14683
+3-D Zapper	158074
+32 in 1 Game Cartridge	19891
+4 Game in One	175239
+Abre-te, Sesamo!	133251
+Acid Drop	16991
+Action Man - Action Force	19843
+Actionauts	32554
+Activision Decathlon, The	9245
+Adventure	2570
+Adventures of TRON	10859
+Adventures on GX-12	10859
+Air Raid	8353
+Air Raiders	17494
+Air-Sea Battle	5296
+Airlock	10860
+Alien	19020
+Alien's Return	133248
+Alligator People	31703
+Alpha Beam with Ernie	31122
+Amidar	1341
+Amoeba Jump	248791
+AndroMan on the Moon	132269
+Angeln I	20286
+Angriff der Luftflotten	34329
+Angry Video Game Nerd K.O. Boxing	109735
+Anguna 2600	174374
+Apples and Dolls	148384
+Aquaventure	31124
+Armor Ambush	17495
+Artillery Duel	17496
+Assault	31125
+Assembloids	217316
+Asteroids	1342
+Astroblast	17500
+Astrowar	31126
+Atari Video Cube	17501
+Atlantis	9272
+Atlantis II	133242
+Atom Smasher	109836
+Bachelor Party	96226
+Bachelorette Party	31128
+Backgammon	17502
+Bank Heist	17503
+Barnstorming	7944
+Base Attack	129014
+Baseball	9236
+Basic Math	10861
+BASIC Programming	164703
+Basketball	22141
+Battlezone	1343
+Beamrider	17506
+Beany Bopper	22142
+Beat'Em & Eat'Em	22143
+Berenstain Bears	31841
+Bermuda Triangle	17507
+Berzerk	5297
+Big Bird's Egg Catch	31842
+Bionic Breakthrough	133243
+Birthday Mania	167634
+Black Hole	28589
+Black Jack	1344
+Bloody Human Freeway	24751
+Blueprint	17508
+BMX Air Master	17509
+Bobby Is Going Home	9242
+Bogey Blaster	17494
+Boggle	109838
+Boing!	33473
+Boom Bang	22150
+Boulder Dash	109839
+Bouncin' Baby Bunnies	158096
+Bowling	22144
+Boxen	7945
+Boxing	7945
+Brain Games	5298
+Breakout	5299
+Bridge	22145
+Buck Rogers - Planet of Zoom	22206
+Bugs	22146
+Bugs Bunny	33502
+Bump 'n' Jump	33503
+Bumper Bash	31846
+BurgerTime	7610
+Burning Desire	31847
+Cabbage Patch Kids - Adventures in the Park	109840
+Cakewalk	31848
+California Games	5300
+Canyon Bomber	22147
+Care Bears	132270
+Carnival	27359
+Casino	1345
+Cat Trax	96227
+Cathouse Blues	31849
+Centipede	1346
+Challenge	22148
+Challenge of.... NEXAR, The	28589
+Championship Soccer	20287
+Chase the Chuck Wagon	31850
+Checkers	22149
+China Syndrome	28590
+Chopper Command	7612
+Chuck Norris Superkicks	122731
+Circus Atari	5301
+Coco Nuts	28705
+Codebreaker	31851
+Col 'N'	133248
+Color Bar Generator	210520
+Combat	4887
+Combat Two	24906
+Combat ~ Tank-Plus	4887
+Commando	206
+Commando Raid	19929
+Communist Mutants from Space	23916
+Computer Chess	128392
+Condor Attack	9244
+Confrontation	128393
+Congo Bongo	27120
+Cookie Monster Munch	17510
+Cosmic Ark	21347
+Cosmic Commuter	22209
+Cosmic Creeps	28706
+Cosmic Swarm	31853
+Crack'ed	96245
+Crackpots	22150
+Crash Dive	31854
+Crazy Climber	8352
+Cross Force	17492
+Crossbow	31855
+Crypts of Chaos	28600
+Crystal Castles	8351
+Cubicolor	31856
+Custer's Revenge	20026
+Dan Kitchen's Tomcat - The F-14 Fighter Simulator	28702
+Dancing Plate	91865
+Dark Cavern	22214
+Dark Chambers	1366
+David Crane's Pitfall II - Lost Caverns	17529
+Deadly Duck	22151
+Death Trap	31857
+Defender	1347
+Defender II	34923
+Demolition Herby	31858
+Demon Attack	9271
+Demons to Diamonds	14689
+Depth Charge	132271
+Desert Falcon	1368
+Dice Puzzle	31859
+Dig Dug	207
+Dishaster	91865
+Dodge 'Em	7946
+Dodge 'Em ~ Dodger Cars	7946
+Dolphin	22152
+Donald Duck's Speedboat	31191
+Donkey Kong	2876
+Donkey Kong Junior	7613
+Double Dragon	10878
+Double Dunk	5302
+Dragon Defender	31929
+Dragonfire	22153
+Dragonstomper	23917
+Dragster	22154
+Dschungel Boy	5317
+Dukes of Hazzard	33260
+Dumbo's Flying Circus	31130
+Dune	132272
+E.T. - The Extra-Terrestrial	7611
+Earth Dies Screaming, The	31063
+Eddy Langfinger, der Museumsdieb	99110
+Eggomania	14280
+Elevator Action	31131
+Elf Adventure	132273
+Eli's Ladder	31931
+Elk Attack	96247
+Encounter at L-5	34910
+Enduro	8357
+Ente und der Wolf, Die	128410
+Entity, The	132274
+Entombed	17764
+Escape from the Mindmaster	23918
+Espial	31932
+Exocet	31933
+Extra Terrestrials	133246
+Fall Down	138078
+Fantastic Voyage	22155
+Farmyard Fun	96250
+Fast Eddie	22156
+Fast Food	22157
+Fatal Run	33504
+Fathom	26201
+Feuerwehr im Einsatz	17511
+Final Approach	30363
+Fire Birds	31125
+Fire Fighter	17511
+Fire Fly	22216
+Fire Spinner	128460
+Fireball	34325
+Fishing Derby	20286
+Flash Gordon	22159
+Football	22201
+Forest	96256
+Fox & Goat	160291
+Frankenstein's Monster	5303
+Free Play Florida 2017	454435
+Freeway	5304
+Frisco	132275
+Frog Pond	96257
+Frogger	1369
+Frogger II - Threeedeep!	8355
+Frogs and Flies	18549
+Front Line	34908
+Frostbite	8356
+Funky Fish	132276
+Fussball	9246
+G.I. Joe - Cobra Strike	19843
+Galaxian	5305
+Game of Concentration, A	96230
+Gamma-Attack	133247
+Gangster Alley	28593
+Garfield	100699
+Gas Hog	33505
+Gauntlet	34327
+Ghost Manor	122741
+Ghostbusters	1292
+Ghostbusters II	17512
+Gigolo	96259
+Glacier Patrol	34909
+Glib - Video Word Game	34911
+Go Fish!	162465
+Going-Up	166891
+Golf	7947
+Good Luck, Charlie Brown	167253
+Gopher	28690
+Gorf	28699
+Grand Prix	21544
+Gravitar	1348
+Great Escape	19861
+Gremlins	31843
+Grover's Music Maker	128394
+Guardian	34912
+Gyruss	28595
+H.E.R.O.	10128
+Halloween	22160
+Halo 2600	24954
+Hangman ~ Spelling	21034
+Hard-Head	166893
+Harem	132385
+Haunted House	1370
+Hell Driver	133253
+Hole Hunter	127964
+Holey Moley	34915
+Home Run ~ Baseball	9236
+Human Cannonball ~ Cannon Man	7948
+Hunt & Score ~ Memory Match	17514
+I Want My Mommy	22161
+I.Q. 180	128491
+I.Q. Memory Teaser	128491
+Ice Hockey	7949
+Ikari Warriors	22162
+Immies & Aggies	128556
+Indy 500	1349
+Indy 500 ~ Race	1349
+Infiltrate	22163
+International Soccer	9246
+INV+	124964
+Ixion	132398
+James Bond 007	34916
+Jawbreaker	34917
+Journey Escape	7950
+Joust	1350
+Jr. Pac-Man	5306
+Jungle Fever	33491
+Jungle Hunt	1351
+Kabobber	106314
+Kaboom!	1371
+Kamikaze Saucers	128395
+Kangaroo	1352
+Karate	28712
+Keystone Kapers	5307
+Killer Satellites	34328
+King Kong	17515
+Klax	5308
+kleine Bar, Der	8356
+Knight on the Town	33492
+Kool-Aid Man	28691
+Krull	15245
+Kung-Fu Master	28701
+Kyphus	143147
+Laaser Voley	22207
+Labyrinth	165248
+Lady in Wading	33493
+Laser Blast	19892
+Laser Gates	22207
+Lasercade	132387
+Lilly Adventure	17517
+Lochjaw	34918
+Lock 'n' Chase	22164
+London Blitz	34919
+Looping	133249
+Lord of the Rings, The - Journey to Rivendell	34920
+Lost Luggage	17518
+M.A.D.	34329
+M.A.S.H	22165
+MagiCard	176798
+Malagai	95784
+Mangia'	95745
+Marauder	95746
+Marine Wars	17519
+Marineflieger	28711
+Mario Bros.	5309
+Master Builder	34330
+Masters of the Universe - The Power of He-Man	28692
+Math Gran Prix	17520
+Maze Craze - A Game of Cops 'n Robbers	5310
+Mazy Match	163544
+McDonald's - Golden Arches Adventure	128464
+Mega Force	7951
+MegaBoy	243630
+MegaMania - A Space Nightmare	19862
+Mein Weg	22148
+Meltdown	133250
+Meteor Defense	31126
+Midnight Magic	5311
+Millipede	5312
+Mind Maze	128561
+Miner 2049er - Starring Bounty Bob	98707
+Miner 2049er Volume II	124932
+Mines of Minos	95747
+Miniature Golf	17521
+Miniature Golf ~ Arcade Golf	17521
+Miss Piggy's Wedding	95748
+Missile Command	5313
+Missile Control	128398
+Mission 3,000 A.D.	19896
+Mission 3000	19896
+Mission Survive	124933
+Mogul Maniac	22166
+Monkey Music	128394
+Monster Cise	128399
+Montezuma's Revenge - Featuring Panama Joe	19207
+Moon Patrol	1353
+Moonsweeper	1363
+Morse Code Tutor	166895
+Motocross	133534
+Motocross Racer	124934
+MotoRodeo	22167
+Mountain King	22217
+Mountain Man	128426
+Mouse Trap	22168
+Mr. Do!	34331
+Mr. Do!'s Castle	124936
+Mr. Postman	22169
+Mr. T + moderne Ritter, Der	22156
+Ms. Pac-Man	5314
+Music Machine, The	128400
+My Golf	17523
+Mysterious Thief, A	99110
+Name This Game	17524
+Night Driver	7952
+Nightmare	124937
+No Escape!	17525
+Nuts	98525
+O Monstro Marinho	128418
+Obelix	31492
+Off the Wall	30137
+Off Your Rocker	128401
+Official Frogger, The	33465
+Oink!	7953
+Omega Race	28700
+Open Sesame	133251
+Oscar's Trash Race	128088
+Othello	22170
+Out of Control	128402
+Outlaw	5315
+Outlaw ~ Gunslinger	5315
+Oystron	164711
+Pac-Kong	122359
+Pac-Man	4889
+Panda Chase	128403
+Parachute	128404
+Party Mix	34332
+Peek-A-Boo	128405
+Pengo	34334
+Pete Rose Baseball	28704
+Peter Penguin	132275
+Phantom Tank	17527
+Phantom UFO	1354
+Phantom-Panzer + Phantom Tank	17527
+Pharaoh's Curse	34335
+Phaser Patrol	90934
+Phoenix	10129
+Pick 'n' Pile	128407
+Pick Up	128408
+Picnic	22171
+Piece o' Cake	22172
+Pigs in Space - Starring Miss Piggy	17528
+Pitfall! - Pitfall Harry's Jungle Adventure	5317
+Pizza Chef	128525
+Planet of the Apes	166981
+Planet Patrol	17530
+Plaque Attack	10130
+Pleiades	133263
+Polaris	1364
+Pole Position	5571
+Polo	33500
+Pompeii	122358
+Pooyan	128410
+Popeye	22173
+Porky's	28599
+Power Lords	166899
+Pressure Cooker	22174
+Private Eye	14281
+Pygmy	178417
+Q-bert	5318
+Q-bert's Qubes	128412
+Quadrun	106311
+Quest for Quintana Roo	22218
+Quick Step	117449
+Rabbit Transit	34336
+Racer	167037
+Racing Car	133253
+Racquetball	22175
+Radar	133533
+Radar Lock	33467
+Raft Rider	117450
+Raiders of the Lost Ark	5319
+Ram It	22176
+Rampage!	5320
+Raumpatrouille	19860
+Reactor	5321
+RealSports Baseball	22203
+RealSports Basketball	128521
+RealSports Boxing	17531
+RealSports Football	15888
+RealSports Soccer	17533
+RealSports Tennis	5322
+RealSports Volleyball	17532
+Red Sea Crossing	122728
+Rescue Terra I	128413
+Revenge of the Beefsteak Tomatoes	22213
+Riddle of the Sphinx	22177
+River Patrol	33498
+River Raid	1365
+River Raid II	17534
+Road Runner	33499
+Robin Hood	133532
+Robo-Ninja Climb	421071
+Robot Tank	5323
+Roc 'n Rope	5324
+Rocky & Bullwinkle	166896
+Room of Doom	128414
+Rubik's Cube	17501
+Rubik's Cube 3-D	190898
+Rush Hour	166898
+S.A.C. Alert	143150
+Saboteur	133254
+Save Mary!	128415
+Save Our Ship	128416
+Save the Whales	128417
+SCRMNN	133283
+Sea Battle	122724
+Sea Hawk	28711
+Sea Hunt ~ Scuba Diver	28710
+Sea Monster	128418
+Seaquest	22178
+Seaquest - International Edition	22178
+Secret Agent	128419
+Secret Quest	5325
+See Saw	5301
+Sentinel	128420
+Sesam Offne Dich!	133251
+Sheep It Up! - NTSC	204074
+Sheep It Up! - PAL	204074
+Sheep It Up! - SECAM	204074
+Shootin' Gallery	33466
+Shooting Arcade	128422
+Shuttle Orbiter	128423
+Sinistar	128424
+Sir Lancelot	133531
+Six Pack	133260
+Skate Boardin'	28703
+Skeet Shoot	30128
+Ski Hunt	128426
+Ski Run	128427
+Skiing	7954
+Skindiver	28710
+Sky Diver	34927
+Sky Jinks	15891
+Sky Patrol	34928
+Sky Skipper	128428
+Slot Racers	14694
+Smurf - Rescue in Gargamel's Castle	19894
+Smurfs Save the Day	128429
+Snail Against Squirrel	128430
+Sneak 'n Peek	19930
+Snoopy and the Red Baron	22179
+Snow White and the Seven Dwarfs	128563
+Solar Fox	23914
+Solar Storm	22180
+Solaris	18880
+Sonar	454542
+Sorcerer	22181
+Sorcerer's Apprentice	128431
+Space Attack	28693
+Space Cavern	22200
+Space Invaders	4890
+Space Jockey	15890
+Space Shuttle - A Journey into Space	5326
+Space Tunnel	133257
+Space War	5327
+Spacechase	34340
+SpaceMaster X-7	33474
+Spider Fighter	1354
+Spider Maze	122359
+Spider-Man	2957
+Spike's Peak	158375
+Spinning Fireball	128460
+Spitfire Attack	22204
+Springer	128087
+Springteufel, Die	22163
+Sprint Master	18879
+Spy Hunter	22182
+Squeeze Box	22183
+Squirrel ~ O Esquilo	128430
+Squoosh	128432
+Sssnake	22184
+Stampede	7955
+Star Fox	14700
+Star Raiders	5328
+Star Strike	28694
+Star Trek - Strategic Operations Simulator	28696
+Star Voyager	22199
+Star Wars - Jedi Arena	5329
+Star Wars - Return of the Jedi - Death Star Battle	22471
+Star Wars - Return of the Jedi - Ewok Adventure	31493
+Star Wars - The Arcade Game	28592
+Star Wars - The Empire Strikes Back	2959
+Stargate	34923
+Stargunner	28707
+StarMaster	1357
+Starmaster - International Edition	1357
+Steeplechase	106296
+Stellar Track	106312
+Stone Age	133258
+Strahlen der Teufelsvogel	9272
+Strategy X	22185
+Strawberry Shortcake - Musical Match-Ups	28596
+Stronghold	128433
+Stunt Cycle	128434
+Stunt Man	133259
+Sub-Scan	22186
+Submarine Commander	106313
+Subterranea	128295
+Suicide Mission	34341
+Summer Games	28591
+Super Baseball	34342
+Super Breakout	5330
+Super Challenge Baseball	22197
+Super Challenge Football	22219
+Super Cobra	28597
+Super Football	5331
+Super-Ferrari	8357
+Superman	5332
+Surf's Up	128437
+Surfer's Paradise - But Danger Below!	128435
+Surround	21035
+Survival Island	98527
+Survival Run	90918
+Sweat! The Decathlon Game	99109
+Sword of Saros	98528
+Swordfight	34926
+SwordQuest - EarthWorld	1372
+SwordQuest - FireWorld	22198
+SwordQuest - WaterWorld	30796
+Tac-Scan	22187
+Tanks but No Tanks	128438
+Tanzende Teller	91865
+Tapeworm	28594
+Tapper	22188
+Tax Avoiders	28714
+Taz	22189
+Telepathy	128439
+Tempest	128440
+Tennis	22202
+Tennis - International Edition	22202
+Texas Chainsaw Massacre, The	34694
+Threshold	122805
+Thunderground	28697
+Thwocker	128441
+Time Pilot	122923
+Time Warp	22212
+Title Match Pro Wrestling	22190
+Tomarc the Barbarian	128442
+Tomcat - The F-14 Fighter Simulator	28702
+Tooth Protectors	122726
+Top Gun	17494
+Towering Inferno	19931
+Track and Field	29507
+Treasure Below	128448
+Treasure Island	156091
+Trick Shot	28695
+TRON - Deadly Discs	22211
+Tunnel de L'Espace, Le	133257
+Tunnel Runner	22192
+Turbo	166982
+Turmoil	22193
+Tutankham	28598
+Universal Chaos	128086
+Up 'n Down	128449
+Vanguard	23919
+Vault Assault	128447
+Venture	1358
+Video Checkers ~ Checkers	34338
+Video Chess	15889
+Video Jogger	33496
+Video Life	33495
+Video Olympics	7957
+Video Pinball	7958
+Video Reflex	33494
+Vogel Flieh	22152
+Wabbit	22194
+Walker ~ Schussel, der Polizistenschreck	128446
+Wall Ball	132121
+Wall Break	133261
+Wall Jump Ninja	216089
+Wall-Defender	165246
+Warlords	1359
+Warplock	93941
+Weltraum-Tunnel	22207
+Wing War	128445
+Wings	143245
+Winter Games	22210
+Wizard	164713
+Wizard of War	1360
+Wizard of Wor	1360
+Word Zapper	19932
+Words-Attack	128496
+World Championship Baseball	22197
+World End	133262
+Worm War I	22195
+Wustenschlacht	7612
+X-Man	108536
+Xenophobe	34337
+Xevious	128443
+Yars' Revenge	3598
+Z-Tack	129014
+Zaxxon	15077
+Zoo Fun	31753

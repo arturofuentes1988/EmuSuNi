@@ -69,9 +69,27 @@ set(SATURN_CORE_OBJECT "" CACHE FILEPATH "YabaSanshiro as one object (scripts/bu
 # (build.sh no-pce leaves it out). (00.80 to 00.82 also had the 32X - PicoDrive -, the Neo Geo Pockets - Beetle NeoPop
 # - and the WonderSwans - Beetle Cygne -: gone in 00.83.)
 set(PCE_CORE_OBJECT "" CACHE FILEPATH "Beetle PCE Fast as one object (scripts/build-beetle-cores.sh)")
+# The Game Boy link cable online (00.95: SameBoy's two Game Boys in one core, built by scripts/build-gblink-core.sh into
+# one object whose libretro API is sameboy_retro_*; src/GbLink.h): in the app (EMUSUNI_GBLINK=1) when scripts/build.sh
+# is told with-gblink. Alone, the Game Boys stay mGBA's.
+set(GBLINK_CORE_OBJECT "" CACHE FILEPATH "SameBoy as one object (scripts/build-gblink-core.sh)")
+# OpenBOR (the beat 'em up engine's .pak games: zanac's multi-engine core with engines 3.0 build 6391 and 4.0 build 8025,
+# built by scripts/build-openbor-core.sh into one object whose libretro API is openbor_retro_*): in the app
+# (EMUSUNI_OPENBOR=1, its tab) only when scripts/build.sh is told with-openbor.
+set(OPENBOR_CORE_OBJECT "" CACHE FILEPATH "OpenBOR as one object (scripts/build-openbor-core.sh)")
+# Atari's consoles (00.90: the 2600 on Stella, the 7800 on ProSystem, the Jaguar on Virtual Jaguar, built by
+# scripts/build-atari-cores.sh into one object each, their libretro APIs stella_retro_*, prosystem_retro_* and
+# vjaguar_retro_*): in the app (EMUSUNI_A2600, EMUSUNI_A7800, EMUSUNI_JAGUAR: their tabs) when scripts/build.sh passes
+# the objects (build.sh no-atari leaves them out).
+set(A2600_CORE_OBJECT "" CACHE FILEPATH "Stella as one object (scripts/build-atari-cores.sh)")
+set(A7800_CORE_OBJECT "" CACHE FILEPATH "ProSystem as one object (scripts/build-atari-cores.sh)")
+set(JAGUAR_CORE_OBJECT "" CACHE FILEPATH "Virtual Jaguar as one object (scripts/build-atari-cores.sh)")
 # Mbed TLS, curl's TLS (00.73): scripts/build-mbedtls.sh's libraries (PacBrew's with bignum.c's fix: PacBrew's own fail
 # every RSA handshake), which scripts/build.sh passes; else PacBrew's.
 set(MBEDTLS_LIB_DIR "${OPENORBIS}/usr/lib" CACHE PATH "Mbed TLS libraries (scripts/build-mbedtls.sh)")
+# Opus, the voice chat's codec (00.23): scripts/build-opus.sh's static library (fixed-point), which scripts/build.sh
+# passes.
+set(OPUS_DIR "" CACHE PATH "Opus for the PS4 (scripts/build-opus.sh): include/opus, lib/libopus.a")
 
 # --- The emulator cores -------------------------------------------------------------------------
 # Every core is a libretro core with the same API (retro_init, retro_run...). Several of them in
@@ -225,13 +243,21 @@ add_executable(emusuni
 add_dependencies(emusuni fceumm_core emusuni_shaders)
 # Star ratings under the covers (00.73): src/Ratings.h (LaunchBox's community ratings, downloaded by the app).
 target_sources(emusuni PRIVATE src/Ratings.cpp)
+# The package's small files in one (00.90): src/AssetPack.h (xmb/assets.zip, scripts/make-asset-pack.py).
+target_sources(emusuni PRIVATE src/AssetPack.cpp)
+# Log reports (00.91): src/LogReport.h (Settings -> Send Log: the logs to EmuSuNi's server, server/emusuni-reports.py).
+target_sources(emusuni PRIVATE src/LogReport.cpp)
 # Game bezels (00.80): src/BezelProject.h (The Bezel Project's, downloaded by the app for the player's games).
 target_sources(emusuni PRIVATE src/BezelProject.cpp)
+# Portable data (00.87): src/Portable.h (the player's data on a USB drive, to take it to another PS4).
+target_sources(emusuni PRIVATE src/Portable.cpp)
 # The covers on disk (00.81): src/CoverFiles.h (a folder per console, covers/snes/ too; PNG or JPEG). The JPEG covers
 # are read by PacBrew's libjpeg-turbo (linked below).
 target_sources(emusuni PRIVATE src/CoverFiles.cpp)
 # The cores' game lists (00.81): src/GameDb.h (each game's settings from them in the log, the app's corrections).
 target_sources(emusuni PRIVATE src/GameDb.cpp)
+# Local multiplayer (00.23): src/Multiplayer.h (each console's adapter for 3 or more players, the games that use it).
+target_sources(emusuni PRIVATE src/Multiplayer.cpp)
 # Updates from inside the app (00.73): src/Update.h; the hand-over to the PS4's package installer: src/UpdateInstall.h.
 target_sources(emusuni PRIVATE src/Update.cpp src/UpdateInstall.cpp)
 # (The PS4's App Inst Util and background installer, BGFT: loaded by the updater when it hands a package over.)
@@ -241,6 +267,20 @@ target_link_libraries(emusuni PRIVATE SceAppInstUtil SceBgft)
 target_sources(emusuni PRIVATE src/Achievements.cpp src/AchievementsDisc.cpp src/AchievementsUi.cpp
   src/AchievementsSnes.cpp)
 target_link_libraries(emusuni PRIVATE rcheevos chdr)
+# Voice chat (00.23): src/Voice.h (the microphone - libSceAudioIn, loaded when the voice first opens it -, Opus, the
+# friends' voices added to the sound).
+if(NOT EXISTS "${OPUS_DIR}/lib/libopus.a")
+  message(FATAL_ERROR "OPUS_DIR \"${OPUS_DIR}\" has no lib/libopus.a (scripts/build-opus.sh, run by scripts/build.sh)")
+endif()
+target_sources(emusuni PRIVATE src/Voice.cpp)
+target_include_directories(emusuni PRIVATE ${OPUS_DIR}/include/opus)
+target_link_libraries(emusuni PRIVATE ${OPUS_DIR}/lib/libopus.a SceAudioIn)
+# Online play (00.23): src/Netplay.h (rooms on EmuSuNi's server - server/emusuni-netd.cpp -, the hole punch and the
+# relays, rollback; the voice chat's packets on its socket), its marks on the game's screen (src/NetplayUi.h), and the
+# anonymous statistics' heartbeat to its main server (src/UsageStats.h).
+target_sources(emusuni PRIVATE src/Netplay.cpp src/NetplayLibrary.cpp src/NetplayUi.cpp src/UsageStats.cpp src/MyStats.cpp)
+# The Game Boy link cable online's match (00.95: src/GbLink.h; its core only with GBLINK_CORE_OBJECT, below).
+target_sources(emusuni PRIVATE src/GbLink.cpp)
 target_include_directories(emusuni PRIVATE src ${CMAKE_BINARY_DIR}/shaders ${OPENORBIS}/usr/include
   ${OPENORBIS}/usr/include/libpng16)
 target_compile_definitions(emusuni PRIVATE EMUSUNI_VERSION="${EMUSUNI_VERSION}" EMUSUNI_GBA=1)
@@ -358,6 +398,34 @@ if(PCE_CORE_OBJECT)
   target_compile_definitions(emusuni PRIVATE EMUSUNI_PCE=1)
   target_link_libraries(emusuni PRIVATE ${PCE_CORE_OBJECT})
 endif()
+# The Game Boy link cable online (00.95): a plain C core (no threads, nothing of the app's but its heap).
+if(GBLINK_CORE_OBJECT)
+  if(NOT EXISTS "${GBLINK_CORE_OBJECT}")
+    message(FATAL_ERROR "GBLINK_CORE_OBJECT ${GBLINK_CORE_OBJECT} doesn't exist (scripts/build-gblink-core.sh)")
+  endif()
+  target_compile_definitions(emusuni PRIVATE EMUSUNI_GBLINK=1)
+  target_link_libraries(emusuni PRIVATE ${GBLINK_CORE_OBJECT})
+endif()
+# OpenBOR (with-openbor): a C core with no threads (its engine runs on a libco coroutine on the emulation thread),
+# nothing of the app's but its heap. Each engine's writable data is in sections of its own (ob_data_<build>,
+# ob_bss_<build>), whose bounds (__start_/__stop_) this link defines: the core puts them back to start an engine again.
+if(OPENBOR_CORE_OBJECT)
+  if(NOT EXISTS "${OPENBOR_CORE_OBJECT}")
+    message(FATAL_ERROR "OPENBOR_CORE_OBJECT ${OPENBOR_CORE_OBJECT} doesn't exist (scripts/build-openbor-core.sh)")
+  endif()
+  target_compile_definitions(emusuni PRIVATE EMUSUNI_OPENBOR=1)
+  target_link_libraries(emusuni PRIVATE ${OPENBOR_CORE_OBJECT})
+endif()
+# Atari's consoles (00.90): plain cores (no threads, no recompiler, nothing of the app's but its heap).
+foreach(console A2600 A7800 JAGUAR)
+  if(${console}_CORE_OBJECT)
+    if(NOT EXISTS "${${console}_CORE_OBJECT}")
+      message(FATAL_ERROR "${console}_CORE_OBJECT ${${console}_CORE_OBJECT} doesn't exist (scripts/build-atari-cores.sh)")
+    endif()
+    target_compile_definitions(emusuni PRIVATE EMUSUNI_${console}=1)
+    target_link_libraries(emusuni PRIVATE ${${console}_CORE_OBJECT})
+  endif()
+endforeach()
 target_link_libraries(emusuni PRIVATE snes9x ${FCEUMM_OBJECT} imgui
   ${OPENORBIS}/usr/lib/libminizip.a ${OPENORBIS}/usr/lib/libpng16.a ${OPENORBIS}/usr/lib/libjpeg.a
   ${OPENORBIS}/usr/lib/libcurl.a

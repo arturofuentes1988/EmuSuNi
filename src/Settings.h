@@ -46,7 +46,12 @@ constexpr uint32_t FOR_NAOMI = 1u << static_cast<int>(SystemId::NAOMI);
 constexpr uint32_t FOR_ATOMISWAVE = 1u << static_cast<int>(SystemId::ATOMISWAVE);
 constexpr uint32_t FOR_SATURN = 1u << static_cast<int>(SystemId::SATURN);
 constexpr uint32_t FOR_PCE = 1u << static_cast<int>(SystemId::PCE);
+constexpr uint32_t FOR_A2600 = 1u << static_cast<int>(SystemId::A2600);
+constexpr uint32_t FOR_A7800 = 1u << static_cast<int>(SystemId::A7800);
+constexpr uint32_t FOR_JAGUAR = 1u << static_cast<int>(SystemId::JAGUAR);
 static_assert(SYSTEM_COUNT <= 32, "the consoles' masks are 32-bit");
+// Atari's consoles (00.90): the 2600, the 7800 and the Jaguar.
+constexpr uint32_t FOR_ATARI = FOR_A2600 | FOR_A7800 | FOR_JAGUAR;
 // Flycast's machines: the Dreamcast and its arcade boards, the NAOMI and the Atomiswave (one core, the same
 // processor and sound chip, the same Quality levels: from 00.53 to 00.67 one fixed quality, Standard).
 constexpr uint32_t FOR_FLYCAST = FOR_DC | FOR_NAOMI | FOR_ATOMISWAVE;
@@ -60,7 +65,7 @@ constexpr uint32_t FOR_LCD = FOR_HANDHELD | FOR_GG;
 constexpr uint32_t FOR_RETRO = FOR_SNES | FOR_NES;
 // The consoles whose picture the CPU hands over as pixels (Resolution, Upscaling Filter): the Arcade's
 // too (FinalBurn Neo draws its boards on the CPU).
-constexpr uint32_t FOR_PIXELS = FOR_RETRO | FOR_HANDHELD | FOR_NDS | FOR_SEGA | FOR_ARCADE | FOR_PCE;
+constexpr uint32_t FOR_PIXELS = FOR_RETRO | FOR_HANDHELD | FOR_NDS | FOR_SEGA | FOR_ARCADE | FOR_PCE | FOR_ATARI;
 
 struct Setting
 {

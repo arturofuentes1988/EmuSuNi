@@ -29,6 +29,80 @@ std::string Unquote(std::string value)
     value = value.substr(1, value.size() - 2);
   return value;
 }
+
+bool IsHex(char c)
+{
+  return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+}
+
+// (00.90) A line of a PlayStation code as DuckStation and PCSXR write them: "80012345 0064" (an address, a value; '?'
+// for one chosen in DuckStation's menu). Its two parts as RetroArch's codes have them, or empty.
+std::string CodeLine(const std::string& line)
+{
+  if (line.size() < 13 || !std::all_of(line.begin(), line.begin() + 8, IsHex) ||
+      (line[8] != ' ' && line[8] != ':' && line[8] != '-'))
+    return {};
+  size_t end = 9;
+  while (end < line.size() && (IsHex(line[end]) || line[end] == '?'))
+    end++;
+  if (end - 9 < 4 || (end < line.size() && line[end] != ' ' && line[end] != '\t' && line[end] != ';'))
+    return {};
+  return line.substr(0, 8) + " " + line.substr(9, end - 9);
+}
+
+// (00.90) A cheat file in DuckStation's or PCSXR's form (players' DuckStation cheats, which only RetroArch's form
+// loaded before): "[Name]" (PCSXR's "[*Name]": on) or "#Name" begins a cheat, its code lines follow, joined by '+' as
+// RetroArch's are. DuckStation's "Key = Value" lines (Type, Activation, Author...), its database's ":SLUS-00000"
+// lines and ';' comments are skipped; a cheat with a value to choose ('?') is left out.
+std::vector<Entry> ParseCodeLines(const std::string& text)
+{
+  std::vector<Entry> entries;
+  Entry entry;
+  bool choose = false;
+  auto finish = [&]() {
+    if (!entry.code.empty() && !choose)
+    {
+      if (entry.name.empty())
+        entry.name = entry.code;
+      entries.push_back(std::move(entry));
+    }
+    entry = {};
+    choose = false;
+  };
+  std::istringstream file(text);
+  std::string line;
+  while (std::getline(file, line) && entries.size() < 20000)
+  {
+    line = Unquote(line);
+    if (line.empty() || line[0] == ';' || line[0] == ':')
+      continue;
+    if (line[0] == '[' && line.back() == ']')
+    {
+      finish();
+      entry.name = Unquote(line.substr(1, line.size() - 2));
+      if (!entry.name.empty() && entry.name[0] == '*')
+      {
+        entry.enabled = true;
+        entry.name = Unquote(entry.name.substr(1));
+      }
+      continue;
+    }
+    if (line[0] == '#')
+    {
+      finish();
+      entry.name = Unquote(line.substr(1));
+      continue;
+    }
+    const std::string code = CodeLine(line);
+    if (code.empty())
+      continue;
+    if (code.find('?') != std::string::npos)
+      choose = true;
+    entry.code += (entry.code.empty() ? "" : "+") + code;
+  }
+  finish();
+  return entries;
+}
 }  // namespace
 
 std::vector<Entry> Parse(const std::string& text)
@@ -46,6 +120,8 @@ std::vector<Entry> Parse(const std::string& text)
       key.pop_back();
     values[key] = Unquote(line.substr(eq + 1));
   }
+  if (values.find("cheats") == values.end())
+    return ParseCodeLines(text);  // (00.90) not RetroArch's form: DuckStation's or PCSXR's
   std::vector<Entry> entries;
   // (GoldenEye 007's list in libretro's collection has 7232 codes.)
   const int count = std::atoi(values["cheats"].c_str());

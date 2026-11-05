@@ -22,6 +22,7 @@
 #include "Log.h"
 #include "Net.h"
 #include "UpdateInstall.h"
+#include "UsageStats.h"
 
 extern "C" int emusuni_disk_space_known(const char* path, int64_t* out);  // port/ps4_diskfree.c
 
@@ -1425,6 +1426,7 @@ bool Run(void (*job)(bool), bool argument)
 
 void CheckRun(bool asked)
 {
+  UsageStats::UpdateChecked();  // (00.23: counted in the next anonymous statistics' heartbeat, when they are on)
   CheckJob(asked);
 }
 

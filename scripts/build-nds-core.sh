@@ -6,9 +6,10 @@
 # Its own CMake makes the core with the PS4 toolchain (toolchain/ps4-love-modern.cmake): melonDS's
 # x86-64 JIT, the software renderer (2D and 3D; in threads of their own when
 # melonds_threaded_renderer is on), FreeBIOS and generated firmware (built in: used when no BIOS or
-# firmware file is found), every screen layout of the core. No OpenGL (nor the compute renderer),
-# no networking (Wi-Fi), no dlopen, no Tracy. The dependencies its CMake would download (melonDS
-# itself, libretro-common, fmt, glm, zlib...) come from the clones of scripts/setup.sh in
+# firmware file is found), every screen layout of the core, the Wi-Fi (00.95: Nintendo WFC through
+# libslirp, melonDS's indirect mode, on the PS4's sockets; see below). No OpenGL (nor the compute
+# renderer), no libpcap, no dlopen, no HTTP, no Tracy. The dependencies its CMake would download (melonDS
+# itself, libretro-common, fmt, glm, zlib, libslirp...) come from the clones of scripts/setup.sh in
 # ~/src/melonds-ds-deps, at the commits it pins (nothing is downloaded here). Its libretro API
 # becomes melondsds_retro_* and everything else in it private, as for FCEUmm (CMakeLists.txt).
 # The PS4 changes to the sources (applied each time to the files as git has them, checked; all
@@ -56,8 +57,21 @@
 #     retro_load_game returns. Or the ROM from its path (a retro_game_info with a path and no
 #     data): read with stdio straight into the cart's buffer, the only allocation; if it can't be
 #     read, retro_load_game returns false. (need_fullpath stays false: data works as before.)
-#   - No networking: melonDS DS's network state does nothing (its own build without networking
-#     doesn't compile: it always includes libslirp's and libpcap's code).
+#   - The Wi-Fi (00.95), for the games' Nintendo WFC through Wiimmfi or WiiLink WFC (the DNS that
+#     src/Emulator.cpp sets in the firmware): melonDS's indirect mode, libslirp on the PS4's BSD
+#     sockets (libkernel's), on the emulation thread, poll() never waiting. OpenOrbis' sys/socket.h,
+#     poll.h and netinet/in.h have Linux's SOCK_CLOEXEC, POLLWRNORM and IP_TTL: no SOCK_CLOEXEC (the
+#     PS4 refused every socket with it: 00.95's test), POLLOUT instead, no TTL set; SO_NOSIGPIPE on the TCP
+#     sockets; failures counted for the log. Its sockaddr_storage has no ss_len (the family in the
+#     length's byte: the PS4 refused every datagram, 00.97's test): libslirp's ss_family moved to byte 1.
+#     melonDS's own DNS
+#     answer never looks anything up (musl's resolver would wait seconds); its printf of addresses gone.
+#     The DS reaches only public IPv4 addresses: libslirp's one way out refuses the home network, the
+#     PS4's loopback (and melonDS's host address, 10.64.0.1) and IPv6, and counts them. No libpcap
+#     (direct mode), no HTTP (only DSiWare's metadata download, DSi mode, used it; it throws). A log
+#     line every ~10 s while the DS uses the network: its time per frame, polls, packets, refusals.
+#     (NDS_CORE_NET=off builds it without networking: melonDS DS's network state then does nothing;
+#     its own guards are incomplete, completed here.)
 #   - melonDS's thread_local console pointer declared constant-initialised (no weak reference to
 #     an initialiser left in the object: the app would export it as an import nobody gives).
 #   - Built as a static library, without LTO (ld -r of LLVM bitcode), without mmap of files, with
@@ -77,6 +91,7 @@
 #                                                 emusuni_nds_thread
 #   NDS_CORE_PGO=off|generate                     without the profile; instrumented to make one (PC)
 #   NDS_CORE_TIMING_DETAIL=1                      the log's "detail" line too (the PC tests)
+#   NDS_CORE_NET=off                              without the Wi-Fi (no libslirp)
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT="$(cd "$HERE/.." && pwd)"
@@ -129,8 +144,9 @@ patch(core, 'src/libretro/CMakeLists.txt',
       'if (APPLE)\n    set_target_properties(melondsds_libretro PROPERTIES SUFFIX ".dylib")\n',
       'if (EMUSUNI_PORT)\n    # EmuSuNi: a static library, named as one.\n'
       'elseif (APPLE)\n    set_target_properties(melondsds_libretro PROPERTIES SUFFIX ".dylib")\n')
-# --- No networking (Wi-Fi through libslirp's sockets, or libpcap through dlopen): melonDS DS's
-# network state does nothing (upstream never builds without it; its own guards are incomplete).
+# --- Networking's guards (upstream never builds without it; its own guards are incomplete): built
+# without it (NDS_CORE_NET=off), melonDS DS's network state does nothing; with it (00.95, the default),
+# only the indirect mode (libslirp's sockets, below), never libpcap's direct mode (dlopen) nor the HTTP.
 patch(core, 'src/libretro/net/net.hpp',
       '#include "Net.h"\n',
       '#ifdef HAVE_NETWORKING\n#include "Net.h"\n#else\n#include <vector>\n#include "types.h" // EmuSuNi: no melonDS::Net\n#endif\n')
@@ -144,6 +160,14 @@ patch(core, 'src/libretro/net/net.hpp',
 patch(core, 'src/libretro/net/net.cpp',
       '#include "net.hpp"\n',
       '#include "net.hpp"\n\n#ifdef HAVE_NETWORKING\n')
+patch(core, 'src/libretro/net/net.cpp',
+      'vector<melonDS::AdapterData> MelonDsDs::NetState::GetAdapters() const noexcept\n',
+      '#ifdef HAVE_NETWORKING_DIRECT_MODE // EmuSuNi: the adapters are libpcap\'s (AdapterData: Net_PCap.h)\n'
+      'vector<melonDS::AdapterData> MelonDsDs::NetState::GetAdapters() const noexcept\n')
+patch(core, 'src/libretro/net/net.cpp',
+      'void MelonDsDs::NetState::Apply(const CoreConfig& config) noexcept\n',
+      '#endif\n\n'
+      'void MelonDsDs::NetState::Apply(const CoreConfig& config) noexcept\n')
 patch(core, 'src/libretro/net/net.cpp',
       '    return NetworkMode::None;\n}\n',
       '    return NetworkMode::None;\n}\n'
@@ -161,7 +185,8 @@ patch(core, 'src/libretro/config/config.cpp',
       '#ifdef HAVE_NETWORKING_DIRECT_MODE // EmuSuNi: libpcap\'s, only with libpcap\n#include <Net_PCap.h>\n#endif\n')
 patch(core, 'src/libretro/retro/http.cpp',
       '#include "http.hpp"\n',
-      '#include "http.hpp"\n\n#ifdef HAVE_NETWORKING // EmuSuNi: libretro-common\'s HTTP (sockets), only with networking\n')
+      '#include "http.hpp"\n\n'
+      '#if defined(HAVE_NETWORKING) && !defined(EMUSUNI_PORT) // EmuSuNi: no HTTP (only DSiWare\'s metadata download uses it: DSi mode; it throws)\n')
 patch(core, 'src/libretro/retro/http.cpp',
       '    return std::span((const std::byte*)payload, length);\n}',
       '    return std::span((const std::byte*)payload, length);\n}\n#endif')
@@ -186,6 +211,240 @@ patch(core, 'src/libretro/format.cpp',
 patch(core, 'src/libretro/format.cpp',
       '    return formatter<decltype(flagNames)>::format(flagNames, ctx);\n}\n',
       '    return formatter<decltype(flagNames)>::format(flagNames, ctx);\n}\n#endif\n')
+patch(core, 'src/libretro/config/console.cpp',
+      '#ifdef HAVE_NETWORKING\n            if (tmd = DownloadTmd(header, tmd_path); !tmd) {\n',
+      '#if defined(HAVE_NETWORKING) && !defined(EMUSUNI_PORT) // EmuSuNi: no HTTP (see retro/http.cpp)\n'
+      '            if (tmd = DownloadTmd(header, tmd_path); !tmd) {\n')
+patch(core, 'cmake/libretro-common.cmake',
+      'if (HAVE_NETWORKING)\n    target_sources(libretro-common PRIVATE\n        ${libretro-common_SOURCE_DIR}/net/net_compat.c\n',
+      'if (HAVE_NETWORKING AND NOT EMUSUNI_PORT) # EmuSuNi: only retro/http.cpp\'s HTTP uses them (not built)\n'
+      '    target_sources(libretro-common PRIVATE\n        ${libretro-common_SOURCE_DIR}/net/net_compat.c\n')
+
+# --- Wi-Fi (00.95: Nintendo WFC through Wiimmfi or WiiLink WFC, the DNS src/Emulator.cpp sets in the
+# firmware): melonDS's indirect mode, libslirp (melonDS DS's copy, with its own few GLib functions) on
+# the PS4's BSD sockets, libkernel's as src/Netplay.cpp's (errno is libkernel's __error() with
+# FreeBSD's values, as libslirp needs). All of it on the emulation thread, poll() never waiting.
+slirp = deps + '/libslirp'
+#   - poll()'s "writable": melonDS asks POLLWRNORM, which OpenOrbis' poll.h has with Linux's value
+#     (0x100: FreeBSD's POLLWRBAND, never set on a TCP socket, so no connection would finish opening);
+#     POLLOUT instead (0x4 on both).
+patch(melonds, 'src/net/Net_Slirp.cpp',
+      '    if (events & SLIRP_POLL_OUT) evt |= POLLWRNORM;\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '    if (events & SLIRP_POLL_OUT) evt |= POLLOUT; // EmuSuNi: OpenOrbis\' POLLWRNORM is Linux\'s (FreeBSD\'s POLLWRBAND)\n'
+      '#else\n'
+      '    if (events & SLIRP_POLL_OUT) evt |= POLLWRNORM;\n'
+      '#endif\n')
+patch(melonds, 'src/net/Net_Slirp.cpp',
+      '    if (evt & POLLWRNORM) ret |= SLIRP_POLL_OUT;\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '    if (evt & POLLOUT) ret |= SLIRP_POLL_OUT;\n'
+      '#else\n'
+      '    if (evt & POLLWRNORM) ret |= SLIRP_POLL_OUT;\n'
+      '#endif\n')
+#   - SOCK_CLOEXEC, which OpenOrbis' sys/socket.h has with Linux's value (02000000): libslirp asks every
+#     socket with it, and the PS4's kernel (FreeBSD 9's, which has no such flag) refuses that type with
+#     another error than EINVAL, so libslirp never tried without it: no socket at all, no packet got
+#     out (the 00.95 test on the PS4: the DS got its address from libslirp itself, then its DNS
+#     questions went nowhere). Never asked here (there is no exec on the PS4). The sockets that can't be
+#     made, the datagrams that can't be sent and the connections refused at once are counted, with the
+#     last error, for the log's Wi-Fi line.
+patch(slirp, 'src/util.c',
+      'int slirp_socket(int domain, int type, int protocol)\n{\n    int ret;\n\n#ifdef SOCK_CLOEXEC\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '/* EmuSuNi (scripts/build-nds-core.sh): what failed on the PS4, and its last errno, for the log. */\n'
+      'unsigned long emusuni_slirp_socket_failed = 0, emusuni_slirp_send_failed = 0, emusuni_slirp_connect_failed = 0;\n'
+      'int emusuni_slirp_socket_errno = 0, emusuni_slirp_send_errno = 0, emusuni_slirp_connect_errno = 0;\n'
+      '#endif\n\n'
+      'int slirp_socket(int domain, int type, int protocol)\n{\n    int ret;\n\n'
+      '#if defined(SOCK_CLOEXEC) && !defined(EMUSUNI_PORT) /* EmuSuNi: OpenOrbis\' is Linux\'s, the PS4 refuses it */\n')
+patch(slirp, 'src/util.c',
+      '    ret = socket(domain, type, protocol);\n    if (ret >= 0) {\n        slirp_set_cloexec(ret);\n    }\n\n    return ret;\n}\n',
+      '    ret = socket(domain, type, protocol);\n    if (ret >= 0) {\n        slirp_set_cloexec(ret);\n    }\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '    else {\n        emusuni_slirp_socket_failed++;\n        emusuni_slirp_socket_errno = errno;\n    }\n'
+      '#endif\n\n    return ret;\n}\n')
+patch(slirp, 'src/socket.c',
+      '    ret = sendto(so->s, m->m_data, m->m_len, 0, (struct sockaddr *)&addr,\n'
+      '                 sockaddr_size(&addr));\n    if (ret < 0)\n        return -1;\n',
+      '    ret = sendto(so->s, m->m_data, m->m_len, 0, (struct sockaddr *)&addr,\n'
+      '                 sockaddr_size(&addr));\n    if (ret < 0) {\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '        extern unsigned long emusuni_slirp_send_failed;\n'
+      '        extern int emusuni_slirp_send_errno;\n'
+      '        emusuni_slirp_send_failed++;\n'
+      '        emusuni_slirp_send_errno = errno;\n'
+      '#endif\n'
+      '        return -1;\n    }\n')
+#   - The address family: OpenOrbis' struct sockaddr_storage has no ss_len, so its ss_family is byte 0,
+#     where the PS4's kernel (FreeBSD's) and OpenOrbis' own sockaddr_in keep the length; the family is
+#     byte 1. libslirp writes the family through ss_family and hands those bytes to sendto() and
+#     connect() as a sockaddr_in: the kernel saw family 0 and refused every datagram (EAFNOSUPPORT,
+#     errno 47: the 00.97 test, the DS's DNS questions never left). ss_family is byte 1 here, in
+#     libslirp's own files only (its slirp.h, after the system headers); a check stops the build if
+#     sockaddr_storage's and sockaddr_in's family ever sit apart.
+patch(slirp, 'src/slirp.h',
+      '#ifdef __APPLE__\n#include <sys/filio.h>\n#endif\n\n#include "debug.h"\n',
+      '#ifdef __APPLE__\n#include <sys/filio.h>\n#endif\n\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '#include <stddef.h>\n'
+      '#ifdef __OPENORBIS__\n'
+      '/* EmuSuNi (scripts/build-nds-core.sh): OpenOrbis\' sockaddr_storage has no ss_len; its ss_family is\n'
+      ' * byte 0, where the PS4 (FreeBSD) keeps the length. The family is byte 1, sockaddr_in\'s sin_family. */\n'
+      '#define ss_family __ss_padding[0]\n'
+      '#endif\n'
+      '_Static_assert(offsetof(struct sockaddr_storage, ss_family) == offsetof(struct sockaddr_in, sin_family) &&\n'
+      '               offsetof(struct sockaddr, sa_family) == offsetof(struct sockaddr_in, sin_family),\n'
+      '               "EmuSuNi: sockaddr_storage\'s family isn\'t where sockaddr_in\'s is");\n'
+      '#endif\n\n'
+      '#include "debug.h"\n')
+#   - No SIGPIPE: a TCP connection the server closed, written to, would raise it, and the app doesn't
+#     ignore it (it would end the app): each TCP socket libslirp opens says SO_NOSIGPIPE (FreeBSD's
+#     0x0800; libslirp's send() gets EPIPE instead).
+patch(slirp, 'src/tcp_subr.c',
+      '        opt = 1;\n        setsockopt(s, IPPROTO_TCP, TCP_NODELAY, &opt, sizeof(opt));\n\n        addr = so->fhost.ss;\n',
+      '        opt = 1;\n        setsockopt(s, IPPROTO_TCP, TCP_NODELAY, &opt, sizeof(opt));\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '        opt = 1;\n'
+      '        setsockopt(s, SOL_SOCKET, 0x0800, &opt, sizeof(opt)); /* EmuSuNi: FreeBSD\'s SO_NOSIGPIPE */\n'
+      '#endif\n\n        addr = so->fhost.ss;\n')
+patch(slirp, 'src/tcp_subr.c',
+      '        ret = connect(s, (struct sockaddr *)&addr, sockaddr_size(&addr));\n',
+      '        ret = connect(s, (struct sockaddr *)&addr, sockaddr_size(&addr));\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '        if (ret < 0 && errno != EINPROGRESS && errno != EWOULDBLOCK) {\n'
+      '            extern unsigned long emusuni_slirp_connect_failed;\n'
+      '            extern int emusuni_slirp_connect_errno;\n'
+      '            emusuni_slirp_connect_failed++;\n'
+      '            emusuni_slirp_connect_errno = errno;\n'
+      '        }\n'
+      '#endif\n')
+#   - IP_TTL, which OpenOrbis' netinet/in.h has with Linux's value (2: FreeBSD's IP_HDRINCL): not set
+#     (libslirp passes the DS's TTL on with it, for traceroute; the PS4's own is used instead).
+patch(slirp, 'src/udp.c',
+      '    setsockopt(so->s, IPPROTO_IP, IP_TTL, &ttl, sizeof(ttl));\n',
+      '#ifndef EMUSUNI_PORT /* EmuSuNi: OpenOrbis\' IP_TTL is Linux\'s (FreeBSD\'s IP_HDRINCL) */\n'
+      '    setsockopt(so->s, IPPROTO_IP, IP_TTL, &ttl, sizeof(ttl));\n'
+      '#endif\n')
+patch(slirp, 'src/ip_icmp.c',
+      '            setsockopt(so->s, IPPROTO_IP, IP_TTL, &ttl, sizeof(ttl));\n',
+      '#ifndef EMUSUNI_PORT /* EmuSuNi: OpenOrbis\' IP_TTL is Linux\'s (FreeBSD\'s IP_HDRINCL) */\n'
+      '            setsockopt(so->s, IPPROTO_IP, IP_TTL, &ttl, sizeof(ttl));\n'
+      '#endif\n')
+#   - The DNS melonDS answers itself (10.64.0.2, the DS's when its firmware gets one automatically):
+#     never with getaddrinfo (musl's, without /etc/resolv.conf, asks 127.0.0.1 and waits seconds on the
+#     emulation thread): "not found" at once. The firmware always has the WFC server's DNS, which the DS
+#     asks itself through libslirp. Its printf of the names and their addresses gone too.
+patch(melonds, 'src/net/Net_Slirp.cpp',
+      '\t\tprintf("- q%d: %04X %04X %s", i, type, cls, domainname);\n',
+      '#ifndef EMUSUNI_PORT\n\t\tprintf("- q%d: %04X %04X %s", i, type, cls, domainname);\n#endif\n')
+patch(melonds, 'src/net/Net_Slirp.cpp',
+      '\t\tif (getaddrinfo(domainname, "0", &dns_hint, &dns_res) == 0)\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\tif (false) // EmuSuNi: no lookup on the emulation thread (scripts/build-nds-core.sh)\n'
+      '#else\n'
+      '\t\tif (getaddrinfo(domainname, "0", &dns_hint, &dns_res) == 0)\n'
+      '#endif\n')
+patch(melonds, 'src/net/Net_Slirp.cpp',
+      '            printf(" shat itself :(");\n',
+      '#ifndef EMUSUNI_PORT\n            printf(" shat itself :(");\n#endif\n')
+patch(melonds, 'src/net/Net_Slirp.cpp',
+      '\t\tprintf("\\n");\n\t\tcuroffset += 4;\n',
+      '#ifndef EMUSUNI_PORT\n\t\tprintf("\\n");\n#endif\n\t\tcuroffset += 4;\n')
+#   - The DS reaches only the internet: libslirp's one way out (sotranslate_out: every TCP connect, UDP
+#     datagram and ping) refuses every address that isn't a public IPv4 one (the home network, the
+#     PS4's own loopback, IPv6...), and melonDS's host address (10.64.0.1) isn't the PS4's 127.0.0.1
+#     (GoldHEN's FTP...). Counted for the log's Wi-Fi line; no address is written anywhere.
+patch(melonds, 'src/net/Net_Slirp.cpp',
+      '    cfg.in_enabled = true;\n',
+      '    cfg.in_enabled = true;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '    cfg.disable_host_loopback = true; // EmuSuNi: 10.64.0.1 isn\'t the PS4 (scripts/build-nds-core.sh)\n'
+      '#endif\n')
+patch(slirp, 'src/socket.c',
+      'int sotranslate_out(struct socket *so, struct sockaddr_storage *addr)\n{\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '/* EmuSuNi (scripts/build-nds-core.sh): the DS goes only to the internet. An address that isn\'t a\n'
+      ' * public IPv4 one (this network, private, shared, loopback, link-local, the IETF\'s, benchmarking,\n'
+      ' * multicast, reserved, broadcast), or any IPv6 one, is refused, and counted. */\n'
+      'unsigned long emusuni_slirp_refused = 0;\n\n'
+      'static bool emusuni_public_destination(const struct sockaddr_storage *addr)\n'
+      '{\n'
+      '    if (addr->ss_family == AF_INET) {\n'
+      '        const uint32_t a = ntohl(((const struct sockaddr_in *)addr)->sin_addr.s_addr);\n'
+      '        const unsigned b0 = a >> 24, b1 = (a >> 16) & 0xff, b2 = (a >> 8) & 0xff;\n'
+      '        const bool local = b0 == 0 || b0 == 10 || b0 == 127 || b0 >= 224 ||\n'
+      '                           (b0 == 100 && (b1 & 0xc0) == 64) || (b0 == 169 && b1 == 254) ||\n'
+      '                           (b0 == 172 && (b1 & 0xf0) == 16) || (b0 == 192 && b1 == 168) ||\n'
+      '                           (b0 == 192 && b1 == 0 && b2 == 0) || (b0 == 198 && (b1 & 0xfe) == 18);\n'
+      '        if (!local)\n'
+      '            return true;\n'
+      '    }\n'
+      '    emusuni_slirp_refused++;\n'
+      '    return false;\n'
+      '}\n'
+      '#endif\n\n'
+      'int sotranslate_out(struct socket *so, struct sockaddr_storage *addr)\n{\n')
+patch(slirp, 'src/socket.c',
+      '    if (!ok) {\n        errno = EPERM;\n        return -1;\n    }\n\n    return 0;\n}\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '    if (ok)\n'
+      '        ok = emusuni_public_destination(addr);\n'
+      '    else\n'
+      '        emusuni_slirp_refused++; /* (the host address with disable_host_loopback, a DNS it can\'t forward) */\n'
+      '#endif\n\n'
+      '    if (!ok) {\n        errno = EPERM;\n        return -1;\n    }\n\n    return 0;\n}\n')
+#   - Where its time goes, for the log's Wi-Fi line (every ~10 s beside the timing's, only while the DS
+#     uses the network): the network's calls timed (the TSC), the polls, the packets each way.
+patch(melonds, 'src/net/Net.h',
+      'namespace melonDS\n{\n\nclass Net\n',
+      'namespace melonDS\n{\n\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '// EmuSuNi: the network\'s time (TSC ticks) and counters since melonDS DS last logged them (its Run,\n'
+      '// every ~10 s, which then zeroes them); the emulation thread\'s.\n'
+      'namespace EmuSuNiNet\n{\n'
+      'extern u64 Ticks, Calls, Polls, PacketsOut, PacketsIn;\n'
+      '}\n'
+      '#endif\n\n'
+      'class Net\n')
+patch(melonds, 'src/net/Net.cpp',
+      'int Net::SendPacket(u8* data, int len, int inst)\n{\n    if (!Driver)\n        return 0;\n\n'
+      '    return Driver->SendPacket(data, len);\n}\n',
+      '#ifdef EMUSUNI_PORT\n'
+      'namespace EmuSuNiNet\n{\nu64 Ticks = 0, Calls = 0, Polls = 0, PacketsOut = 0, PacketsIn = 0;\n}\n\n'
+      'int Net::SendPacket(u8* data, int len, int inst)\n{\n    if (!Driver)\n        return 0;\n\n'
+      '    const u64 t0 = __builtin_ia32_rdtsc();\n'
+      '    const int sent = Driver->SendPacket(data, len);\n'
+      '    EmuSuNiNet::PacketsOut++;\n'
+      '    EmuSuNiNet::Calls++;\n'
+      '    EmuSuNiNet::Ticks += __builtin_ia32_rdtsc() - t0;\n'
+      '    return sent;\n}\n'
+      '#else\n'
+      'int Net::SendPacket(u8* data, int len, int inst)\n{\n    if (!Driver)\n        return 0;\n\n'
+      '    return Driver->SendPacket(data, len);\n}\n'
+      '#endif\n')
+patch(melonds, 'src/net/Net.cpp',
+      '    Driver->RecvCheck();\n\n    int ret = 0;\n'
+      '    if (!Dispatcher.recvPacket(nullptr, nullptr, data, &ret, inst))\n        return 0;\n\n    return ret;\n}\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '    const u64 t0 = __builtin_ia32_rdtsc();\n'
+      '    Driver->RecvCheck();\n\n    int ret = 0;\n'
+      '    const bool got = Dispatcher.recvPacket(nullptr, nullptr, data, &ret, inst);\n'
+      '    EmuSuNiNet::Calls++;\n'
+      '    EmuSuNiNet::Ticks += __builtin_ia32_rdtsc() - t0;\n'
+      '    return got ? ret : 0;\n}\n'
+      '#else\n'
+      '    Driver->RecvCheck();\n\n    int ret = 0;\n'
+      '    if (!Dispatcher.recvPacket(nullptr, nullptr, data, &ret, inst))\n        return 0;\n\n    return ret;\n}\n'
+      '#endif\n')
+patch(melonds, 'src/net/Net_Slirp.cpp',
+      '    Net_Slirp& self = *static_cast<Net_Slirp*>(opaque);\n    if (self.Callback)\n',
+      '#ifdef EMUSUNI_PORT\n    EmuSuNiNet::PacketsIn++;\n#endif\n'
+      '    Net_Slirp& self = *static_cast<Net_Slirp*>(opaque);\n    if (self.Callback)\n')
+patch(melonds, 'src/net/Net_Slirp.cpp',
+      '        int res = poll(PollList, PollListSize, timeout);\n',
+      '        int res = poll(PollList, PollListSize, timeout);\n'
+      '#ifdef EMUSUNI_PORT\n        EmuSuNiNet::Polls++;\n#endif\n')
 
 # --- The JIT's code buffer: one 16 MiB part of the app's JIT arena, else the interpreter.
 patch(melonds, 'src/ARMJIT_Global.h',
@@ -1020,7 +1279,14 @@ patch(core, 'src/libretro/core/core.cpp',
       '#ifdef EMUSUNI_PORT\n'
       '#include <chrono>\n'
       '#include <cstdlib>\n'
-      '#include <GPU.h>\n\n'
+      '#include <GPU.h>\n'
+      '#ifdef HAVE_NETWORKING\n'
+      '#include <Net.h>\n'
+      '// (libslirp\'s socket.c and util.c: build-nds-core.sh)\n'
+      'extern "C" unsigned long emusuni_slirp_refused, emusuni_slirp_socket_failed, emusuni_slirp_send_failed,\n'
+      '    emusuni_slirp_connect_failed;\n'
+      'extern "C" int emusuni_slirp_socket_errno, emusuni_slirp_send_errno, emusuni_slirp_connect_errno;\n'
+      '#endif\n\n'
       '// EmuSuNi: every retro_run timed, and where its time went (melonDS\'s EmuSuNiTiming) logged every\n'
       '// ~10 s (or every NDS_TIMING_FRAMES frames, the PC tests\' environment variable).\n'
       'namespace {\n'
@@ -1069,9 +1335,30 @@ patch(core, 'src/libretro/core/core.cpp',
       '                    ms(Ticks[ARM9]), ms(Ticks[ARM7]), ms(Ticks[GX]), ms(Ticks[System]), Turns / frames,\n'
       '                    IdleTurns / frames, ms(Ticks[Idle]));\n'
       '#endif\n'
+      '#ifdef HAVE_NETWORKING\n'
+      '        // EmuSuNi: the Wi-Fi\'s line, only while the DS used the network (counts, no addresses).\n'
+      '        static unsigned long refusedBefore = 0;\n'
+      '        if (melonDS::EmuSuNiNet::Calls) {\n'
+      '            retro::info("nds: Wi-Fi: network {:.3f} ms per frame ({} calls, {} polls); {} packets out, {} in; "\n'
+      '                        "{} connections to the local network or the PS4 refused",\n'
+      '                        ms(melonDS::EmuSuNiNet::Ticks), melonDS::EmuSuNiNet::Calls, melonDS::EmuSuNiNet::Polls,\n'
+      '                        melonDS::EmuSuNiNet::PacketsOut, melonDS::EmuSuNiNet::PacketsIn,\n'
+      '                        emusuni_slirp_refused - refusedBefore);\n'
+      '            if (emusuni_slirp_socket_failed || emusuni_slirp_send_failed || emusuni_slirp_connect_failed)\n'
+      '                retro::info("nds: Wi-Fi: failed since the game started: {} sockets (errno {}), {} datagrams sent "\n'
+      '                            "(errno {}), {} connections (errno {})",\n'
+      '                            emusuni_slirp_socket_failed, emusuni_slirp_socket_errno, emusuni_slirp_send_failed,\n'
+      '                            emusuni_slirp_send_errno, emusuni_slirp_connect_failed, emusuni_slirp_connect_errno);\n'
+      '        }\n'
+      '        refusedBefore = emusuni_slirp_refused;\n'
+      '#endif\n'
       '    }\n'
       '    for (uint64_t& t : Ticks)\n'
       '        t = 0;\n'
+      '#ifdef HAVE_NETWORKING\n'
+      '    melonDS::EmuSuNiNet::Ticks = melonDS::EmuSuNiNet::Calls = melonDS::EmuSuNiNet::Polls = 0;\n'
+      '    melonDS::EmuSuNiNet::PacketsOut = melonDS::EmuSuNiNet::PacketsIn = 0;\n'
+      '#endif\n'
       '    Turns = 0;\n'
       '    IdleTurns = 0;\n'
       '    Render3D[0] = 0;\n'
@@ -2009,9 +2296,13 @@ for dep in melonDS libretro-common embed-binaries glm libslirp pntr fmt yamc spa
   fi
   DEP_DIRS+=("-DFETCHCONTENT_SOURCE_DIR_${dep^^}=$DEPS/$dep")
 done
+# The Wi-Fi (libslirp, the indirect mode) unless NDS_CORE_NET=off; never libpcap (no dlopen: ENABLE_DYNAMIC).
+# (HAVE_GETADDRINFO said: CMake's check can't link a PS4 program, and without it libretro-common's net_compat.h
+# declares an addrinfo of its own over OpenOrbis' netdb.h's. Nothing in the core calls it on the PS4.)
+case "${NDS_CORE_NET:-on}" in off) NET=OFF ;; *) NET=ON ;; esac
 OPTIONS=(
   -DEMUSUNI_PORT=ON -DENABLE_JIT=ON -DENABLE_THREADED_RENDERER=ON -DENABLE_OPENGL=OFF
-  -DENABLE_COMPUTE_RENDERER=OFF -DENABLE_EGL=OFF -DENABLE_NETWORKING=OFF -DENABLE_DYNAMIC=OFF
+  -DENABLE_COMPUTE_RENDERER=OFF -DENABLE_EGL=OFF -DENABLE_NETWORKING=$NET -DENABLE_DYNAMIC=OFF -DHAVE_GETADDRINFO=ON
   -DENABLE_ZLIB=ON -DTRACY_ENABLE=OFF -DBUILD_TESTING=OFF -DENABLE_GDBSTUB=OFF
   -DENABLE_LTO_RELEASE=OFF -DENABLE_LTO=OFF -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=OFF
   -DHAVE_MMAP=OFF -DFETCHCONTENT_FULLY_DISCONNECTED=ON "${DEP_DIRS[@]}"

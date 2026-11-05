@@ -42,6 +42,9 @@ struct Limits
 void AppStarted(const std::string& data_dir, std::string* game_path, std::string* message);
 // That game isn't started after all (not found, L1 held): its next start is a first attempt.
 void Forget();
+// (00.91) Whether AppStarted found that the watchdog restarted EmuSuNi (a game stopped or crashed: src/LogReport.h asks
+// the player to send the log).
+bool Restarted();
 
 // A game's start (Emulator::Run, first thing): start.txt written, the watch on. The second attempt of the same game
 // (after Retry, or the restart for it) is told by its path.

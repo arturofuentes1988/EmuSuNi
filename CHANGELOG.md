@@ -6,6 +6,514 @@ All notable changes to EmuSuNi. Versions follow the PS4 package version (`XX.YY`
 
 **Public release v00.22 (2026-10-28)** is the 00.83 test build below, packaged as version 00.22.
 
+**Public release v00.23 (2026-11-05)** gathers the test builds 00.84 to 01.03 (the section below), packaged as
+version 00.23.
+
+## 00.23 (public release, 2026-11-05)
+
+The first public release since 00.22: **the test builds 00.84 to 01.03** (00.84: online play, voice chat, local
+multiplayer, anonymous statistics, the Online tab; 00.85: big libraries, the Online tab as a table, 3DS and Saturn
+fixes, states' thumbnails, one-press exit, menu size; 00.86: rooms that stay open and ask before letting a player in;
+00.87: portable mode; 00.88: the online mark on the consoles, the Game menu's fit; 00.89: macros, PlayStation, PSP,
+Dreamcast, 3DS and Arcade fixes; 00.90 and 00.91: the Atari 2600, 7800 and Jaguar, a lighter package, How to Help;
+00.92: Send Log; 00.93: online play's pacing, its latency bar, Choose Together on a page of its own; 00.94: the 3DS's
+pipelines by parts; 00.95: the Game Boy link cable online, the DS's Wi-Fi, rooms of 2 to 4, the Jaguar's
+recompiler; 00.96 to 00.98: the DS's Wi-Fi on the PS4, a faster Jaguar, the 3DS's vertices; 00.99 to 01.01:
+OpenBOR; 01.02: PSP and Dreamcast online, new defaults; 01.03: Super Smash Bros. fixed, the Atari 2600 and 7800
+online). Anonymous statistics are **on by default** (Settings -> Anonymous Statistics -> Off sends nothing at all).
+The test builds 00.99 to 01.03 are built with `with-openbor` (and `with-saturn`, `with-gblink`), as this release.
+
+- **Super Smash Bros. for Nintendo 3DS: its fighters no longer in shards** (01.03; players of v00.22: the fighters
+  "like stained glass" in a fight, whole in a pause, the intro and the victory screen; scripts/build-3ds-core.sh). The
+  fighters' far models keep their positions as three shorts with a stride of 18 bytes, so every other vertex sits at
+  an address 4 doesn't divide, and the PS4's GPU (RADV on GFX7) reads such formatted loads (16_16 at 2 mod 4) wrong.
+  Now, in every 3DS game, each vertex attribute that isn't a float goes to an offset its load divides, the stride a
+  multiple of 4 (the fighters 18 -> 20); floats don't move. Confirmed on the PS4 (a fight at 59.9 fps, 100%: the fix
+  costs nothing; 56-69% of Smash's vertices moved, `vertex attributes moved to aligned offsets: N of M` every 600
+  frames). The files `/data/EmuSuNi/3ds-vertex-align-odd` (back to 00.95's rule: the odd offsets only) and
+  `3ds-vertex-float` (every attribute of those vertices as a 32-bit float), read at the start and every 2 s, are for
+  tests. The shader generator changed: each 3DS game's first start makes its shader cache again, with some stutter.
+  On the way (none was the cause, all kept, each with a file to undo it): (00.95) misaligned vertex data copied
+  aligned, and vertices already copied used again (Driver Renegade 3D, Donkey Kong Country Returns: half the copies;
+  `3ds-vertex-as-is`, `3ds-vertex-reuse-off`); (00.96) **vertex compaction**: a draw that uses half or less of its
+  range's vertices copies only those (Driver: 2.9 -> 0.24 GB of copies per 600 frames on the PC;
+  `3ds-vertex-compact-off`); (00.98) indexed draws that start above vertex 0 drawn from vertex 0, their indices
+  rebased on the CPU (`3ds-index-as-is`); (01.00) the vertex shaders' parts whose jumps all go forward no longer in a
+  jump loop (`3ds-vs-jump-loop`); (01.01, 01.03) `3ds-vs-bone0` (every bone the first: rigid fighters) and (01.02)
+  `3ds-gpu-sync-frame`, `3ds-gpu-sync-draw`, `3ds-uniforms-fresh`, read while a game runs, to tell where a picture
+  goes wrong.
+- **3DS: a game's first play stutters far less** (00.94: **pipelines by parts**, VK_EXT_graphics_pipeline_library;
+  scripts/build-3ds-core.sh, "00.94: pipelines by parts", and src/Display.cpp, which asks for the extensions -
+  without them, as before). Each shader is compiled once as a part and a pipeline linked from its parts at once; the
+  optimised one is compiled on a thread of its own ("Pipeline optimizer", a lower priority since 00.95) and takes its
+  place. On the PC with the PS4's GPU compiler (RADV Bonaire) and a CPU as slow, a first play's compiling waits: Kirby:
+  Planet Robobot 7.4 -> 0.7 s, Pokémon X 4.9 -> 0.7, Smash 0.73 -> 0.20; the same pictures (Pokémon X pixel for
+  pixel). A part the driver refuses turns them off for the session; a start that crashes while making parts leaves
+  `/data/EmuSuNi/3ds-gpl-crashed` (none until it is deleted); `3ds-gpl-off` turns them off. (01.01) The JIT's
+  warm-up compiles only the 60 000 blocks used last, leaving half the code cache free (Smash's warm-up 10.2 -> 2.8 s;
+  ~198 000 filled its 40 MiB and threw them all away at 47 s); a core whose cache doesn't fit shrinks it down to 4
+  MiB instead of failing. (00.89) Metroid: Samus Returns draws its right eye in Auto (the lift's background, #31);
+  Azahar's #2590 (the SPIR-V generator's shadows: objects in a shadow came out black) and #2627 (the procedural
+  textures' tables) ported; `3ds-glsl-shaders` compiles the fragment shaders as the OpenGL generator does, for tests.
+  (00.90) A fix for Driver Renegade 3D. (00.93) Fast memory turns on again by itself (an old build's crash marker is
+  deleted).
+- **OpenBOR's games** (00.99 to 01.01; `build.sh with-openbor`, new scripts/build-openbor-core.sh; src/Systems.cpp,
+  Cores, Controls, Emulator). OpenBOR, the beat 'em up engine, plays the free games its fans make (their "mods": `.pak`
+  files the player puts in `Roms/openbor`; none is included): zanac's multi-engine libretro core
+  (zanac/openbor-6391-libretro at 933aed0, BSD-3-Clause) with two engines, v3.0 Build 6391 (most mods) and v4.0
+  Build 8025, picked by what the `.pak` holds (not 8025's WebM build). Its tab and icon (a fist, for now), the `.pak`
+  read from its path (no `.zip`), its saves and high scores in `saves/openbor`, up to 4 players; Cross jumps, Square
+  attacks, Circle special, Triangle attack 2, L1 / R1 attacks 3 and 4, Options START, the touchpad SELECT (back), R2
+  fast forward. No covers, states, cheats, reset, online play or achievements. The core's changes: an engine starts
+  again without the app starting again (its `.data` and `.bss` kept from before its first start and put back: the
+  same frames after two restarts), its coroutine's stack 2 MiB (not 16), its sprite queue on the heap (not a static
+  800-920 KB), relative paths in 6391. (01.00) 00.99 closed as it opened on the PS4, before its log's first line: the
+  engines' own sections had names the PS4's linker script doesn't place, so the executable's data segment left them
+  out; now `.data.ob_<engine>` and `.bss.ob_<engine>`, and the script refuses any loadable section the linker script
+  wouldn't place. (01.01) Leaving Super Mario Brawl crashed the app: two bugs of the 6391 engine, found with
+  AddressSanitizer - a `subclass` model's weapons list written past its end (it was its parent's), the scripts'
+  numbered constants read past theirs -, fixed as 8025 does. On the PS4: Xelam, Ruvor and Super Mario Brawl at 60 fps,
+  one engine's game after another without a restart. Its licence goes in the package as `licenses/openbor-license.txt`.
+- **Online through the community's free servers** (each off until a game connects; no EmuSuNi server; nothing of
+  them in the log but counts):
+  - **PSP Online** (01.02; scripts/build-psp-core.sh "Online play", src/Emulator.cpp BuildPspVariables; a game's
+    setting, **Off** by default): the PSP's Wi-Fi, for the games' own servers where fans revived them (PS Rewired's
+    DNS, or the game's in PPSSPP's `infra-dns.json`, now in the package: MotorStorm Arctic Edge, WipEout Pulse, FIFA,
+    SOCOM...) and ad hoc play (Monster Hunter, Tekken 6, Dissidia...) through a PRO ad hoc server's relay - **PSP Ad
+    Hoc Server**: Socom (France, the default), Madness Gaming Network, Psi-Hate (USA), Relay Brasileiro, Sprawl Relay
+    (Brazil); the players of one game choose the same. No built-in server, no UPnP. A MAC address of this PS4's own,
+    made at random once (`/data/EmuSuNi/psp-mac.txt`); the PSP's nickname is the online nickname, else "EmuSuNi-" and
+    4 digits of that MAC (never the PS4 user's name). `/data/EmuSuNi/psp-net-log` logs every network call without
+    an IPv4 address; (01.03) a line every 10 s while the network is used (connections, failures, bytes). On the
+    PS4, MotorStorm Arctic Edge connected to its revived server (no match was open then).
+  - **Dreamcast Online** (01.02; scripts/build-dc-core.sh "Dreamcast online", src/Emulator.cpp BuildDcVariables; a
+    game's setting): Off (the default) / DCNet (modem) / DCNet (broadband adapter) - DCNet, Flycast's free servers
+    (reicast_dcnet, reicast_emulate_bba). asio's C++ exceptions no longer reach the PS4 (they would close the app): no
+    internet, a refusal or a silent server is "Can't connect to DCNet" (it gives up at 10 s), leaving while it connects
+    is fine. The log: `online DCNet, modem`, the access point, the bytes of a connection, never an address. (01.03) Its
+    DNS 2 s a try, 3 tries; "DCNet disconnected" only after a real connection. On the PS4, ChuChu Rocket! reached its
+    online lobby.
+  - **The DS's Wi-Fi** (00.95; scripts/build-nds-core.sh, src/Emulator.cpp BuildNdsVariables): melonDS DS with
+    libslirp 4.8.0 (its indirect mode, on the PS4's own sockets) and **DS Wi-Fi** (a game's setting): Wiimmfi
+    (through Kaeru WFC's gateway, the default), WiiLink WFC or Off - the DNS the firmware gives a game's Nintendo
+    Wi-Fi Connection. The DS reaches only public addresses (not the home network); nothing is sent until a game
+    connects. (00.96) OpenOrbis' `SOCK_CLOEXEC` has Linux's value, which the PS4 refuses: no socket was made at all;
+    now without it, and `SO_NOSIGPIPE` on TCP. (00.98) OpenOrbis' `sockaddr_storage` has no `ss_len`, so the family
+    sat on the wrong byte for the PS4's FreeBSD kernel (every datagram refused, errno 47; the games' error 52100);
+    libslirp's moved, with a check that stops the build if the two shapes differ again. `nds: Wi-Fi: ...` in the log.
+    On the PC, Mario Kart DS raced on Wiimmfi; on the PS4 its packets go both ways.
+- **New defaults: Ultra** (01.02, the owner; src/Settings.cpp). Every setting's default is Ultra's (Resolution 6x
+  with the AI upscaler, the N64 4x, the PlayStation 4x with xBR, true colour, PGXP and MSAA 4x, the PSP 4x and 16x, the
+  Dreamcast 3x and 16x), the 3DS starts at Medium (2x, smooth edges; its own level in GetLocked), the DS's screens Side
+  by Side (the 3DS's stay one above the other); what would hurt on the PS4 or change the art stays as it was (the
+  PSP's MSAA and texture upscaling, the N64's exact 2D and effects, the Dreamcast's per-pixel transparency and DSP,
+  the PlayStation's MSAA 8x, the TV looks). Once, at the first start of 01.02 or later (`[global] defaults=01.02`),
+  the copies of the old defaults are taken out of every console's and game's settings: who never chose a quality goes
+  from Low to Ultra, what was chosen stays (a Low chosen for a console's games without a level in All Games can't be
+  told from such a copy). Reset All Settings sets the mark too. The log: `settings: a new install: Quality Ultra ...`
+  or `settings: the new defaults (01.02 ...), once: copies taken out ...`.
+- **Settings -> Send Log** (00.92; new src/LogReport.h, .cpp; server/emusuni-reports.py, scripts/server/
+  deploy-reports.sh): the player sends EmuSuNi's logs to its creator and gets a 6-letter code to write in a report on
+  GitHub or Telegram; after the app closed by itself (crash.log grew, or the start's watchdog restarted it), the next
+  start asks once. What goes: `emusuni.log`, `emusuni-1.log` and the end of `crash.log` (its last 256 KiB), with the
+  version, compressed, the player's own RetroAchievements user name and nickname taken out first. Over HTTPS (TCP 443)
+  to online play's main server, whose own certificate the app pins (its key only, whatever the address or the clock).
+  The server takes out the rest (other nicknames, addresses, room codes, the PS4's user ids), keeps only the country,
+  never the address, and deletes a log after 90 days; 4 MB a send, 10 a day per address. Not one game, save or other
+  file is sent.
+- **PlayStation: fewer pauses while loading** (00.89; scripts/build-ps1-core.sh): the shader thread made ~10 900
+  pipelines (7 filters by 3 depths), now ~1 040; `vulkan_pipelines.bin` saved when that thread ends (it was saved only
+  when the game closed); the PS4's priorities for the shader (700) and CD reader (480) threads, off the emulation's
+  core. (00.90, #43) 00.81's recompiler patch lost the jumps in a branch's delay slot: the European Metal Gear Solid,
+  Tekken 3 and Driver 2 play again; a warning for an ISO without its audio and video sectors (an incomplete dump).
+- **PSP** (00.89): PPSSPP's depth rasterizer (compat.ini asks for it for Midnight Club: LA Remix) on a thread of its
+  own at low quality, as upstream does (5 commits in scripts/psp-core-upstream.diff; `psp-depth-raster-off`,
+  `psp-depth-raster-full` for tests). (00.90) When the free space reads close to nothing (it can on a PS5), the memory
+  stick has 64 MiB and saving works (port/ps4_diskfree.c).
+- **Dreamcast: a C++ exception of its core no longer closes the app** (00.89; scripts/build-dc-core.sh): an
+  unreadable disc (why House of the Dead 2 or Jet Set Radio worked for one player and not for another) and the MMU's
+  faults of the Windows CE games (Sega Rally 2, which now starts) - the SH4 takes its exceptions without C++, and a
+  rescue (EmusuniRescue) ends the game with a message. **Dreamcast Language** (a game's setting): a European language
+  also makes it a European console for a disc that allows it.
+- **Arcade** (00.89): Killer Instinct draws beside its emulation once a frame takes over 85% of its time (~10%
+  faster), its emulation thread on core 2, a MIPS3 profile in the log; the CPU upscaler's 4 threads no longer
+  inherit core 2 (src/Emulator.cpp, src/Upscaler.cpp, src/MemoryGuard.h). (00.90) A set from another emulator's
+  version (MAME's) says so and asks for FinalBurn Neo 1.0.0.03's.
+- **Macros** (00.89; src/Controls, src/IngameMenu, src/Menu.cpp): Controls has Macro 1, 2 and 3 for each console
+  (and in the in-game menu): one button presses several at once (fighting games); None by default
+  (`controls.ini`'s `macro_N_presses`). (00.90, #45) **The sticks can be assigned** in Controls. (00.89) The
+  RetroAchievements filter's amber notice in the XMB and the Library; Saved Data's thumbnails and its 52x45 icon
+  not stretched.
+- **A lighter package** (00.90): PPSSPP without its 84 language files and the shaders it doesn't use
+  (scripts/package.sh, -7 MB) and the menu's small files in one `xmb/assets.zip` (new src/AssetPack.h, .cpp,
+  scripts/make-asset-pack.py, -3.7 MB; a loose file is read first): 190.5 MB at 00.89, 183.4 at 00.90, 187.4 MB with
+  everything of 01.03 (v00.22: 189.0). A console without games says where to copy them.
+
+- **Settings -> How to Help** (00.90): EmuSuNi is free and asks for no money (FinalBurn Neo's licence forbids asking
+  for donations for a project that uses it). The panel asks for a star on GitHub, a report in its Issues with
+  `/data/EmuSuNi/emusuni.log`, a word to others, with the project's page as a QR code under its address (the PS4 opens
+  no link; `assets/xmb/help-qr.png`, made once by the new `scripts/make-help-qr.py`). (00.95) The address and QR
+  code of EmuSuNi's web page; About says only EmuSuNi, "Created by Arturo Fuentes" and the version.
+- **Three new consoles: the Atari 2600, the Atari 7800 and the Atari Jaguar (experimental)** (00.90; new
+  `scripts/build-atari-cores.sh`, pinned in `scripts/setup.sh`, `build.sh no-atari` / `no-jaguar`): Stella (its
+  libretro port at 514efcf, without C++ exceptions, its game list made compact), ProSystem and Virtual Jaguar 3.11 (no
+  Atari BIOS built in: its HLE BIOS, or the player's own `jagboot.rom`; its 16 MiB of memory and its CD buffers on the
+  heap). Their tabs and icons, folders (`atari2600`, `atari7800`, `atarijaguar`; a 2600 `.bin` is one of 64 KB or less,
+  a Genesis one is bigger), covers, star ratings, RetroAchievements, saves and states, The Bezel Project's and their
+  own bezels. The 2600's switches on the pad (SELECT, RESET, each difficulty's A and B, Color and B/W, set where they
+  stay) and its Phosphor setting; the 7800's PAUSE, SELECT, RESET; the Jaguar's A B C, PAUSE, OPTION, its number pad's
+  1-4 on L1, R1, L2, R2 and all twelve keys on the touchpad, Jaguar BIOS and Jaguar GPU/DSP Speed (Auto: half for
+  Doom; Doom also with Virtual Jaguar's fast blitter, its picture the same: on the PC both make its core 45% lighter;
+  Tempest 2000 with the fast blitter too, 45-50% lighter, frame for frame the same picture and sound).
+  The 7800's SuperGame carts over 144 KB with 32 KB of RAM in two banks (1942 (Extended)). The Jaguar's core
+  with PGO (`scripts/jaguar-core.profdata.xz`; on the PC Doom 14% faster, Rayman 25%), its drawing beside its emulation
+  while the core is heavy, as the Arcade's. The image: about 4 MiB more (2600 and 7800 2.1, the Jaguar 2.1; about
+  218 MiB free at display ready). (00.91, after the owner's test of 00.90: the 2600 closed the app at every game's
+  load - Stella's C++ errors are its own now, not half the system's library -, and 1942 (Extended), the Jaguar's PGO,
+  Auto and drawing came then.) (00.96) **The Jaguar's GPU and DSP recompiled** to the PS4's own code
+  (`scripts/vjaguar-jit/emusuni_gpu_jit.h`, `emusuni_dsp_jit.h`, Settings -> Jaguar Recompiler, On by default): the
+  same pictures and sound as their interpreters, frame for frame, in every game tried on the PC; their blocks kept by
+  their bytes, for the games that load their code again and again (Doom), and run one after another. On the PC the
+  DSP's alone takes Rayman 40% lighter, Iron Soldier 32-44%, Wolfenstein 3D 12-17%, Tempest 2000 10%. (00.96) Alien vs
+  Predator with the fast blitter, half as heavy in a game (the final game and the v0.93 beta): its A1 window with
+  BKGWREN is now the accurate engine's (the beta's HUD bar was a pixel short on every line) and its blits under 8 bits
+  a pixel go to the accurate engine (the final's "GAME OVER"), the same pictures and sound. The GPU's recompiler has
+  24 MiB of the JIT arena (it was 8: Doom, Wolfenstein 3D and Iron Soldier filled it and compiled everything again,
+  over and over; no memory more), and the log says when it fills. The fast blitter compiled once more for
+  the 13 commands Doom, Tempest 2000 and Alien vs Predator spend it on, a wait loop of the GPU's or DSP's run inside
+  its recompiled code, and the PGO profile made again: on the PC a game of Alien vs Predator 10.2 -> 2.3 ms a frame
+  (the GPU's recompiler alone -> all), Tempest 2000 3.0 -> 2.0, Iron Soldier 2.7 -> 1.7, Rayman 1.7 -> 1.0, Doom
+  2.1 -> 1.8, Wolfenstein 3D 2.3 -> 2.0. (00.98, after the owner's test of 00.97: Iron Soldier 31-36 fps in its 3D,
+  Wolfenstein 3D 55-59) Iron Soldier and Wolfenstein 3D with the fast blitter, the same pictures and sound: the fast
+  engine's SRCDATA register (a blit without SRCEN) now at the destination's pixel size, as the accurate engine's
+  (Wolfenstein 3D's screen clear, A1 16 bits a pixel and A2 8, was 00DE a pixel, not DEDE). The recompilers check a
+  block's code only when a word of compiled code was written since its last check (a counter; a word written once
+  counts again only once a block with it is checked): no sum of its lines' counts each time a block runs (Iron
+  Soldier's GPU: 93% of its blocks need none, its DSP all). The fast blitter compiled apart for 6 more commands (Iron
+  Soldier's and Wolfenstein 3D's), the PGO profile made again. On the PC a game of Wolfenstein 3D 2.0 -> 1.2 ms a frame,
+  Iron Soldier's 3D 2.5 -> 2.0 and a game 1.7 -> 1.4, Alien vs Predator 1.42 -> 1.34, Doom, Tempest 2000 and Rayman
+  3-4% lighter. (Iron Soldier fills the GPU's 24 MiB every 45 s or so: 6000 blocks a time, but compiling them is under
+  0.2% of its time on the PC; it isn't what makes its 3D slow. Its GPU/DSP at half helps it 1-5% only.) (00.93) A
+  `jaguar_risc=1x` saved by 00.90 is taken out once (`[global] jaguar_auto=00.92`), so Auto applies (Doom ran at 26
+  fps in Normal; 54-57 since). (01.00, the owner: "not smooth") The Jaguar's emulation thread on core 2 (it went
+  between cores 0, 2 and 3, sharing core 0 with the sound and the system) and its drawing always beside its emulation,
+  a frame later, as the Saturn's (its pacing changed mode every second or two); the pacing-change notice is the
+  Arcade's only. On the PS4 (00.97 to 01.00): Doom, Wolfenstein 3D, Tempest 2000 and Rayman play well, Alien vs Predator
+  53-60 fps, Iron Soldier's 3D 56-57 fps with heavy frames (the game's own, a heavy one and a light one by turns). (01.03)
+  **The Atari 2600 and 7800 play online** (see Online play); the Jaguar doesn't (too heavy to roll back).
+- **3DS: a game's first play stutters less and shows fewer black objects** (00.91; the owner's 00.90 log: Kirby: Planet
+  Robobot stopped 2-5 s at a time, Pokémon's models and the scenery black until their pipelines were built). A draw
+  that waits for its pipeline puts it at the front of the workers' queue, and the Vulkan worker builds it itself if no
+  worker has started it; 4 compile workers of each kind; the game's ARM11 core 40 MiB of JIT code cache (Smash filled
+  24 and threw its compiled code away); fast memory's crash marker kept per build of the core, so one bad start no
+  longer turns it off for good (`scripts/build-3ds-core.sh`).
+
+- **The consoles that play online have a mark** (00.88): the Online tab's globe on their icon in the XMB and after
+  their name in the Library's tabs (NES, SNES, Genesis, Master System, Game Gear, SG-1000, PC Engine, Arcade; from
+  01.03 the Atari 2600 and 7800).
+- **The Game menu (Triangle) fits the screen again** (00.88): its options closer when they would reach the help text
+  at the bottom, and "Add to Favorites / Remove from Favorites" gone from it (L2 on a game does it).
+- **Portable mode: your data on a USB drive, to play with it on another PS4** (a player's request; new src/Portable.h,
+  .cpp, src/DrivePaths.h). Settings -> **Keep My Data on the USB Drive** copies the saves (every core's: the
+  cartridges' saves, PSP memory stick, Dreamcast VMUs, Saturn backup memory, 3DS sdmc and nand...), states with their
+  pictures, cheats, bezels, covers, themes, settings, controls, favorites, names, played games and the game list into
+  `EmuSuNi-Portable` at the drive's root (nothing on the PS4 is moved or deleted; its `portable.ini` marks it, so an
+  `EmuSuNi` folder of games or covers is never taken for it), then EmuSuNi restarts and uses it. Another PS4 with
+  EmuSuNi asks once "Use the data on this drive?" (its own data isn't touched, and comes back when the drive is
+  removed); the answer is remembered on that PS4, never on the drive. Not copied: the RetroAchievements login, the
+  online profile and nickname, the statistics' id, My Stats, logs, caches, BIOS (a console reads its BIOS from the
+  drive's `EmuSuNi-Portable/system` when the player put it there), Azahar's keys. Paths of the drive's own files
+  (game list, played games, game folders, the last and default game) are kept relative to the drive: it can be usb0 on
+  one PS4 and usb1 on another, and the game list still shows at once. A drive taken out while in use: the next save
+  goes to `/data/EmuSuNi/portable-fallback/<id>` with a warning on the screen (never over the PS4's own saves), games
+  wait for a restart, and the next start with the drive copies it back. Turn Off offers copying the drive's data back
+  to the PS4 (what it hasn't got or has older). Without the marker everything is as before (no USB drive is touched
+  before the menu's first frame).
+- **Big libraries: the app opens at once, whatever the number of games** (players of v00.22: with more than 10 000
+  games it never opened). The games were read before the menu's first picture, and the start's watchdog closes the app
+  without a picture in 20 s; a folder shared by every console (the drive's top folder) had each .zip opened once per
+  console - most of an hour. Now the menu shows at once the games the last start found (`data_dir/cache/library.tsv`)
+  while a thread reads the drives again (waiting while a game runs), its games replacing them only when something
+  changed; the very first start says "Reading your games..." with how many so far. Each folder is read once, each
+  file looked inside once for every console (and not again while it is the same file), no USB drive is touched before
+  the first frame. Fewer copies of the game list (stars, covers), RetroAchievements' marks taken game by game, their
+  hash file and online play's CRC file no longer written whole every 50 games, a rename or a deletion without reading
+  every folder again, Clean Up's deletions without a search of every game for each.
+- **Saturn: saving a state no longer closes the app** (a player of v00.22). YabaSanshiro made its states in a
+  tmpfile(), which the PS4's libc opens in /tmp - a PS4 app has none: NULL, and the state was written into it. Now in
+  memory (scripts/build-saturn-core.sh: a fopencookie stream, the same on the PC), a state of the wrong size refused,
+  the VDP1's frame buffer copied through the heap (not 256 KiB of the main thread's stack).
+- **3DS: a game that goes wrong ends the game, not EmuSuNi** (players of v00.22: the app closed right after a 3DS
+  game opened; Luigi's Mansion 2 froze and the PS4 closed the app; Majora's Mask 3D went dark and stopped answering).
+  On the PS4 a C++ exception never reaches its catch, so any one in the 3DS core closed the app with no crash report
+  (no JIT memory on a console, a vertex shader the decompiler can't take, the JIT memory full...). Now each is logged
+  first (type, message, place); one under a frame, the game's load or a save state comes back there and the game ends
+  with a message; the ones Azahar threw on purpose are gone (such a shader is shaded on the CPU; the JIT memory, stream
+  buffers, pipeline cache and shader modules checked by their results). A frame that runs for seconds says in the log
+  what it waits for (`EmuSuNi: stall: ...`); a 3DS game that crashes, throws a fatal error or closes itself ends with a
+  message instead of freezing. Luigi's Mansion 2 gets Azahar's GPU timing emulation (upstream's fix for it); the file
+  /data/EmuSuNi/3ds-cpu-shaders runs the vertex shaders on the CPU (do black or broken models come from the GPU?).
+- **States' thumbnails for every console** (GitHub #33): the N64, PlayStation, PSP, Dreamcast, NAOMI, Atomiswave and 3DS
+  draw their own image, so their states never had one ("Empty slot" beside a saved state). Their thumbnail is now the
+  game's picture on the screen as the in-game menu opened (Display::CaptureArea); a state without one removes the
+  slot's old one; the in-game menu shows each thumbnail in its own shape, and "No picture" (not "Empty slot") for an
+  older state saved without one.
+- **In-game menu buttons without the hold**: Controls -> In-Game Menu also has R3, L1 + R1 and L2 + R2 pressed (the
+  menu at once; L1 + R1 and L2 + R2 only pressed together, within a quarter of a second); the holds stay, L3 + R3
+  stays the default.
+- **Settings -> Menu Size** (100%, 90%, 80%, 70%): the XMB's rows and the Library's covers smaller, more games in view;
+  applies at once.
+- **Online play: two PS4s anywhere in the world play one game as if both controllers were on one console** (new
+  src/Netplay.h, .cpp; src/NetplayProtocol.h, shared with the server; src/NetplayUi.h, .cpp). EmuSuNi's own protocol
+  (not RetroArch's), UDP, for the NES, Super Nintendo, SG-1000, Master System, Game Gear, Genesis, PC Engine and
+  Arcade (FinalBurn Neo); from 00.95 the Game Boy's link cable, from 01.03 the Atari 2600 and 7800 (below).
+  - **Rooms**: a game's Triangle -> **Play Online** makes a Private Room (a 6-letter code - no 0/O, 1/I/L - to tell a
+    friend) or a Public Room (in everyone's list); **Settings -> Online Play**: Join with Code (the app's keyboard),
+    **Public Rooms** (the rooms waiting for a player, all consoles or one - Triangle -, with the host's nickname, time
+    zone, players and estimated ping, and whether you have the game, another version of it, or not), Hide My Address.
+    The guest's app finds the room's game in its library by the file's CRC32 and size (a file over 64 MiB: its first
+    and last 8 MiB), else by its title ("another version: Play Anyway"; an arcade romset of that name counts as the
+    same: the core checks its files). The host sees who joined, their ping and whether they have the game, presses
+    Start (or removes a player); both games start.
+  - **The match** (GGPO's way): the host's core options (before the game loads) and its save state, battery save and
+    controller devices (once it has) go to the guest: both start from the same frame with the same settings. Every
+    frame each console sends its local players' inputs with the ones not yet acknowledged (a lost packet costs
+    nothing); an input plays `delay` frames after it is pressed on both. **Rollback**: the other's input not in yet is
+    predicted (the last one), the frame runs; when it differs, the state saved before it is loaded and the frames since
+    run again - not heard, not shown - up to 8 frames back (Super Nintendo 6, Arcade 3). Input delay from the ping (1-3
+    frames; ~half the one-way trip, the rest predicted). **Time sync**: a console running ahead waits a frame now and
+    then. **Checksums** every 60 frames (the save state's CRC32; the memory's for Genesis Plus GX - its state holds a
+    pointer of each process - and FinalBurn Neo); a difference has the host send its state again, the guest loads it
+    and runs on to where it was (**resync**). The Genesis starts every frame from its state saved and loaded again
+    (Genesis Plus GX's loaded state goes on otherwise than the one it was saved from). Each console brings its own
+    controllers (up to 4 players in all: the host's first). netplay.ini can set delay= and rollback= (0: delay-based).
+  - **While online**: no save or load state, rewind, cheats, reset, disc change, fast forward, slow motion or FPS limit
+    of one's own; RetroAchievements paused (no frame of a match is checked: frames run again and predicted ones would
+    count); the guest's own battery save and Continue state aren't written; the in-game menu doesn't pause the match
+    (this console's players stand still while it is open) and shows the players and their ping, Voice Chat on/off,
+    each player muted (Cross), Remove Player (the host's, asked twice) and Leave Room. On the screen: the ping
+    (green/amber/red, "relay"), who is speaking, "Connecting to Ana...", "Waiting for Ana...", "Resyncing...". The
+    other leaving or the connection lost (12 s without a packet) ends the game with the reason in the menu.
+  - **The path**: the hole punch to the other console's public and LAN addresses; until it answers (or forever: a
+    symmetric NAT, a hidden address) through a **relay**: the main server, or the relay server nearest both consoles
+    (the main server's list; each console pings them; the host chooses). **Hide My Address**: never direct, the other
+    player never learns it.
+  - **Safety with strangers**: voice chat starts off in public rooms (each player turns theirs on) and on in private
+    ones; per-player mute; the host removes a player (who can't join that room again); nicknames (the PS4 user's, or
+    one typed in the **Online tab's Nickname** - kept in netplay.ini's nickname=; left empty, the PS4
+    user's again) cut to 16 letters and filtered, as the server does again with them and with titles.
+  - **The server** (new server/emusuni-netd.cpp: C++17, no library, one thread, UDP 7777): rooms by code, the public
+    list (pages of 8, by console), relays (a member's ticket from the main server, HMAC-SHA256 with the servers' shared
+    secret, opens it on any relay server: --relay-only), anti-amplification (a cookie first: no answer bigger than a
+    request that proves nothing of its address), per-address rate limits (Create/Join 20 a minute: codes can't be
+    tried one after another), relayed bytes capped per member and per room, rooms expire (a member silent 30 s, 12
+    h), another version told to update. Logs counts only, never an address or a code. New scripts/server/deploy.sh
+    (main / relay / update on Ubuntu or Oracle Linux, systemd unit scripts/server/emusuni-netd.service, firewall
+    notes; the main server runs on Oracle Cloud's free tier since 2026-10-29). The app finds the main server in
+    netplay.ini's server=, else the GitHub repository's netplay/servers.txt (cached; servers can move without an
+    update), else src/Netplay.h's SERVER (the main server's address).
+  - **Choose Together** (Settings -> Online Play): a room without a game. Once the friend is in, both see the games
+    they both have - the same file (CRC32 and size) of a console online play has, two players or more when known
+    (new assets/xmb/netplay/players.bin, made by scripts/make-netplay-players.py: libretro-database's maxusers by the
+    cartridge's CRC32 or name, FinalBurn Neo's drivers' players by romset; the games not known behind "Show All
+    Common Games", marked ?) - with "Same EmuSuNi version on both", each with its own titles and covers. The host
+    picks one (a guest suggests: the host sees "Suggested"); its match starts as a room's does; End Match (the in-game
+    menu) or the game's end brings both back to the room's list, to pick another without joining again. The library's
+    files are hashed on a thread of their own (new src/NetplayLibrary.h, .cpp; never blocking the menu, its progress
+    shown; cached by path, size and time in cache/netplay-crcs.txt), the lists sent as compressed chunks. The public
+    list shows such rooms as "Choose Together" under every console.
+  - Voice chat (src/Voice.h) rides on the match's socket; its packets go only to players whose voice is on.
+  - **00.93: smoother matches** (the owner's test of 00.91 with a friend in another country: four matches on the
+    direct path, 12-18% of the frames waiting for the other's input). The ping is measured once the game has loaded (a
+    732 ms one, measured during the load, gave 8 frames of input delay with 3 of rollback) and the delay adjusted
+    during the match; the Arcade's rollback 3 -> 6 (a heavier board rolls back less: RollbackReach). A **Latency Bar**
+    with each player's ping (green, amber, red), on by default (off in the Online settings or the in-game menu;
+    netplay.ini's `latency_bar=`). **Choose Together on a page of its own**, full screen, the games in common in a tab
+    per console (L1 / R1); L2 on a console in the Online tab opens it there. The Online tab's filters (console, type)
+    really filter: your own room stays on top, the Choose Together rooms only under All, "N of M rooms in view". The
+    consoles' Ping / Pong carry the ping, jitter, loss, waits, speed and delay; the protocol's VERSION stays 1, the
+    server didn't change. Both players need the same version: the server joins only consoles of the same one.
+  - **00.95: rooms of 2, 3 or 4 players** ("Players: N" as a room is made, and in Choose Together; up to 4 on the
+    consoles that take them). **FinalBurn Neo's high scores off online**: each console loaded its own `.hi`, which
+    FinalBurn Neo doesn't keep in its state (Cadillacs and Dinosaurs went out of sync at frame 60, and a guest's `.hi`
+    was written with the host's table); online the core knows it is a net game and its `hiscores` option is off - the
+    factory table, each console's `.hi` untouched.
+  - **00.95: the Game Boy link cable online** (`build.sh with-gblink`; new src/GbLink.h, .cpp and
+    scripts/build-gblink-core.sh): two PS4s play two Game Boy or Game Boy Color games joined by the link cable -
+    trades, battles - on SameBoy's two-Game-Boy core (alone, a Game Boy game stays mGBA's, its saves as before). A
+    Game Boy or Color game's Triangle -> **Link Cable Online** makes a room for two; the guest picks its own game
+    (**Choose Your Game**); "GB Link" in the Online tab. Each PS4 shows and plays the sound of its own Game Boy and
+    writes only its own game's save (a copy of it first). Rollback 4 (a frame of both Game Boys and their state, 247
+    KiB, about 6 ms on the PS4); the state the same bytes on both consoles, the cable's bits on their way included (7
+    of SameBoy's bugs fixed by the script). On the PC: Pokémon traded with 67 and 150 ms of ping, no desync.
+  - **01.03: the Atari 2600 and 7800** (Netplay::RulesFor; scripts/build-atari-cores.sh): Stella with up to 6
+    frames of rollback (about 3 with a cartridge's ARM), each frame from its state loaded again, the sticks sent whole
+    (its paddles); ProSystem with 8. Their states are the same bytes on both consoles once the guest has the host's:
+    Stella's random seed (from the clock at its start) is in it, and its paddles', driving controller's and input
+    window's state now too; ProSystem's fast state has the RIOT's timer (without it 1942 (Extended) went on
+    otherwise). The Jaguar doesn't play online.
+  - The log: "netplay: ..." (the room, the path - direct or relay -, the options and states sent, the delay and
+    rollback, each desync and resync, the match's totals: rollbacks, frames run again, waits, checksums, packets).
+  - PC test: local/herramientas/prueba-netplay/probar.sh - the server and a relay-only server, the server's protocol
+    and limits from outside (servertest.py), the cores' costs and determinism (nptool measure), and 16 scenarios between
+    two headless consoles running the app's own Netplay.cpp with our own test programs (NES, Super Nintendo, PC Engine)
+    and free ones (sverx's SMS Test Suite, Genesis Plus GX's test ROMs, MAME's free Robby Roto), random inputs, 30-75
+    ms one way with jitter and 2-5% losses, direct paths blocked (relay-only server), a forced desync, a public room
+    joined from the list, delay-based, a hidden address, a removal, two players on each console, a Choose Together
+    room (its common list the same on both, a suggestion, two matches, back to the room after each): every checksum
+    of both consoles the same.
+- **Anonymous statistics** (new src/UsageStats.h, .cpp; new server/emusuni-netd-stats.h): how many use EmuSuNi, from
+  which countries, with which versions, what they play and how many have it open right now. A small UDP heartbeat to
+  online play's main server when the app starts, every 5 minutes while it is open and a minute after an update check
+  (fire and forget, on a thread of its own: a Hello, the cookie, one Stats - never sent again before the next): a
+  random install id the app makes once (stats.ini; never the PS4's, a user's or PSN's), the app's version, the PS4's
+  language, menu / playing a console / online play, the update checks since the last one (src/Update.cpp) and, once
+  after an update, the version before. No names, games, files or ids of the PS4. **Settings -> Anonymous
+  Statistics** (On by default; Off: nothing at all is sent; README: Anonymous statistics). **Online Play** shows "N
+  players online now" (the server's count).
+  - The server (--stats-dir, the main one): the country from the address when the packet comes in (DB-IP's IP to
+    Country Lite, --geoip; CC BY 4.0), never the address stored or logged; a day's unique installs by the ids hashed
+    with that day's salt (deleted with the day; today.bin keeps the day across a restart), the weeks' and months'
+    by HyperLogLog sketches (no id kept); online now (heard in the last 6 minutes); per day: active and new installs,
+    by country, version, language, console (and its hours played) and state, update checks, updates installed (from
+    -> to), the peak online. Limits: the cookie first, 30 heartbeats at once then one every 5 s from an address, 20
+    installs new that day at once then 20 an hour, capped sets. `emusuni-netd report [--days N] [--json]` (deploy.sh:
+    `sudo emusuni-stats`) prints all of it, with GitHub's download counts of each release's .pkg
+    (`record-downloads`, a daily timer, the public API); DB-IP's file downloaded monthly by another timer.
+  - **The game played** (src/Emulator.cpp: UsageStats::SetGame, SetDiscCode): never a file's name - a cartridge's
+    CRC32 as No-Intro's lists have it (its bytes as the core got them, 64 MiB at most; a Super Nintendo copier header
+    left out, a Nintendo 64 image in .z64 order), an arcade set's name, a PlayStation disc's code (SwanStation's log
+    line), a PSP disc's ID (UMD_DATA.BIN); none for the other consoles. The server keeps only well-formed ones, as
+    counts and hours; its titles come only from libretro-database's lists (No-Intro, Redump) and FinalBurn Neo's,
+    downloaded on the server (scripts/server/update-titles.sh, `emusuni-netd build-titles`: 64,846 titles), and are
+    public only once 3 installs or more played the game.
+  - **EmuSuNi's page** (new site/, deployed by .github/workflows/pages.yml to GitHub Pages; plain HTML, CSS and
+    JavaScript, English and Spanish - the browser's language -, light and dark, a phone's width): the home page (what
+    EmuSuNi is, the Download button - the latest release's .pkg, GitHub's API -, three live numbers, the consoles and
+    features, screenshots without cover art, the install guide, FAQ) and **Statistics** (site/stats.html): players
+    online now by console and country, players and new installs a day, a world map of the countries (Natural
+    Earth's outlines projected once by scripts/make-world-map.py: site/world.json, no library), countries, versions,
+    top consoles, top games (7 and 30 days), downloads over time and by version, **live rooms** (the public ones
+    waiting or playing: console, game, time zone, players; the private ones only counted - no nicknames, no codes),
+    **rankings** (public profiles: most hours, by country, by console) and **My profile** (a profile by its code). It
+    says so when the numbers can't be read.
+  - **The public numbers** pushed every 5 minutes by scripts/server/publish-stats.sh (emusuni-netd-publish.timer) to
+    the public repository arturofuentes1988/emusuni-stats - `stats.json` (`emusuni-netd public-json`: aggregates
+    only, a 90-day series), `rankings.json` and `p/<name>.bin` (`emusuni-netd public-profiles`) - as one commit with
+    no parent, forced (no history), from a work tree kept between runs (a push sends only what changed), with a
+    deploy key deploy.sh makes: no port opened.
+  - **SQLite** (new server/emusuni-netd-db.h; the distribution's libsqlite3, WAL): the days, their labels and
+    sketches, today's hashed set, GitHub's downloads, the live and rooms snapshots and the profiles in
+    <stats-dir>/stats.db; a server of the text files before moves them in at its first start (kept in
+    migrated-files/).
+  - **Online profiles** (opt-in: the Online tab's Online Profile, off by default): the heartbeat's STATS_PROFILE /
+    STATS_PUBLIC (with the nickname) / STATS_DELETE (+ STATS_NO_COUNT: sent even with the statistics off); the server
+    keeps that install's minutes, sessions and online matches by game and console and its country, keyed by its id
+    hashed with a salt of its own, and answers with a 16-letter code (about 79 bits). Each profile's file is named and
+    sealed from its code (SHA-256; the page opens it in the browser), written only when it changed; public ones are in
+    rankings.json with their nickname (filtered). Delete My Profile deletes it; unused 400 days, it goes by itself.
+    `emusuni-netd profile CODE [--delete]` for support. New profiles: 5 at once from an address, then 5 an hour.
+  - PC test: local/herramientas/prueba-netplay/statstest.py - 200 fake installs from addresses mapped to countries by
+    a test country file, the app's own UsageStats.cpp on and off, the report's numbers exact, the limits, a restart,
+    the next day (the two days' uniques within 2%), GitHub's counts, and no address or id in the stats folder or log.
+- **The Online tab** (src/Menu.cpp): online play gets a tab of its own in the carousel, next to Settings (in the
+  XMB, beside it): players online now, **Create Room** (with a game - the games' tab, then Triangle -> Play Online -,
+  or Choose Together), Join with Code, Public Rooms, **Nickname** (the PS4 user's unless one is typed: 16 letters,
+  filtered), **Online Profile**, Public Profile, Profile Code and Delete My Profile (src/UsageStats.h), Hide My Address
+  and My Stats. Settings -> Online Play takes you there; Triangle -> Play Online on a game stays; the tour's
+  `tab online` shows it.
+  - **00.85: the Online tab is a table of the rooms** (Library page and XMB column alike): every room there is -
+    public and private, waiting, full or playing - with its game (its cover when you have it, and whether you have it
+    or another version), console, host and time zone, players, type (globe / padlock), status and ping; your own room
+    on top; filters by console (L2) and type (R2); refreshed every 5 s, the selection kept. Cross joins (a private
+    room asks for its code), Square Create Room, Triangle Join with Code, Options **Online Settings** (Nickname, Hide
+    My Address, the online profile, My Stats). Server: new **ListAll -> AllRooms** (paged, never a private room's code
+    or any address; List stays for 00.84); an older server: the app falls back to its public list.
+  - **00.86: your room stays open while you do something else** (the owner's requests). Circle on your room's screen
+    goes back to the menus without closing it ("Your room stays open"); it closes with **Close Room** on its screen,
+    making or joining another room, the app's Close EmuSuNi, or the server (a console silent for 30 s). Its network
+    runs wherever you are - every menu, and every pass of a game you play alone meanwhile. The Online tab keeps
+    listing the rooms (on the room's own connection, a new cookie when the room's is 100 s old) with yours on top
+    ("Your room · CODE"; Cross: **Go to Your Room**). If it ends while you are elsewhere, a notice says why.
+  - **00.86: whoever joins asks first**: a notice over any menu - "Ana (UTC-5) wants to join your room", the game, the
+    seconds left - with **Accept** (your room opens; Start once the player is ready) and **Reject** (Circle: later, in
+    the room). The player waits ("Waiting for the host to accept you...", Circle cancels) and is in no match, list of
+    games or voice chat until accepted; rejected: "The host did not accept you" (the server removes it: it can't ask
+    again in that room); not answered in 60 s: "The host didn't answer: try again later". In a game played alone: a
+    notice in the game, and the in-game menu's **Accept Player** (the game ends, the room opens) and **Reject Player**.
+    Peer message only (new Control Admit, Quit reasons 2-3; the server's Kick removes a rejected player): no server
+    change.
+  - **00.86: one room at a time**: Square (Create Room), a game's Play Online, joining another room or Join with Code
+    while yours is open ask first "You already have a room open. Close it and create a new one?" (Yes / No).
+- **My Stats** (new src/MyStats.h, .cpp; Settings -> My Stats and the Online tab): each game's time played (from its
+  start to its end), sessions, last played and online matches, kept on the PS4 only (mystats.ini, never sent), with
+  the RetroAchievements numbers the app already has (unlocked, games, points).
+- **Local multiplayer: 3 and 4 players on one PS4** (src/Multiplayer.h, .cpp). Each extra DualShock 4 signed in to a
+  PS4 user is the next player (the PS4 lets 4 users in: 4 players at most); each other user keeps their player while
+  signed in (until now a user signing out moved the players after them down one).
+  - **Multiplayer Adapter** (a game's settings, System; Auto / Off / On) replaces 00.22's Multitap (3-5 Players), the
+    Super Nintendo's only, and plugs each console's adapter for 3 or more players in: the Super Multitap (SNES, port
+    2), the Four Score or the Famicom's 4 player adapter (NES, FCEUmm), Sega's Team Player in port 1 or EA's 4 Way
+    Play (Genesis, Genesis Plus GX), the Multitap in port 2 (PlayStation, SwanStation: player 1 stays in port 1, a
+    game made without it sees player 2 through it), the 6 Player Adaptors (Saturn, YabaSanshiro: both, as its count of
+    players is right only then; On only). Auto plugs it in only for the games known to use it: FCEUmm's own lists by
+    the cartridge's CRC32 and an NES 2.0 header's expansion device; the Genesis header's Team Player ('4') and lists
+    of EA's 4 Way Play games and of Team Player games; DuckStation's game database's Multitap discs by the disc's code
+    (SwanStation's log as the game loads); a list of the Super Multitap's games by title (from the libretro
+    database's 3+ player games, the ones taking turns left out). Every other game has its two ports as before. On
+    plugs it in for any game (the NES: the Famicom's adapter for a Japanese cartridge or a disk). Changed in the
+    in-game menu, it applies at once.
+  - The NES's players 3 and 4 never reached FCEUmm before: it reads them only once the frontend plugs ports 3 and 4 in
+    (the app never did; its Four Score games played with 2). FCEUmm keeps "4 players" and its expansion port's device
+    from one game to the next: the app sets them for every game (a 2-player game after a Four Score one stays 2).
+  - Genesis J-Cart games (Micro Machines 2, Micro Machines Military and 96, Super Skidmarks, Pete Sampras Tennis and
+    96: Genesis Plus GX's list) have players 3 and 4 on the cartridge: no adapter is plugged in for them, whatever the
+    setting. The PC Engine's core always has the TurboTap's 5 pads; the N64, the Dreamcast, the NAOMI, the Atomiswave
+    and the Arcade their 4 ports: no setting for them.
+  - Settings: "multitap" becomes "multiplayer_adapter" in settings.ini (once, as the old key goes): On stays On in a
+    Super Nintendo game's settings and the Super Nintendo's This Console; Off, and On anywhere else (it would now
+    plug an adapter into every console's games), become Auto. The log says what changed.
+  - Each player's light bar shows its colour as the PS4 gives its users' (blue, red, green, pink) while the game runs,
+    back to the PS4's when it ends; a controller that comes or goes during a game is shown ("Controller 3 connected:
+    Player 3") and logged ("pads: player 3's controller connected").
+  - The log: "players: the game's start: <adapter>, up to N players (<why>)".
+  - PC test: local/herramientas/prueba-multijugador/probar.sh (174 checks): FCEUmm, Genesis Plus GX, Beetle PCE Fast
+    and SwanStation built for the PC as the app's scripts build them, with our own test programs reading the pads as
+    the games do (Four Score, Famicom adapter, Team Player, 4 Way Play, J-Cart, TurboTap; the PlayStation's Multitap
+    from a program run as its BIOS: a pad's read through it, its four pads at once), the free Super PakPak of FCEUmm's
+    Four Score list (its CRC32 as the app counts it is the list's), Auto's lists, the settings' move.
+- **Voice chat for the online matches** (src/Voice.h, .cpp; netplay carries the packets: TakePacket / GivePacket). The
+  PS4 user's microphone - a headset on the DualShock 4's jack, a USB microphone or the PlayStation Camera, whichever
+  the PS4 gives that user (libSceAudioIn, loaded when the voice first opens it: the voice chat port at 16 kHz, else a
+  general one at 16 or 48 kHz, each try logged) - on a capture thread of its own (priority 450, off the emulation's
+  cores), a noise gate (open 10 dB over the room's noise and over -48 dBFS, closed 400 ms after the last loud 20 ms)
+  or push to talk, and **Opus 1.5.2** (BSD-3-Clause; new scripts/build-opus.sh, fixed-point - as fast as the float
+  build with the PS4's CPU flags, measured -, SSE4.1, linked into the app): 16 kHz mono, 20 ms packets, about 19 kbps
+  while talking, in-band FEC, DTX (Opus' own voice detector after the gate: noise is not sent either). Silence sends
+  nothing.
+  - The friends' voices: a jitter buffer per friend (60 ms at first, then 40 to 200 ms from the jitter of the last 100
+    packets; late, duplicated and reordered packets; a lost one from the next one's FEC copy, else Opus' concealment;
+    a talk's end concealed for 40 ms, then silence), decoded straight to 48 kHz and added to the app's one sound port
+    by the menu's and the games' sound threads (Voice::Mix: a busy lock is never waited for), so they are heard in the
+    games, their in-game menu and the menus (also when the game is muted or fast-forwarding).
+  - **Settings -> Voice Chat**: On / Off, Microphone (Open Mic; Push to Talk on L3 - no console's pad has it -, R3 or
+    L2), Mic Volume (25 to 400%, a soft limit instead of clipping), Voices Volume (0 to 200%), and **Test Microphone**:
+    5 s recorded with a level meter (and "Voice" while the gate sends), played back through the same path as a
+    friend's voice, then what it found: no microphone, only silence, not loud enough, push to talk not held, clipped,
+    quiet, or how long the voice was sent.
+  - Safety with strangers (netplay's controls): a friend muted (their packets dropped as they come: nothing of theirs
+    decoded or heard), sending off (a public room until the player opts in: nothing captured is sent, what waited is
+    dropped), the in-game menu's mute; Talking(peer) for a "speaking" mark.
+  - The log, "voice: ...": the module, each open's result and code, the microphone's silent state (no device, another
+    app has it, muted), the capture thread's priority and cores, the first three inputs (result, wait, peak), every
+    10 s the microphone's inputs, level, room noise, gate, packets, kbps, encoding time, and each friend's packets
+    (late, twice, lost, FEC, concealed), delay and decoding time; Test Microphone's recording and result.
+  - settings.ini: voice_chat, voice_mic (open, l3, r3, l2), voice_mic_volume, voice_volume; voice_dtx=off (not shown)
+    sends all the gate lets through.
+  - PC test: local/herramientas/prueba-voz (Voice.cpp as it is, a virtual microphone with a generated speech-like
+    signal or a tone, a simulated network: 5% loss, 30-70 ms + spikes, duplicates; and a bad one, 15% loss and 200 ms
+    spikes; Test Microphone's results, the opens' fallbacks, push to talk, mute, sending off; ThreadSanitizer clean).
+
 ## 00.83 (test build)
 - **Seven consoles out: the Sega CD (Mega-CD) and the 32X (added in 00.80), the PC Engine CD (TurboGrafx-CD), the Neo
   Geo Pocket, the Neo Geo Pocket Color, the WonderSwan and the WonderSwan Color (added in 00.82).** The owner chose to

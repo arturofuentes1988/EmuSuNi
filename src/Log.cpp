@@ -182,7 +182,11 @@ bool WriteTextFile(const std::string& path, const std::string& text)
   return WriteDataFile(path, text.data(), text.size());
 }
 
-bool WriteDataFile(const std::string& path, const void* data, size_t size)
+namespace
+{
+std::atomic<WriteRedirect> s_write_redirect{nullptr};
+
+bool WriteDataFileAt(const std::string& path, const void* data, size_t size)
 {
   const std::string temp = path + ".new";
   FILE* file = fopen(temp.c_str(), "wb");
@@ -193,6 +197,23 @@ bool WriteDataFile(const std::string& path, const void* data, size_t size)
   fsync(fileno(file));
   fclose(file);
   return written && std::rename(temp.c_str(), path.c_str()) == 0;
+}
+}  // namespace
+
+void SetWriteRedirect(WriteRedirect redirect)
+{
+  s_write_redirect.store(redirect);
+}
+
+bool WriteDataFile(const std::string& path, const void* data, size_t size)
+{
+  if (WriteDataFileAt(path, data, size))
+    return true;
+  // (00.87) A write that failed: the redirect's other place, when it has one (src/Portable.h: the player's data on a
+  // USB drive that was taken out goes to /data/EmuSuNi/portable-fallback/ instead).
+  const WriteRedirect redirect = s_write_redirect.load();
+  const std::string other = redirect ? redirect(path) : std::string();
+  return !other.empty() && WriteDataFileAt(other, data, size);
 }
 
 bool FileExists(const std::string& path)

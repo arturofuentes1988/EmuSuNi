@@ -79,4 +79,22 @@ extern const CoreApi YABASANSHIRO;
 #ifdef EMUSUNI_PCE
 extern const CoreApi BEETLE_PCE;  // PC Engine (Beetle PCE Fast; builds with EMUSUNI_PCE)
 #endif
+#ifdef EMUSUNI_A2600
+extern const CoreApi STELLA;  // Atari 2600 (Stella; builds with EMUSUNI_A2600, 00.90)
+#endif
+#ifdef EMUSUNI_A7800
+extern const CoreApi PROSYSTEM;  // Atari 7800 (ProSystem; builds with EMUSUNI_A7800, 00.90)
+#endif
+#ifdef EMUSUNI_JAGUAR
+extern const CoreApi VIRTUAL_JAGUAR;  // Atari Jaguar (Virtual Jaguar; builds with EMUSUNI_JAGUAR, 00.90)
+#endif
+#ifdef EMUSUNI_GBLINK
+// Two Game Boys joined by the link cable, online (SameBoy; builds with EMUSUNI_GBLINK, 00.95: src/GbLink.h).
+extern const CoreApi SAMEBOY;
+#endif
+#ifdef EMUSUNI_OPENBOR
+// OpenBOR: the beat 'em up engine's games, .pak files (zanac's multi-engine core; builds with EMUSUNI_OPENBOR,
+// with-openbor).
+extern const CoreApi OPENBOR;
+#endif
 }  // namespace Cores

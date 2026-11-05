@@ -1,0 +1,103 @@
+# EmuSuNi star ratings (scripts/make-ratings.py): the Atari 7800 names and each one's game in the LaunchBox
+# Games Database (its id: the app downloads LaunchBox's ratings itself, src/Ratings.h).
+# Names: No-Intro's and Redump's, from libretro-database's metadat (github.com/libretro/libretro-database, CC BY-SA 4.0).
+# Matched with LaunchBox's Metadata.xml of 2026-11-01. This file is under CC BY-SA 4.0.
+# name<TAB>LaunchBox id
+1942	460427
+Ace of Aces	21095
+Alien Brigade	21096
+Armor Attack II	123605
+Asteroids	18177
+Asteroids Deluxe	123951
+Astro Blaster	124402
+Astro Fighter	124403
+Baby Pac-Man	203864
+Ballblazer	4893
+Barnyard Blaster	21097
+Baseball	22379
+Basketbrawl	21098
+Bentley Bear's Crystal Quest	148064
+Centipede	21100
+Choplifter!	4894
+Commando	4896
+Crack'ed	21036
+Crossbow	21037
+Dark Chambers	21038
+Desert Falcon	4897
+Dig Dug	21039
+Donkey Kong	4898
+Donkey Kong Junior	21040
+Double Dragon	21041
+Dragon's Cache	203865
+Dragon's Descent	218905
+Dungeon Stalker	124407
+F-18 Hornet	21093
+FailSafe	124408
+Fatal Run	21042
+Fight Night	21043
+Food Fight	21044
+Frenzy	107662
+Froggie	124409
+Galaga	4899
+GATO	21101
+GoSub	460198
+Hat Trick	21045
+High Score Cartridge	186590
+Ikari Warriors	21046
+Impossible Mission	4900
+Jinks	4901
+Joust	4902
+Jr. Pac-Man	125108
+K.C. Munchkin	125109
+Karateka	4903
+Klax	21103
+Knight Guy in Low-Res World - Castle Days	216507
+Kung-Fu Master	21102
+Mario Bros.	21047
+Mat Mania Challenge	4905
+Mean 18 Ultimate Golf	21048
+Meltdown	21049
+Meteor Shower	125114
+Midnight Mutants	21050
+Missing in Action	22378
+Moon Cresta	125115
+Motor Psycho	21051
+Ms. Pac-Man	21052
+Ninja Golf	21053
+One-on-One Basketball	21054
+Pac-Man Collection	125116
+Pete Rose Baseball	22379
+Pit Fighter	21197
+Planet Smashers	22380
+Plutos	22382
+Pole Position II	4906
+Rampage	22383
+Rampart	22384
+RealSports Baseball	21055
+Rescue on Fractalus	22385
+Rip-Off	125124
+Robotron - 2084	21056
+Santa Simon	133207
+Scramble	133206
+Scrapyard Dog	21057
+Sentinel	22386
+Serpentine	203910
+Sirius	22387
+Space Duel	133201
+Space Invaders	28406
+Summer Games	21058
+Super Circus AtariAge	148086
+Super Huey UH-IX	21059
+Super Pac-Man	133200
+Super Skateboardin'	20614
+Tank Command	22388
+Title Match Pro Wrestling	20613
+Tomcat - The F-14 Fighter Simulator	22389
+Touchdown Football	20612
+Tower Toppler	4907
+Wasp!	133199
+Water Ski	22390
+Winter Games	20610
+Worm!	133198
+Xenophobe	20609
+Xevious	20608

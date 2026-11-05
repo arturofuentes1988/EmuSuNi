@@ -1,0 +1,19 @@
+# EmuSuNi's online server: DB-IP's IP to Country Lite for the anonymous statistics' countries (update-geoip.sh), run
+# by emusuni-netd-geoip.timer once a month. Installed by scripts/server/deploy.sh (the main server).
+[Unit]
+Description=EmuSuNi online server: the statistics' country database (DB-IP Lite)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=emusuni-netd
+Group=emusuni-netd
+StateDirectory=emusuni-netd
+StateDirectoryMode=0750
+UMask=0027
+ExecStart=/opt/emusuni-netd/update-geoip.sh /var/lib/emusuni-netd
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes

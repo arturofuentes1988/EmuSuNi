@@ -25,10 +25,18 @@
 # with its software renderer on threads of its own, by scripts/build-saturn-core.sh (in <build>/saturn); and its
 # speed test (00.64), shown in Settings only with the file /data/EmuSuNi/saturn-test. The PC Engine (00.82), Beetle PCE
 # Fast (/root/src/beetle-pce-fast-libretro), by scripts/build-beetle-cores.sh (in <build>/beetle; no-pce leaves it out).
+# Atari's consoles (00.90): the 2600's Stella (/root/src/stella), the 7800's ProSystem (/root/src/prosystem-libretro) and
+# the Jaguar's Virtual Jaguar (/root/src/virtualjaguar-libretro), by scripts/build-atari-cores.sh (in <build>/atari;
+# no-atari leaves them out; no-jaguar the Jaguar alone: about 2 MiB less of the app's image).
+# The Game Boy link cable online (00.95): SameBoy (/root/src/SameBoy), by scripts/build-gblink-core.sh (in
+# <build>/gblink), only with with-gblink while it is tried out.
+# OpenBOR (its tab, Roms/openbor: the beat 'em up engine's .pak games), zanac's multi-engine core
+# (/root/src/openbor-libretro), by scripts/build-openbor-core.sh (in <build>/openbor), only with with-openbor while it is
+# tried out.
 # (00.80 to 00.82 also built PicoDrive for the 32X and Beetle NeoPop and Cygne for the Neo Geo Pockets and the
 # WonderSwans: gone in 00.83 with those consoles and the Sega CD; their sources stay in /root/src.)
 #   build.sh [setup] [no-n64] [no-ps1] [no-nds] [no-psp] [no-dc] [no-sega] [no-arcade] [no-3ds] [with-saturn]
-#            [no-pce]
+#            [no-pce] [no-atari] [no-jaguar] [with-gblink] [with-openbor]
 #                                                 (setup: configure from scratch; no-n64: without
 #                                                 the Nintendo 64; no-ps1: without the PlayStation;
 #                                                 no-nds: without the Nintendo DS; no-psp: without
@@ -38,7 +46,9 @@
 #                                                 no-3ds: without the Nintendo 3DS; with-3ds, as
 #                                                 before 00.62, is the default now; with-saturn:
 #                                                 with the Saturn, out by default; no-pce: without
-#                                                 the PC Engine)
+#                                                 the PC Engine; no-atari: without the Atari 2600,
+#                                                 7800 and Jaguar; no-jaguar: without the Jaguar;
+#                                                 with-openbor: with OpenBOR, out by default)
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SRC="$(cd "$HERE/.." && pwd)"
@@ -53,6 +63,10 @@ ARCADE=ON
 THREEDS=ON
 SATURN=OFF
 PCE=ON
+ATARI=ON
+JAGUAR=ON
+GBLINK=OFF
+OPENBOR=OFF
 for arg in "$@"; do
     case "$arg" in
         setup) SETUP=1 ;;
@@ -67,6 +81,10 @@ for arg in "$@"; do
         with-3ds) THREEDS=ON ;;
         with-saturn) SATURN=ON ;;
         no-pce) PCE=OFF ;;
+        no-atari) ATARI=OFF ;;
+        no-jaguar) JAGUAR=OFF ;;
+        with-gblink) GBLINK=ON ;;
+        with-openbor) OPENBOR=ON ;;
     esac
 done
 BUILD="${EMUSUNI_BUILD:-$HOME/emusuni-build}"
@@ -143,11 +161,44 @@ else
     PCE_OBJECT=""
 fi
 EXTRA="$EXTRA -DPCE_CORE_OBJECT=$PCE_OBJECT"
+# The Game Boy link cable's core (00.95, with-gblink): half a minute the first time, then only what changed.
+if [ "$GBLINK" = ON ]; then
+    bash "$HERE/build-gblink-core.sh" "$BUILD/gblink"
+    GBLINK_OBJECT="$BUILD/gblink/gblink_core.o"
+else
+    GBLINK_OBJECT=""
+fi
+EXTRA="$EXTRA -DGBLINK_CORE_OBJECT=$GBLINK_OBJECT"
+# OpenBOR's core (with-openbor): about a minute the first time, then only what changed.
+if [ "$OPENBOR" = ON ]; then
+    bash "$HERE/build-openbor-core.sh" "$BUILD/openbor"
+    OPENBOR_OBJECT="$BUILD/openbor/openbor_core.o"
+else
+    OPENBOR_OBJECT=""
+fi
+EXTRA="$EXTRA -DOPENBOR_CORE_OBJECT=$OPENBOR_OBJECT"
+# Atari's cores (00.90): a few minutes the first time (Stella's C++), then only what changed.
+if [ "$ATARI" = ON ]; then
+    bash "$HERE/build-atari-cores.sh" "$BUILD/atari"
+    A2600_OBJECT="$BUILD/atari/a2600_core.o"
+    A7800_OBJECT="$BUILD/atari/a7800_core.o"
+    JAGUAR_OBJECT=""
+    [ "$JAGUAR" = ON ] && JAGUAR_OBJECT="$BUILD/atari/jaguar_core.o"
+else
+    A2600_OBJECT=""
+    A7800_OBJECT=""
+    JAGUAR_OBJECT=""
+fi
+EXTRA="$EXTRA -DA2600_CORE_OBJECT=$A2600_OBJECT -DA7800_CORE_OBJECT=$A7800_OBJECT -DJAGUAR_CORE_OBJECT=$JAGUAR_OBJECT"
 # Mbed TLS (curl's TLS, HTTPS): PacBrew's libraries with bignum.c rebuilt with upstream's fix (00.73: PacBrew's fail
 # every RSA handshake), by scripts/build-mbedtls.sh (once).
 bash "$HERE/build-mbedtls.sh" "$BUILD/mbedtls"
 MBEDTLS_LIB_DIR="$BUILD/mbedtls/lib"
 EXTRA="$EXTRA -DMBEDTLS_LIB_DIR=$MBEDTLS_LIB_DIR"
+# Opus (00.23, the voice chat's codec: src/Voice.h), by scripts/build-opus.sh (once; 20 s).
+bash "$HERE/build-opus.sh" "$BUILD/opus"
+OPUS_DIR="$BUILD/opus"
+EXTRA="$EXTRA -DOPUS_DIR=$OPUS_DIR"
 source "$HERE/ps4-env.sh"
 # From scratch also when the Nintendo 64 comes in or goes out.
 if [ "$SETUP" = 1 ] || [ ! -f "$BUILD/build.ninja" ] || \
@@ -205,6 +256,24 @@ else
     if ! grep -q "^PCE_CORE_OBJECT:FILEPATH=$PCE_OBJECT\$" "$BUILD/CMakeCache.txt"; then
         AGAIN+=(-DPCE_CORE_OBJECT="$PCE_OBJECT")
     fi
+    # The Game Boy link cable's core in (with-gblink) or out, or a build directory from before it (00.95).
+    if ! grep -q "^GBLINK_CORE_OBJECT:FILEPATH=$GBLINK_OBJECT\$" "$BUILD/CMakeCache.txt"; then
+        AGAIN+=(-DGBLINK_CORE_OBJECT="$GBLINK_OBJECT")
+    fi
+    # OpenBOR's core in (with-openbor) or out, or a build directory from before it.
+    if ! grep -q "^OPENBOR_CORE_OBJECT:FILEPATH=$OPENBOR_OBJECT\$" "$BUILD/CMakeCache.txt"; then
+        AGAIN+=(-DOPENBOR_CORE_OBJECT="$OPENBOR_OBJECT")
+    fi
+    # Atari's cores in or out (no-atari), or a build directory from before them (00.90).
+    if ! grep -q "^A2600_CORE_OBJECT:FILEPATH=$A2600_OBJECT\$" "$BUILD/CMakeCache.txt"; then
+        AGAIN+=(-DA2600_CORE_OBJECT="$A2600_OBJECT")
+    fi
+    if ! grep -q "^A7800_CORE_OBJECT:FILEPATH=$A7800_OBJECT\$" "$BUILD/CMakeCache.txt"; then
+        AGAIN+=(-DA7800_CORE_OBJECT="$A7800_OBJECT")
+    fi
+    if ! grep -q "^JAGUAR_CORE_OBJECT:FILEPATH=$JAGUAR_OBJECT\$" "$BUILD/CMakeCache.txt"; then
+        AGAIN+=(-DJAGUAR_CORE_OBJECT="$JAGUAR_OBJECT")
+    fi
     # A build directory of 00.80 to 00.82: the 32X's, the Neo Geo Pockets' and the WonderSwans' cores out of its cache
     # (CMakeLists.txt no longer reads them; emptied so that nothing of theirs is linked by an old rule).
     for gone in PICO_CORE_OBJECT NGP_CORE_OBJECT WSWAN_CORE_OBJECT; do
@@ -215,6 +284,10 @@ else
     # The fixed Mbed TLS (00.73), or a build directory from before it.
     if ! grep -q "^MBEDTLS_LIB_DIR:PATH=$MBEDTLS_LIB_DIR\$" "$BUILD/CMakeCache.txt"; then
         AGAIN+=(-DMBEDTLS_LIB_DIR="$MBEDTLS_LIB_DIR")
+    fi
+    # Opus (00.23), or a build directory from before it.
+    if ! grep -q "^OPUS_DIR:PATH=$OPUS_DIR\$" "$BUILD/CMakeCache.txt"; then
+        AGAIN+=(-DOPUS_DIR="$OPUS_DIR")
     fi
     if [ ${#AGAIN[@]} -gt 0 ]; then
         env -u CFLAGS -u CXXFLAGS -u CPPFLAGS -u LDFLAGS -u LIBS cmake "${AGAIN[@]}" "$BUILD" > /dev/null

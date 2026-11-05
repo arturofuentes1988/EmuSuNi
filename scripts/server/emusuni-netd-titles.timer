@@ -1,0 +1,12 @@
+# The statistics' game titles made again once a month (libretro-database's lists change). Installed by
+# scripts/server/deploy.sh.
+[Unit]
+Description=EmuSuNi online server: the game titles, monthly
+
+[Timer]
+OnCalendar=*-*-05 04:30:00 UTC
+RandomizedDelaySec=2h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

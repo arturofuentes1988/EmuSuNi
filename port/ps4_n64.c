@@ -641,6 +641,13 @@ void emusuni_psp_thread(const char* name)
     mask = 1ull << 4;
     priority = 480;
   }
+  else if (strcmp(name, "DepthRaster") == 0)
+  {
+    /* the CPU depth rasterizer (compat.ini's SoftwareRasterDepth: Midnight Club LA...), waited for at each
+     * list's end: at the emulation thread's priority, on the drawing thread's cores (src/Emulator.cpp) */
+    mask = (1ull << 1) | (1ull << 5);
+    priority = 480;
+  }
   else if (strcmp(name, "ShaderCompile") == 0)
     priority = 700; /* pipeline batching: with the compile workers (cores 1,3,4,5), not alone on core 5 */
   else if (strncmp(name, "PoolW IO", 8) == 0)
@@ -720,8 +727,9 @@ void emusuni_dc_thread(const char* name)
  * module) at its priority, and the fence thread (it only sleeps and signals) at the same off core 3;
  * all the workers at ONE priority (700) on cores 0, 1, 3, 4 and 5 (every core but the emulation's: core
  * 0 has only the sound's short turns at 400 in a game, so a burst of new pipelines is built 3 at a time
- * where 2 were; the GPU filter's compiles take the same five cores), the log and the disk writers a little
- * below (760): the PS4 runs threads by fixed priorities, and workers of several priorities taking the
+ * where 2 were; the GPU filter's compiles take the same five cores), the log, the disk writers and the
+ * pipeline optimizer (whole pipelines made after their parts, 00.94) a little below (760): the PS4 runs
+ * threads by fixed priorities, and workers of several priorities taking the
  * same locks froze the app once (the heap's spin lock, port/ps4_dlmalloc.c - a mutex now, but the
  * emulation waits for the Vulkan worker, so nothing else may run ahead of it on its core). Each name is
  * logged once (HleAsync would fill the log). */
@@ -740,8 +748,11 @@ void emusuni_3ds_thread(const char* name)
     mask = (1ull << 4) | (1ull << 5);
     priority = 480;
   }
-  else if (strcmp(name, "citra:Log") == 0 || strncmp(name, "Disk Shader Cache", 17) == 0)
+  else if (strcmp(name, "citra:Log") == 0 || strncmp(name, "Disk Shader Cache", 17) == 0 ||
+           strcmp(name, "Pipeline optimizer") == 0)
   {
+    /* (00.95) The pipeline optimizer too: it remakes linked pipelines whole, which nothing waits for; at the
+     * workers' priority it slowed the parts a draw waits for (the 00.94 log: a vertex shader's part 0.8 s). */
     priority = 760;
   }
   void* self = emusuni_pthread_self();

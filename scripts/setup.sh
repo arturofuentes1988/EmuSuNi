@@ -12,7 +12,8 @@
 #     submodules), Flycast 2.7 (with the submodules its libretro core needs), Genesis Plus GX,
 #     FinalBurn Neo and Dear ImGui 1.92.2b sources (~/src), and Azahar 2126.2's unified source
 #     (~/src/azahar: every build but build.sh no-3ds uses it); YabaSanshiro 3.4.2 (~/src/yabasanshiro: only
-#     build.sh with-saturn uses it); Beetle PCE Fast (~/src/beetle-pce-fast-libretro)
+#     build.sh with-saturn uses it); Beetle PCE Fast (~/src/beetle-pce-fast-libretro); Stella, ProSystem and Virtual
+#     Jaguar (~/src/stella, ~/src/prosystem-libretro, ~/src/virtualjaguar-libretro: Atari's consoles, 00.90)
 # Mesa takes the longest (about half an hour). Then: scripts/build.sh and scripts/package.sh.
 #
 #   sudo -i bash /path/to/EmuSuNi/scripts/setup.sh
@@ -71,6 +72,16 @@ YABASANSHIRO_COMMIT=09ed8e5b2e97e7a848ea2514545c34c7b809e399   # libretro/yabaus
 # built by scripts/build-beetle-cores.sh. (00.80 to 00.82 also pinned PicoDrive - the 32X - and Beetle NeoPop and Cygne
 # - the Neo Geo Pockets, the WonderSwans -: gone in 00.83 with those consoles.)
 BEETLE_PCE_FAST_COMMIT=4eee99c451f85ebe66d1591de88b892015b23059   # libretro/beetle-pce-fast-libretro, 2026-10-23
+# Atari's consoles (00.90), built by scripts/build-atari-cores.sh: Stella (the 2600; GPL-2.0-or-later; its own
+# libretro port, src/os/libretro: the libretro buildbot's core, ahead of the 7.0c release of 2025-01 with that port's
+# fixes - a game from memory without a VFS, through the VFS otherwise), ProSystem (the 7800; GPL-2.0, its BupBoop
+# CoreTone zlib) and Virtual Jaguar (the Jaguar; GPL-3.0, libretro's fork, release v3.11.0).
+STELLA_COMMIT=514efcfea1216d43b0ed9068669a5d456e011c26           # stella-emu/stella, 2026-10-30 (8.0_pre)
+PROSYSTEM_COMMIT=8a88014287c7a01cd568067e5a557d0a2b2a051f        # libretro/prosystem-libretro, 2026-08-22
+VIRTUALJAGUAR_COMMIT=34696082dbc0448caf23aa4ecb5ed40817cb8da0    # libretro/virtualjaguar-libretro, v3.11.0, 2026-11-01
+# The Game Boy link cable online (00.95), built by scripts/build-gblink-core.sh: SameBoy (MIT; libretro's copy, with its
+# libretro port and its own boot ROMs prebuilt), two Game Boys joined by the cable in one core.
+SAMEBOY_COMMIT=aa158a889a48b538a0302873704a34577c8eb67d          # libretro/SameBoy, 2026-07-23 (0.15.4)
 # RetroAchievements (00.73): rcheevos, its own library (MIT), and libchdr (BSD-3) for hashing CHD images.
 RCHEEVOS_COMMIT=1433173220a7eaede6a9ed7a18e94117be1821e0   # RetroAchievements/rcheevos, release v12.5.0, 2026-09-13
 LIBCHDR_COMMIT=47d794151b2b64f6aba60304e6480f4f5a2bc24b    # rtissera/libchdr, 2026-10-11
@@ -202,6 +213,14 @@ checkout https://github.com/libretro/yabause.git "$SRC_ROOT/yabasanshiro" "$YABA
 # Beetle PCE Fast (the PC Engine): built by scripts/build-beetle-cores.sh (a CMake of its own made there), which
 # patches it each time from the files as git has them.
 checkout https://github.com/libretro/beetle-pce-fast-libretro.git "$SRC_ROOT/beetle-pce-fast-libretro" "$BEETLE_PCE_FAST_COMMIT"
+# Atari's consoles (00.90): built by scripts/build-atari-cores.sh (a CMake of its own made there), which patches them
+# each time from the files as git has them.
+checkout https://github.com/stella-emu/stella.git "$SRC_ROOT/stella" "$STELLA_COMMIT"
+checkout https://github.com/libretro/prosystem-libretro.git "$SRC_ROOT/prosystem-libretro" "$PROSYSTEM_COMMIT"
+checkout https://github.com/libretro/virtualjaguar-libretro.git "$SRC_ROOT/virtualjaguar-libretro" "$VIRTUALJAGUAR_COMMIT"
+# The Game Boy link cable (00.95): built by scripts/build-gblink-core.sh (a CMake of its own made there), which patches
+# it each time from the files as git has them.
+checkout https://github.com/libretro/SameBoy.git "$SRC_ROOT/SameBoy" "$SAMEBOY_COMMIT"
 checkout https://github.com/ocornut/imgui.git "$SRC_ROOT/imgui" "$IMGUI_COMMIT"
 # RetroAchievements (00.73): built by CMakeLists.txt as they are (no patches).
 checkout https://github.com/RetroAchievements/rcheevos.git "$SRC_ROOT/rcheevos" "$RCHEEVOS_COMMIT"
@@ -213,6 +232,14 @@ if ! echo "$MBEDTLS_SHA256  $SRC_ROOT/mbedtls-2.16.6-apache.tgz" | sha256sum -c 
     wget -q https://sources.buildroot.net/mbedtls/mbedtls-2.16.6-apache.tgz -O /tmp/mbedtls-2.16.6-apache.tgz
     echo "$MBEDTLS_SHA256  /tmp/mbedtls-2.16.6-apache.tgz" | sha256sum -c -
     mv /tmp/mbedtls-2.16.6-apache.tgz "$SRC_ROOT/mbedtls-2.16.6-apache.tgz"
+fi
+# Opus 1.5.2 (00.23, the voice chat's codec; BSD-3-Clause), the release tarball: scripts/build-opus.sh builds it (and
+# fetches it itself when it is missing).
+OPUS_SHA256=65c1d2f78b9f2fb20082c38cbe47c951ad5839345876e46941612ee87f9a7ce1
+if ! echo "$OPUS_SHA256  $SRC_ROOT/opus-1.5.2.tar.gz" | sha256sum -c --quiet - 2>/dev/null; then
+    wget -q https://downloads.xiph.org/releases/opus/opus-1.5.2.tar.gz -O /tmp/opus-1.5.2.tar.gz
+    echo "$OPUS_SHA256  /tmp/opus-1.5.2.tar.gz" | sha256sum -c -
+    mv /tmp/opus-1.5.2.tar.gz "$SRC_ROOT/opus-1.5.2.tar.gz"
 fi
 
 step "Ready: now scripts/build.sh and scripts/package.sh <version>"

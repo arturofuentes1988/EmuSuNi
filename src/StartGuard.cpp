@@ -293,7 +293,13 @@ void StartThread()
     LogF("start watchdog: its thread couldn't start (%d)", result);
   }
 }
+bool s_restarted = false;  // (00.91) AppStarted found start-again.txt
 }  // namespace
+
+bool Restarted()
+{
+  return s_restarted;
+}
 
 void AppStarted(const std::string& data_dir, std::string* game_path, std::string* message)
 {
@@ -305,6 +311,7 @@ void AppStarted(const std::string& data_dir, std::string* game_path, std::string
   std::remove(MarkerPath().c_str());
   std::remove(AgainPath().c_str());
   const std::string why = Key(again, "why");
+  s_restarted = !again.empty();
   if (!marker.empty())
   {
     LogF("start: the last start didn't finish: %s (%s, %s), attempt %s, begun %s with EmuSuNi %s - %s (its log: "

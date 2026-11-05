@@ -1,0 +1,95 @@
+# EmuSuNi star ratings (scripts/make-ratings.py): the Atari Jaguar names and each one's game in the LaunchBox
+# Games Database (its id: the app downloads LaunchBox's ratings itself, src/Ratings.h).
+# Names: No-Intro's and Redump's, from libretro-database's metadat (github.com/libretro/libretro-database, CC BY-SA 4.0).
+# Matched with LaunchBox's Metadata.xml of 2026-11-01. This file is under CC BY-SA 4.0.
+# name<TAB>LaunchBox id
+Aircars	22351
+Alice's Mom's Rescue	422040
+Alien vs Predator	3962
+Arena Football '95	156761
+Asteroids	422096
+AstroStorm	190572
+Atari Karts	3963
+Atomic Reloaded	422076
+Attack of the Mutant Penguins	9849
+Barkley Shut Up and Jam	156789
+BattleSphere	30132
+BattleSphere Gold	165280
+Beebris	190610
+Breakout 2000	13358
+Brett Hull Hockey	156794
+Brutal Sports Football	14801
+Bubsy in Fractured Furry Tales	3964
+Burn Out	3984
+Cannon Fodder	3965
+Checkered Flag	14797
+Club Drive	2517
+Cybermorph	2518
+Cybernoid - The Fighting Machine	451060
+Cybernoid II - The Revenge	451083
+Defender 2000	13357
+Degz	190611
+Doom	2878
+Doom 2	451089
+Double Dragon V - The Shadow Falls	3966
+Downfall	146376
+Dragon - The Bruce Lee Story	3967
+Evolution - Dino Dudes	3968
+Expressway	190053
+Fantasy World Dizzy	193526
+Fever Pitch Soccer	3992
+Fight for Life	3969
+Flashback - The Quest for Identity	2846
+Flip Out!	3974
+Frog Feast	156795
+Hover Strike	20271
+Hyper Force	20272
+I-War	3993
+International Sensible Soccer	20275
+Iron Soldier	3975
+Iron Soldier 2	22392
+Jack Nicklaus Cyber Golf	156797
+Kasumi Ninja	3976
+Kobayashi Maru	190650
+Missile Command 3D	20273
+Native	202151
+NBA Jam - Tournament Edition	3977
+Phase Zero	156806
+Pinball Fantasies	3978
+Pitfall - The Mayan Adventure	3979
+Plucky Duck in Hollywood Hijinks	156807
+Power Drive Rally	14798
+Protector	165259
+Protector - Special Edition	20274
+Raiden	3980
+Rayman	3982
+Rebooteroids	190379
+Rocks Off!	190656
+Ruiner Pinball	3983
+SkyCopter II	470797
+Skyhammer	20277
+Slam Racer	156808
+Soccer Kid	20278
+Space War 2000	20279
+Speedster II	208585
+Super Burnout	3984
+Supercross 3D	3985
+Syndicate	3986
+Tempest 2000	3987
+Thea Realm Fighters	156810
+Theme Park	14796
+Tiny Toon Adventures	156809
+Total Carnage	20280
+Towers II - Plight of the Stargazer	13355
+Trevor McFur in the Crescent Galaxy	20281
+Troy Aikman NFL Football	20282
+Ultimate Brain Games	423774
+Ultra Vortek	3988
+Val d'Isere Skiing and Snowboarding	14800
+Virtual VCS	156811
+White Men Can't Jump	3989
+Wolfenstein 3D	3990
+Worms	20276
+Zero 5	13356
+Zool 2	2581
+Zoop	3991

@@ -7,8 +7,11 @@
 #include <cstdio>
 #include <fstream>
 #include <mutex>
+#include <sstream>
 #include <unordered_map>
 #include <unordered_set>
+
+#include "AssetPack.h"
 
 extern "C" void ps4_boot_trace(const char* line);  // port/ps4_crashlog.cpp
 
@@ -146,7 +149,9 @@ void Load(const std::string& assets_dir, const std::string& code)
   if (std::string(s_current->code) == "en")
     return;
   const std::string path = assets_dir + "/xmb/lang/" + s_current->code + ".ini";
-  std::ifstream file(path);
+  std::string lines;
+  AssetPack::Read(path, &lines);  // (00.90: in xmb/assets.zip in the package)
+  std::istringstream file(lines);
   std::string line;
   while (std::getline(file, line))
   {

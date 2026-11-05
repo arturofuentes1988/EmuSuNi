@@ -19,6 +19,7 @@
 #include "Image.h"
 #include "Log.h"
 #include "MenuNav.h"
+#include "Netplay.h"
 #include "PS4Glyphs.h"
 #include "PS4Lang.h"
 #include "Saves.h"
@@ -99,6 +100,9 @@ void IngameMenu::Open()
   m_main_selected = 0;
   m_disc = m_disc_in;
   BuildRows();
+  // (00.86) Opened for a player asking to join our room (the game's notice said so): on Accept Player.
+  if (m_join_rows && m_page == Page::Main && m_rows.size() > 1)
+    m_main_selected = m_selected = 1;
   // Closed by the Arcade Button last time: open on it again (the operator menu's SERVICE presses, one after another,
   // are L3 + R3 and Cross each).
   if (m_arcade_again)
@@ -150,11 +154,52 @@ std::string IngameMenu::SlotLabel(int slot) const
 void IngameMenu::BuildRows()
 {
   std::vector<Row> rows;
-  if (m_page == Page::Main)
+  if (m_page == Page::Main && Netplay::Active())
+  {
+    // (00.23) Online: the match's own rows (no states, disc, cheats, reset or achievements: the match is every
+    // console's).
+    OnlineRows(&rows);
+    m_main_selected = std::clamp(m_main_selected, 0, static_cast<int>(rows.size()) - 1);
+    m_selected = m_main_selected;
+  }
+  else if (m_page == Page::Main)
   {
     rows.push_back({"Resume Game", "", false, false, 0, "resume"});
-    rows.push_back({"Save State", SlotLabel(m_slot), false, false, 0, "save"});
-    rows.push_back({"Load State", SlotLabel(m_slot), false, false, 0, "load"});
+    // (00.86) Our online room open while this game is played alone, a player asking to join it: its answer here.
+    const Netplay::JoinRequest ask = Netplay::GetJoinRequest();
+    const bool join_rows = ask.member >= 0;
+    if (join_rows)
+    {
+      const std::string id = std::to_string(ask.member);
+      Row accept{"Accept Player", ask.nick + "  " + std::to_string(ask.seconds_left) + " s", false, false, 0,
+                 "np:accept:" + id};
+      Row reject{"Reject Player", ask.nick, false, false, 0, "np:reject:" + id};
+      rows.push_back(accept);
+      rows.push_back(reject);
+    }
+    if (join_rows != m_join_rows)
+    {
+      // (The rows below keep their selection; one of these two gone: Resume Game.)
+      if (join_rows && m_main_selected >= 1)
+        m_main_selected += 2;
+      else if (!join_rows && m_main_selected >= 3)
+        m_main_selected -= 2;
+      else if (!join_rows)
+        m_main_selected = 0;
+      m_join_rows = join_rows;
+    }
+#ifdef EMUSUNI_OPENBOR
+    // (with-openbor) OpenBOR's core has no states, no cheats and no reset (its games save their own progress; the
+    // game's own menus go back to its title): those rows aren't there.
+    const bool openbor = m_system == SystemId::OPENBOR;
+#else
+    const bool openbor = false;
+#endif
+    if (!openbor)
+    {
+      rows.push_back({"Save State", SlotLabel(m_slot), false, false, 0, "save"});
+      rows.push_back({"Load State", SlotLabel(m_slot), false, false, 0, "load"});
+    }
     if (m_disc_count > 1)
     {
       rows.push_back({"Disc", "Disc " + std::to_string(m_disc + 1) + " of " + std::to_string(m_disc_count), false,
@@ -166,7 +211,8 @@ void IngameMenu::BuildRows()
       rows.push_back({"Arcade Button", m_arcade_test ? "TEST" : "SERVICE", false, false, 0, "arcade"});
     rows.push_back({"Settings", "", false, false, 0, "settings"});
     rows.push_back({"Controls", "", false, false, 0, "controls"});
-    rows.push_back({"Cheats", std::to_string(m_cheats.Entries().size()), false, false, 0, "cheats"});
+    if (!openbor)
+      rows.push_back({"Cheats", std::to_string(m_cheats.Entries().size()), false, false, 0, "cheats"});
     // RetroAchievements (00.73): this game's achievements, when someone is logged in.
     {
       const Achievements::Summary ra = Achievements::GetSummary();
@@ -182,7 +228,8 @@ void IngameMenu::BuildRows()
         rows.push_back({"Achievements", value, false, false, 0, "achievements"});
       }
     }
-    rows.push_back({"Reset Game", "", false, false, 0, "reset"});
+    if (!openbor)
+      rows.push_back({"Reset Game", "", false, false, 0, "reset"});
     rows.push_back({"Quit Game", "", false, false, 0, "quit"});
     m_selected = m_main_selected;
   }
@@ -197,6 +244,11 @@ void IngameMenu::BuildRows()
   else if (m_page == Page::Cheats && m_system == SystemId::THREEDS)
   {
     rows.push_back({"The Nintendo 3DS emulator takes no cheat codes", "", true});
+  }
+  else if (m_page == Page::Cheats && (m_system == SystemId::A2600 || m_system == SystemId::A7800))
+  {
+    // (00.90) Stella and ProSystem take none (their retro_cheat_set does nothing); Virtual Jaguar does.
+    rows.push_back({"The Atari 2600's and 7800's emulators take no cheat codes", "", true});
   }
   else if (m_page == Page::Cheats && m_system == SystemId::ARCADE)
   {
@@ -299,10 +351,13 @@ void IngameMenu::BuildRows()
     {
       const std::string value = Controls::Get(bindings[i], edit, m_system);
       const bool waiting = m_capture && m_capture_row == static_cast<int>(rows.size());
+      const bool macro = Controls::IsMacro(bindings[i]);  // (00.89: "R1 = Cross + Triangle")
       rows.push_back({bindings[i].label,
-                      waiting                  ? std::string("Press a button...") :
-                      bindings[i].stick_group ? value :
-                                                 Controls::Describe(value),
+                      waiting && m_capture_step == 1 ? std::string("Hold its buttons...") :
+                      waiting                        ? std::string("Press a button...") :
+                      macro                          ? Controls::MacroText(bindings[i], edit, m_system) :
+                      bindings[i].stick_group        ? value :
+                                                       Controls::Describe(value),
                       false, waiting, 0, "ctl:" + std::to_string(i)});
     }
     // The buttons that open this menu (00.68), for every game.
@@ -483,7 +538,8 @@ void IngameMenu::Change(int direction)
     m_page = Page::CheatSearch;
     m_selected = 0;
     m_search_selected = 0;
-    m_finder.Start(m_data_dir, m_system, m_game_path, m_title);
+    // (00.87: the collection's download stays in this PS4's cache - m_data_dir can be a USB drive's portable data.)
+    m_finder.Start(App::DATA_DIR, m_system, m_game_path, m_title);
     return;
   }
   if (m_page == Page::CheatSearch)
@@ -604,10 +660,14 @@ void IngameMenu::Change(int direction)
         m_capture_released = false;
         m_capture_time = 0.0f;
         m_capture_row = m_selected;
+        m_capture_step = 0;
+        m_capture_chord = 0;
       }
       else
       {
         Controls::Set(binding, "None", edit, m_system);  // Left: none
+        if (Controls::IsMacro(binding))
+          Controls::SetMacroPresses(binding, "", edit, m_system);
       }
     }
     return;
@@ -680,8 +740,25 @@ std::string IngameMenu::RowHelp(const Row& row) const
     return std::string();
   if (m_page == Page::Main)
   {
-    if (row.key == "achievements")
-      return T("This game's achievements (RetroAchievements): unlocked or not, with their points.");
+    // (00.23) Online's rows.
+    if (row.key == "np:voice")
+      return T("Your microphone and the other players' voices. In a public room it starts off: turn it on to talk.");
+    if (row.key == "np:me")
+      return T("You: your controllers' players in this match.");
+    if (row.key.rfind("np:player:", 0) == 0)
+      return T("Cross mutes or unmutes this player's voice. Their ping: the round trip to their console.");
+    if (row.key.rfind("np:kick:", 0) == 0)
+      return T("Removes this player from the room: they can't join it again. The match ends.");
+    // (00.86) A player asking to join our room while this game is played alone.
+    if (row.key.rfind("np:accept:", 0) == 0)
+      return T("Lets this player into your room: this game ends and your room opens - press Start there to play "
+               "together.");
+    if (row.key.rfind("np:reject:", 0) == 0)
+      return T("This player doesn't join your room, and can't ask again.");
+    if (row.key == "quit" && Netplay::Active())
+      return T("Leaves the room: the match ends for everyone.");
+    if (row.key == "np:end")
+      return T("Ends this match for both: back to the room's games, to pick another.");
     if (row.key == "disc")
     {
       return PS4Lang::T("Disc " + std::to_string(m_disc_in + 1) + " is in the console.") + " " +
@@ -736,6 +813,8 @@ std::string IngameMenu::RowHelp(const Row& row) const
   if (m_page == Page::Controls)
   {
     // (The menu's own texts: src/Menu.cpp DrawSidePanel.)
+    if (m_capture && m_capture_step == 1)
+      return T("Now hold together the buttons it presses, then let them go...  (5 s: cancel)");
     if (m_capture)
       return PS4Lang::T("Press the DualShock 4 button for " + row.label + "...  (5 s: cancel)");
     if (row.key == "__ctlscope__")
@@ -755,6 +834,9 @@ std::string IngameMenu::RowHelp(const Row& row) const
     if (row.key.rfind("ctl:", 0) != 0 || index >= bindings.size())
       return {};
     const std::string key = bindings[index].key;
+    if (Controls::IsMacro(bindings[index]))
+      return T("Several buttons in one (fighting games). Cross: press the macro's button, then hold together the "
+               "buttons it presses and let them go. Left: none. Its button stops doing what it did.");
     if (key == "fast_forward")
       return T("Cross: press a new button. Left: none. Held, the game runs faster (how fast: Fast Forward in the "
                "game's settings). A button the console uses too does both.");
@@ -773,6 +855,12 @@ std::string IngameMenu::RowHelp(const Row& row) const
         return T("D-Pad: Left/Right to choose. A game with a wheel, a flight stick or a gun has that on the left "
                  "stick, not the D-pad (unless Left Stick is chosen).");
     }
+    // (00.90, GitHub #45) The N64's sticks: what they do whatever the rows say.
+    if (m_system == SystemId::N64 && bindings[index].stick_group)
+      return T("Left/Right: which controls move the N64's D-pad. The left stick is always its control stick.");
+    if (m_system == SystemId::N64 && key.rfind("c_", 0) == 0)
+      return T("Cross: press a new button or push a stick. Left: none. The right stick presses the C buttons in any "
+               "case.");
     if (bindings[index].stick_group)
       return T("Left / Right: which DualShock 4 controls move it.");
     if (m_system == SystemId::ARCADE)
@@ -784,6 +872,8 @@ std::string IngameMenu::RowHelp(const Row& row) const
     if (m_system == SystemId::ATOMISWAVE)
       return T("Cross: press a new button. Left: none. Fighting games: punches 1 and 2, kicks 4 and 5, 3 their "
                "special move.");
+    if (Controls::TakesSticks(bindings[index]))
+      return T("Cross: press a new button or push a stick for it. Left: none. D-Pad: Left/Right to choose.");
     return T("Cross: press a new button for it. Left: none. D-Pad: Left/Right to choose.");
   }
   if (row.key == "__scope__")
@@ -823,6 +913,40 @@ IngameMenu::Action IngameMenu::Activate()
   {
     Close();
     return Action::Closed;
+  }
+  if (key == "np:end")
+  {
+    Netplay::EndMatchToRoom();  // (00.23: both back to the Choose Together room)
+    return Action::Quit;
+  }
+  if (key.rfind("np:accept:", 0) == 0 || key.rfind("np:reject:", 0) == 0)
+  {
+    // (00.86) A player asking to join our room while this game is played alone: let in - the game ends, the menu
+    // opens the room (Start there) -, or not.
+    const int member = std::atoi(key.c_str() + 10);
+    const Netplay::JoinRequest ask = Netplay::GetJoinRequest();
+    m_online_refresh = 0.0f;
+    if (ask.member != member)
+    {
+      Toast("The request to join is over");
+      BuildRows();
+      return Action::None;
+    }
+    if (key.rfind("np:accept:", 0) == 0)
+    {
+      LogF("menu: %s accepted in our room: the game ends, the room opens", ask.nick.c_str());
+      Netplay::Admit(member);
+      return Action::Quit;
+    }
+    Netplay::Refuse(member);
+    Toast(ask.nick + " was not accepted");
+    BuildRows();
+    return Action::None;
+  }
+  if (key.rfind("np:", 0) == 0)
+  {
+    OnlineActivate(key, 1);  // (00.23: a player muted, the voice chat, Remove Player)
+    return Action::None;
   }
   if (key == "save")
     return Action::Save;
@@ -867,13 +991,103 @@ IngameMenu::Action IngameMenu::Activate()
   return Action::None;
 }
 
+// (00.23) Online: the match's players (their nicknames as they are, their ping or "Muted", the players they are),
+// the voice chat, Remove Player (the host's), Settings, Controls, Leave Room.
+void IngameMenu::OnlineRows(std::vector<Row>* rows)
+{
+  const Netplay::Status status = Netplay::GetStatus();
+  rows->push_back({"Resume Game", "", false, false, 0, "resume"});
+  for (const Netplay::PlayerView& p : status.players)
+  {
+    std::string value;
+    if (p.ports > 0)
+      value = p.ports == 1 ? "P" + std::to_string(p.first_port + 1) :
+                             "P" + std::to_string(p.first_port + 1) + "-" + std::to_string(p.first_port + p.ports);
+    if (!p.me)
+      value += std::string(value.empty() ? "" : "  ") +
+               (p.muted ? std::string(PS4Lang::T("Muted")) :
+                p.ping_ms >= 0 ? std::to_string(p.ping_ms) + " ms" : std::string("..."));
+    if (p.talking)
+      value = std::string(PS4Lang::T("Speaking")) + "  " + value;
+    Row row{p.nick, value, false, false, 0, p.me ? "np:me" : "np:player:" + std::to_string(p.id)};
+    row.raw = true;  // (a nickname: not translated)
+    rows->push_back(row);
+  }
+  rows->push_back({"Voice Chat", status.voice_on ? "On" : "Off", false, false, 0, "np:voice"});
+  // (00.92) The players' ping and connection in the game's corner (Netplay::SetLatencyBar: kept for the next ones).
+  rows->push_back({"Latency Bar", status.latency_bar ? "On" : "Off", false, false, 0, "np:bar"});
+  if (status.host)
+  {
+    for (const Netplay::PlayerView& p : status.players)
+    {
+      if (!p.me)
+        rows->push_back({"Remove Player", p.nick, false, false, 0, "np:kick:" + std::to_string(p.id)});
+    }
+  }
+  rows->push_back({"Settings", "", false, false, 0, "settings"});
+  rows->push_back({"Controls", "", false, false, 0, "controls"});
+  // (A Choose Together room: the match ends for both, back to the room's games to pick another.)
+  if (status.together)
+    rows->push_back({"End Match", "", false, false, 0, "np:end"});
+  rows->push_back({"Leave Room", "", false, false, 0, "quit"});
+}
+
+void IngameMenu::OnlineActivate(const std::string& key, int direction)
+{
+  const Netplay::Status status = Netplay::GetStatus();
+  if (key == "np:voice")
+  {
+    Netplay::SetVoiceOn(!status.voice_on);
+    Toast(Netplay::GetStatus().voice_on ? "Voice chat on" : "Voice chat off");
+  }
+  else if (key == "np:bar")
+  {
+    Netplay::SetLatencyBar(m_data_dir, !status.latency_bar);
+  }
+  else if (key.rfind("np:player:", 0) == 0 && direction > 0)
+  {
+    const int id = std::atoi(key.c_str() + 10);
+    for (const Netplay::PlayerView& p : status.players)
+    {
+      if (p.id != id || p.me)
+        continue;
+      Netplay::SetPeerMuted(id, !p.muted);
+      Toast(p.nick + (p.muted ? " can be heard again" : " muted"));
+    }
+  }
+  else if (key.rfind("np:kick:", 0) == 0 && direction > 0)
+  {
+    // Asked twice: a stranger isn't removed by one press too many.
+    const int id = std::atoi(key.c_str() + 8);
+    std::string nick;
+    for (const Netplay::PlayerView& p : status.players)
+    {
+      if (p.id == id)
+        nick = p.nick;
+    }
+    if (m_kick_asked != id)
+    {
+      m_kick_asked = id;
+      m_kick_time = 3.0f;
+      Toast("Cross again: " + nick + " out of the room", 3.0f);
+      return;
+    }
+    m_kick_asked = -1;
+    Netplay::Kick(id);
+  }
+  m_online_refresh = 0.0f;  // (the rows as they are now)
+}
+
 // The Controls page's capture: once every button is up, the first one pressed is the row's new button (5 s
 // without one: nothing changes).
 void IngameMenu::Capture(uint32_t held, float dt)
 {
   m_capture_time += dt;
   OrbisPadData data = {};
-  data.buttons = held & Controls::PAD_BUTTONS;
+  // (00.90) The sticks' directions come as their bits (src/Emulator.cpp: Controls::StickBits), the sticks in the
+  // middle here.
+  data.buttons = held & (Controls::PAD_BUTTONS | Controls::STICK_BITS);
+  data.leftStick.x = data.leftStick.y = data.rightStick.x = data.rightStick.y = 128;
   if (!m_capture_released)
   {
     m_capture_released = Controls::IsAtRest(data);  // (the Cross that asked for it is let go first)
@@ -883,17 +1097,45 @@ void IngameMenu::Capture(uint32_t held, float dt)
   const size_t index = m_capture_row >= 0 && m_capture_row < static_cast<int>(m_rows.size()) ?
                            static_cast<size_t>(std::atoi(m_rows[static_cast<size_t>(m_capture_row)].key.c_str() + 4)) :
                            bindings.size();
-  if (m_capture_time > 5.0f || index >= bindings.size())
+  if ((m_capture_time > 5.0f && m_capture_chord == 0) || index >= bindings.size())
   {
     m_capture = false;
+    m_capture_step = 0;
     Toast("No button pressed: nothing changed");
     BuildRows();
     return;
   }
-  const std::string control = Controls::Capture(data);
+  const std::string edit = Controls::HasGameProfile(m_game_id) ? m_game_id : std::string();
+  if (m_capture_step == 1)
+  {
+    // (00.89) A macro's presses: every button held together, taken once all of them are let go.
+    m_capture_chord |= Controls::PressedControls(data);
+    if (m_capture_chord == 0 || !Controls::IsAtRest(data))
+      return;
+    Controls::Set(bindings[index], m_capture_trigger, edit, m_system);
+    Controls::SetMacroPresses(bindings[index], Controls::NamesOf(m_capture_chord), edit, m_system);
+    m_capture = false;
+    m_capture_step = 0;
+    Toast(PS4Lang::T(bindings[index].label) + std::string(": ") +
+          PS4Lang::T(Controls::MacroText(bindings[index], edit, m_system)));
+    BuildRows();
+    return;
+  }
+  const std::string control = Controls::Capture(data, Controls::TakesSticks(bindings[index]));  // (00.90: a stick too)
   if (control.empty())
     return;
-  Controls::Set(bindings[index], control, Controls::HasGameProfile(m_game_id) ? m_game_id : std::string(), m_system);
+  if (Controls::IsMacro(bindings[index]))
+  {
+    // Its button: now its presses (kept with it once they come; 5 s without them: nothing changes).
+    m_capture_trigger = control;
+    m_capture_step = 1;
+    m_capture_chord = 0;
+    m_capture_released = false;
+    m_capture_time = 0.0f;
+    BuildRows();
+    return;
+  }
+  Controls::Set(bindings[index], control, edit, m_system);
   m_capture = false;
   Toast(PS4Lang::T(bindings[index].label) + std::string(": ") + PS4Lang::T(Controls::Describe(control)));
   BuildRows();
@@ -908,6 +1150,21 @@ IngameMenu::Action IngameMenu::Poll(uint32_t pressed, uint32_t held, float dt)
     // Waiting for a button (the Controls page): every press is that, none the menu's - not L3 + R3, not Circle.
     Capture(held, dt);
     return Action::None;
+  }
+  // (00.23) Online: the players' rows made again twice a second (their pings, who speaks); a Remove Player asked
+  // once forgotten after 3 s.
+  m_kick_time = std::max(0.0f, m_kick_time - dt);
+  if (m_kick_time <= 0.0f)
+    m_kick_asked = -1;
+  // (00.86: also our room open while the game is played alone - a request to join, its seconds left.)
+  if (m_page == Page::Main && (Netplay::Active() || Netplay::Hosting()))
+  {
+    m_online_refresh -= dt;
+    if (m_online_refresh <= 0.0f)
+    {
+      m_online_refresh = 0.5f;
+      BuildRows();
+    }
   }
   // Directions repeat while held.
   uint32_t nav = pressed;
@@ -954,6 +1211,8 @@ IngameMenu::Action IngameMenu::Poll(uint32_t pressed, uint32_t held, float dt)
         m_disc = (m_disc + direction + m_disc_count) % m_disc_count;
       else if (key == "arcade")
         m_arcade_test = !m_arcade_test;
+      else if (key == "np:voice" || key == "np:bar")
+        OnlineActivate(key, direction);  // (00.23; 00.92: the latency bar)
     }
     else
     {
@@ -1052,11 +1311,14 @@ void IngameMenu::UpdatePicture()
   m_picture_slot = slot;
   if (slot < 0)
     return;
+  m_picture_saved = Saves::Modified(Saves::StatePath(m_game_id, slot)) != 0;
   ImageRGBA image;
   if (LoadPng(Saves::StatePicturePath(m_game_id, slot), &image, 512, 448))
   {
     m_picture = m_display->CreateTexture(image.pixels.data(), image.width, image.height);
-    m_picture_aspect = 8.0f / 7.0f;
+    // Its own shape (00.85: a picture of the screen - a 16:9 PSP game's, the DS's two screens - isn't the Super
+    // Nintendo's 8:7 all were drawn at).
+    m_picture_aspect = image.height ? std::clamp(static_cast<float>(image.width) / image.height, 0.5f, 2.5f) : 8.0f / 7.0f;
   }
 }
 
@@ -1184,8 +1446,10 @@ void IngameMenu::Draw(ImDrawList* dl, float dt)
     // The selected slot's picture and date, to the right of the panel.
     if (m_picture_slot >= 0)
     {
-      const float pw = 600.0f, ph = pw / m_picture_aspect;
-      const ImVec2 p0(x0 + panel_w + 120, size.y * 0.5f - ph * 0.5f - 30), p1(p0.x + pw, p0.y + ph);
+      // (In a box of 600 x 525, its shape kept; an empty slot's box the whole of it.)
+      const float aspect = m_picture != ImTextureID{} ? m_picture_aspect : 8.0f / 7.0f;
+      const float pw = std::min(600.0f, 525.0f * aspect), ph = pw / aspect;
+      const ImVec2 p0(x0 + panel_w + 120 + (600.0f - pw) * 0.5f, size.y * 0.5f - ph * 0.5f - 30), p1(p0.x + pw, p0.y + ph);
       dl->AddRectFilled(ImVec2(p0.x - 6, p0.y - 6), ImVec2(p1.x + 6, p1.y + 6),
                         IM_COL32(0, 0, 0, static_cast<int>(200 * a)), 10);
       if (m_picture != ImTextureID{})
@@ -1195,7 +1459,9 @@ void IngameMenu::Draw(ImDrawList* dl, float dt)
       }
       else
       {
-        const char* empty = "Empty slot";
+        // (00.85: a state saved without a picture - before 00.85 every state of a console that draws its own image -
+        // isn't an empty slot.)
+        const char* empty = m_picture_saved ? "No picture" : "Empty slot";
         const float tw = bold->CalcTextSizeA(34, FLT_MAX, 0, T(empty)).x;
         dl->AddText(bold, 34, ImVec2((p0.x + p1.x) * 0.5f - tw * 0.5f, (p0.y + p1.y) * 0.5f - 20),
                     dim, T(empty));

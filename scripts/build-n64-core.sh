@@ -47,7 +47,8 @@
 #     64) runs on when the CPU gives it: upstream's be05ef7 left it halted for good (00.72).
 #   - ParaLLEl-RSP's commonest vector loads and stores of whole aligned blocks in one SSE load or store
 #     (LQV/SQV, LDV/SDV, LPV/LUV, SPV/SUV): bit-exact against HEAD on every address and element (00.72).
-#   - For the log: the dynarec's compiling timed, and each new picture the game shows (00.72).
+#   - For the log: the dynarec's compiling timed, and each new picture the game shows (00.72); ParaLLEl-RDP's
+#     pipelines compiled while the game plays (00.89).
 #   - PGO: scripts/n64-core.profdata.xz (00.72; N64_CORE_PGO=off without it).
 # Everything is compiled again when the flags or this script change (make tracks neither flags nor
 # headers: in the N64 test 00.02, Granite's objects saw two Vulkan header versions and disagreed on
@@ -1827,6 +1828,66 @@ patch('mupen64plus-rsp-paraLLEl/rsp/ls.cpp',
       "\t\t\t\treturn;\n"
       "\t\t\t}\n"
       "\t\t\tfor (unsigned i = e; i < end; i += 2)\n")
+# EmuSuNi 00.89, for the log: ParaLLEl-RDP's pipelines compiled while the game plays. A draw whose pipeline isn't
+# ready (not in the cache file either) uses the general shader on the GPU meanwhile and the pipeline compiler thread
+# makes it; neither the emulation nor the command thread waits for it (rdp_renderer.cpp's submit_rasterization). How
+# many, how long, the longest - beside the speed line's "most" and the N64 line's heaviest frame, a stutter that comes
+# with none is the CPU's (GoldenEye's camera turns, Mario Tennis: issue #1).
+patch('mupen64plus-video-paraLLEl/parallel-rdp/parallel-rdp/rdp_renderer.hpp',
+      "#include <unordered_set>\n\nnamespace RDP\n{\n",
+      "#include <unordered_set>\n"
+      "#ifdef __PS4__\n#include <atomic>\n#endif\n"
+      "\nnamespace RDP\n{\n"
+      "#ifdef __PS4__\n"
+      "// EmuSuNi: the pipelines PipelineExecutor compiled, read and cleared by rdp.cpp every 600 frames.\n"
+      "struct PipelineCompileStats\n"
+      "{\n"
+      "\tstd::atomic<uint64_t> count{0}, ns{0}, max_ns{0};\n"
+      "};\n"
+      "extern PipelineCompileStats emusuni_pipeline_stats;\n"
+      "#endif\n")
+patch('mupen64plus-video-paraLLEl/parallel-rdp/parallel-rdp/rdp_renderer.cpp',
+      "#include <limits>\n",
+      "#include <limits>\n#ifdef __PS4__\n#include <chrono>\n#endif\n")
+patch('mupen64plus-video-paraLLEl/parallel-rdp/parallel-rdp/rdp_renderer.cpp',
+      "void Renderer::PipelineExecutor::perform_work(const Vulkan::DeferredPipelineCompile &compile) const\n"
+      "{\n"
+      "\tauto start_ts = device->write_calibrated_timestamp();\n"
+      "\tVulkan::CommandBuffer::build_compute_pipeline(device, compile, Vulkan::CommandBuffer::CompileMode::AsyncThread);\n",
+      "#ifdef __PS4__\n"
+      "PipelineCompileStats emusuni_pipeline_stats;\n"
+      "#endif\n"
+      "\n"
+      "void Renderer::PipelineExecutor::perform_work(const Vulkan::DeferredPipelineCompile &compile) const\n"
+      "{\n"
+      "\tauto start_ts = device->write_calibrated_timestamp();\n"
+      "#ifdef __PS4__\n"
+      "\tconst auto emusuni_start = std::chrono::steady_clock::now();\n"
+      "#endif\n"
+      "\tVulkan::CommandBuffer::build_compute_pipeline(device, compile, Vulkan::CommandBuffer::CompileMode::AsyncThread);\n"
+      "#ifdef __PS4__\n"
+      "\tconst uint64_t emusuni_ns = uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(\n"
+      "\t\tstd::chrono::steady_clock::now() - emusuni_start).count());\n"
+      "\temusuni_pipeline_stats.count.fetch_add(1, std::memory_order_relaxed);\n"
+      "\temusuni_pipeline_stats.ns.fetch_add(emusuni_ns, std::memory_order_relaxed);\n"
+      "\tuint64_t emusuni_max = emusuni_pipeline_stats.max_ns.load(std::memory_order_relaxed);\n"
+      "\twhile (emusuni_ns > emusuni_max &&\n"
+      "\t       !emusuni_pipeline_stats.max_ns.compare_exchange_weak(emusuni_max, emusuni_ns, std::memory_order_relaxed))\n"
+      "\t\t;\n"
+      "#endif\n")
+patch('mupen64plus-video-paraLLEl/rdp.cpp',
+      "\t\temusuni_timing_frames = 0;\n"
+      "\t\temusuni_scanout_ms = emusuni_wait_ms = 0.0;\n",
+      "\t\t// EmuSuNi 00.89: the pipelines compiled meanwhile (rdp_renderer.cpp's PipelineExecutor).\n"
+      "\t\tPipelineCompileStats &compiles = emusuni_pipeline_stats;\n"
+      "\t\tconst double compiled = double(compiles.count.exchange(0, std::memory_order_relaxed));\n"
+      "\t\tconst double compile_ms = double(compiles.ns.exchange(0, std::memory_order_relaxed)) / 1e6;\n"
+      "\t\tconst double compile_max_ms = double(compiles.max_ns.exchange(0, std::memory_order_relaxed)) / 1e6;\n"
+      "\t\tif (log_cb)\n"
+      "\t\t\tlog_cb(RETRO_LOG_INFO, \"EmuSuNi: RDP pipelines in 600 frames: %.0f compiled beside the game in %.0f ms \"\n"
+      "\t\t\t       \"(the longest %.0f ms); the N64 doesn't wait for them.\\n\", compiled, compile_ms, compile_max_ms);\n"
+      "\t\temusuni_timing_frames = 0;\n"
+      "\t\temusuni_scanout_ms = emusuni_wait_ms = 0.0;\n")
 for path, text in patched.items():
     full = root + '/' + path
     with open(full, encoding='utf-8') as f:

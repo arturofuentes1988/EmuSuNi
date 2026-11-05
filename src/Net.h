@@ -58,6 +58,10 @@ struct Request
   std::string content_type;          // the body's Content-Type (empty with a body: application/x-www-form-urlencoded)
   std::string user_agent;            // empty: "EmuSuNi/<version> (PS4)"
   std::string ca_file;               // https: the certificate bundle; empty: the app's (/app0/xmb/cacert.pem)
+  // (00.91) https to EmuSuNi's own server (src/LogReport.h): its key's pin(s), "sha256//<base64>;sha256//<base64>"
+  // (curl's CURLOPT_PINNEDPUBLICKEY). Set, the server is trusted by that key only: no certificate bundle, no host
+  // name or dates checked (its address may change; its certificate is its own, self-signed). Empty: as above.
+  std::string pinned_key;
   // The whole transfer's limit, redirects included; 0: none (a big file on a slow connection). Either way a transfer
   // that moves nothing for stall_seconds stops ("the server took too long to answer").
   long timeout_seconds = 30;

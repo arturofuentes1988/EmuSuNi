@@ -1,0 +1,11 @@
+# The public page's numbers published every 5 minutes. Installed by scripts/server/deploy.sh.
+[Unit]
+Description=EmuSuNi online server: the public statistics, every 5 minutes
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=5min
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target

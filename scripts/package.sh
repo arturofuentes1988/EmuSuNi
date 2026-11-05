@@ -17,18 +17,38 @@ cp "$SRC/sce_sys/icon0.png" "$STAGE/sce_sys/icon0.png"
 [ -f "$SRC/sce_sys/pic0.png" ] && cp "$SRC/sce_sys/pic0.png" "$STAGE/sce_sys/pic0.png"
 cp -r "$SRC/assets/xmb/." "$STAGE/xmb/"
 rm -rf "$STAGE/xmb/lang/src" "$STAGE/xmb/lang/keys.txt"
+# (00.90) xmb's small files in one, xmb/assets.zip (stored): each file takes 64 KiB of the package at least, and these
+# took 3.6 MB more than their bytes. src/AssetPack.h reads them from it (a loose file first). The fonts, the logo, the QR
+# code, cacert.pem and netplay stay loose.
+python3 -I "$HERE/make-asset-pack.py" "$STAGE/xmb" bezels ratings lang sounds
 # The PSP core's own files (PPSSPP's: the PSP's fonts, its system dialogs, compat.ini...), which it
 # reads from /app0/ppsspp/PPSSPP (src/Emulator.cpp: its system folder) and never writes.
 PPSSPP_ASSETS="${PPSSPP_DIR:-$HOME/src/ppsspp}/assets"
 if [ -d "$PPSSPP_ASSETS" ]; then
     mkdir -p "$STAGE/ppsspp/PPSSPP"
-    for f in compat.ini compatvr.ini knownfuncs.ini langregion.ini ppge_atlas.zim ppge_atlas.meta \
-             flash0 vfpu lang shaders; do
+    for f in compat.ini compatvr.ini knownfuncs.ini langregion.ini infra-dns.json ppge_atlas.zim ppge_atlas.meta \
+             flash0 vfpu; do
         cp -r "$PPSSPP_ASSETS/$f" "$STAGE/ppsspp/PPSSPP/"
+    done
+    # (00.90) Of lang and shaders only what the app can make it read (each file takes 64 KiB of the package at
+    # least; the 84 left out took 7 MB): its dialogs' languages, those src/Emulator.cpp's BuildPspVariables can give
+    # it (the others are English; Chinese kept for when it gives it), and the texture shaders Settings offers (PSP
+    # Texture Upscaling: 2xBRZ, 4xBRZ, MMPX). The post-processing shaders are never set. A file missing here (a newer
+    # PPSSPP renamed it) stops the packaging.
+    mkdir -p "$STAGE/ppsspp/PPSSPP/lang" "$STAGE/ppsspp/PPSSPP/shaders"
+    for f in en_US es_ES fr_FR de_DE it_IT pt_PT ja_JP ru_RU ko_KR nl_NL zh_CN zh_TW; do
+        cp "$PPSSPP_ASSETS/lang/$f.ini" "$STAGE/ppsspp/PPSSPP/lang/"
+    done
+    for f in defaultshaders.ini tex_2xbrz.csh tex_4xbrz.csh tex_mmpx.csh; do
+        cp "$PPSSPP_ASSETS/shaders/$f" "$STAGE/ppsspp/PPSSPP/shaders/"
     done
 fi
 # The licences that must ship with their code, verbatim (FinalBurn Neo's), from assets/licenses.
 cp -r "$SRC/assets/licenses" "$STAGE/licenses"
+# OpenBOR's (BSD-3) only in a build that has its core (build.sh with-openbor: its object in CMake's cache).
+if ! grep -q "^OPENBOR_CORE_OBJECT:FILEPATH=." "$BUILD/CMakeCache.txt" 2>/dev/null; then
+    rm -f "$STAGE/licenses/openbor-license.txt"
+fi
 # FinalBurn Neo's high-score table (hiscore.dat: the games keep their scores, with Hiscores enabled),
 # which the app copies to /data/EmuSuNi/system/fbneo at the first arcade game (src/Emulator.cpp).
 FBNEO_METADATA="${FBNEO_DIR:-$HOME/src/FBNeo}/metadata"

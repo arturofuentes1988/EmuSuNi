@@ -11,18 +11,23 @@
 #include <sys/stat.h>
 
 #include "Log.h"
+#include "Portable.h"
 #include "Systems.h"
 
 namespace Saves
 {
 namespace
 {
-std::string s_data_dir = App::DATA_DIR;
+// (00.87) The player's data folder now (src/Portable.h): a USB drive's portable data, this PS4's, or - the drive taken
+// out meanwhile - the fallback folder. Asked each time, so a drive gone during a game sends its next save there.
+std::string Dir()
+{
+  return Portable::UserDir();
+}
 }
 
 void Init(const std::string& data_dir)
 {
-  s_data_dir = data_dir;
   for (const System& system : Systems())
   {
     MakeDirs(data_dir + "/saves/" + system.prefix);
@@ -32,22 +37,22 @@ void Init(const std::string& data_dir)
 
 std::string SramPath(const std::string& game_id)
 {
-  return s_data_dir + "/saves/" + game_id + ".srm";
+  return Dir() + "/saves/" + game_id + ".srm";
 }
 
 std::string RtcPath(const std::string& game_id)
 {
-  return s_data_dir + "/saves/" + game_id + ".rtc";
+  return Dir() + "/saves/" + game_id + ".rtc";
 }
 
 std::string DiscPath(const std::string& game_id)
 {
-  return s_data_dir + "/saves/" + game_id + ".disc";
+  return Dir() + "/saves/" + game_id + ".disc";
 }
 
 std::string StatePath(const std::string& game_id, int slot)
 {
-  return s_data_dir + "/states/" + game_id + ".state" + std::to_string(slot);
+  return Dir() + "/states/" + game_id + ".state" + std::to_string(slot);
 }
 
 std::string StatePicturePath(const std::string& game_id, int slot)
@@ -75,7 +80,7 @@ std::vector<GameSaves> List()
   for (const System& system : Systems())
   {
     const std::string prefix = system.prefix;
-    for (const auto& entry : std::filesystem::directory_iterator(s_data_dir + "/saves/" + prefix, ec))
+    for (const auto& entry : std::filesystem::directory_iterator(Dir() + "/saves/" + prefix, ec))
     {
       const std::filesystem::path path = entry.path();
       std::error_code type_error;
@@ -88,7 +93,7 @@ std::vector<GameSaves> List()
       game.sram_size = Size(path.string());
       game.latest = std::max(game.latest, game.sram_time);
     }
-    for (const auto& entry : std::filesystem::directory_iterator(s_data_dir + "/states/" + prefix, ec))
+    for (const auto& entry : std::filesystem::directory_iterator(Dir() + "/states/" + prefix, ec))
     {
       const std::string name = entry.path().filename().string();
       const size_t at = name.rfind(".state");

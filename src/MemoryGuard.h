@@ -58,6 +58,15 @@ inline int ColdMiB(const std::string& console)
   // The PC Engine (00.82: Beetle PCE Fast): no threads of its own: the others' 3.
   if (console == "pce")
     return 3;
+  // Atari's consoles (00.90): Stella, ProSystem and Virtual Jaguar start no threads of their own (Stella's NTSC filter's
+  // are only for its TV effects, which the app leaves off; Virtual Jaguar's emulation thread is its standalone app's):
+  // the others' 3.
+  if (console == "atari2600" || console == "atari7800" || console == "atarijaguar")
+    return 3;
+  // The Arcade (00.89): the others' 3 and the drawing thread beside a heavy board's emulation (1 MiB + 16 KiB, started
+  // with each game: src/Emulator.cpp's DrawWorker).
+  if (console == "arcade")
+    return 4;
   return 3;
 }
 

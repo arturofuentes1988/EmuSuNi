@@ -15,6 +15,8 @@ namespace Saves
 {
 constexpr int SLOTS = 8;  // slots 1..8 in the menus; 0 = resume state
 
+// Each console's folders in data_dir. (00.87) The paths below are in the player's data folder of the moment
+// (src/Portable.h: a USB drive's portable data, else data_dir).
 void Init(const std::string& data_dir);
 std::string SramPath(const std::string& game_id);
 // The cartridge's clock (Game Boy games with one: Pokémon Gold, Silver, Crystal), beside the save.

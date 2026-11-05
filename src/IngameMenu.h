@@ -117,6 +117,10 @@ private:
   bool m_capture = false, m_capture_released = false;
   int m_capture_row = -1;
   float m_capture_time = 0.0f;
+  // (00.89) A macro's row: its button first (step 0), then its presses held together (step 1: Controls::IsMacro).
+  int m_capture_step = 0;
+  std::string m_capture_trigger;
+  uint32_t m_capture_chord = 0;
   void Capture(uint32_t held, float dt);
   Cheats::List m_cheats;
   CheatDownload::Finder m_finder;
@@ -130,8 +134,21 @@ private:
   // A note as header lines of the panel's width (the text translated here unless it is RetroAchievements' own, the
   // lines drawn as they are).
   void PushWrapped(std::vector<Row>* rows, const std::string& text, bool translate = true);
+  // Online (00.23, src/Netplay.h): the main page's rows of a match - its players with their ping (Cross mutes one),
+  // the voice chat, Remove Player for the host, Leave Room -, made again twice a second (the pings, who speaks); the
+  // removal asked twice (the player and when).
+  void OnlineRows(std::vector<Row>* rows);
+  void OnlineActivate(const std::string& key, int direction);
+  float m_online_refresh = 0.0f;
+  int m_kick_asked = -1;
+  float m_kick_time = 0.0f;
+  // (00.86) A game played alone while our online room stays open: a player asking to join it - Accept Player (the
+  // game ends, the room opens) and Reject Player under Resume Game while the request lasts (the rows below them keep
+  // their selection as these come and go).
+  bool m_join_rows = false;
   // The selected slot's picture.
   int m_picture_slot = -1;
   ImTextureID m_picture{};
   float m_picture_aspect = 8.0f / 7.0f;
+  bool m_picture_saved = false;  // (00.85) the slot has a state, whether or not it has a picture
 };

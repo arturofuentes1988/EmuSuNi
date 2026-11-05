@@ -413,8 +413,18 @@ Response Perform(const Request& request, const Target& target, Session* session,
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, agent.c_str());
     curl_easy_setopt(curl, CURLOPT_CAINFO, ca.c_str());
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
+    if (request.pinned_key.empty())
+    {
+      curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
+      curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
+    }
+    else
+    {
+      // (00.91) EmuSuNi's own server: its key, pinned, is the check (curl checks it whatever VERIFYPEER says).
+      curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+      curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+      curl_easy_setopt(curl, CURLOPT_PINNEDPUBLICKEY, request.pinned_key.c_str());
+    }
     curl_easy_setopt(curl, CURLOPT_SSLVERSION, static_cast<long>(CURL_SSLVERSION_TLSv1_2));
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 0L);  // each hop is looked up here
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, std::max(1L, request.connect_seconds));

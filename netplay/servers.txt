@@ -1,0 +1,5 @@
+# EmuSuNi's online play: the main servers the app asks for rooms, tried in order (src/Netplay.h). Read by every
+# EmuSuNi at each online start from GitHub, so a server can move without an app update. One a line:
+#   server=host:port
+# (A player's /data/EmuSuNi/netplay.ini "server=host:port" wins over this list.)
+server=132.145.164.206:7777

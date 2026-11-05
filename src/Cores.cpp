@@ -81,6 +81,21 @@ DECLARE_CORE(yabasanshiro)
 #ifdef EMUSUNI_PCE
 DECLARE_CORE(beetle_pce)
 #endif
+#ifdef EMUSUNI_A2600
+DECLARE_CORE(stella)
+#endif
+#ifdef EMUSUNI_A7800
+DECLARE_CORE(prosystem)
+#endif
+#ifdef EMUSUNI_GBLINK
+DECLARE_CORE(sameboy)
+#endif
+#ifdef EMUSUNI_JAGUAR
+DECLARE_CORE(vjaguar)
+#endif
+#ifdef EMUSUNI_OPENBOR
+DECLARE_CORE(openbor)
+#endif
 
 namespace Cores
 {
@@ -118,5 +133,20 @@ const CoreApi YABASANSHIRO = CORE_TABLE(yabasanshiro, "YabaSanshiro");
 #endif
 #ifdef EMUSUNI_PCE
 const CoreApi BEETLE_PCE = CORE_TABLE(beetle_pce, "Beetle PCE Fast");
+#endif
+#ifdef EMUSUNI_A2600
+const CoreApi STELLA = CORE_TABLE(stella, "Stella");
+#endif
+#ifdef EMUSUNI_A7800
+const CoreApi PROSYSTEM = CORE_TABLE(prosystem, "ProSystem");
+#endif
+#ifdef EMUSUNI_GBLINK
+const CoreApi SAMEBOY = CORE_TABLE(sameboy, "SameBoy");
+#endif
+#ifdef EMUSUNI_JAGUAR
+const CoreApi VIRTUAL_JAGUAR = CORE_TABLE(vjaguar, "Virtual Jaguar");
+#endif
+#ifdef EMUSUNI_OPENBOR
+const CoreApi OPENBOR = CORE_TABLE(openbor, "OpenBOR");
 #endif
 }  // namespace Cores

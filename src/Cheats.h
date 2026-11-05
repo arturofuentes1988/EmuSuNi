@@ -2,7 +2,8 @@
 
 // Cheat codes (Game Genie, Pro Action Replay, raw): data_dir/cheats/<game key>.cht, in RetroArch's
 // .cht format (cheats = N, cheat0_desc, cheat0_code, cheat0_enable). The ON/OFF choices are
-// written back to the file. Shown in the menu (Triangle on a game -> Cheats) and the in-game menu;
+// written back to the file (in that form). (00.90) A PlayStation file of DuckStation's or PCSXR's
+// ("[Name]" or "#Name", then lines of "80012345 0064") is read too. Shown in the menu (Triangle on a game -> Cheats) and the in-game menu;
 // both find more in libretro's collection (CheatDownload.h).
 
 #pragma once

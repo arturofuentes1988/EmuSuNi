@@ -1,0 +1,40 @@
+# EmuSuNi's online play server (server/emusuni-netd.cpp), installed by scripts/server/deploy.sh.
+# The main server: rendezvous, public list and relay. A relay-only server in another region runs the same unit with
+# EMUSUNI_NETD_ARGS="--relay-only --name <name> --region <region>" in /etc/emusuni-netd/env (deploy.sh relay ...).
+[Unit]
+Description=EmuSuNi online play server (rooms and relay, UDP)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=emusuni-netd
+Group=emusuni-netd
+Environment=EMUSUNI_NETD_PORT=7777 EMUSUNI_NETD_ARGS=
+EnvironmentFile=-/etc/emusuni-netd/env
+ExecStart=/opt/emusuni-netd/emusuni-netd --port ${EMUSUNI_NETD_PORT} --secret-file /etc/emusuni-netd/secret $EMUSUNI_NETD_ARGS
+Restart=always
+RestartSec=2
+# The main server's anonymous statistics (--stats-dir /var/lib/emusuni-netd/stats, --geoip DB-IP's CSV there): the
+# only folder it writes (a relay-only server writes nothing).
+StateDirectory=emusuni-netd
+StateDirectoryMode=0750
+UMask=0027
+# Small and closed: no other files written, no privileges, no other network than its own UDP socket.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_UNIX AF_NETLINK
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+MemoryMax=256M
+LimitNOFILE=1024
+
+[Install]
+WantedBy=multi-user.target

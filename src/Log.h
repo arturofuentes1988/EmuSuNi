@@ -45,5 +45,9 @@ void LogMemorySession();
 std::string ReadTextFile(const std::string& path);
 bool WriteTextFile(const std::string& path, const std::string& text);  // through a temporary file
 bool WriteDataFile(const std::string& path, const void* data, size_t size);  // the same, from memory
+// (00.87) Where a write of WriteTextFile / WriteDataFile that failed is made instead ("" none): set once at the start
+// (main.cpp: src/Portable.h's Redirect, the player's data on a USB drive taken out). None: a failed write fails.
+using WriteRedirect = std::string (*)(const std::string& failed_path);
+void SetWriteRedirect(WriteRedirect redirect);
 bool FileExists(const std::string& path);
 void MakeDirs(const std::string& path);

@@ -73,6 +73,10 @@ public:
   int64_t NextFlip() const;
   // The screen EndFrame just drew (WIDTH x HEIGHT, RGBA8), once the GPU has drawn it.
   bool Capture(std::vector<uint8_t>* rgba);
+  // A part of it (x, y, w, h in the screen's pixels: a game's picture), made at most max_w x max_h (a box filter, its
+  // shape kept) as it is read - each of its rows read once, nothing else of the screen (00.85: a state's thumbnail).
+  bool CaptureArea(int x, int y, int w, int h, uint32_t max_w, uint32_t max_h, std::vector<uint8_t>* rgba,
+                   uint32_t* out_w, uint32_t* out_h);
 
   // ---- For a core that draws with Vulkan ----
   // The device was made by ParaLLEl-RDP (with what it needs), so a core can draw on it.

@@ -40,6 +40,12 @@
 #   assets/xmb/bezels/saturn-console.png the Saturn (00.69): charcoal, the round lid, 32-BIT, the D-pad, X Y Z A B C
 #   assets/xmb/bezels/pce-console.png    the PC Engine (00.82): white, the expansion port, a card in its slot, 16-BIT,
 #                                        the pad's D-pad, SELECT and RUN, II and I with their turbo switches
+#   assets/xmb/bezels/atari2600-console.png   the Atari 2600 (00.90): the black ribbed top over the woodgrain, the
+#                                        console's four switches, the joystick with its red button
+#   assets/xmb/bezels/atari7800-console.png   the Atari 7800: black with its silver band, the joystick's two buttons,
+#                                        PAUSE, SELECT, RESET
+#   assets/xmb/bezels/atarijaguar-console.png the Atari Jaguar: black with red lines, 64-BIT, the pad's D-pad, C B A and
+#                                        its number pad
 #   (00.80 to 00.82 also had the Sega CD's, the 32X's, the PC Engine CD's, the Neo Geo Pockets' and the WonderSwans':
 #   gone in 00.83 with those consoles.)
 #   assets/xmb/bezels/nds-console[-wide|-tall|-169].png  the DS in white, a window for each DS Screens view
@@ -1587,6 +1593,159 @@ def pce_console():
     return image
 
 
+# --- 00.90: Atari's -----------------------------------------------------------------------------------------------
+
+ATARI_RED = (214, 40, 34)
+
+
+def side_rect(image, top, bottom, fill):
+    """The same band across both side panels."""
+    draw = ImageDraw.Draw(image)
+    for x0, x1 in ((0, X0), (X1, W)):
+        draw.rectangle((x0, top, x1, bottom), fill=fill)
+
+
+def atari_switch(image, centre, label, ink, up=True):
+    """A 2600's console switch: its black slot, the chrome lever up or down, its name under it."""
+    cx, cy = centre
+    draw = ImageDraw.Draw(image)
+    draw.rounded_rectangle((cx - 16 * S, cy - 44 * S, cx + 16 * S, cy + 44 * S), radius=8 * S, fill=(12, 12, 13, 255))
+    lever = (cy - 40 * S, cy - 4 * S) if up else (cy + 4 * S, cy + 40 * S)
+    soft_shadow(image, (cx - 12 * S, lever[0] + 4 * S, cx + 12 * S, lever[1] + 4 * S), 5 * S, 4 * S, 160)
+    draw = ImageDraw.Draw(image)
+    draw.rounded_rectangle((cx - 12 * S, lever[0], cx + 12 * S, lever[1]), radius=5 * S, fill=(196, 198, 204, 255))
+    draw.rectangle((cx - 9 * S, lever[0] + 4 * S, cx - 5 * S, lever[1] - 4 * S), fill=(240, 240, 244, 200))
+    centred_text(draw, label, (cx, cy + 66 * S), 10 * S, ink)
+
+
+def cx40(image, centre, size):
+    """The 2600's joystick seen from above: its black square base, the red fire button in a corner, the rubber boot
+    and the stick's black top."""
+    cx, cy = centre
+    r = size // 2
+    soft_shadow(image, (cx - r, cy - r + 8 * S, cx + r, cy + r + 8 * S), 18 * S, 10 * S)
+    draw = ImageDraw.Draw(image)
+    draw.rounded_rectangle((cx - r, cy - r, cx + r, cy + r), radius=18 * S, fill=(22, 22, 24, 255),
+                           outline=(48, 48, 52, 255), width=2 * S)
+    button(image, (cx - r * 0.58, cy - r * 0.58), r * 0.2, ATARI_RED + (255,))
+    draw = ImageDraw.Draw(image)
+    draw.ellipse((cx - r * 0.42, cy - r * 0.42, cx + r * 0.42, cy + r * 0.42), fill=(10, 10, 11, 255))
+    for k in range(3):
+        rr = r * (0.36 - k * 0.08)
+        draw.ellipse((cx - rr, cy - rr, cx + rr, cy + rr), outline=(34, 34, 38, 255), width=2 * S)
+    soft_shadow(image, (cx - r * 0.16 + 6 * S, cy - r * 0.16 + 8 * S, cx + r * 0.16 + 6 * S, cy + r * 0.16 + 8 * S),
+                r // 6, 6 * S, 170)
+    draw = ImageDraw.Draw(image)
+    draw.ellipse((cx - r * 0.16, cy - r * 0.16, cx + r * 0.16, cy + r * 0.16), fill=(30, 30, 33, 255),
+                 outline=(70, 70, 76, 255), width=2 * S)
+
+
+def atari2600_console():
+    """The Atari 2600: its black ribbed top over the woodgrain front, the console's switches (TV TYPE, DIFFICULTY,
+    SELECT, RESET), a red line by the picture; the joystick with its red button."""
+    image = side_panels((30, 30, 32), (14, 14, 15))
+    draw = ImageDraw.Draw(image)
+    for x0, x1 in ((0, X0), (X1, W)):
+        for y in range(40 * S, 520 * S, 16 * S):
+            draw.rectangle((x0, y, x1, y + 6 * S), fill=(46, 46, 50, 255))
+    wood = woodgrain((W, H - 560 * S), (150, 96, 50), (96, 58, 28), 2600)
+    for x0, x1 in ((0, X0), (X1, W)):
+        image.paste(wood.crop((x0, 0, x1, wood.height)), (x0, 560 * S))
+    side_rect(image, 540 * S, 560 * S, (10, 10, 11, 255))
+    gloss(image, 0, X0, 30)
+    gloss(image, X1, W, 30)
+    cut_window(image)
+    window_edges(image, (14, 14, 15, 255), ATARI_RED + (255,))
+    ink = (226, 214, 190, 255)
+    for x, label, up in ((LEFT - 54 * S, "TV TYPE", True), (LEFT + 54 * S, "DIFFICULTY", False)):
+        atari_switch(image, (x, 650 * S), label, ink, up)
+    for x, label, up in ((RIGHT - 54 * S, "SELECT", True), (RIGHT + 54 * S, "RESET", True)):
+        atari_switch(image, (x, 650 * S), label, ink, up)
+    cx40(image, (LEFT, 300 * S), 170 * S)
+    vertical_text(image, "8-BIT", (RIGHT, 280 * S), 40 * S, (180, 182, 190, 255), angle=-90, spacing=0.3)
+    led(image, (RIGHT, 900 * S), (230, 40, 30), "POWER", ink)
+    return image
+
+
+def proline(image, centre, size):
+    """The 7800's joystick: its square base, the tall grip with a red button on either side of its top."""
+    cx, cy = centre
+    r = size // 2
+    soft_shadow(image, (cx - r, cy + r * 0.2 + 8 * S, cx + r, cy + r + 8 * S), 16 * S, 10 * S)
+    draw = ImageDraw.Draw(image)
+    draw.rounded_rectangle((cx - r, cy + r * 0.2, cx + r, cy + r), radius=16 * S, fill=(26, 26, 28, 255),
+                           outline=(54, 54, 60, 255), width=2 * S)
+    soft_shadow(image, (cx - r * 0.28 + 6 * S, cy - r + 8 * S, cx + r * 0.28 + 6 * S, cy + r * 0.3 + 8 * S), 14 * S,
+                8 * S, 170)
+    draw = ImageDraw.Draw(image)
+    draw.rounded_rectangle((cx - r * 0.28, cy - r, cx + r * 0.28, cy + r * 0.3), radius=int(r * 0.26),
+                           fill=(36, 36, 40, 255), outline=(66, 66, 72, 255), width=2 * S)
+    for side in (-1, 1):
+        button(image, (cx + side * r * 0.3, cy - r * 0.62), r * 0.11, ATARI_RED + (255,))
+
+
+def atari7800_console():
+    """The Atari 7800: glossy black with its band of silver and grey lines, PAUSE, SELECT and RESET; the joystick with
+    its two buttons."""
+    image = side_panels((34, 34, 37), (8, 8, 9))
+    for y, h, colour in ((330, 46, (176, 178, 186)), (384, 8, (120, 122, 130)), (400, 6, (90, 92, 100)),
+                         (414, 4, (70, 72, 80))):
+        side_rect(image, y * S, (y + h) * S, colour + (255,))
+    gloss(image, 0, X0, 44)
+    gloss(image, X1, W, 44)
+    cut_window(image)
+    window_edges(image, (14, 14, 16, 255), (176, 178, 186, 255))
+    proline(image, (LEFT, 720 * S), 190 * S)
+    ink = (196, 198, 206, 255)
+    for i, label in enumerate(("PAUSE", "SELECT", "RESET")):
+        y = (600 + i * 110) * S
+        pill(image, (RIGHT, y), (100 * S, 30 * S), (64, 66, 74), angle=0)
+        centred_text(ImageDraw.Draw(image), label, (RIGHT, y + 36 * S), 13 * S, ink)
+    vertical_text(image, "8-BIT", (LEFT, 160 * S), 36 * S, ink, spacing=0.3)
+    vertical_text(image, "8-BIT", (RIGHT, 160 * S), 36 * S, ink, angle=-90, spacing=0.3)
+    led(image, (RIGHT, 960 * S), (230, 40, 30), "POWER", ink)
+    return image
+
+
+def number_pad(image, centre, key, ink):
+    """The Jaguar pad's twelve keys, three across and four down."""
+    cx, cy = centre
+    for row, keys in enumerate(("123", "456", "789", "*0#")):
+        for col, label in enumerate(keys):
+            x = cx + (col - 1) * (key + 10 * S)
+            y = cy + (row - 1.5) * (key * 0.8 + 10 * S)
+            soft_shadow(image, (x - key / 2, y - key * 0.4 + 4 * S, x + key / 2, y + key * 0.4 + 4 * S), 6 * S, 4 * S,
+                        140)
+            draw = ImageDraw.Draw(image)
+            draw.rounded_rectangle((x - key / 2, y - key * 0.4, x + key / 2, y + key * 0.4), radius=6 * S,
+                                   fill=(40, 40, 44, 255), outline=(70, 70, 76, 255), width=S)
+            centred_text(draw, label, (x, y), int(key * 0.42), ink)
+
+
+def atarijaguar_console():
+    """The Atari Jaguar: black with red lines by the picture, 64-BIT in red; the pad's D-pad, A B C (C at the left,
+    as on it) and its number pad."""
+    image = side_panels((30, 30, 33), (6, 6, 7))
+    gloss(image, 0, X0, 50)
+    gloss(image, X1, W, 50)
+    side_rect(image, 470 * S, 474 * S, ATARI_RED + (255,))
+    cut_window(image)
+    window_edges(image, (12, 12, 13, 255), ATARI_RED + (255,))
+    vertical_text(image, "64-BIT", (LEFT, 230 * S), 42 * S, ATARI_RED + (255,), spacing=0.3)
+    vertical_text(image, "64-BIT", (RIGHT, 230 * S), 42 * S, ATARI_RED + (255,), angle=-90, spacing=0.3)
+    soft_shadow(image, (LEFT - 80 * S, 560 * S + 6 * S, LEFT + 80 * S, 720 * S + 6 * S), 80 * S, 8 * S)
+    ImageDraw.Draw(image).ellipse((LEFT - 80 * S, 560 * S, LEFT + 80 * S, 720 * S), fill=(44, 44, 48, 255))
+    dpad(image, (LEFT, 640 * S), 124 * S, (26, 26, 30, 255), (16, 16, 18, 255))
+    ink = (200, 202, 210, 255)
+    for x, label in ((LEFT - 40 * S, "PAUSE"), (LEFT + 40 * S, "OPTION")):
+        pill(image, (x, 800 * S), (60 * S, 20 * S), (50, 50, 56), angle=0)
+        centred_text(ImageDraw.Draw(image), label, (x, 830 * S), 11 * S, ink)
+    for i, label in enumerate("CBA"):
+        button(image, (RIGHT + (i - 1) * 66 * S, (610 - i * 34) * S), 30 * S, (44, 44, 50, 255), label)
+    number_pad(image, (RIGHT, 830 * S), 44 * S, ink)
+    return image
+
+
 # The DS's and the 3DS's windows for each way their screens are shown (Emulator.cpp BezelShape): one screen (4:3),
 # side by side (the DS's 8:3, the 3DS's 3:1), one above the other (the DS's 2:3, the 3DS's 5:6), the big top screen
 # or the 3DS's top screen alone (16:9, the picture made smaller).
@@ -1755,6 +1914,8 @@ BEZELS = {
     "psp-console": psp_console, "dc-console": dc_console, "naomi-console": naomi_console,
     "atomiswave-console": atomiswave_console, "saturn-console": saturn_console,
     "pce-console": pce_console,
+    "atari2600-console": atari2600_console, "atari7800-console": atari7800_console,
+    "atarijaguar-console": atarijaguar_console,
     **{"nds-console" + shape: (lambda shape=shape: nds_console(shape)) for shape in NDS_WINDOWS},
     **{"3ds-console" + shape: (lambda shape=shape: ds3_console(shape)) for shape in DS3_WINDOWS},
 }

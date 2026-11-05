@@ -80,6 +80,10 @@ CONSOLES = {
     # left out, as the core has none; its serials are numbers, not a game code and its region: no siblings). (00.80 to
     # 00.82 also had the Sega CD, the 32X, the PC Engine CD, the Neo Geo Pockets and the WonderSwans: gone in 00.83.)
     "pce": (["NEC TurboGrafx-16"], ["no-intro/NEC - PC Engine - TurboGrafx 16.dat"], False),
+    # 00.90: Atari's (No-Intro's names; no serials).
+    "atari2600": (["Atari 2600"], ["no-intro/Atari - 2600.dat"], False),
+    "atari7800": (["Atari 7800"], ["no-intro/Atari - 7800.dat"], False),
+    "atarijaguar": (["Atari Jaguar"], ["no-intro/Atari - Jaguar.dat"], False),
 }
 # The romset consoles: LaunchBox's platforms, the first preferred (a Neo Geo game is the Arcade's, then the MVS's...).
 ROMSETS = {
@@ -91,12 +95,13 @@ NAMES = {"snes": "Super Nintendo", "nes": "NES", "n64": "Nintendo 64", "gb": "Ga
          "gba": "Game Boy Advance", "nds": "Nintendo DS", "3ds": "Nintendo 3DS", "ps1": "PlayStation", "psp": "PSP",
          "dc": "Dreamcast", "saturn": "Saturn", "sg1000": "SG-1000", "sms": "Master System", "gg": "Game Gear",
          "md": "Mega Drive / Genesis", "pce": "PC Engine / TurboGrafx-16",
+         "atari2600": "Atari 2600", "atari7800": "Atari 7800", "atarijaguar": "Atari Jaguar",
          "arcade": "Arcade (FinalBurn Neo)", "naomi": "NAOMI", "atomiswave": "Atomiswave"}
 # The Game Boy's and the Game Boy Color's games are matched against both consoles' names at once (src/Ratings.cpp).
 FAMILY = {"gb": ["gb", "gbc"], "gbc": ["gb", "gbc"]}
 # src/Ratings.cpp's Table() order (the copy's platforms line lists them so).
 APP_ORDER = ["snes", "nes", "n64", "gb", "gbc", "gba", "nds", "3ds", "ps1", "psp", "dc", "saturn", "sg1000", "sms", "gg",
-             "md", "pce", "arcade", "naomi", "atomiswave"]
+             "md", "pce", "atari2600", "atari7800", "atarijaguar", "arcade", "naomi", "atomiswave"]
 # LaunchBox's names of a console's games the app adds when this many players rated the game (src/Ratings.cpp).
 EXTRA_VOTES = 3
 

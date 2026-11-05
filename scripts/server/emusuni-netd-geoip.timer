@@ -1,0 +1,12 @@
+# The statistics' country database downloaded again once a month (DB-IP's new file comes out in the month's first
+# days). Installed by scripts/server/deploy.sh.
+[Unit]
+Description=EmuSuNi online server: the country database, monthly
+
+[Timer]
+OnCalendar=*-*-03 04:00:00 UTC
+RandomizedDelaySec=2h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

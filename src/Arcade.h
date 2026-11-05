@@ -10,6 +10,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -48,6 +49,10 @@ std::string CoverName(const std::string& title);
 // "May": the core takes the ROMs it finds from any zip by their CRCs, so a non-merged set (a clone's zip
 // with its parent's files) works without them; they are what a split set lacks when the core refuses it.
 std::vector<std::string> Missing(const Driver& driver, const std::string& folder, const std::string& system_dir);
+// The same, each zip looked for with `exists` (00.85: the Library's read answers from the folders it has read
+// already, instead of asking the drive again for every game).
+std::vector<std::string> Missing(const Driver& driver, const std::string& folder, const std::string& system_dir,
+                                 const std::function<bool(const std::string&)>& exists);
 // The message for a game the core refused, from its error screen's text (scripts/build-arcade-core.sh's
 // fbneo_emusuni_error) and the zips Missing() found not to be there: the reason in the app's words, the
 // romsets and the first few ROMs it names, and where the zips go. '\n' between the lines: each of English
@@ -55,6 +60,10 @@ std::vector<std::string> Missing(const Driver& driver, const std::string& folder
 // ROM's, a path) that the page may cut at its end.
 std::string LoadError(const std::string& core_text, const std::vector<std::string>& not_found,
                       const std::string& system_dir);
+// (00.90) The same, told apart when the game's zip (game_path) or its parent's or BIOS set's has the ROMs the core
+// lacks under their names but with other contents: a romset of another version (MAME's, another FinalBurn Neo's).
+std::string LoadError(const std::string& core_text, const std::vector<std::string>& not_found,
+                      const std::string& system_dir, const std::string& game_path);
 // A picture turned (libretro's rotation: 0 as it is, 1 = 90 degrees anticlockwise, 2 = 180, 3 = 270):
 // RGB565 rows of `pitch` bytes into `out` (rows of the new width), whose size goes to *w and *h.
 void Rotate(const uint16_t* in, size_t pitch, unsigned width, unsigned height, unsigned rotation,

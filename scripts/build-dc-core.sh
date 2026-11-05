@@ -97,6 +97,13 @@
 #     report, so every throw is logged first (oslib/emusuni_throw.cpp, linked over __cxa_throw with ld.lld -r --wrap):
 #     its type, its message, the SH4's pc and the game. A display list with a parameter the TA doesn't know no longer
 #     throws (upstream's catch only left out the rest of the list). The board's video timing is logged when it changes.
+#     00.89: the SH4's own exceptions (the MMU's page faults: Windows CE games, Sega Rally 2) raised and caught without
+#     C++ (__builtin_setjmp and __builtin_longjmp at each of upstream's catches); any other thrown under the game's load,
+#     retro_run or the emulation thread's run goes back there: the game ends with its message (a disc image Flycast
+#     can't read - "Invalid CDI image" -) and EmuSuNi stays. The disc and the console it runs on, in one log line.
+#   - Dreamcast online with DCNet (the app's Dreamcast Online: reicast_dcnet, reicast_emulate_bba): no C++
+#     exceptions on its way, dcnet.flyca.st looked up with the PS4's resolver, Off really off (no picoTCP), its
+#     lines in the log without addresses (the section "Dreamcast online", below).
 #   - PGO: scripts/dc-core.profdata.xz (below).
 #   - Threads: every thread Flycast names ("Flycast-emu", the emulation with threaded rendering, a
 #     new one at every start: game start, reset, save state loaded; "CustomTexLoader", "PicoTCP"...)
@@ -150,10 +157,10 @@
 #     carries the emulation's frame count of when it was sent, a picture presented keeps its own, and
 #     flycast_emusuni_vblanks gives the app the last picture's (a 30 FPS game, Frame Skip: 2 to 4 frames a
 #     picture; src/Emulator.cpp DcFrames).
-# The object is checked at the end: only flycast_retro_* (and the app's four flycast_emusuni_* helpers) defined globally, no weak references left,
+# The object is checked at the end: only flycast_retro_* (and the app's five flycast_emusuni_* helpers) defined globally, no weak references left,
 # the C++ operator new/delete it uses all EmuSuNi's own (port/ps4_new.cpp, on the app's heap) and
 # none defined in it, and every other symbol it needs found in what the app links (OpenOrbis' libc,
-# libkernel, libSceLibcInternal, clang's builtins, libc++/libc++abi/libunwind, port/ps4_n64.c;
+# libkernel, libSceLibcInternal, libSceNet, libSceSysmodule, clang's builtins, libc++/libc++abi/libunwind, port/ps4_n64.c;
 # emusuni_dc_thread from port/).
 # Only what changed is compiled again (ninja); everything when the flags or this script change.
 #   build-dc-core.sh <out dir> [clean]
@@ -348,20 +355,78 @@ patch('core/oslib/resources.cpp',
 # message (FlycastException's and SH4ThrownException's, kept by their constructors), the SH4's pc and the game, then
 # throws it as before: on the PC the same catches catch it.
 addfile('core/oslib/emusuni_throw.cpp', r'''// EmuSuNi (scripts/build-dc-core.sh, 00.81): every C++ exception the core throws, in the log before it's thrown (on
-// the PS4 its catch is never reached: the app ends).
+// the PS4 its catch is never reached: the app ends). 00.89: one thrown under a rescue point goes back to it instead
+// (types.h), and the SH4's own exceptions are raised and caught without C++ (hw/sh4/sh4_core.h).
 #include "types.h"
 
 #ifdef EMUSUNI_PORT
 #include "hw/sh4/sh4_if.h"
+#include "hw/sh4/sh4_core.h"
 #include <atomic>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <typeinfo>
+#include <cxxabi.h>
 
 namespace {
 char g_what[192];                   // the message of the exception being made (its constructor), if it has one
 std::atomic<int> g_thrown { 0 };
+thread_local EmusuniRescue *t_rescue = nullptr;
+char g_rescued[256];                // what the last rescue came back from
+u32 g_sh4Raised;                    // the SH4's exceptions taken without C++ (the emulation thread's)
+
+// The rescue points: always on the PS4; on the PC with EMUSUNI_DC_RESCUE=1 (the tests), else upstream's catches.
+bool rescueOn()
+{
+#if defined(__ORBIS__)
+	return true;
+#else
+	static const bool on = getenv("EMUSUNI_DC_RESCUE") != nullptr;
+	return on;
+#endif
+}
 }  // namespace
+
+void emusuniRescueArm(EmusuniRescue& rescue, const char *where)
+{
+	if (!rescueOn())
+		return;
+	rescue.where = where;
+	rescue.outer = t_rescue;
+	rescue.armed = true;
+	t_rescue = &rescue;
+}
+
+void emusuniRescueDisarm(EmusuniRescue& rescue)
+{
+	if (rescue.armed && t_rescue == &rescue)
+		t_rescue = rescue.outer;
+	rescue.armed = false;
+}
+
+const char *emusuniRescued()
+{
+	return g_rescued;
+}
+
+EmusuniSh4Catch *emusuniSh4Catch;
+
+[[noreturn]] void emusuniSh4Raise(u32 epc, u32 expEvn)
+{
+	EmusuniSh4Catch *const sh4catch = emusuniSh4Catch;
+	if (sh4catch == nullptr)
+		// None of the emulation's own catches: thrown as upstream's (logged; on the PS4 a rescue's, or the app's end).
+		throw SH4ThrownException(epc, (Sh4ExceptionCode)expEvn);
+	const u32 n = ++g_sh4Raised;
+	if (n <= 5 || n == 10 || n == 100 || n == 1000 || n == 10000 || n == 100000 || n == 1000000 || n == 10000000)
+		WARN_LOG(COMMON, "EmuSuNi: the SH4's exception %03x at %08x taken as the console takes it (%u so far, game %s)",
+				expEvn, epc, n, settings.content.gameId.c_str());
+	sh4catch->epc = epc;
+	sh4catch->expEvn = expEvn;
+	emusuniSh4Catch = sh4catch->outer;
+	__builtin_longjmp(sh4catch->jump, 1);
+}
 
 void emusuniThrowWhat(const char *what)
 {
@@ -378,18 +443,40 @@ extern "C" [[noreturn]] void __real___cxa_throw(void *object, std::type_info *ty
 extern "C" [[noreturn]] void __wrap___cxa_throw(void *object, std::type_info *type, void (*destructor)(void *))
 {
 	const int n = ++g_thrown;
-	// (The first 20, then one in 100: on the PC a caught one may come again.)
-	if (n <= 20 || n % 100 == 0)
+	EmusuniRescue *const rescue = t_rescue;
+	// (The first 20, then one in 100: on the PC a caught one may come again. Every one a rescue takes.)
+	if (n <= 20 || n % 100 == 0 || rescue != nullptr)
 	{
 		const u32 pc = p_sh4rcb != nullptr ? Sh4cntx.pc : 0;
 #if defined(__ORBIS__)
-		const char *after = "; on the PS4 its catch is never reached: the app ends here";
+		const char *after = rescue != nullptr ? "" : "; on the PS4 its catch is never reached: the app ends here";
 #else
 		const char *after = "";
 #endif
 		ERROR_LOG(COMMON, "EmuSuNi: C++ exception %d thrown in the core: %s%s%s (SH4 pc %08x, game %s)%s", n,
 				type != nullptr ? type->name() : "?", g_what[0] != '\0' ? ": " : "", g_what, pc,
 				settings.content.gameId.c_str(), after);
+	}
+	if (rescue != nullptr)
+	{
+		// (00.89) Back to the rescue point instead (the exception object is left: a few bytes), with its message, else
+		// its type's name.
+		if (g_what[0] != '\0')
+			snprintf(g_rescued, sizeof(g_rescued), "%s", g_what);
+		else
+		{
+			const char *name = type != nullptr ? type->name() : "?";
+			int status = -1;
+			char *demangled = type != nullptr ? abi::__cxa_demangle(name, nullptr, nullptr, &status) : nullptr;
+			snprintf(g_rescued, sizeof(g_rescued), "The emulator stopped: %s",
+					demangled != nullptr && status == 0 ? demangled : name);
+			free(demangled);
+		}
+		ERROR_LOG(COMMON, "EmuSuNi: the exception goes back to %s (EmuSuNi stays; the game ends)", rescue->where);
+		t_rescue = rescue->outer;
+		rescue->armed = false;
+		g_what[0] = '\0';
+		__builtin_longjmp(rescue->jump, 1);
 	}
 	g_what[0] = '\0';
 	__real___cxa_throw(object, type, destructor);
@@ -403,6 +490,22 @@ patch('core/types.h',
       '#ifdef EMUSUNI_PORT\n'
       'void emusuniThrowWhat(const char *what);  // oslib/emusuni_throw.cpp: the message, for the log of the throw\n'
       'void emusuniThrowSh4(u32 epc, u32 code);\n'
+      '// (00.89) A point a C++ exception thrown under it on this thread goes back to (oslib/emusuni_throw.cpp), on the PS4\n'
+      '// (where its catch is never reached: the app would end), on the PC tests with EMUSUNI_DC_RESCUE=1:\n'
+      '//   EmusuniRescue rescue;\n'
+      '//   if (__builtin_setjmp(rescue.jump) != 0) { ... emusuniRescued(): its message; undo what can be; return; }\n'
+      '//   emusuniRescueArm(rescue, "the game\'s load");\n'
+      '//   ... the work ...\n'
+      '//   emusuniRescueDisarm(rescue);\n'
+      'struct EmusuniRescue\n{\n'
+      '\tvoid *jump[5];  // __builtin_setjmp\'s\n'
+      '\tconst char *where = nullptr;\n'
+      '\tEmusuniRescue *outer = nullptr;\n'
+      '\tbool armed = false;\n'
+      '};\n'
+      'void emusuniRescueArm(EmusuniRescue& rescue, const char *where);\n'
+      'void emusuniRescueDisarm(EmusuniRescue& rescue);\n'
+      'const char *emusuniRescued();  // the exception the last rescue came back from: its message, else its type\n'
       '#endif\n'
       'class FlycastException : public std::runtime_error\n{\npublic:\n'
       '#ifdef EMUSUNI_PORT\n'
@@ -5444,6 +5547,999 @@ patch('core/hw/pvr/Renderer_if.cpp',
       '#endif\n\n'
       'void check_framebuffer_write()\n{\n')
 
+# --- (00.89) Exceptions on the PS4, where a C++ exception's catch is never reached (the app ends, 00.64):
+#  1. The SH4's own exceptions, which the emulation takes as the console would: a page the MMU doesn't map (Windows CE
+#     games run with the MMU on: Sega Rally 2, which "doesn't work" for a player), an instruction the SH4 doesn't have,
+#     a float instruction with the FPU off. Upstream throws SH4ThrownException wherever C code meets one (the
+#     interpreter's instructions the recompiled code calls, a block's decoding that runs into an unmapped page, the
+#     store queues, the HLE BIOS's GD-ROM calls) and catches it a few calls up. Here emusuniSh4Raise goes back
+#     (__builtin_longjmp: a few stores, no signal mask) to the innermost EmusuniSh4Catch, one at each of upstream's
+#     catches; with none it throws as before. Nothing between a raise and its catch holds a lock or needs a
+#     destructor (an instruction's handler, the decoder's tables). The first five, then 10, 100... are logged:
+#     "EmuSuNi: the SH4's exception <code> at <pc> taken as the console takes it (<n> so far, game <id>)".
+#  2. Any other exception thrown under the game's load (a disc image Flycast can't read: "Invalid CDI image", a CHD
+#     made as a DVD, a CUE's track missing; a game that needs the real BIOS), retro_run (the renderer) or the
+#     emulation thread's run goes back there (EmusuniRescue, oslib/emusuni_throw.cpp): the load fails, or the game ends,
+#     with the exception's message (the app shows it), as upstream's catches end them - EmuSuNi stays. What the jump
+#     skipped is lost (a lock held there would hang the next call: not the app closing on its own). The log says
+#     "EmuSuNi: the exception goes back to <where> (EmuSuNi stays; the game ends)".
+#  3. The disc and the console it runs on, as the game loads ("EmuSuNi: disc <id>, areas <JUE>..., <real/HLE> BIOS:
+#     a <region> console, language <language>, <broadcast>, <cable> cable"): a game that doesn't start, or not in
+#     the language the player chose, says why in the player's log.
+patch('core/hw/sh4/sh4_core.h',
+      'struct SH4ThrownException\n{\n#ifdef EMUSUNI_PORT\n'
+      '\tSH4ThrownException(u32 epc, Sh4ExceptionCode expEvn) : epc(epc), expEvn(expEvn) { emusuniThrowSh4(epc, expEvn); }\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '// EmuSuNi (00.89, scripts/build-dc-core.sh): the SH4\'s exceptions without C++\'s (on the PS4 a catch is never\n'
+      '// reached: the app ends). emusuniSh4Raise goes back (__builtin_longjmp) to the innermost catch of the emulation\'s\n'
+      '// own, one at each place upstream catches SH4ThrownException:\n'
+      '//   EmusuniSh4Catch sh4catch(emusuniSh4Catch);\n'
+      '//   if (__builtin_setjmp(sh4catch.jump) == 0) { emusuniSh4Catch = &sh4catch; ...; emusuniSh4Catch = sh4catch.outer; }\n'
+      '//   else { SH4ThrownException ex(sh4catch); ... }  (the raise put the outer one back)\n'
+      '// With none it is thrown as upstream\'s (oslib/emusuni_throw.cpp). The emulation thread\'s only.\n'
+      'struct EmusuniSh4Catch\n{\n'
+      '\texplicit EmusuniSh4Catch(EmusuniSh4Catch *outer) : outer(outer) {}\n'
+      '\tvoid *jump[5];  // __builtin_setjmp\'s\n'
+      '\tEmusuniSh4Catch *outer;\n'
+      '\tu32 epc = 0;\n'
+      '\tu32 expEvn = 0;\n'
+      '};\n'
+      'extern EmusuniSh4Catch *emusuniSh4Catch;\n'
+      '[[noreturn]] void emusuniSh4Raise(u32 epc, u32 expEvn);\n'
+      '#endif\n\n'
+      'struct SH4ThrownException\n{\n#ifdef EMUSUNI_PORT\n'
+      '\tSH4ThrownException(u32 epc, Sh4ExceptionCode expEvn) : epc(epc), expEvn(expEvn) { emusuniThrowSh4(epc, expEvn); }\n'
+      '\t// (One an EmusuniSh4Catch took: not thrown, nothing to log.)\n'
+      '\texplicit SH4ThrownException(const EmusuniSh4Catch& taken) : epc(taken.epc), expEvn((Sh4ExceptionCode)taken.expEvn) { }\n')
+# The raises.
+patch('core/hw/sh4/modules/mmu.cpp',
+      '\t\tthrow SH4ThrownException(Sh4cntx.pc - 2, event);\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\temusuniSh4Raise(Sh4cntx.pc - 2, event);  // EmuSuNi: without C++ (sh4_core.h)\n'
+      '#else\n'
+      '\t\tthrow SH4ThrownException(Sh4cntx.pc - 2, event);\n'
+      '#endif\n')
+patch('core/hw/sh4/interpr/sh4_opcodes.cpp',
+      '\tthrow SH4ThrownException(ctx->pc - 2, Sh4Ex_IllegalInstr);\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '\temusuniSh4Raise(ctx->pc - 2, Sh4Ex_IllegalInstr);  // EmuSuNi: without C++ (sh4_core.h)\n'
+      '#else\n'
+      '\tthrow SH4ThrownException(ctx->pc - 2, Sh4Ex_IllegalInstr);\n'
+      '#endif\n')
+patch('core/hw/sh4/interpr/sh4_interpreter.cpp',
+      '\t\tthrow SH4ThrownException(ctx->pc - 2, Sh4Ex_FpuDisabled);\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\temusuniSh4Raise(ctx->pc - 2, Sh4Ex_FpuDisabled);  // EmuSuNi: without C++ (sh4_core.h)\n'
+      '#else\n'
+      '\t\tthrow SH4ThrownException(ctx->pc - 2, Sh4Ex_FpuDisabled);\n'
+      '#endif\n')
+patch('core/hw/sh4/interpr/sh4_interpreter.cpp',
+      '\t\tthrow SH4ThrownException(addr, Sh4Ex_AddressErrorRead);\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\temusuniSh4Raise(addr, Sh4Ex_AddressErrorRead);\n'
+      '#else\n'
+      '\t\tthrow SH4ThrownException(addr, Sh4Ex_AddressErrorRead);\n'
+      '#endif\n')
+# The catches: the interpreter's loop, its single step and its delay slots.
+patch('core/hw/sh4/interpr/sh4_interpreter.cpp',
+      '\t\tdo\n\t\t{\n\t\t\ttry {\n\t\t\t\tdo\n\t\t\t\t{\n\t\t\t\t\tu32 op = ReadNexOp();\n\n\t\t\t\t\tExecuteOpcode(op);\n'
+      '\t\t\t\t} while (ctx->cycle_counter > 0);\n\t\t\t\tctx->cycle_counter += SH4_TIMESLICE;\n\t\t\t\tUpdateSystem_INTC();\n'
+      '\t\t\t} catch (const SH4ThrownException& ex) {\n\t\t\t\tDo_Exception(ex.epc, ex.expEvn);\n'
+      '\t\t\t\t// an exception requires the instruction pipeline to drain, so approx 5 cycles\n'
+      '\t\t\t\tsh4cycles.addCycles(5 * CPU_RATIO);\n\t\t\t}\n\t\t} while (ctx->CpuRunning);\n',
+      '\t\tdo\n\t\t{\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\t\tEmusuniSh4Catch sh4catch(emusuniSh4Catch);  // EmuSuNi: without C++ (sh4_core.h)\n'
+      '\t\t\tif (__builtin_setjmp(sh4catch.jump) == 0)\n\t\t\t{\n'
+      '\t\t\t\temusuniSh4Catch = &sh4catch;\n'
+      '\t\t\t\tdo\n\t\t\t\t{\n\t\t\t\t\tu32 op = ReadNexOp();\n\n\t\t\t\t\tExecuteOpcode(op);\n'
+      '\t\t\t\t} while (ctx->cycle_counter > 0);\n\t\t\t\tctx->cycle_counter += SH4_TIMESLICE;\n\t\t\t\tUpdateSystem_INTC();\n'
+      '\t\t\t\temusuniSh4Catch = sh4catch.outer;\n'
+      '\t\t\t}\n\t\t\telse\n\t\t\t{\n'
+      '\t\t\t\tDo_Exception(sh4catch.epc, (Sh4ExceptionCode)sh4catch.expEvn);\n'
+      '\t\t\t\t// an exception requires the instruction pipeline to drain, so approx 5 cycles\n'
+      '\t\t\t\tsh4cycles.addCycles(5 * CPU_RATIO);\n\t\t\t}\n'
+      '#else\n'
+      '\t\t\ttry {\n\t\t\t\tdo\n\t\t\t\t{\n\t\t\t\t\tu32 op = ReadNexOp();\n\n\t\t\t\t\tExecuteOpcode(op);\n'
+      '\t\t\t\t} while (ctx->cycle_counter > 0);\n\t\t\t\tctx->cycle_counter += SH4_TIMESLICE;\n\t\t\t\tUpdateSystem_INTC();\n'
+      '\t\t\t} catch (const SH4ThrownException& ex) {\n\t\t\t\tDo_Exception(ex.epc, ex.expEvn);\n'
+      '\t\t\t\t// an exception requires the instruction pipeline to drain, so approx 5 cycles\n'
+      '\t\t\t\tsh4cycles.addCycles(5 * CPU_RATIO);\n\t\t\t}\n'
+      '#endif\n'
+      '\t\t} while (ctx->CpuRunning);\n')
+patch('core/hw/sh4/interpr/sh4_interpreter.cpp',
+      '\tctx->restoreHostRoundingMode();\n\ttry {\n\t\tu32 op = ReadNexOp();\n\t\tExecuteOpcode(op);\n'
+      '\t} catch (const SH4ThrownException& ex) {\n\t\tDo_Exception(ex.epc, ex.expEvn);\n'
+      '\t\t// an exception requires the instruction pipeline to drain, so approx 5 cycles\n'
+      '\t\tsh4cycles.addCycles(5 * CPU_RATIO);\n\t} catch (const debugger::Stop&) {\n\t}\n',
+      '\tctx->restoreHostRoundingMode();\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\tEmusuniSh4Catch sh4catch(emusuniSh4Catch);  // EmuSuNi: without C++ (sh4_core.h)\n'
+      '\tif (__builtin_setjmp(sh4catch.jump) == 0)\n\t{\n'
+      '\t\temusuniSh4Catch = &sh4catch;\n'
+      '\t\tu32 op = ReadNexOp();\n\t\tExecuteOpcode(op);\n'
+      '\t\temusuniSh4Catch = sh4catch.outer;\n'
+      '\t}\n\telse\n\t{\n'
+      '\t\tDo_Exception(sh4catch.epc, (Sh4ExceptionCode)sh4catch.expEvn);\n'
+      '\t\t// an exception requires the instruction pipeline to drain, so approx 5 cycles\n'
+      '\t\tsh4cycles.addCycles(5 * CPU_RATIO);\n\t}\n'
+      '#else\n'
+      '\ttry {\n\t\tu32 op = ReadNexOp();\n\t\tExecuteOpcode(op);\n'
+      '\t} catch (const SH4ThrownException& ex) {\n\t\tDo_Exception(ex.epc, ex.expEvn);\n'
+      '\t\t// an exception requires the instruction pipeline to drain, so approx 5 cycles\n'
+      '\t\tsh4cycles.addCycles(5 * CPU_RATIO);\n\t} catch (const debugger::Stop&) {\n\t}\n'
+      '#endif\n')
+patch('core/hw/sh4/interpr/sh4_interpreter.cpp',
+      'void Sh4Interpreter::ExecuteDelayslot()\n{\n\ttry {\n\t\tu32 op = ReadNexOp();\n\n\t\tExecuteOpcode(op);\n'
+      '\t} catch (SH4ThrownException& ex) {\n\t\tAdjustDelaySlotException(ex);\n\t\tthrow ex;\n',
+      'void Sh4Interpreter::ExecuteDelayslot()\n{\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t// EmuSuNi: without C++ (sh4_core.h): taken here, made a delay slot\'s and raised again.\n'
+      '\tEmusuniSh4Catch sh4catch(emusuniSh4Catch);\n'
+      '\tif (__builtin_setjmp(sh4catch.jump) != 0)\n\t{\n'
+      '\t\tSH4ThrownException ex(sh4catch);\n\t\tAdjustDelaySlotException(ex);\n'
+      '\t\temusuniSh4Raise(ex.epc, ex.expEvn);\n\t}\n'
+      '\temusuniSh4Catch = &sh4catch;\n'
+      '#endif\n'
+      '\ttry {\n\t\tu32 op = ReadNexOp();\n\n\t\tExecuteOpcode(op);\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\temusuniSh4Catch = sh4catch.outer;\n'
+      '#endif\n'
+      '\t} catch (SH4ThrownException& ex) {\n\t\tAdjustDelaySlotException(ex);\n\t\tthrow ex;\n')
+patch('core/hw/sh4/interpr/sh4_interpreter.cpp',
+      'void Sh4Interpreter::ExecuteDelayslot_RTE()\n{\n\ttry {\n',
+      'void Sh4Interpreter::ExecuteDelayslot_RTE()\n{\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t// EmuSuNi: without C++ (sh4_core.h), the same fatal error (a C++ one: the rescue\'s, oslib/emusuni_throw.cpp).\n'
+      '\tEmusuniSh4Catch sh4catch(emusuniSh4Catch);\n'
+      '\tif (__builtin_setjmp(sh4catch.jump) != 0)\n'
+      '\t\tthrow FlycastException("Fatal: SH4 exception in RTE delay slot");\n'
+      '\temusuniSh4Catch = &sh4catch;\n'
+      '#endif\n'
+      '\ttry {\n')
+patch('core/hw/sh4/interpr/sh4_interpreter.cpp',
+      '\t\t// Now restore all SR bits\n\t\tctx->sr.setFull(ctx->ssr);\n\t\t// And execute\n\t\tExecuteOpcode(op);\n',
+      '\t\t// Now restore all SR bits\n\t\tctx->sr.setFull(ctx->ssr);\n\t\t// And execute\n\t\tExecuteOpcode(op);\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\temusuniSh4Catch = sh4catch.outer;\n'
+      '#endif\n')
+# The recompiler's: a block's decoding, the interpreter's instructions the recompiled code calls, the store queues with
+# the MMU; and where the recompiled code goes back to its main loop (the frames under it left: no catch of theirs stays).
+patch('core/hw/sh4/dyna/driver.cpp',
+      '\ttry {\n\t\tif (!dec_DecodeBlock(this, SH4_TIMESLICE / 2))\n\t\t\treturn false;\n\t}\n'
+      '\tcatch (const SH4ThrownException& ex) {\n\t\tDo_Exception(rpc, ex.expEvn);\n\t\treturn false;\n\t}\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '\t{\n'
+      '\t\t// EmuSuNi: without C++ (sh4_core.h): a block that runs into a page the MMU doesn\'t map.\n'
+      '\t\tEmusuniSh4Catch sh4catch(emusuniSh4Catch);\n'
+      '\t\tif (__builtin_setjmp(sh4catch.jump) != 0)\n\t\t{\n'
+      '\t\t\tDo_Exception(rpc, (Sh4ExceptionCode)sh4catch.expEvn);\n\t\t\treturn false;\n\t\t}\n'
+      '\t\temusuniSh4Catch = &sh4catch;\n'
+      '\t\tconst bool decoded = dec_DecodeBlock(this, SH4_TIMESLICE / 2);\n'
+      '\t\temusuniSh4Catch = sh4catch.outer;\n'
+      '\t\tif (!decoded)\n\t\t\treturn false;\n'
+      '\t}\n'
+      '#else\n'
+      '\ttry {\n\t\tif (!dec_DecodeBlock(this, SH4_TIMESLICE / 2))\n\t\t\treturn false;\n\t}\n'
+      '\tcatch (const SH4ThrownException& ex) {\n\t\tDo_Exception(rpc, ex.expEvn);\n\t\treturn false;\n\t}\n'
+      '#endif\n')
+patch('core/rec-x64/rec_x64.cpp',
+      'static void interpreter_fallback(Sh4Context *ctx, u16 op, OpCallFP *oph, u32 pc)\n{\n'
+      '\ttry {\n\t\toph(ctx, op);\n\t} catch (SH4ThrownException& ex) {\n\t\thandle_sh4_exception(ctx, ex, pc);\n\t}\n}\n',
+      'static void interpreter_fallback(Sh4Context *ctx, u16 op, OpCallFP *oph, u32 pc)\n{\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\tEmusuniSh4Catch sh4catch(emusuniSh4Catch);  // EmuSuNi: without C++ (sh4_core.h)\n'
+      '\tif (__builtin_setjmp(sh4catch.jump) == 0)\n\t{\n'
+      '\t\temusuniSh4Catch = &sh4catch;\n'
+      '\t\toph(ctx, op);\n'
+      '\t\temusuniSh4Catch = sh4catch.outer;\n'
+      '\t}\n\telse\n\t{\n'
+      '\t\tSH4ThrownException ex(sh4catch);\n'
+      '\t\thandle_sh4_exception(ctx, ex, pc);\n'
+      '\t}\n'
+      '#else\n'
+      '\ttry {\n\t\toph(ctx, op);\n\t} catch (SH4ThrownException& ex) {\n\t\thandle_sh4_exception(ctx, ex, pc);\n\t}\n'
+      '#endif\n}\n')
+patch('core/rec-x64/rec_x64.cpp',
+      'static void do_sqw_mmu_no_ex(u32 addr, Sh4Context *ctx, u32 pc)\n{\n'
+      '\ttry {\n\t\tctx->doSqWrite(addr, ctx);\n\t} catch (SH4ThrownException& ex) {\n\t\thandle_sh4_exception(ctx, ex, pc);\n\t}\n}\n',
+      'static void do_sqw_mmu_no_ex(u32 addr, Sh4Context *ctx, u32 pc)\n{\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\tEmusuniSh4Catch sh4catch(emusuniSh4Catch);  // EmuSuNi: without C++ (sh4_core.h)\n'
+      '\tif (__builtin_setjmp(sh4catch.jump) == 0)\n\t{\n'
+      '\t\temusuniSh4Catch = &sh4catch;\n'
+      '\t\tctx->doSqWrite(addr, ctx);\n'
+      '\t\temusuniSh4Catch = sh4catch.outer;\n'
+      '\t}\n\telse\n\t{\n'
+      '\t\tSH4ThrownException ex(sh4catch);\n'
+      '\t\thandle_sh4_exception(ctx, ex, pc);\n'
+      '\t}\n'
+      '#else\n'
+      '\ttry {\n\t\tctx->doSqWrite(addr, ctx);\n\t} catch (SH4ThrownException& ex) {\n\t\thandle_sh4_exception(ctx, ex, pc);\n\t}\n'
+      '#endif\n}\n')
+patch('core/rec-x64/rec_x64.cpp',
+      '\tvoid mainloop(void *) override\n\t{\n\t\tverify(::mainloop != nullptr);\n',
+      '\tvoid mainloop(void *) override\n\t{\n\t\tverify(::mainloop != nullptr);\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\temusuniSh4Catch = nullptr;  // EmuSuNi: none while recompiled code runs (sh4_core.h)\n'
+      '#endif\n')
+patch('core/rec-x64/rec_x64.cpp',
+      '\tvoid handleException(host_context_t &context) override\n\t{\n\t\tcontext.pc = (uintptr_t)::handleException;\n',
+      '\tvoid handleException(host_context_t &context) override\n\t{\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\temusuniSh4Catch = nullptr;  // EmuSuNi: back to the main loop, the frames under it left (sh4_core.h)\n'
+      '#endif\n'
+      '\t\tcontext.pc = (uintptr_t)::handleException;\n')
+# The HLE BIOS's GD-ROM calls (Windows CE's pointers, with the HLE BIOS).
+patch('core/reios/gdrom_hle.cpp',
+      '\t\t\t\t\ttry {\n\t\t\t\t\t\tgd_hle_state.params[i] = r[5] == 0 ? 0 : ReadMem32(r[5] + i * 4);\n'
+      '\t\t\t\t\t} catch (SH4ThrownException&) {\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\t\t\t\tEmusuniSh4Catch sh4catch(emusuniSh4Catch);  // EmuSuNi: without C++ (sh4_core.h)\n'
+      '\t\t\t\t\tif (__builtin_setjmp(sh4catch.jump) == 0)\n\t\t\t\t\t{\n'
+      '\t\t\t\t\t\temusuniSh4Catch = &sh4catch;\n'
+      '\t\t\t\t\t\tgd_hle_state.params[i] = r[5] == 0 ? 0 : ReadMem32(r[5] + i * 4);\n'
+      '\t\t\t\t\t\temusuniSh4Catch = sh4catch.outer;\n'
+      '\t\t\t\t\t}\n\t\t\t\t\telse\n'
+      '\t\t\t\t\t\tgd_hle_state.params[i] = 0;  // (as below)\n'
+      '\t\t\t\t\tif (false)\n'
+      '#endif\n'
+      '\t\t\t\t\ttry {\n\t\t\t\t\t\tgd_hle_state.params[i] = r[5] == 0 ? 0 : ReadMem32(r[5] + i * 4);\n'
+      '\t\t\t\t\t} catch (SH4ThrownException&) {\n')
+patch('core/reios/gdrom_hle.cpp',
+      '\t\t\ttry {\n\t\t\t\tWriteMem32(r[5], gd_hle_state.result[0]);\t\t// error\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\t\t{\n'
+      '\t\t\t\tEmusuniSh4Catch sh4catch(emusuniSh4Catch);  // EmuSuNi: without C++ (sh4_core.h)\n'
+      '\t\t\t\tif (__builtin_setjmp(sh4catch.jump) == 0)\n\t\t\t\t{\n'
+      '\t\t\t\t\temusuniSh4Catch = &sh4catch;\n'
+      '\t\t\t\t\tWriteMem32(r[5], gd_hle_state.result[0]);\n'
+      '\t\t\t\t\tWriteMem32(r[5] + 4, gd_hle_state.result[1]);\n'
+      '\t\t\t\t\tWriteMem32(r[5] + 8, gd_hle_state.result[2]);\n'
+      '\t\t\t\t\tWriteMem32(r[5] + 12, gd_hle_state.result[3]);\n'
+      '\t\t\t\t\temusuniSh4Catch = sh4catch.outer;\n'
+      '\t\t\t\t}\n'
+      '\t\t\t}\n'
+      '\t\t\tif (false)\n'
+      '#endif\n'
+      '\t\t\ttry {\n\t\t\t\tWriteMem32(r[5], gd_hle_state.result[0]);\t\t// error\n')
+# The rescues: the game's load (libretro.cpp's loadGame, which retro_reset uses too), retro_run's frame, the emulation
+# thread's run (Emulator::runInternal: its error then ends the game at the next retro_run, as upstream's rethrown one).
+patch('core/emulator.cpp',
+      '#include "hw/sh4/sh4_interpreter.h"\n',
+      '#include "hw/sh4/sh4_interpreter.h"\n'
+      '#ifdef EMUSUNI_PORT\n#include "hw/sh4/sh4_core.h"  // EmuSuNi: emusuniSh4Catch\n#endif\n')
+patch('core/emulator.h',
+      '\tState state = Uninitialized;\n',
+      '\tState state = Uninitialized;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      'public:\n'
+      '\t// EmuSuNi (00.89, the rescues of oslib/emusuni_throw.cpp): the load that failed in a rescue, left in the Error\n'
+      '\t// state as loadGame\'s catch leaves it; the emulation thread\'s error (its rescue), taken once by retro_run.\n'
+      '\tvoid emusuniLoadFailed() { state = Error; }\n'
+      '\tstd::string emusuniTakeFailure();\n'
+      'private:\n'
+      '\tstd::mutex emusuniFailureLock;\n'
+      '\tstd::string emusuniFailure;\n'
+      '#endif\n')
+patch('core/emulator.cpp',
+      '\trunner.init();\n\ttry {\n\t\tif (singleStep)\n',
+      '\trunner.init();\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\temusuniSh4Catch = nullptr;  // EmuSuNi: no SH4 catch is open here (a rescue may have left one: sh4_core.h)\n'
+      '\t// EmuSuNi (00.89): thrown under the run (on the PS4 the catches never reached: the app ended), back here: as the\n'
+      '\t// catches here and in the thread\'s function, the emulation stopped in its error, which the next retro_run says.\n'
+      '\tEmusuniRescue rescue;\n'
+      '\tif (__builtin_setjmp(rescue.jump) != 0)\n\t{\n'
+      '\t\trunner.term();\n'
+      '\t\tsetNetworkState(false);\n'
+      '\t\tgetSh4Executor()->Stop();\n'
+      '\t\t{\n'
+      '\t\t\tstd::lock_guard<std::mutex> lock(emusuniFailureLock);\n'
+      '\t\t\temusuniFailure = emusuniRescued();\n'
+      '\t\t}\n'
+      '\t\tstate = Error;  // (the thread\'s loop ends; its sound stopped as after a stop)\n'
+      '\t\treturn;\n\t}\n'
+      '\temusuniRescueArm(rescue, "the emulation thread");\n'
+      '#endif\n'
+      '\ttry {\n\t\tif (singleStep)\n')
+patch('core/emulator.cpp',
+      '\t} catch (...) {\n\t\trunner.term();\n\t\tthrow;\n\t}\n}\n',
+      '\t} catch (...) {\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\temusuniRescueDisarm(rescue);\n'
+      '#endif\n'
+      '\t\trunner.term();\n\t\tthrow;\n\t}\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\temusuniRescueDisarm(rescue);\n'
+      '#endif\n'
+      '}\n\n'
+      '#ifdef EMUSUNI_PORT\n'
+      'std::string Emulator::emusuniTakeFailure()\n{\n'
+      '\tstd::lock_guard<std::mutex> lock(emusuniFailureLock);\n'
+      '\tstd::string failure;\n'
+      '\tfailure.swap(emusuniFailure);\n'
+      '\treturn failure;\n'
+      '}\n'
+      '#endif\n')
+patch('shell/libretro/libretro.cpp',
+      'static bool loadGame()\n{\n\ttry {\n\t\temu.loadGame(game_data.c_str());\n\t} catch (const FlycastException& e) {\n'
+      '\t\tERROR_LOG(BOOT, "%s", e.what());\n\t\tos_notify(e.what(), 5000);\n        retro_unload_game();\n'
+      '\t\treturn false;\n\t}\n\n\treturn true;\n}\n',
+      'static bool loadGame()\n{\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t// EmuSuNi (00.89): on the PS4 the catch below is never reached - the app ended (a disc image Flycast can\'t read:\n'
+      '\t// an invalid CDI, a CHD made as a DVD, a CUE\'s track missing; a game that needs the real BIOS...). A throw under\n'
+      '\t// the load comes back here instead (oslib/emusuni_throw.cpp), and the load fails as the catch makes it fail.\n'
+      '\tEmusuniRescue rescue;\n'
+      '\tif (__builtin_setjmp(rescue.jump) != 0)\n\t{\n'
+      '\t\tERROR_LOG(BOOT, "%s", emusuniRescued());\n'
+      '\t\tos_notify(emusuniRescued(), 5000);\n'
+      '\t\temu.emusuniLoadFailed();\n'
+      '\t\tretro_unload_game();\n'
+      '\t\treturn false;\n\t}\n'
+      '\temusuniRescueArm(rescue, "the game\'s load");\n'
+      '#endif\n'
+      '\ttry {\n\t\temu.loadGame(game_data.c_str());\n\t} catch (const FlycastException& e) {\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\temusuniRescueDisarm(rescue);\n'
+      '#endif\n'
+      '\t\tERROR_LOG(BOOT, "%s", e.what());\n\t\tos_notify(e.what(), 5000);\n        retro_unload_game();\n'
+      '\t\treturn false;\n\t}\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\temusuniRescueDisarm(rescue);\n'
+      '#endif\n\n\treturn true;\n}\n')
+patch('shell/libretro/libretro.cpp',
+      '\tis_dupe = true;\n\ttry {\n\t\tif (config::ThreadedRendering)\n',
+      '\tis_dupe = true;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t// EmuSuNi (00.89): thrown under the frame (the renderer) on the PS4, where the catch below is never reached: back\n'
+      '\t// here (oslib/emusuni_throw.cpp), the game ends with its message as the catch ends it. The emulation thread\'s\n'
+      '\t// error (its own rescue, Emulator::runInternal) the same way.\n'
+      '\tEmusuniRescue rescue;\n'
+      '\tif (__builtin_setjmp(rescue.jump) != 0)\n\t{\n'
+      '\t\tERROR_LOG(COMMON, "%s", emusuniRescued());\n'
+      '\t\tos_notify(emusuniRescued(), 5000);\n'
+      '\t\tenviron_cb(RETRO_ENVIRONMENT_SHUTDOWN, NULL);\n'
+      '\t}\n'
+      '\telse\n'
+      '\t{\n'
+      '\temusuniRescueArm(rescue, "retro_run");\n'
+      '#endif\n'
+      '\ttry {\n\t\tif (config::ThreadedRendering)\n')
+patch('shell/libretro/libretro.cpp',
+      '\t} catch (const FlycastException& e) {\n\t\tERROR_LOG(COMMON, "%s", e.what());\n\t\tos_notify(e.what(), 5000);\n'
+      '\t\tenviron_cb(RETRO_ENVIRONMENT_SHUTDOWN, NULL);\n\t}\n',
+      '\t} catch (const FlycastException& e) {\n\t\tERROR_LOG(COMMON, "%s", e.what());\n\t\tos_notify(e.what(), 5000);\n'
+      '\t\tenviron_cb(RETRO_ENVIRONMENT_SHUTDOWN, NULL);\n\t}\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\temusuniRescueDisarm(rescue);\n'
+      '\tconst std::string failure = emu.emusuniTakeFailure();\n'
+      '\tif (!failure.empty())\n\t{\n'
+      '\t\tERROR_LOG(COMMON, "%s", failure.c_str());\n'
+      '\t\tos_notify(failure.c_str(), 5000);\n'
+      '\t\tenviron_cb(RETRO_ENVIRONMENT_SHUTDOWN, NULL);\n'
+      '\t}\n'
+      '\t}\n'
+      '#endif\n')
+# The disc and the console it runs on.
+patch('core/emulator.cpp',
+      'void Emulator::loadGame(const char *path, LoadProgress *progress)\n{\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '// EmuSuNi (00.89): the disc and the console it runs on, for the PS4\'s log: a game that doesn\'t start, or not in the\n'
+      '// language the player chose (its areas, the region the console got, Windows CE, the BIOS).\n'
+      'static void emusuniLogDisc(bool hle)\n{\n'
+      '\tstatic const char *const REGIONS[] = { "Japanese", "American", "European", "default" };\n'
+      '\tstatic const char *const LANGUAGES[] = { "Japanese", "English", "German", "French", "Spanish", "Italian", "default" };\n'
+      '\tstatic const char *const BROADCASTS[] = { "NTSC", "PAL", "PAL-M", "PAL-N", "default" };\n'
+      '\tstatic const char *const CABLES[] = { "VGA", "VGA", "RGB", "composite" };\n'
+      '\tconst int region = config::Region, language = config::Language, broadcast = config::Broadcast, cable = config::Cable;\n'
+      '\tNOTICE_LOG(BOOT, "EmuSuNi: disc %s, areas %.8s%s, %s BIOS: a %s console, language %s, %s, %s cable",\n'
+      '\t\t\tsettings.content.gameId.c_str(), ip_meta.area_symbols, ip_meta.isWindowsCE() ? ", Windows CE (the MMU)" : "",\n'
+      '\t\t\thle ? "the HLE" : "the real", region >= 0 && region <= 3 ? REGIONS[region] : "?",\n'
+      '\t\t\tlanguage >= 0 && language <= 6 ? LANGUAGES[language] : "?", broadcast >= 0 && broadcast <= 4 ? BROADCASTS[broadcast] : "?",\n'
+      '\t\t\tcable >= 0 && cable <= 3 ? CABLES[cable] : "?");\n'
+      '}\n'
+      '#endif\n\n'
+      'void Emulator::loadGame(const char *path, LoadProgress *progress)\n{\n')
+patch('core/emulator.cpp',
+      '\t\t\t\t\t\tif (config::UseReios || !nvmem::loadFiles())\n\t\t\t\t\t\t{\n\t\t\t\t\t\t\tnvmem::loadHle();\n'
+      '\t\t\t\t\t\t\tNOTICE_LOG(BOOT, "Did not load BIOS, using reios");\n'
+      '\t\t\t\t\t\t\tif (!config::UseReios && config::UseReios.isReadOnly())\n'
+      '\t\t\t\t\t\t\t\tos_notify(i18n::T("This game requires a real BIOS"), 15000);\n\t\t\t\t\t\t}\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\t\t\t\t\tbool emusuniHle = false;\n'
+      '#endif\n'
+      '\t\t\t\t\t\tif (config::UseReios || !nvmem::loadFiles())\n\t\t\t\t\t\t{\n\t\t\t\t\t\t\tnvmem::loadHle();\n'
+      '\t\t\t\t\t\t\tNOTICE_LOG(BOOT, "Did not load BIOS, using reios");\n'
+      '\t\t\t\t\t\t\tif (!config::UseReios && config::UseReios.isReadOnly())\n'
+      '\t\t\t\t\t\t\t\tos_notify(i18n::T("This game requires a real BIOS"), 15000);\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\t\t\t\t\t\temusuniHle = true;\n'
+      '#endif\n'
+      '\t\t\t\t\t\t}\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\t\t\t\t\temusuniLogDisc(emusuniHle);\n'
+      '#endif\n')
+
+# --- (00.90) A set's zip the player named after the game ("The King of Fighters XI.zip", "Metal Slug 6.zip": the names
+# of many sites' downloads, which didn't show or start - "Atomiswave doesn't find my games", "House of the Dead
+# doesn't appear"): the app finds the set by the title (src/Naomi.cpp's Find) and, before each board game's start,
+# tells the core which set that file is (flycast_emusuni_set_alias, from Naomi::CheckSet); FindGame takes it for that
+# file's name only, in any letters' case (a set's own name in capitals on the PS4's storage too).
+patch('core/hw/naomi/naomi_cart.cpp',
+      'static const Game *FindGame(const char *filename)\n{\n'
+      '\tstd::string gameName = get_file_basename(filename);\n'
+      '\tsize_t folder_pos = get_last_slash_pos(gameName);\t// Only for standard path\n'
+      '\tif (folder_pos != std::string::npos)\n'
+      '\t\tgameName = gameName.substr(folder_pos + 1);\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '// EmuSuNi (00.90, src/Naomi.cpp): the set a file not named after it is (its name without the extension), else none.\n'
+      'static std::string emusuniAliasFile, emusuniAliasSet;\n'
+      'extern "C" void flycast_emusuni_set_alias(const char *file, const char *set)\n'
+      '{\n'
+      '\temusuniAliasFile = file != nullptr && set != nullptr ? file : "";\n'
+      '\temusuniAliasSet = file != nullptr && set != nullptr ? set : "";\n'
+      '}\n'
+      '#endif\n\n'
+      'static const Game *FindGame(const char *filename)\n{\n'
+      '\tstd::string gameName = get_file_basename(filename);\n'
+      '\tsize_t folder_pos = get_last_slash_pos(gameName);\t// Only for standard path\n'
+      '\tif (folder_pos != std::string::npos)\n'
+      '\t\tgameName = gameName.substr(folder_pos + 1);\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\tif (!emusuniAliasFile.empty() && !stricmp(gameName.c_str(), emusuniAliasFile.c_str()))\n'
+      '\t{\n'
+      '\t\tNOTICE_LOG(NAOMI, "EmuSuNi: %s is the set %s", gameName.c_str(), emusuniAliasSet.c_str());\n'
+      '\t\tgameName = emusuniAliasSet;\n'
+      '\t}\n'
+      '#endif\n')
+
+# --- Dreamcast online with DCNet (Flycast's free servers, dcnet.flyca.st: a tunnel to its PPP server for the modem, to
+# its Ethernet switch for the broadband adapter; no ports to open), the app's Dreamcast Online setting (reicast_dcnet,
+# reicast_emulate_bba). Upstream's way would close the app on the PS4 wherever it fails (no internet, the server down, a
+# refused connection: a C++ exception, whose catch is never reached there, 00.64) and would never get anywhere: musl's
+# getaddrinfo (asio's resolver) has no DNS server on the PS4. Here:
+#  1. dcnet.flyca.st looked up once with the PS4's resolver (sceNetResolver, as src/Net.cpp; asio's on the PC).
+#  2. The access points' discovery (UDP), the connection (TCP) and every send without exceptions (error codes). The
+#     connection asynchronous and given up after 10 s, the lookup aborted at a quit: the game's end doesn't wait for the
+#     system's minute. The game's bytes before the connection dropped, as upstream's were (its socket was null then).
+#  3. A rescue for the rest (EmusuniRescue): the DCNet thread's run, the emulation thread's start of it. The player sees
+#     "Can't connect to DCNet" (and, after its own wait, the game's error); EmuSuNi stays.
+#  4. An upstream loop fixed: with no access point answering, the discovery's receive asked again for ever on its closed
+#     socket (a core at 100 %, while the game played on).
+#  5. Off is off: upstream's other way out (picoTCP straight to the internet, to the games' own servers, long gone)
+#     isn't used: a game that dials gets no answer. Power Smash's "Forcing DCNet use" isn't taken.
+#  6. asio's sends without MSG_NOSIGNAL on the PS4 (OpenOrbis' is Linux's 0x4000, FreeBSD's MSG_NBIO): its
+#     SO_NOSIGPIPE on every socket (FreeBSD's 0x0800, the PS4's) keeps SIGPIPE away.
+#  7. The log ("EmuSuNi: DCNet: ..."): the dial, the lookup's time, the connection and its access point, the bytes each
+#     way every 60 s and at the end. No addresses: the player's never reaches the core, the servers' aren't written.
+# On the PC EMUSUNI_DCNET_HOST=<name or IPv4> takes another server (the tests: one that refuses, one that never answers).
+patch('core/network/dcnet.cpp',
+      '#include <thread>\n#include <memory>\n#include <array>\n#include <chrono>\n',
+      '#include <thread>\n#include <memory>\n#include <array>\n#include <chrono>\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '#include <atomic>\n'
+      '#include <cstdlib>\n'
+      '#if defined(__ORBIS__)\n'
+      '// EmuSuNi: the PS4\'s resolver (libSceNet; the OpenOrbis headers give it no prototypes: src/Net.cpp declares them so).\n'
+      'extern "C" {\n'
+      'uint32_t sceSysmoduleLoadModuleInternal(uint32_t id);\n'
+      'int sceNetInit(void);\n'
+      'int sceNetPoolCreate(const char *name, int size, int flags);\n'
+      'int sceNetResolverCreate(const char *name, int memid, int flags);\n'
+      'int sceNetResolverDestroy(int rid);\n'
+      'int sceNetResolverStartNtoa(int rid, const char *hostname, uint32_t *addr, int timeout, int retry, int flags);\n'
+      'int sceNetResolverAbort(int rid, int flags);\n'
+      '}\n'
+      '#define EMUSUNI_SYSMODULE_NET 0x8000001C  // ORBIS_SYSMODULE_INTERNAL_NET: libSceNet\n'
+      '#endif\n'
+      '#endif\n')
+patch('core/network/dcnet.cpp',
+      'namespace net::modbba\n{\n\nstatic TsQueue<u8> toModem;\n',
+      'namespace net::modbba\n{\n\nstatic TsQueue<u8> toModem;\n'
+      '\n#ifdef EMUSUNI_PORT\n'
+      '// EmuSuNi (scripts/build-dc-core.sh, "Dreamcast online"): DCNet without C++ exceptions, whose catch the PS4 never\n'
+      '// reaches (the app would end); its lines in the log, without addresses.\n'
+      'static std::atomic<bool> emusuniUp { false };\t\t\t// connected: the game\'s bytes go to DCNet\n'
+      'static std::atomic<bool> emusuniStopping { false };\t// stop() under way: a failure then is not the player\'s\n'
+      'static std::atomic<u64> emusuniOut { 0 }, emusuniIn { 0 };\t// the connection\'s bytes, each way\n'
+      'static u64 emusuniUpSince;\t\t\t\t\t\t\t\t// getTimeMs() as it connected\n'
+      'static std::atomic<int> emusuniResolver { -1 };\t\t// the PS4\'s lookup under way (stop() aborts it)\n'
+      'static bool emusuniBroken;\t\t\t\t\t\t\t\t// the DCNet thread came back to its rescue\n'
+      'static asio::steady_timer *emusuniStats;\t\t\t\t// the DCNet thread\'s, while it runs: the lines every 60 s\n'
+      '\n'
+      'static void emusuniCantConnect(const std::string& why)\n'
+      '{\n'
+      '\tNOTICE_LOG(NETWORK, "EmuSuNi: DCNet: can\'t connect: %s", why.c_str());\n'
+      '\tos_notify(i18n::T("Can\'t connect to DCNet"), 8000, why.c_str());\n'
+      '}\n'
+      '\n'
+      '// The connection\'s end: logged, and said if notify (stop() says it itself). False if it wasn\'t connected.\n'
+      'static bool emusuniDown(const char *why, bool notify)\n'
+      '{\n'
+      '\tif (!emusuniUp.exchange(false))\n'
+      '\t\treturn false;\n'
+      '\tNOTICE_LOG(NETWORK, "EmuSuNi: DCNet: disconnected (%s) after %u s: %llu bytes out, %llu in", why,\n'
+      '\t\t\t(u32)((getTimeMs() - emusuniUpSince) / 1000), (unsigned long long)emusuniOut, (unsigned long long)emusuniIn);\n'
+      '\tif (notify)\n'
+      '\t\tos_notify(i18n::T("DCNet disconnected"), 3000);\n'
+      '\treturn true;\n'
+      '}\n'
+      '\n'
+      'static void emusuniArmStats()\n'
+      '{\n'
+      '\tif (emusuniStats == nullptr)\n'
+      '\t\treturn;\n'
+      '\temusuniStats->expires_after(std::chrono::seconds(60));\n'
+      '\temusuniStats->async_wait([](const std::error_code& ec) {\n'
+      '\t\tif (ec || !emusuniUp)\n'
+      '\t\t\treturn;\n'
+      '\t\tNOTICE_LOG(NETWORK, "EmuSuNi: DCNet: connected for %u s: %llu bytes out, %llu in",\n'
+      '\t\t\t\t(u32)((getTimeMs() - emusuniUpSince) / 1000), (unsigned long long)emusuniOut, (unsigned long long)emusuniIn);\n'
+      '\t\temusuniArmStats();\n'
+      '\t});\n'
+      '}\n'
+      '\n'
+      '// The server\'s IPv4 address (DCNet has no other), else why not.\n'
+      'static bool emusuniLookUp(const char *host, asio::ip::address_v4& address, std::string& error)\n'
+      '{\n'
+      '#if defined(__ORBIS__)\n'
+      '\tstatic int pool = -1;\n'
+      '\tif (pool < 0)\n'
+      '\t{\n'
+      '\t\tsceSysmoduleLoadModuleInternal(EMUSUNI_SYSMODULE_NET);\t// (the app has done both already: again is harmless)\n'
+      '\t\tsceNetInit();\n'
+      '\t\tpool = sceNetPoolCreate("emusuni-dcnet", 16 * 1024, 0);\n'
+      '\t}\n'
+      '\tconst int rid = pool >= 0 ? sceNetResolverCreate("emusuni-dcnet", pool, 0) : -1;\n'
+      '\tif (rid < 0)\n'
+      '\t{\n'
+      '\t\terror = "the PS4\'s network is not available";\n'
+      '\t\treturn false;\n'
+      '\t}\n'
+      '\temusuniResolver = rid;\n'
+      '\tuint32_t found = 0;\n'
+      '\t// (2 s an attempt, 3 attempts: the PS4 of the 01.02 test waited out a first one of 5 s, its retry answered in\n'
+      '\t// 0.2 s - a query lost, or a router without the name yet. Still none before the game dials.)\n'
+      '\tconst int result = sceNetResolverStartNtoa(rid, host, &found, 2 * 1000 * 1000, 3, 0);\n'
+      '\temusuniResolver = -1;\n'
+      '\tsceNetResolverDestroy(rid);\n'
+      '\tif (result < 0 || found == 0)\n'
+      '\t{\n'
+      '\t\tchar text[128];\n'
+      '\t\tsnprintf(text, sizeof(text), "%s not found (%#x): is the PS4 online?", host, (unsigned)result);\n'
+      '\t\terror = text;\n'
+      '\t\treturn false;\n'
+      '\t}\n'
+      '\taddress = asio::ip::address_v4(ntohl(found));\t// (the resolver\'s is in network order)\n'
+      '\treturn true;\n'
+      '#else\n'
+      '\tasio::io_context io;\n'
+      '\tasio::ip::udp::resolver resolver(io);\n'
+      '\tstd::error_code ec;\n'
+      '\tconst auto results = resolver.resolve(asio::ip::udp::v4(), host, "7655", ec);\n'
+      '\tif (ec || results.empty())\n'
+      '\t{\n'
+      '\t\terror = std::string(host) + " not found" + (ec ? ": " + ec.message() : std::string());\n'
+      '\t\treturn false;\n'
+      '\t}\n'
+      '\taddress = results.begin()->endpoint().address().to_v4();\n'
+      '\treturn true;\n'
+      '#endif\n'
+      '}\n'
+      '\n'
+      '// A socket\'s connection (PPPSocket\'s, EthSocket\'s) without exceptions, given up after 10 s; then connected().\n'
+      'struct EmusuniConnecting\n'
+      '{\n'
+      '\texplicit EmusuniConnecting(asio::io_context& io_context) : timer(io_context) {}\n'
+      '\n'
+      '\ttemplate<typename Connected>\n'
+      '\tvoid start(asio::ip::tcp::socket& socket, const asio::ip::tcp::endpoint& endpoint, const char *with,\n'
+      '\t\t\tconst std::string& apname, Connected connected)\n'
+      '\t{\n'
+      '\t\tconst u64 started = getTimeMs();\n'
+      '\t\ttimer.expires_after(std::chrono::seconds(10));\n'
+      '\t\ttimer.async_wait([this, &socket](const std::error_code& ec) {\n'
+      '\t\t\tif (!ec && !done)\n'
+      '\t\t\t{\n'
+      '\t\t\t\tstd::error_code ignored;\n'
+      '\t\t\t\tsocket.close(ignored);\t// (its connection then ends with operation_aborted)\n'
+      '\t\t\t}\n'
+      '\t\t});\n'
+      '\t\tsocket.async_connect(endpoint, [this, started, with, apname, connected](const std::error_code& ec) {\n'
+      '\t\t\tdone = true;\n'
+      '\t\t\tstd::error_code ignored;\n'
+      '\t\t\ttimer.cancel(ignored);\n'
+      '\t\t\tif (ec)\n'
+      '\t\t\t{\n'
+      '\t\t\t\temusuniCantConnect(ec == asio::error::operation_aborted ? std::string("no answer in 10 s") : ec.message());\n'
+      '\t\t\t\treturn;\n'
+      '\t\t\t}\n'
+      '\t\t\temusuniOut = 0;\n'
+      '\t\t\temusuniIn = 0;\n'
+      '\t\t\temusuniUpSince = getTimeMs();\n'
+      '\t\t\temusuniUp = true;\n'
+      '\t\t\tNOTICE_LOG(NETWORK, "EmuSuNi: DCNet: connected with the %s in %u ms%s%s", with,\n'
+      '\t\t\t\t\t(u32)(emusuniUpSince - started), apname.empty() ? "" : ", access point ", apname.c_str());\n'
+      '\t\t\temusuniArmStats();\n'
+      '\t\t\tconnected();\n'
+      '\t\t});\n'
+      '\t}\n'
+      '\n'
+      '\tasio::steady_timer timer;\n'
+      '\tbool done = false;\n'
+      '};\n'
+      '#endif\n')
+# The modem's socket (PPP): connected without exceptions; its end said.
+patch('core/network/dcnet.cpp',
+      '\t\t: socket(io_context)\n\t{\n\t\tasio::error_code ec;\n\t\tsocket.connect(endpoint, ec);\n\t\tif (ec)\n'
+      '\t\t\tthrow FlycastException(ec.message());\n'
+      '\t\tos_notify(i18n::T("Connected to DCNet with modem"), 5000, endpointName.c_str());\n\t\treceive();\n\t}\n',
+      '\t\t: socket(io_context)\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\t, emusuniConnecting(io_context)\n'
+      '\t{\n'
+      '\t\temusuniConnecting.start(socket, endpoint, "modem", endpointName, [this]() {\n'
+      '\t\t\tos_notify(i18n::T("Connected to DCNet with modem"), 5000);\n'
+      '\t\t\tPPPSocket::receive();\t// (upstream\'s, from a base\'s constructor: never PowerSmashPPPSocket\'s)\n'
+      '\t\t});\n'
+      '\t}\n'
+      '#else\n'
+      '\t{\n\t\tasio::error_code ec;\n\t\tsocket.connect(endpoint, ec);\n\t\tif (ec)\n'
+      '\t\t\tthrow FlycastException(ec.message());\n'
+      '\t\tos_notify(i18n::T("Connected to DCNet with modem"), 5000, endpointName.c_str());\n\t\treceive();\n\t}\n'
+      '#endif\n')
+patch('core/network/dcnet.cpp',
+      '\tasio::ip::tcp::socket socket;\n\tstd::array<u8, 1542> recvBuffer;\n',
+      '\tasio::ip::tcp::socket socket;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\tEmusuniConnecting emusuniConnecting;\n'
+      '#endif\n'
+      '\tstd::array<u8, 1542> recvBuffer;\n')
+patch('core/network/dcnet.cpp',
+      '\tvoid close() {\n\t\tstd::error_code ignored;\n\t\tsocket.close(ignored);\n\t}\n',
+      '\tvoid close() {\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\temusuniDown("the connection ended", true);\n'
+      '#endif\n'
+      '\t\tstd::error_code ignored;\n\t\tsocket.close(ignored);\n\t}\n')
+# The broadband adapter's socket (Ethernet frames): the same.
+patch('core/network/dcnet.cpp',
+      '\t\t: socket(io_context)\n\t{\n\t\tasio::error_code ec;\n\t\tsocket.connect(endpoint, ec);\n\t\tif (ec)\n'
+      '\t\t\tthrow FlycastException(ec.message());\n'
+      '\t\tos_notify(i18n::T("Connected to DCNet with Ethernet"), 5000, endpointName.c_str());\n\t\treceive();\n'
+      '\t\tu8 prolog[] = { \'D\', \'C\', \'N\', \'E\', \'T\', 1 };\n\t\tsend(prolog, sizeof(prolog));\n\t}\n',
+      '\t\t: socket(io_context)\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\t, emusuniConnecting(io_context)\n'
+      '\t{\n'
+      '\t\temusuniConnecting.start(socket, endpoint, "broadband adapter", endpointName, [this]() {\n'
+      '\t\t\tos_notify(i18n::T("Connected to DCNet with Ethernet"), 5000);\n'
+      '\t\t\treceive();\n'
+      '\t\t\tu8 prolog[] = { \'D\', \'C\', \'N\', \'E\', \'T\', 1 };\n'
+      '\t\t\tsend(prolog, sizeof(prolog));\n'
+      '\t\t});\n'
+      '\t}\n'
+      '#else\n'
+      '\t{\n\t\tasio::error_code ec;\n\t\tsocket.connect(endpoint, ec);\n\t\tif (ec)\n'
+      '\t\t\tthrow FlycastException(ec.message());\n'
+      '\t\tos_notify(i18n::T("Connected to DCNet with Ethernet"), 5000, endpointName.c_str());\n\t\treceive();\n'
+      '\t\tu8 prolog[] = { \'D\', \'C\', \'N\', \'E\', \'T\', 1 };\n\t\tsend(prolog, sizeof(prolog));\n\t}\n'
+      '#endif\n')
+patch('core/network/dcnet.cpp',
+      '\tasio::ip::tcp::socket socket;\n\tstd::vector<u8> recvBuffer;\n',
+      '\tasio::ip::tcp::socket socket;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\tEmusuniConnecting emusuniConnecting;\n'
+      '#endif\n'
+      '\tstd::vector<u8> recvBuffer;\n')
+patch('core/network/dcnet.cpp',
+      'ERROR_LOG(NETWORK, "Receive error: %s", ec.message().c_str());\n\t\t\t\t\tstd::error_code ignored;\n'
+      '\t\t\t\t\tsocket.close(ignored);\n',
+      'ERROR_LOG(NETWORK, "Receive error: %s", ec.message().c_str());\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\t\t\t\temusuniDown("the connection ended", true);\n'
+      '#endif\n'
+      '\t\t\t\t\tstd::error_code ignored;\n'
+      '\t\t\t\t\tsocket.close(ignored);\n')
+patch('core/network/dcnet.cpp',
+      '"Send error: %s", ec.message().c_str());\n\t\t\t\t\tstd::error_code ignored;\n\t\t\t\t\tsocket.close(ignored);\n',
+      '"Send error: %s", ec.message().c_str());\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\t\t\t\temusuniDown("a send failed", true);\n'
+      '#endif\n'
+      '\t\t\t\t\tstd::error_code ignored;\n\t\t\t\t\tsocket.close(ignored);\n')
+patch('core/network/dcnet.cpp',
+      '\t\t\t\tbba_recv_frame(&recvBuffer[2], len - 2);\n',
+      '\t\t\t\tbba_recv_frame(&recvBuffer[2], len - 2);\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\t\t\temusuniIn += len - 2;\n'
+      '#endif\n')
+# The access points' discovery: its socket opened, bound and sent to without exceptions; the loop on a closed socket.
+patch('core/network/dcnet.cpp',
+      '\t\t: io_context(io_context), socket(io_context, asio::ip::udp::endpoint()),\n\t\t  timer(io_context)\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\t: io_context(io_context), socket(io_context),\t// (opened by emusuniFind, without exceptions)\n'
+      '#else\n'
+      '\t\t: io_context(io_context), socket(io_context, asio::ip::udp::endpoint()),\n'
+      '#endif\n'
+      '\t\t  timer(io_context)\n')
+patch('core/network/dcnet.cpp',
+      '\t\t} catch (const std::system_error& e) {\n\t\t\tfinish(e.code());\n\t\t}\n\t}\n\nprivate:\n',
+      '\t\t} catch (const std::system_error& e) {\n\t\t\tfinish(e.code());\n\t\t}\n\t}\n'
+      '\n#ifdef EMUSUNI_PORT\n'
+      '\t// EmuSuNi: find() without exceptions, the main server\'s address looked up before (DCNetThread::run).\n'
+      '\ttemplate<typename Handler>\n'
+      '\tvoid emusuniFind(const asio::ip::address_v4& server, const Handler& handler)\n'
+      '\t{\n'
+      '\t\tthis->handler = std::function<void(const std::error_code&, const asio::ip::address&, const std::string&)>(handler);\n'
+      '\t\tmainEndpoint = asio::ip::udp::endpoint(server, PORT);\n'
+      '\t\tstd::error_code ec;\n'
+      '\t\tsocket.open(asio::ip::udp::v4(), ec);\n'
+      '\t\tif (!ec)\n'
+      '\t\t\tsocket.bind(asio::ip::udp::endpoint(asio::ip::udp::v4(), 0), ec);\n'
+      '\t\tstd::array<uint8_t, 5> buf;\n'
+      '\t\tmemcpy(&buf[0], &MAGIC, sizeof(MAGIC));\n'
+      '\t\tbuf[4] = DISCOVER;\t// discover access points\n'
+      '\t\tif (!ec)\n'
+      '\t\t\tsocket.send_to(asio::buffer(buf), mainEndpoint, 0, ec);\n'
+      '\t\tif (ec)\n'
+      '\t\t{\n'
+      '\t\t\tfinish(ec);\n'
+      '\t\t\treturn;\n'
+      '\t\t}\n'
+      '\t\ttimer.expires_after(asio::chrono::milliseconds(500));\n'
+      '\t\ttimer.async_wait([this](const std::error_code& ec)\n'
+      '\t\t{\n'
+      '\t\t\tif (ec)\n'
+      '\t\t\t\treturn;\n'
+      '\t\t\t// Re-ping access points that didn\'t answer after 500 ms\n'
+      '\t\t\tfor (const auto& ap : accessPoints) {\n'
+      '\t\t\t\tif (ap.count == 0)\n'
+      '\t\t\t\t\tsendPing(ap.endpoint);\n'
+      '\t\t\t}\n'
+      '\t\t\ttimer.expires_after(asio::chrono::milliseconds(500));\n'
+      '\t\t\ttimer.async_wait([this](const std::error_code& ec)\n'
+      '\t\t\t{\n'
+      '\t\t\t\t// 1 sec final timeout\n'
+      '\t\t\t\tif (ec)\n'
+      '\t\t\t\t\treturn;\n'
+      '\t\t\t\tstd::error_code err;\n'
+      '\t\t\t\tsocket.close(err);\n'
+      '\t\t\t\tfinish();\n'
+      '\t\t\t});\n'
+      '\t\t});\n'
+      '\t\treceiveAccessPoints();\n'
+      '\t}\n'
+      '#endif\n'
+      '\nprivate:\n')
+patch('core/network/dcnet.cpp',
+      '\t\t\t\tif (recvEndpoint != mainEndpoint || len < 5\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\t\t\tif (ec)\n'
+      '\t\t\t\t\treturn;\t// EmuSuNi: its socket closed (upstream asked again at once, for ever)\n'
+      '#endif\n'
+      '\t\t\t\tif (recvEndpoint != mainEndpoint || len < 5\n')
+patch('core/network/dcnet.cpp',
+      '\t\tsocket.send_to(asio::buffer(buf), endpoint);\n\t\treceivePing();\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\tstd::error_code ec;\n'
+      '\t\tsocket.send_to(asio::buffer(buf), endpoint, 0, ec);\t// EmuSuNi: without exceptions (then no answer)\n'
+      '#else\n'
+      '\t\tsocket.send_to(asio::buffer(buf), endpoint);\n'
+      '#endif\n'
+      '\t\treceivePing();\n')
+# The thread: its start in a rescue, its stop without waiting for a lookup, the game's bytes only once connected.
+patch('core/network/dcnet.cpp',
+      '\tvoid start()\n\t{\n\t\tif (thread.joinable())\n\t\t\treturn;\n'
+      '\t\tio_context = std::make_unique<asio::io_context>();\n\t\tthread = std::thread(&DCNetThread::run, this);\n\t}\n\n'
+      '\tvoid stop()\n\t{\n\t\tif (!thread.joinable())\n\t\t\treturn;\n',
+      '\tvoid start()\n\t{\n\t\tif (thread.joinable())\n\t\t\treturn;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\t// EmuSuNi: on the emulation thread (the modem, the adapter): thrown here (asio\'s memory, the thread), back here.\n'
+      '\t\temusuniStopping = false;\n'
+      '\t\tEmusuniRescue rescue;\n'
+      '\t\tif (__builtin_setjmp(rescue.jump) != 0)\n'
+      '\t\t{\n'
+      '\t\t\temusuniCantConnect(emusuniRescued());\n'
+      '\t\t\treturn;\n'
+      '\t\t}\n'
+      '\t\temusuniRescueArm(rescue, "the start of DCNet");\n'
+      '#endif\n'
+      '\t\tio_context = std::make_unique<asio::io_context>();\n\t\tthread = std::thread(&DCNetThread::run, this);\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\temusuniRescueDisarm(rescue);\n'
+      '#endif\n'
+      '\t}\n\n'
+      '\tvoid stop()\n\t{\n\t\tif (!thread.joinable())\n\t\t\treturn;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\temusuniStopping = true;\n'
+      '\t\tconst bool emusuniWasUp = emusuniDown("the game hung up, or ended", false);\n'
+      '#if defined(__ORBIS__)\n'
+      '\t\tconst int rid = emusuniResolver;\n'
+      '\t\tif (rid >= 0)\n'
+      '\t\t\tsceNetResolverAbort(rid, 0);\t// (a lookup under way ends now: the game\'s end does not wait for it)\n'
+      '#endif\n'
+      '\t\tif (emusuniBroken)\n'
+      '\t\t{\n'
+      '\t\t\t// (Its thread came back to its rescue: what it left, asio\'s lock maybe, is kept as it is, a few KiB.)\n'
+      '\t\t\tthread.join();\n'
+      '\t\t\t(void)pppSocket.release();\n'
+      '\t\t\t(void)ethSocket.release();\n'
+      '\t\t\t(void)io_context.release();\n'
+      '\t\t\temusuniBroken = false;\n'
+      '\t\t\treturn;\n'
+      '\t\t}\n'
+      '#endif\n')
+patch('core/network/dcnet.cpp',
+      '\t\tio_context.reset();\n\t\tos_notify(i18n::T("DCNet disconnected"), 3000);\n',
+      '\t\tio_context.reset();\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\tif (emusuniWasUp)\t// (not after "Can\'t connect to DCNet": it never connected)\n'
+      '#endif\n'
+      '\t\tos_notify(i18n::T("DCNet disconnected"), 3000);\n')
+patch('core/network/dcnet.cpp',
+      '\t\tif (io_context == nullptr || pppSocket == nullptr)\n\t\t\treturn;\n',
+      '\t\tif (io_context == nullptr || pppSocket == nullptr)\n\t\t\treturn;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\tif (!emusuniUp)\n'
+      '\t\t\treturn;\t// (still connecting, or the connection ended: dropped, as before upstream\'s connection)\n'
+      '\t\temusuniOut++;\n'
+      '#endif\n')
+patch('core/network/dcnet.cpp',
+      '\t\tif (io_context != nullptr && ethSocket != nullptr)\n\t\t{\n\t\t\tstd::vector<u8> vbuf(frame, frame + len);\n',
+      '\t\tif (io_context != nullptr && ethSocket != nullptr)\n\t\t{\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\t\tif (!emusuniUp)\n'
+      '\t\t\t\treturn;\t// (the same)\n'
+      '\t\t\temusuniOut += len;\n'
+      '#endif\n'
+      '\t\t\tstd::vector<u8> vbuf(frame, frame + len);\n')
+patch('core/network/dcnet.cpp',
+      '\tif (toModem.empty())\n\t\treturn -1;\n\telse\n\t\treturn toModem.pop();\n',
+      '\tif (toModem.empty())\n\t\treturn -1;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\temusuniIn++;\n'
+      '#endif\n'
+      '\treturn toModem.pop();\n')
+patch('core/network/dcnet.cpp',
+      '\t\tif (ec)\n\t\t\tthrow FlycastException(ec.message());\n\t\tif (it.empty())\n'
+      '\t\t\tthrow FlycastException(i18n::Ts("Host not found"));\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\tif (ec || it.empty())\n'
+      '\t\t{\n'
+      '\t\t\t// (Not reached: run() gives the address.)\n'
+      '\t\t\temusuniCantConnect(ec ? ec.message() : std::string("Host not found"));\n'
+      '\t\t\treturn;\n'
+      '\t\t}\n'
+      '#else\n'
+      '\t\tif (ec)\n\t\t\tthrow FlycastException(ec.message());\n\t\tif (it.empty())\n'
+      '\t\t\tthrow FlycastException(i18n::Ts("Host not found"));\n'
+      '#endif\n')
+patch('core/network/dcnet.cpp',
+      'void DCNetThread::run()\n{\n\ttoModem.clear();\n\ttry {\n',
+      'void DCNetThread::run()\n{\n\ttoModem.clear();\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t// EmuSuNi: placed and named by the app (port/, emusuni_dc_thread: "dc: thread \\"DCNet\\"" in the log).\n'
+      '\tos_SetThreadName("DCNet");\n'
+      '\tEmusuniRescue rescue;\n'
+      '\tif (__builtin_setjmp(rescue.jump) != 0)\n'
+      '\t{\n'
+      '\t\t// (What the thread left is kept as it is: stop() only joins it.)\n'
+      '\t\temusuniBroken = true;\n'
+      '\t\temusuniUp = false;\n'
+      '\t\temusuniStats = nullptr;\n'
+      '\t\tERROR_LOG(NETWORK, "EmuSuNi: DCNet stopped: %s", emusuniRescued());\n'
+      '\t\tos_notify(i18n::T("Can\'t connect to DCNet"), 8000);\n'
+      '\t\treturn;\n'
+      '\t}\n'
+      '\temusuniRescueArm(rescue, "the DCNet thread");\n'
+      '\ttry {\n'
+      '\t\tstd::string host = "dcnet.flyca.st";\n'
+      '#if !defined(__ORBIS__)\n'
+      '\t\tif (const char *test = getenv("EMUSUNI_DCNET_HOST"))\t// (the PC\'s tests)\n'
+      '\t\t\thost = test;\n'
+      '#endif\n'
+      '\t\tNOTICE_LOG(NETWORK, "EmuSuNi: DCNet: the Dreamcast dialed with the %s: looking up %s",\n'
+      '\t\t\t\tconfig::EmulateBBA ? "broadband adapter" : "modem", host.c_str());\n'
+      '\t\tconst u64 start = getTimeMs();\n'
+      '\t\tasio::ip::address_v4 server;\n'
+      '\t\tstd::string error;\n'
+      '\t\tif (!emusuniLookUp(host.c_str(), server, error))\n'
+      '\t\t{\n'
+      '\t\t\tif (!emusuniStopping)\n'
+      '\t\t\t\temusuniCantConnect(error);\n'
+      '\t\t}\n'
+      '\t\telse if (!emusuniStopping)\n'
+      '\t\t{\n'
+      '\t\t\tNOTICE_LOG(NETWORK, "EmuSuNi: DCNet: %s found in %u ms", host.c_str(), (u32)(getTimeMs() - start));\n'
+      '\t\t\tAccessPointFinder finder(*io_context);\n'
+      '\t\t\tasio::steady_timer stats(*io_context);\n'
+      '\t\t\temusuniStats = &stats;\n'
+      '\t\t\tfinder.emusuniFind(server, [this, server](const std::error_code& ec,\n'
+      '\t\t\t\t\tconst asio::ip::address& address, const std::string& apname)\n'
+      '\t\t\t\t{\n'
+      '\t\t\t\t\tif (ec)\n'
+      '\t\t\t\t\t\tNOTICE_LOG(NETWORK, "EmuSuNi: DCNet: no access point (%s): the main server", ec.message().c_str());\n'
+      '\t\t\t\t\tthis->connect(address.is_unspecified() ? asio::ip::address(server) : address, apname);\n'
+      '\t\t\t\t});\n'
+      '\t\t\tio_context->run();\n'
+      '\t\t\temusuniStats = nullptr;\n'
+      '\t\t}\n'
+      '\t} catch (const std::exception& e) {\n'
+      '\t\t// (The PC without EMUSUNI_DC_RESCUE: upstream\'s catch. Never reached on the PS4.)\n'
+      '\t\temusuniStats = nullptr;\n'
+      '\t\temusuniCantConnect(e.what());\n'
+      '\t}\n'
+      '\temusuniRescueDisarm(rescue);\n'
+      '#else\n'
+      '\ttry {\n')
+patch('core/network/dcnet.cpp',
+      '\t} catch (const std::runtime_error& e) {\n\t\tERROR_LOG(NETWORK, "DCNetThread::run error: %s", e.what());\n\t}\n}\n',
+      '\t} catch (const std::runtime_error& e) {\n\t\tERROR_LOG(NETWORK, "DCNetThread::run error: %s", e.what());\n\t}\n'
+      '#endif\n'
+      '}\n')
+# Off: no answer (upstream: picoTCP straight to the internet).
+patch('core/network/netservice.cpp',
+      '#include "cfg/option.h"\n\nnamespace net::modbba\n{\n\nstatic Service *service;\n',
+      '#include "cfg/option.h"\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '#include "stdclass.h"\n'
+      '#endif\n'
+      '\nnamespace net::modbba\n{\n'
+      '\n#ifdef EMUSUNI_PORT\n'
+      '// EmuSuNi (scripts/build-dc-core.sh, "Dreamcast online"): Dreamcast Online Off (reicast_dcnet disabled): a game that\n'
+      '// dials gets no answer and says so itself, as a Dreamcast with no line. Upstream\'s other way, picoTCP straight to\n'
+      '// the internet (to the games\' own servers, long gone), is not used.\n'
+      'class EmusuniOffline : public Service\n'
+      '{\n'
+      'public:\n'
+      '\tbool start() override\n'
+      '\t{\n'
+      '\t\t// (The modem starts this once a call, the broadband adapter at each of its frames: said once a minute.)\n'
+      '\t\tconst u64 now = getTimeMs();\n'
+      '\t\tif (logged == 0 || now - logged >= 60000)\n'
+      '\t\t{\n'
+      '\t\t\tlogged = now;\n'
+      '\t\t\tNOTICE_LOG(NETWORK, "EmuSuNi: the game went online, but Dreamcast Online is Off: no answer");\n'
+      '\t\t}\n'
+      '\t\treturn false;\n'
+      '\t}\n'
+      '\tvoid stop() override {}\n'
+      '\tvoid writeModem(u8) override {}\n'
+      '\tint readModem() override { return -1; }\n'
+      '\tint modemAvailable() override { return 0; }\n'
+      '\tvoid receiveEthFrame(const u8 *, u32) override {}\n'
+      '\n'
+      'private:\n'
+      '\tu64 logged = 0;\n'
+      '};\n'
+      '#endif\n'
+      '\nstatic Service *service;\n')
+patch('core/network/netservice.cpp',
+      '\t\telse\n\t\t\tservice = new PicoTcpService();\n',
+      '\t\telse\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\t\tservice = new EmusuniOffline();\n'
+      '#else\n'
+      '\t\t\tservice = new PicoTcpService();\n'
+      '#endif\n')
+patch('core/emulator.cpp',
+      '\t\t\tNOTICE_LOG(BOOT, "Forcing DCNet use");\n\t\t\tconfig::UseDCNet.override(true);\n',
+      '#ifndef EMUSUNI_PORT\n'
+      '\t\t\t// (EmuSuNi: the player\'s Dreamcast Online decides - Off stays off; with DCNet it is on already.)\n'
+      '\t\t\tNOTICE_LOG(BOOT, "Forcing DCNet use");\n\t\t\tconfig::UseDCNet.override(true);\n'
+      '#endif\n')
+# asio: no MSG_NOSIGNAL on the PS4.
+patch('asio/include/asio/detail/config.hpp',
+      '# elif defined(_POSIX_VERSION)\n#  if (_POSIX_VERSION >= 200809L)\n#   define ASIO_HAS_MSG_NOSIGNAL 1\n',
+      '// EmuSuNi (scripts/build-dc-core.sh, "Dreamcast online"): not on the PS4, where OpenOrbis\' MSG_NOSIGNAL is\n'
+      '// Linux\'s 0x4000 (FreeBSD\'s MSG_NBIO); the SO_NOSIGPIPE asio sets on every socket there (0x0800) keeps SIGPIPE away.\n'
+      '# elif defined(_POSIX_VERSION) && !(defined(EMUSUNI_PORT) && defined(__ORBIS__))\n'
+      '#  if (_POSIX_VERSION >= 200809L)\n#   define ASIO_HAS_MSG_NOSIGNAL 1\n',
+      repo=root + '/core/deps/asio')
+
 written = 0
 for (repo, path), text in patched.items():
     full = repo + '/' + path
@@ -5491,8 +6587,9 @@ fi
 # -funwind-tables, a frame for every function) and the renamed API.
 FLAGS_CORE="-O3 -DNDEBUG -march=btver2 -DHAVE_NO_LANGEXTRA -ffunction-sections -fdata-sections -fno-unwind-tables -fno-asynchronous-unwind-tables -include $OUT/prefix_flycast.h"
 # (On the PC: Jaguar's instructions but AMD's SSE4A, which Intel CPUs don't have, and the PS4 calls of
-# linux/emusuni_vmem.cpp done by stand-ins on Linux: EMUSUNI_DC_HOST.)
-[ "$HOST" = 1 ] && FLAGS_CORE+=" -mno-sse4a -DEMUSUNI_DC_HOST=1"
+# linux/emusuni_vmem.cpp done by stand-ins on Linux: EMUSUNI_DC_HOST. asio as on the PS4, DCNet's tests: its
+# select reactor woken through a pipe, not Linux's epoll and eventfd.)
+[ "$HOST" = 1 ] && FLAGS_CORE+=" -mno-sse4a -DEMUSUNI_DC_HOST=1 -DASIO_DISABLE_EPOLL -DASIO_DISABLE_EVENTFD"
 # PGO (profile-guided optimisation, 00.66): scripts/dc-core.profdata.xz, a profile of the PC build playing
 # Crazy Taxi, Marvel vs. Capcom 2, Daytona USA and Jet Set Radio (races, a fight, the streets) and their
 # starts, used by both builds when it's there (DC_CORE_PGO=off: without it). Only the C++ is optimised by it
@@ -5586,13 +6683,14 @@ ld.lld-21 -r --wrap=__cxa_throw --whole-archive "${ARCHIVES[@]}" --no-whole-arch
 # (And the app's own helpers: the arcade boards' games, flycast_emusuni_arcade_list in hw/naomi/naomi_roms.cpp;
 # what would make a board's start fail, flycast_emusuni_check_set in hw/naomi/naomi_cart.cpp; the console's frames
 # of the last picture, flycast_emusuni_vblanks in hw/pvr/Renderer_if.cpp; the app's pace for the emulation,
-# flycast_emusuni_pace in emulator.cpp.)
+# flycast_emusuni_pace in emulator.cpp; 00.90: the set a zip named after its game is, flycast_emusuni_set_alias in
+# hw/naomi/naomi_cart.cpp.)
 # (00.81) The throws' logger linked in.
 if ! llvm-nm-21 --defined-only "$OUT/dc_core_all.o" | grep " T __wrap___cxa_throw$" > /dev/null; then
   echo "Flycast: the object has no __wrap___cxa_throw (oslib/emusuni_throw.cpp): its throws wouldn't be logged"
   exit 1
 fi
-HELPERS="flycast_emusuni_arcade_list flycast_emusuni_check_set flycast_emusuni_pace flycast_emusuni_vblanks"
+HELPERS="flycast_emusuni_arcade_list flycast_emusuni_check_set flycast_emusuni_pace flycast_emusuni_set_alias flycast_emusuni_vblanks"
 llvm-objcopy-21 --wildcard --keep-global-symbol='flycast_retro_*' --keep-global-symbol='flycast_emusuni_*' \
   "$OUT/dc_core_all.o" "$OUT/dc_core.o.new"
 rm -f "$OUT/dc_core_all.o"
@@ -5650,7 +6748,9 @@ if [ "$HOST" != 1 ]; then
     echo "$NOT_APPS"
     exit 1
   fi
+  # (libSceNet and libSceSysmodule: DCNet's lookup, the PS4's resolver - the app links both, src/Net.cpp.)
   PS4LIBS="$OPENORBIS/lib/libc.a $OPENORBIS/lib/libkernel.so $OPENORBIS/lib/libSceLibcInternal.so
+    $OPENORBIS/lib/libSceNet.so $OPENORBIS/lib/libSceSysmodule.so
     $OPENORBIS/lib/libclang_rt.builtins-x86_64.a $PS4_BUILD_ROOT/sysroot/lib/libc++.a
     $PS4_BUILD_ROOT/sysroot/lib/libc++abi.a $OPENORBIS/lib/libunwind.a"
   PROVIDED=$( { for lib in $PS4LIBS; do

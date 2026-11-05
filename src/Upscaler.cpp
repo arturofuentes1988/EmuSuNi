@@ -16,6 +16,9 @@
 
 #ifdef __PS4__
 #include <orbis/libkernel.h>
+
+// libkernel's affinity call as it really is (OpenOrbis declares it without parameters): bit n of the mask is core n.
+extern "C" int emusuni_upscaler_affinity(OrbisPthread thread, uint64_t mask) __asm__("scePthreadSetaffinity");
 #endif
 
 // Snes9x's filters (filter/xbrz.cpp and filter/hq2x.cpp, built with the core).
@@ -66,9 +69,13 @@ void Worker(int slice, unsigned seen)
   int inherited = 0;
   scePthreadGetprio(scePthreadSelf(), &inherited);
   const int set = scePthreadSetprio(scePthreadSelf(), 480);
+  // (00.89) Off the emulation thread's core 2 whatever this thread inherited: the DS's and the Arcade's emulation
+  // thread, which starts these, is on core 2 alone - the five slices would all have run there, one after another.
+  const int cores = emusuni_upscaler_affinity(scePthreadSelf(), 0x3Bull);  // cores 0, 1, 3, 4 and 5
   static std::atomic<bool> logged{false};
   if (!logged.exchange(true))
-    LogF("upscaler: worker thread priority %d -> 480 (%#x)", inherited, static_cast<unsigned>(set));
+    LogF("upscaler: worker thread priority %d -> 480 (%#x), cores 0x3b (%#x)", inherited, static_cast<unsigned>(set),
+         static_cast<unsigned>(cores));
 #endif
   for (;;)
   {

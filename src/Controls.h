@@ -49,9 +49,34 @@ std::string FastForwardButton(const std::string& game_key, SystemId system);
 // The Fast Forward setting's help for a game's or a console's page (game_key empty: the console's normal layout):
 // the button that does it now - the player's own if they changed it - or that none does yet. English, for PS4Lang::T.
 std::string FastForwardHelp(const std::string& game_key, SystemId system);
-// A button capture: true when nothing is pressed; the first pressed control's name, or "".
+// The sticks' directions as controls (00.90, GitHub #45: "let the left and right sticks be mapped too"): a console
+// button or a macro can be one - "Left Y-" is the left stick pushed up half way or more, "Right X+" the right one pushed
+// right (src/PS4Glyphs.h's names: it draws them). Their bits are the app's own, above the DualShock 4's (STICK_BITS):
+// StickBits gives them for a pad. The other rows (Fast Forward, Tap the Screen, Gun Reload) take none (TakesSticks:
+// src/Emulator.cpp reads those from the buttons alone). A stick still does its own job too (the N64's control stick,
+// the DualShock's sticks, the D-pad's Left Stick).
+constexpr uint32_t STICK_BITS = 0x01EF0000;
+uint32_t StickBits(const OrbisPadData& data);
+bool TakesSticks(const Binding& binding);
+// A button capture: true when nothing is pressed (no stick pushed either); the first pressed control's name (a
+// stick's direction only with `sticks`, after the buttons), or "".
 bool IsAtRest(const OrbisPadData& data);
-std::string Capture(const OrbisPadData& data);
+std::string Capture(const OrbisPadData& data, bool sticks = false);
+
+// Macros (00.89, a player: "B+C on R1, A+B+C+D on R2" for King of Fighters): the rows Macro 1 to 3, last on every
+// console. A macro is a DualShock 4 button (the row's value, as any other row's) that, held, holds what other
+// DualShock 4 buttons press - its presses, kept in controls.ini as <key>_presses (Cross+Triangle) - in their place: the
+// button stops doing what it did (its console button, Fast Forward, Tap the Screen, Gun Reload). The presses follow
+// those buttons' own rows (R1 on Cross+Triangle is B+C while Cross and Triangle are B and C). Recorded on the Controls
+// pages: Cross, the macro's button, then its presses held together and let go; Left: none.
+bool IsMacro(const Binding& binding);
+std::string MacroPresses(const Binding& binding, const std::string& game_key, SystemId system);  // "": none
+void SetMacroPresses(const Binding& binding, const std::string& presses, const std::string& game_key, SystemId system);
+// What the macro's row shows: "R1 = Cross + Triangle", or "None".
+std::string MacroText(const Binding& binding, const std::string& game_key, SystemId system);
+// A chord's capture: the controls down (their bits), and those bits as kept ("Cross+Triangle", "": none).
+uint32_t PressedControls(const OrbisPadData& data);
+std::string NamesOf(uint32_t controls);
 
 // While a game runs: the console's buttons (libretro RETRO_DEVICE_ID_JOYPAD_* bits) for a pad.
 struct Layout
@@ -61,6 +86,11 @@ struct Layout
   uint32_t fast_forward = 0;
   uint32_t tap = 0;  // the DS's stylus down (Tap the Screen)
   uint32_t reload = 0;  // a NAOMI or Atomiswave light gun game's reload (Gun Reload: the gun shot off the screen)
+  struct Macro
+  {
+    uint32_t trigger = 0, presses = 0;  // DS4 button bits: held, the presses instead (PadButtons)
+  };
+  Macro macros[3];
 };
 Layout LayoutFor(const std::string& game_key, SystemId system);
 uint16_t PadButtons(const Layout& layout, const OrbisPadData& data);
@@ -103,10 +133,14 @@ private:
 // L2 + R2 held together for a second (the game sees them meanwhile). The PS button is the PS4's own.
 // On the DS and the 3DS, where the touchpad is the touch screen, a touchpad's choice is L3 + R3. L3 + R3 always open
 // the menu too (MenuOpener), so a choice can't leave a player without it.
+// (00.85, a player: "put an option to just click and get out (not hold), it takes time") R3, L1 + R1 and L2 + R2 also
+// pressed, without the hold: the menu at once. The two shoulder buttons or triggers only pressed together then (the
+// second within a quarter of a second of the first), not one held - as a game holds them - and the other pressed later.
 struct MenuButtons
 {
   uint32_t mask = 0;   // the DualShock 4 buttons, all down
   float hold = 0.0f;   // seconds they are held (0: pressed together)
+  bool chord = false;  // pressed (hold 0): the last within MenuOpener's quarter of a second of the first
 };
 MenuButtons MenuButtonsFor(const std::string& choice, SystemId system);
 // Whether this pass opens the menu (player 1's buttons down now, and those that went down this pass). A hold counts
@@ -118,7 +152,7 @@ public:
   void Closed();
 
 private:
-  float m_time = 0.0f;
+  float m_time = 0.0f;   // a hold: how long its buttons are down; a chord: how long some of them, not all, are
   bool m_spent = false;  // the buttons held are a hold that already opened the menu (or were down as it closed)
 };
 }  // namespace Controls

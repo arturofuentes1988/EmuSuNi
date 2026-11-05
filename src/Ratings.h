@@ -130,9 +130,9 @@ class Matcher
 {
 public:
   ~Matcher();
-  // Matches the games (copied) on the thread; a run still at work is stopped first. False: no thread (nothing
+  // Matches the games (taken) on the thread; a run still at work is stopped first. False: no thread (nothing
   // starts; the log says why).
-  bool Start(const std::vector<Library::Game>& games, const std::string& index_dir, const std::string& copy);
+  bool Start(std::vector<Library::Game> games, const std::string& index_dir, const std::string& copy);
   // The last run's ratings once it is done: true then (out gets them), else false.
   bool Take(std::unordered_map<std::string, Rating>* out);
   // While set (a game runs), the run waits between games.

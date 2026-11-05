@@ -251,7 +251,9 @@ PFN_vkVoidFunction LoadFunction(const char* name, void*)
 // PS4's GPU in 00.62; Azahar no longer uses them there, scripts/build-3ds-core.sh). Granite (ParaLLEl-RDP)
 // enables the timeline semaphores, the pipeline creation cache control and
 // the image format list by itself when the GPU has them; extended dynamic state, custom border colours,
-// 8-bit indices and the fragment shader interlock and barycentrics it knows nothing of: ExtraCreateDevice
+// 8-bit indices, the fragment shader interlock and barycentrics, and the pipeline libraries (00.94: the core
+// makes its pipelines by parts; RADV then compiles ~850 tiny vertex prologs at once, ~6 ms on the PS4,
+// ~0.5 MiB) it knows nothing of: ExtraCreateDevice
 // adds them to what Granite asks vkCreateDevice for (VulkanFunctions::SetCreateDeviceHook). The 3DS core is
 // told (EMUSUNI_VK_DEVICE_FEATURES and _EXTENSIONS, PublishDeviceLists) only what the device really has, and
 // the other cores what they always were.
@@ -267,6 +269,8 @@ struct Extras
       VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADER_INTERLOCK_FEATURES_EXT};
   VkPhysicalDeviceFragmentShaderBarycentricFeaturesKHR barycentric = {
       VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADER_BARYCENTRIC_FEATURES_KHR};
+  VkPhysicalDeviceGraphicsPipelineLibraryFeaturesEXT pipeline_library = {
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_GRAPHICS_PIPELINE_LIBRARY_FEATURES_EXT};
   std::vector<const char*> extensions;  // the ones ExtraCreateDevice adds
   // The names the 3DS core is told, besides the other cores': what Granite enables by itself, and what
   // ExtraCreateDevice adds (only told when the device was made with them).
@@ -311,6 +315,8 @@ void ProbeExtras(const std::vector<VkExtensionProperties>& all, [[maybe_unused]]
   const bool want_uint8 = has(VK_EXT_INDEX_TYPE_UINT8_EXTENSION_NAME);
   const bool want_interlock = has(VK_EXT_FRAGMENT_SHADER_INTERLOCK_EXTENSION_NAME);
   const bool want_barycentric = has(VK_KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME);
+  const bool want_library =
+      has(VK_KHR_PIPELINE_LIBRARY_EXTENSION_NAME) && has(VK_EXT_GRAPHICS_PIPELINE_LIBRARY_EXTENSION_NAME);
   void** next = &query.pNext;
   auto chain = [&next](auto& feature) {
     *next = &feature;
@@ -330,6 +336,8 @@ void ProbeExtras(const std::vector<VkExtensionProperties>& all, [[maybe_unused]]
     chain(probe.interlock);
   if (want_barycentric)
     chain(probe.barycentric);
+  if (want_library)
+    chain(probe.pipeline_library);
   get_features(s_gpu, &query);
   if (want_timeline && timeline.timelineSemaphore)
   {
@@ -379,6 +387,13 @@ void ProbeExtras(const std::vector<VkExtensionProperties>& all, [[maybe_unused]]
     AddName(&s_extras.hook_features, "fragmentShaderBarycentric");
     AddName(&s_extras.hook_extensions, VK_KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME);
   }
+  if (want_library && probe.pipeline_library.graphicsPipelineLibrary)
+  {
+    // (Told to the core by Build3dsLists only if the device was made with them: ExtraCreateDevice may drop them.)
+    s_extras.pipeline_library.graphicsPipelineLibrary = VK_TRUE;
+    s_extras.extensions.push_back(VK_KHR_PIPELINE_LIBRARY_EXTENSION_NAME);
+    s_extras.extensions.push_back(VK_EXT_GRAPHICS_PIPELINE_LIBRARY_EXTENSION_NAME);
+  }
 }
 
 // vkCreateDevice as Granite calls it: its device plus the 3DS core's extensions and their features. A device
@@ -412,12 +427,29 @@ VKAPI_ATTR VkResult VKAPI_CALL ExtraCreateDevice(VkPhysicalDevice gpu, const VkD
     chain(s_extras.interlock);
   if (s_extras.barycentric.fragmentShaderBarycentric)
     chain(s_extras.barycentric);
+  if (s_extras.pipeline_library.graphicsPipelineLibrary)
+    chain(s_extras.pipeline_library);
   created.pNext = head;
   const VkResult result = vkCreateDevice(gpu, &created, allocator, device);
   if (result == VK_SUCCESS)
   {
     s_extras.added = true;
     return result;
+  }
+  if (s_extras.pipeline_library.graphicsPipelineLibrary)
+  {
+    // The pipeline libraries (00.94, the newest addition): the device again without them before without any.
+    LogF("display: the device couldn't be made with the 3DS's pipeline libraries (%d): again without them",
+         static_cast<int>(result));
+    s_extras.pipeline_library.graphicsPipelineLibrary = VK_FALSE;
+    std::vector<const char*>& list = s_extras.extensions;
+    list.erase(std::remove_if(list.begin(), list.end(),
+                              [](const char* name) {
+                                return std::strcmp(name, VK_KHR_PIPELINE_LIBRARY_EXTENSION_NAME) == 0 ||
+                                       std::strcmp(name, VK_EXT_GRAPHICS_PIPELINE_LIBRARY_EXTENSION_NAME) == 0;
+                              }),
+               list.end());
+    return ExtraCreateDevice(gpu, info, allocator, device);
   }
   LogF("display: the device couldn't be made with the 3DS's extensions (%d): made without them",
        static_cast<int>(result));
@@ -441,6 +473,12 @@ void Build3dsLists(const std::string& features, const std::string& extensions)
   {
     if (!part.empty())
       s_extensions_3ds += (s_extensions_3ds.empty() ? "" : ",") + part;
+  }
+  if (s_extras.added && s_extras.pipeline_library.graphicsPipelineLibrary)
+  {
+    AddName(&s_features_3ds, "graphicsPipelineLibrary");
+    AddName(&s_extensions_3ds, VK_KHR_PIPELINE_LIBRARY_EXTENSION_NAME);
+    AddName(&s_extensions_3ds, VK_EXT_GRAPHICS_PIPELINE_LIBRARY_EXTENSION_NAME);
   }
   LogF("display: told to the Nintendo 3DS core: features %s; extensions %s%s", s_features_3ds.c_str(),
        s_extensions_3ds.c_str(), s_extras.extensions.empty() ? "" : (s_extras.added ? " (added to the device)" : " (NOT added)"));
@@ -1362,6 +1400,63 @@ bool Display::Capture(std::vector<uint8_t>* rgba)
     for (uint32_t x = 0; x < WIDTH; x++)
       to[x * 4 + 3] = 255;  // ImGui's blending leaves the alpha anywhere
   }
+  return true;
+}
+
+bool Display::CaptureArea(int x, int y, int w, int h, uint32_t max_w, uint32_t max_h, std::vector<uint8_t>* rgba,
+                          uint32_t* out_w, uint32_t* out_h)
+{
+  const Frame& frame = s_frames[s_current];
+  // (Only what is on the screen: a picture zoomed past its edges is cut there.)
+  const int x0 = std::clamp(x, 0, static_cast<int>(WIDTH)), y0 = std::clamp(y, 0, static_cast<int>(HEIGHT));
+  const int x1 = std::clamp(x + w, 0, static_cast<int>(WIDTH)), y1 = std::clamp(y + h, 0, static_cast<int>(HEIGHT));
+  w = x1 - x0;
+  h = y1 - y0;
+  if (!frame.pixels || w <= 0 || h <= 0 || max_w == 0 || max_h == 0)
+    return false;
+  vkWaitForFences(s_device, 1, &frame.fence, VK_TRUE, UINT64_MAX);
+  const float scale = std::min({1.0f, static_cast<float>(max_w) / w, static_cast<float>(max_h) / h});
+  const uint32_t ow = std::max(1u, static_cast<uint32_t>(w * scale)), oh = std::max(1u, static_cast<uint32_t>(h * scale));
+  rgba->assign(static_cast<size_t>(ow) * oh * 4, 255);
+  // Each box's columns; a row of the screen at a time into memory of the app's (the screen's is the GPU's: read once,
+  // in one copy), its pixels added to the boxes' sums.
+  std::vector<uint32_t> column(ow + 1);
+  for (uint32_t i = 0; i <= ow; i++)
+    column[i] = static_cast<uint32_t>(static_cast<uint64_t>(i) * w / ow);
+  std::vector<uint8_t> line(static_cast<size_t>(w) * 4);
+  std::vector<uint32_t> sums(static_cast<size_t>(ow) * 3);
+  for (uint32_t oy = 0; oy < oh; oy++)
+  {
+    const uint32_t first = static_cast<uint32_t>(static_cast<uint64_t>(oy) * h / oh);
+    const uint32_t last = std::max(first + 1, static_cast<uint32_t>(static_cast<uint64_t>(oy + 1) * h / oh));
+    std::fill(sums.begin(), sums.end(), 0u);
+    for (uint32_t sy = first; sy < last; sy++)
+    {
+      std::memcpy(line.data(), frame.pixels + static_cast<size_t>(y0 + sy) * frame.row_bytes + static_cast<size_t>(x0) * 4,
+                  line.size());
+      for (uint32_t ox = 0; ox < ow; ox++)
+      {
+        uint32_t* sum = &sums[static_cast<size_t>(ox) * 3];
+        const uint32_t end = std::max(column[ox] + 1, column[ox + 1]);
+        for (uint32_t sx = column[ox]; sx < end; sx++)
+        {
+          sum[0] += line[sx * 4 + 0];
+          sum[1] += line[sx * 4 + 1];
+          sum[2] += line[sx * 4 + 2];
+        }
+      }
+    }
+    uint8_t* out = rgba->data() + static_cast<size_t>(oy) * ow * 4;
+    for (uint32_t ox = 0; ox < ow; ox++)
+    {
+      const uint32_t count = (std::max(column[ox] + 1, column[ox + 1]) - column[ox]) * (last - first);
+      for (int c = 0; c < 3; c++)
+        out[ox * 4 + c] = static_cast<uint8_t>(sums[static_cast<size_t>(ox) * 3 + c] / count);
+      // (the alpha stays 255: ImGui's blending leaves it anywhere)
+    }
+  }
+  *out_w = ow;
+  *out_h = oh;
   return true;
 }
 

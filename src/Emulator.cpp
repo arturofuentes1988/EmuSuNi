@@ -13,6 +13,7 @@
 #include <cstdlib>
 #include <condition_variable>
 #include <cstring>
+#include <ctime>
 #include <deque>
 #include <filesystem>
 #include <functional>
@@ -33,6 +34,7 @@
 #include "AchievementsSnes.h"
 #include "AchievementsUi.h"
 #include "Arcade.h"
+#include "AssetPack.h"  // (00.90: the built-in bezels are in xmb/assets.zip in the package)
 #include "BezelProject.h"
 #include "Cheats.h"
 #include "Controls.h"
@@ -40,15 +42,22 @@
 #include "DualScreens.h"
 #include "GameAudio.h"
 #include "GameDb.h"
+#include "GbLink.h"
 #include "GpuFilter.h"
 #include "Image.h"
 #include "IngameMenu.h"
 #include "LibretroVulkan.h"
 #include "Log.h"
 #include "MemoryGuard.h"
+#include "Multiplayer.h"
 #include "Naomi.h"
+#include "Netplay.h"
+#include "NetplayUi.h"
+#include "MyStats.h"
+#include "UsageStats.h"
 #include "Pacing.h"
 #include "PS4Lang.h"
+#include "Portable.h"
 #ifdef EMUSUNI_SATURN
 #include "SaturnTest.h"
 #endif
@@ -113,7 +122,6 @@ namespace
 {
 using Clock = std::chrono::steady_clock;
 constexpr int MAX_PLAYERS = 5;
-constexpr unsigned DEVICE_MULTITAP = (1 << 8) | RETRO_DEVICE_JOYPAD;  // Snes9x's Multitap
 
 // Newer libretro.h (FCEUmm's) than Snes9x's: the ROM from memory, so a .zip's works too.
 #ifndef RETRO_ENVIRONMENT_GET_GAME_INFO_EXT
@@ -209,6 +217,15 @@ std::string s_message;  // the core's newest message (SET_MESSAGE), shown by the
 // (started anyway: scripts/build-ps1-core.sh).
 std::string s_ps1_disc_error;
 bool s_ps1_libcrypt = false;
+bool s_ps1_openbios = false;  // (00.90) no BIOS file found: the core's built-in OpenBIOS starts the game
+bool s_ps1_cooked = false;    // (00.90) a disc image of 2048-byte sectors: its films' and voices' sectors are lost
+// (00.23) Local multiplayer (src/Multiplayer.h): what decides the game's adapter for 3 or more players (read as it
+// starts; a PlayStation disc's code from the core's log as it loads, CoreLog), the adapter in its ports now, and
+// whether FCEUmm's expansion port got the Famicom's 4 player adapter in this session (the core keeps it from one game
+// to the next).
+Multiplayer::Game s_mp_game;
+Multiplayer::Adapter s_adapter = Multiplayer::Adapter::None;
+bool s_nes_expansion_set = false;
 double s_game_fps = 60.0988;
 // A core that draws with Vulkan itself (ParaLLEl-RDP for the N64): libretro's Vulkan interface
 // over the display's device; the image it hands over for the frame (set_image).
@@ -293,6 +310,9 @@ retro_hw_render_interface_vulkan s_vulkan = {};
 retro_vulkan_image s_hw_image = {};
 bool s_hw_image_set = false;
 bool s_frame_hw = false;  // the newest frame is the core's image
+// (00.85) The game's picture as the screen showed it when the in-game menu opened, for a core that draws its own image
+// (no pixels of it here: s_frame is NULL): its states' thumbnails (SaveState). Empty: none (a core with pixels).
+ImageRGBA s_menu_picture;
 // The analog sticks per player (RETRO_DEVICE_ANALOG): left / right, x / y.
 std::array<std::array<std::array<int16_t, 2>, 2>, MAX_PLAYERS> s_analog{};
 // The Dreamcast's analog triggers (L, R: 0..0x7FFF), from the DualShock 4's L2 / R2 pressure.
@@ -329,10 +349,37 @@ void StopRumble()
     s_rumble[i] = {};
   }
 }
+
+// (00.23) The game's adapter for 3 or more players (Multiplayer Adapter, src/Multiplayer.h) into its ports, after the
+// app's own devices for the first two, and in the log. `before`: the adapter the core had (none at the game's start).
+void PlugAdapter(const Multiplayer::Decision& decision, Multiplayer::Adapter before, const char* when)
+{
+  s_adapter = decision.adapter;
+  for (const auto& [port, device] : Multiplayer::PortDevices(s_mp_game, decision.adapter, before, s_nes_expansion_set))
+    s_core->set_controller_port_device(port, device);
+  if (s_system == SystemId::NES)
+    s_nes_expansion_set = decision.adapter == Multiplayer::Adapter::Famicom4P;
+  LogF("players: %s: %s, up to %d players (%s)", when, Multiplayer::Name(decision.adapter),
+       Multiplayer::MaxPlayers(decision.adapter), decision.reason.c_str());
+}
 // ---- The Game Boys ----
 // The Game Boy game's cartridge header: made for the Game Boy Color (0x143), with Super Game Boy
 // features (0x146).
 bool s_gb_color_game = false, s_gb_sgb_game = false;
+// (00.95) The Game Boy link cable online (src/GbLink.h): this game is a link cable match's - SameBoy's two Game Boys,
+// GbLink::Get()'s games -; the second game's ROM (Game Boy 2's) until the core has it; this console's Game Boy's
+// battery save (its RAM, then its clock's 48 bytes) as last written; a guest: whether its own save came in the host's
+// state (it writes nothing until then), and whether it didn't (the match ends: s_gblink_failed).
+#ifdef EMUSUNI_GBLINK
+extern "C" size_t sameboy_emusuni_battery_size(unsigned gb);
+extern "C" size_t sameboy_emusuni_ram_size(unsigned gb);
+extern "C" bool sameboy_emusuni_save_battery(unsigned gb, uint8_t* out, size_t size);
+extern "C" void sameboy_emusuni_load_battery(unsigned gb, const uint8_t* data, size_t size);
+#endif
+bool s_gblink = false;
+std::vector<uint8_t> s_gblink_rom2;
+std::vector<uint8_t> s_gblink_saved;
+bool s_gblink_checked = false, s_gblink_failed = false;
 // The N64 cartridge's name in its header ("GOLDENEYE"): N64 CPU Timing's Auto. Its game code (two letters, the same
 // for every region and revision: "CU" is Cruis'n USA): the games that need N64 Graphics Sync Accurate.
 std::string s_n64_name, s_n64_code;
@@ -488,6 +535,11 @@ Pointer s_pointer;
 // is on the touch screen (its 256x192 pixels; it stays where the finger or the right stick left it) and whether it is
 // down.
 Touchpad::Stylus s_stylus;
+// (00.90) The Jaguar's number pad on player 1's touchpad: the key under the finger (0-11: 1 2 3 / 4 5 6 / 7 8 9 /
+// * 0 #, as on the Jaguar's pad), -1 none; what Virtual Jaguar reads as the keyboard's keys (InputState).
+int s_jaguar_key = -1;
+constexpr unsigned JAGUAR_KEYS[12] = {RETROK_1, RETROK_2, RETROK_3, RETROK_4, RETROK_5,     RETROK_6,
+                                      RETROK_7, RETROK_8, RETROK_9, RETROK_MINUS, RETROK_0, RETROK_EQUALS};
 // The 3DS's stylus is the same on the touch screen's 320x240 pixels; the cursor the app draws at it (frames it still
 // shows after the finger left, and where in the core's picture, in its pixels).
 int s_3ds_cursor = 0;
@@ -578,6 +630,19 @@ void CoreLog(enum retro_log_level level, const char* format, ...)
     }
     if (std::strstr(line, "EmuSuNi: LibCrypt-protected disc"))
       s_ps1_libcrypt = true;
+    if (std::strstr(line, "EmuSuNi: disc ") && std::strstr(line, "BIOS OpenBIOS"))
+      s_ps1_openbios = true;
+    if (std::strstr(line, "has 2048-byte sectors (an ISO's"))
+      s_ps1_cooked = true;
+    // (00.23) The disc's code, from scripts/build-ps1-core.sh's line as the game loads ("EmuSuNi: disc in, code
+    // 'SCUS-94426', ..."): Multiplayer Adapter's Auto looks it up.
+    if (const char* code = std::strstr(line, "EmuSuNi: disc in, code '"))
+    {
+      code += std::strlen("EmuSuNi: disc in, code '");
+      const char* end = std::strchr(code, '\'');
+      s_mp_game.disc_code = end ? std::string(code, end) : std::string();
+      UsageStats::SetDiscCode(s_mp_game.disc_code);  // (00.23: the anonymous statistics' game)
+    }
   }
 }
 
@@ -647,6 +712,14 @@ std::string N64CountPerOp(const std::string& g, std::string* source)
   const std::string timing = Settings::Get("n64_cpu_timing", g);
   if (timing == "light" || (timing == "auto" && s_n64_name == "GOLDENEYE"))
   {
+    // (00.90: the file data_dir/n64-goldeneye-lighter makes GoldenEye's Auto 4 - about 17 frames a second, a quarter
+    // less RSP work again, its whole frame on the PS4 one VI out of three or four: an A/B on the PS4 for the players
+    // who find it slow on a PS4 "Fat", against Light's speed line and pictures a second.)
+    if (timing == "auto" && FileExists(std::string(App::DATA_DIR) + "/n64-goldeneye-lighter"))
+    {
+      *source = "EmuSuNi: N64 CPU Timing Auto, GoldenEye 007, lighter (/data/EmuSuNi/n64-goldeneye-lighter)";
+      return "4";
+    }
     *source = timing == "light" ? "EmuSuNi: N64 CPU Timing Light" : "EmuSuNi: N64 CPU Timing Auto, GoldenEye 007";
     return "3";
   }
@@ -752,6 +825,46 @@ void BuildGbVariables(const std::string& g)
   s_tilt.motion = ConsoleSetting("gb_tilt", g, "stick") == "motion";
 }
 
+// (00.95) SameBoy's options for a link cable match (src/GbLink.h): the cable on, the two screens side by side (each
+// PS4 shows its own: VideoRefresh), each Game Boy's model and colours from its game's Game Boy Colours: a Game Boy
+// game with the Game Boy Color's runs on the Game Boy Color, which colours Nintendo's games as it did (the Super
+// Game Boy's too: there is none in a link); the others on the Game Boy with that screen's palette. A Game Boy Color
+// game on its own. The sound: this console's Game Boy's (GbLinkLocalVariables). (The host's options are the match's.)
+void BuildGbLinkVariables()
+{
+  const GbLink::Match& match = GbLink::Get();
+  s_variables["sameboy_link"] = "enabled";
+  s_variables["sameboy_screen_layout"] = "left-right";
+  for (int i = 0; i < 2; i++)
+  {
+    const std::string n = std::to_string(i + 1);
+    const std::string palette = Settings::Get("gb_palette", match.games[i].key);
+    const bool color_game = match.games[i].system == SystemId::GBC;
+    s_variables["sameboy_model_" + n] =
+        color_game ? "Auto" : (palette == "gbc" || palette == "sgb") ? "Game Boy Color" : "Game Boy";
+    s_variables["sameboy_mono_palette_" + n] = palette == "dmg"    ? "lime" :
+                                               palette == "pocket" ? "olive" :
+                                               palette == "light"  ? "teal" :
+                                                                     "greyscale";
+    const bool lcd = Settings::Get("lcd_colors", match.games[i].key) == "lcd";
+    s_variables["sameboy_color_correction_mode_" + n] = lcd ? "emulate hardware" : "off";
+    s_variables["sameboy_high_pass_filter_mode_" + n] = "accurate";
+    s_variables["sameboy_audio_interference_" + n] = "0";
+    s_variables["sameboy_rumble_" + n] = "never";
+  }
+}
+// The sound of this console's own Game Boy (only its own: not the host's options, and it changes nothing in the
+// emulation's state).
+void GbLinkLocalVariables()
+{
+  const char* own = GbLink::Get().local == 1 ? "Game Boy #2" : "Game Boy #1";
+  if (s_variables["sameboy_audio_output"] != own)
+  {
+    s_variables["sameboy_audio_output"] = own;
+    s_variables_changed = true;
+  }
+}
+
 // SwanStation's options (the PlayStation): drawn by its Vulkan renderer on the app's device, the
 // recompiler, the memory card as the battery save (RETRO_MEMORY_SAVE_RAM), the disc read ahead by
 // a thread of its own, its shaders compiled as they are needed.
@@ -855,10 +968,28 @@ void LogScreens(const std::string& game, const char* when)
        layout.width, layout.height);
 }
 
-// melonDS DS's options: every one of its 78 is answered (an unanswered one doesn't get the default
+// (00.95) The DNS the DS's firmware gets for the games' Nintendo Wi-Fi Connection (DS Wi-Fi, nds_wifi): a server that
+// took over from Nintendo's, or "" (Off: no network). Checked on 04-11-2026 (nas.nintendowifi.net and the GameSpy
+// names asked of each): Wiimmfi through Kaeru WFC's gateway, 178.62.43.212 (melonDS DS's own "Wiimmfi", 95.217.77.181,
+// is Wiimmfi's for the Wii: it doesn't know the DS games' names), and WiiLink WFC, 5.161.56.11. Another address, if the
+// servers move before a new version: /data/EmuSuNi/nds-dns.txt with the IPv4 address (Off still turns it off).
+std::string NdsWifiDns(const std::string& choice)
+{
+  if (choice == "off")
+    return "";
+  unsigned a = 0, b = 0, c = 0, d = 0;
+  char tail = 0;
+  const std::string own = ReadTextFile(std::string(App::DATA_DIR) + "/nds-dns.txt");
+  if (std::sscanf(own.c_str(), " %u.%u.%u.%u%c", &a, &b, &c, &d, &tail) >= 4 && a < 256 && b < 256 && c < 256 &&
+      d < 256 && (tail == 0 || std::isspace(static_cast<unsigned char>(tail))))
+    return std::to_string(a) + "." + std::to_string(b) + "." + std::to_string(c) + "." + std::to_string(d);
+  return choice == "wiilink" ? "5.161.56.11" : "178.62.43.212";
+}
+
+// melonDS DS's options: every one of its 79 is answered (an unanswered one doesn't get the default
 // it declares). The JIT, the threaded 3D (its thread on core 3, port/ps4_n64.c), the built-in BIOS
 // and firmware unless all three of the DS's own are in the system folder, the touchpad as the touch
-// screen, the screens side by side (the app places them), no Wi-Fi.
+// screen, the screens side by side (the app places them), the Wi-Fi as DS Wi-Fi says (00.95).
 void BuildNdsVariables(const std::string& g)
 {
   const std::string p = "melonds_";
@@ -919,7 +1050,19 @@ void BuildNdsVariables(const std::string& g)
   set("firmware_language",
       language == "es" || language == "fr" || language == "de" || language == "it" || language == "ja" ? language : "en");
   set("firmware_username", "EmuSuNi");
-  set("firmware_wfc_dns", "default");
+  // (00.95) The Wi-Fi: melonDS's indirect mode (libslirp, scripts/build-nds-core.sh: only to the internet, never the
+  // home network) and the server's DNS in the firmware's connection (melonAP's, the one the built-in firmware has
+  // ready), or no network at all. Nothing is sent until a game connects. The log says the server, never an address
+  // of the player's.
+  const std::string wifi = Settings::Get("nds_wifi", g);
+  const std::string dns = NdsWifiDns(wifi);
+  set("network_mode", dns.empty() ? "disabled" : "indirect");
+  set("firmware_wfc_dns", dns.empty() ? "default" : dns);
+  if (dns.empty())
+    LogF("nds: Wi-Fi off (DS Wi-Fi)");
+  else
+    LogF("nds: Wi-Fi: %s, DNS %s (DS Wi-Fi%s); the DS reaches only the internet", wifi == "wiilink" ? "WiiLink WFC" : "Wiimmfi",
+         dns.c_str(), FileExists(std::string(App::DATA_DIR) + "/nds-dns.txt") ? ", /data/EmuSuNi/nds-dns.txt" : "");
   set("firmware_favorite_color", "default");
   set("firmware_birth_month", "default");
   set("firmware_birth_day", "default");
@@ -959,7 +1102,7 @@ void BuildNdsVariables(const std::string& g)
 
 // PPSSPP's options (the PSP): Vulkan on the app's device, the JIT (the IR interpreter if the PS4 won't
 // make its code executable), no fast memory (scripts/build-psp-core.sh), one picture per TV refresh,
-// a PSP-2000 with its memory stick, no network. Every option the core reads is answered.
+// a PSP-2000 with its memory stick, the network as PSP Online says. Every option the core reads is answered.
 void BuildPspVariables(const std::string& g)
 {
   const std::string p = "ppsspp_";
@@ -1052,16 +1195,89 @@ void BuildPspVariables(const std::string& g)
   set("analog_sensitivity",
       one_of(Settings::Get("psp_sensitivity", g), {"1.00", "1.10", "1.20", "1.30", "1.40", "1.50"}, "1.00"));
   set("analog_is_circular", "disabled");
-  // No network: Wi-Fi off, a fixed MAC address (else the core asks to make one up).
-  set("enable_wlan", "disabled");
+  // PSP Online (01.02; scripts/build-psp-core.sh, "Online play"): the PSP's Wi-Fi, for the games' own servers (the
+  // revival servers' DNS) and ad hoc play through PSP Ad Hoc Server's relay; Off, no network. No built-in server, no
+  // UPnP. A MAC address of this PS4's own, made at random once (psp-mac.txt: a game's ad hoc friends know a player by
+  // it; the same all session). psp-net-log: PPSSPP's every network call in the log (never an IPv4 address: the core
+  // writes each "<IP>"). The PSP's nickname: below.
+  set("enable_wlan", Settings::Get("psp_online", g) == "on" ? "enabled" : "disabled");
+  set("enable_builtin_pro_ad_hoc_server", "disabled");
+  set("change_pro_ad_hoc_server_address",
+      one_of(Settings::Get("psp_adhoc_server", g),
+             {"socom.cc", "psp.mgn.pub", "psi-hate.com", "jpa36a7.glddns.com", "brazil-01.sprawl-relay.link"},
+             "socom.cc"));
   set("enable_upnp", "disabled");
+  set("upnp_use_original_port", "disabled");
+  set("port_offset", "10000");  // (PPSSPP's own defaults)
+  set("minimum_timeout", "0");
+  set("forced_first_connect", "disabled");
   set("wlan_channel", "Auto");
+  static std::string s_psp_mac;  // 12 hex digits
+  if (s_psp_mac.empty())
+  {
+    const std::string path = std::string(App::DATA_DIR) + "/psp-mac.txt";
+    for (const char c : ReadTextFile(path))
+    {
+      if (std::isxdigit(static_cast<unsigned char>(c)))
+        s_psp_mac += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
+    if (s_psp_mac.size() != 12)
+    {
+      // A locally administered unicast address, as PPSSPP's own random ones.
+      uint64_t seed = static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count()) ^
+                      static_cast<uint64_t>(std::time(nullptr)) * 0x9E3779B97F4A7C15ull;
+      s_psp_mac.clear();
+      for (int i = 0; i < 12; i++)
+      {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        s_psp_mac += "0123456789abcdef"[seed & 15];
+      }
+      s_psp_mac[1] = "26ae"[seed >> 62];
+      std::string text;
+      for (int i = 0; i < 12; i += 2)
+        text += (i ? ":" : "") + s_psp_mac.substr(i, 2);
+      const bool saved = WriteTextFile(path, text + "\n");
+      LogF("psp: a MAC address of its own made for online play (psp-mac.txt%s)", saved ? "" : ": NOT saved");
+    }
+  }
   for (int i = 1; i <= 12; i++)
   {
     char key[32];
     snprintf(key, sizeof(key), "change_mac_address%02d", i);
+    set(key, std::string(1, s_psp_mac[i - 1]));
+    snprintf(key, sizeof(key), "pro_ad_hoc_server_address%02d", i);  // (only for an "IP address" server: never)
     set(key, "0");
   }
+  setenv("EMUSUNI_PSP_NET_LOG", FileExists(std::string(App::DATA_DIR) + "/psp-net-log") ? "1" : "0", 1);
+  // The PSP's nickname (its games show it, online too; it goes to the servers): the online nickname the player chose
+  // (netplay.ini's, filtered as online play does), else "EmuSuNi-" and the last 4 digits of the random MAC address (no
+  // two PS4s alike). Never the PS4 user's name (Netplay::GetNickname's fallback): it can be a real name.
+  std::string nickname;
+  {
+    auto trim = [](const std::string& text) {
+      const size_t first = text.find_first_not_of(" \t\r"), last = text.find_last_not_of(" \t\r");
+      return first == std::string::npos ? std::string() : text.substr(first, last - first + 1);
+    };
+    const std::string ini = ReadTextFile(std::string(App::DATA_DIR) + "/netplay.ini");
+    size_t at = 0;
+    while (at < ini.size())
+    {
+      const size_t end = std::min(ini.find('\n', at), ini.size());
+      const std::string line = ini.substr(at, end - at);
+      at = end + 1;
+      const size_t eq = line.find('=');
+      if (eq == std::string::npos || trim(line.substr(0, eq)) != "nickname")
+        continue;
+      const std::string chosen = trim(line.substr(eq + 1));
+      const std::string clean = chosen.empty() ? std::string() : NetProto::CleanNick(chosen);
+      nickname = clean == "Player" && chosen != "Player" ? std::string() : clean;  // (CleanNick's "none left")
+    }
+  }
+  if (nickname.empty())
+    nickname = "EmuSuNi-" + s_psp_mac.substr(8, 4);
+  setenv("EMUSUNI_PSP_NICKNAME", nickname.c_str(), 1);
 }
 
 // Flycast's options (the Dreamcast, and since 00.63 its arcade boards, the NAOMI and the Atomiswave: the same
@@ -1073,17 +1289,24 @@ void BuildDcVariables(const std::string& g)
   const std::string p = "reicast_";
   auto set = [&](const std::string& key, const std::string& value) { s_variables[p + key] = value; };
   const bool board = IsFlycastBoard(s_system);
-  // The Dreamcast: the disc's region (USA, else Europe, else Japan). A NAOMI: the BIOS region NAOMI Region chooses
-  // (its Europe is the Export board; its Default would be Korea's BIOS), the core taking one the cartridge was made
-  // for when it wasn't; an Atomiswave: Japan, its BIOS's only region (another is looked for in vain first).
+  // The console's language (games with several follow it): Dreamcast Language (00.89), Auto being the menus'.
+  const std::string dc_language = s_system == SystemId::DC ? Settings::Get("dc_language", g) : std::string("auto");
+  const std::string l = dc_language == "auto" ? Settings::Get("language") : dc_language;
+  // The Dreamcast: the disc's region (USA, else Europe, else Japan); with a European language chosen (00.89) Europe,
+  // with Japanese Japan, where the disc allows it (Flycast takes the disc's other region if not): a European game
+  // made for several regions shows its languages. A NAOMI: the BIOS region NAOMI Region chooses (its Europe is the
+  // Export board; its Default would be Korea's BIOS), the core taking one the cartridge was made for when it wasn't;
+  // an Atomiswave: Japan, its BIOS's only region (another is looked for in vain first).
+  const bool european = dc_language == "es" || dc_language == "fr" || dc_language == "de" || dc_language == "it";
   const std::string naomi_region = Settings::Get("naomi_region", g);
   set("region", s_system == SystemId::NAOMI      ? (naomi_region == "japan" ? "Japan" : naomi_region == "export" ? "Europe" : "USA") :
                 s_system == SystemId::ATOMISWAVE ? "Japan" :
+                european                         ? "Europe" :
+                dc_language == "ja"              ? "Japan" :
                                                    "Default");
   set("broadcast", "NTSC");     // 60 Hz; Flycast picks PAL or NTSC itself for the few that need it
   set("cable_type", "VGA");     // 480p; Flycast falls back to composite for the games without VGA
   set("hle_bios", "disabled");  // the real BIOS if system/dc/dc_boot.bin is there, else its HLE BIOS
-  const std::string l = Settings::Get("language");
   set("language", l == "ja" ? "Japanese" : l == "de" ? "German" : l == "fr" ? "French" : l == "es" ? "Spanish" :
                   l == "it" ? "Italian" : "English");
   set("dc_32mb_mod", "disabled");
@@ -1173,9 +1396,12 @@ void BuildDcVariables(const std::string& g)
   set("lightgun_crosshair_size_scaling", "100%");
   set("show_vmu_screen_settings", "disabled");
   set("show_lightgun_settings", "disabled");
-  set("emulate_bba", "disabled");
+  // Dreamcast Online (01.02): DCNet, Flycast's free servers, through the modem or the broadband adapter (which then
+  // replaces the modem); Off, and on the boards: a game that dials gets no answer (scripts/build-dc-core.sh).
+  const std::string online = s_system == SystemId::DC ? Settings::Get("dc_online", g) : std::string("off");
+  set("emulate_bba", online == "bba" ? "enabled" : "disabled");
   set("upnp", "disabled");
-  set("dcnet", "disabled");
+  set("dcnet", online == "modem" || online == "bba" ? "enabled" : "disabled");
   set("network_output", "disabled");
   // The boards' TEST and SERVICE buttons are RetroPad L3 and R3 (the in-game menu's Arcade Button presses them; no
   // DualShock 4 button does until the player puts them on one: Controls). The NAOMI's games on Free Play (Flycast's
@@ -1270,7 +1496,10 @@ void BuildArcadeVariables(const std::string& g)
   set("fixed-frameskip", skip == "1" || skip == "2" ? skip : "0");
   set("cpu-speed-adjust", "100%");
   set("diagnostic-input", "Hold Start");
-  set("hiscores", "enabled");
+  // (00.95) Online: off - each console's .hi in RAM made the states differ (and the guest's .hi was written over);
+  // from the game's load (FinalBurn Neo reads its options again in the game: a netplay flag alone - the "fast
+  // savestates" of GET_AUDIO_VIDEO_ENABLE - was undone by that). The guests take the host's options.
+  set("hiscores", Netplay::Active() ? "disabled" : "enabled");
   set("allow-patched-romsets", "disabled");
   set("samplerate", "48000");
   set("sample-interpolation", "4-point 3rd order");
@@ -1363,6 +1592,8 @@ std::string ThreedsFailure(const std::string& message)
 // Accurate Shader Multiplication and 3DS Right Eye, Auto by the lists below -, kept for the game as its size is.
 uint64_t s_3ds_title = 0;
 bool s_3ds_accurate_mul = false, s_3ds_right_eye = false;
+// (00.85) Azahar's GPU timing emulation for the game (ThreedsGpuTimingsGame), kept for it as the two above.
+bool s_3ds_gpu_timings = false;
 
 uint64_t ThreedsTitleId(const std::string& path)
 {
@@ -1414,16 +1645,33 @@ bool ThreedsAccurateMulGame(uint64_t title)
 // The games that need the right eye drawn (00.81): with Azahar's Disable Right Eye Render, Majora's Mask 3D's blur
 // effects freeze the screen (azahar #791; its black intro is fixed by azahar #2467, scripts/build-3ds-core.sh), Kingdom
 // Hearts 3D's and Pokémon Super Mystery Dungeon's bottom screen stays black (#1005, not fixed by #2467), Fire Emblem
-// Warriors' too since #2467, and upstream's newer hack list keeps it for Minecraft: New Nintendo 3DS Edition. (The
-// core's own list - Luigi's Mansion 1 and 2, Rayman Origins - draws it whatever the setting.)
+// Warriors' too since #2467, and upstream's newer hack list keeps it for Minecraft: New Nintendo 3DS Edition; Metroid:
+// Samus Returns (00.89: a player's v00.22, the elevators' background dark with only Samus drawn - a second pass of the
+// top screen after its copy, which the disabler takes for the right eye and drops; its bottom screen was azahar #740).
+// (The core's own list - Luigi's Mansion 1 and 2, Rayman Origins - draws it whatever the setting.)
 bool ThreedsRightEyeGame(uint64_t title)
 {
   static const uint64_t GAMES[] = {
       0x0004000000125500, 0x0004000000125600, 0x00040000000D6E00,  // Majora's Mask 3D: USA, EUR, JPN
+      0x00040000001BB200, 0x00040000001BFB00, 0x00040000001BFC00,  // Metroid: Samus Returns: USA, EUR, JPN
       0x000400000008D300, 0x0004000000095500, 0x000400000004EE00,  // Kingdom Hearts 3D: USA, EUR, JPN
       0x0004000000174600, 0x0004000000174400,                      // Pokémon Super Mystery Dungeon: USA, EUR
       0x000400000F70CC00, 0x000400000F70CD00,                      // Fire Emblem Warriors: USA, EUR
       0x00040000001B8700, 0x000400000017CA00, 0x000400000017FD00,  // Minecraft: New 3DS Edition: USA, EUR, JPN
+  };
+  return std::find(std::begin(GAMES), std::end(GAMES), title) != std::end(GAMES);
+}
+
+// The games that need Azahar's GPU timing emulation (00.85): Luigi's Mansion 2, whose render thread expects the 3DS's
+// GPU to take its time (azahar #2095: with it, the game "no longer needs the delay render thread option to be
+// playable"; without, it stutters and crashes as it goes into the mansion - azahar #1878, on the libretro core; a
+// player's v00.22 froze, then closed). Off upstream by default, as for every other game here (the file
+// /data/EmuSuNi/3ds-gpu-timings turns it on for every game: scripts/build-3ds-core.sh).
+bool ThreedsGpuTimingsGame(uint64_t title)
+{
+  static const uint64_t GAMES[] = {
+      0x0004000000055F00, 0x0004000000076500, 0x0004000000076400,  // Luigi's Mansion 2 (Dark Moon): USA, EUR, JPN
+      0x00040000000D0000,                                          // (and the fourth of upstream's hack list)
   };
   return std::find(std::begin(GAMES), std::end(GAMES), title) != std::end(GAMES);
 }
@@ -1433,8 +1681,8 @@ bool ThreedsRightEyeGame(uint64_t title)
 // eye per game (00.81), 3DS Resolution (1x to 4x: the Quality levels' since 00.71; 1x only from 00.64 to 00.70), no
 // texture filters, HLE sound, the screens side by side (the app places them since 00.80: DualScreens), the touchpad as
 // the touch screen (the right stick is the C-stick), no motion, no 3D. Every
-// option the core declares is answered (core_settings.cpp declares 33, EmuSuNi's right eye with them since 00.81: its
-// build script): one it isn't given gets the default
+// option the core declares is answered (core_settings.cpp declares 34, EmuSuNi's right eye with them since 00.81 and
+// its GPU timings since 00.85: its build script): one it isn't given gets the default
 // of its code, not the one it declares. (Checked against the core's source by the PC tests.)
 void Build3dsVariables(const std::string& g)
 {
@@ -1452,6 +1700,7 @@ void Build3dsVariables(const std::string& g)
     const std::string mul = Settings::Get("3ds_accurate_mul", g), eye = Settings::Get("3ds_right_eye", g);
     s_3ds_accurate_mul = mul == "on" || (mul != "off" && ThreedsAccurateMulGame(s_3ds_title));
     s_3ds_right_eye = eye == "draw" || (eye != "skip" && ThreedsRightEyeGame(s_3ds_title));
+    s_3ds_gpu_timings = ThreedsGpuTimingsGame(s_3ds_title);
   }
   set("is_new_3ds", s_3ds_new == 1 ? "New 3DS" : "Old 3DS");
   set("use_cpu_jit", "enabled");
@@ -1473,7 +1722,9 @@ void Build3dsVariables(const std::string& g)
   set("audio_emulation", "hle");
   set("input_type", "none");  // (no microphone)
   set("graphics_api", "Vulkan");
-  set("use_hw_shader", "enabled");
+  // (00.85: the file /data/EmuSuNi/3ds-cpu-shaders runs the vertex shaders on the CPU, as Azahar's Enable Hardware
+  // Shader off: much slower on the PS4, but it tells whether a game's broken models come from the GPU's shaders.)
+  set("use_hw_shader", FileExists("/data/EmuSuNi/3ds-cpu-shaders") ? "disabled" : "enabled");
   set("use_shader_jit", "enabled");
   // Accurate multiplication in the GPU's shaders: Off in most games (the same pictures, a little less GPU work), On in
   // those that draw wrong without it (00.81: 3DS Accurate Shader Multiplication; Off for every game until 00.80).
@@ -1481,6 +1732,8 @@ void Build3dsVariables(const std::string& g)
   // The right eye's picture: left out (the PS4 shows no 3D) unless the game needs it (00.81: 3DS Right Eye; the core
   // read only the file /data/EmuSuNi/3ds-right-eye until 00.80, which still draws it in every game).
   set("emusuni_right_eye", s_3ds_right_eye ? "enabled" : "disabled");
+  // Azahar's GPU timing emulation: for the games that need it (00.85: ThreedsGpuTimingsGame, Luigi's Mansion 2).
+  set("emusuni_gpu_timings", s_3ds_gpu_timings ? "enabled" : "disabled");
   set("use_disk_shader_cache", "enabled");  // (saves/3ds/Azahar/shaders)
   set("resolution_factor", std::to_string(s_3ds_scale));
   set("texture_filter", "none");
@@ -1516,7 +1769,8 @@ void Build3dsVariables(const std::string& g)
 // YabaSanshiro's options (the Saturn): the real BIOS (the app finds it: EMUSUNI_SATURN_BIOS, Run), the core's own
 // frame skip off (on, its emulation thread waits to 60 frames a second by spinning), the 4 MiB RAM cartridge, the
 // console's picture at its own size (its software renderer: scripts/build-saturn-core.sh; the OpenGL renderer's
-// options answered as the core's defaults), no multitap. Every option it reads is answered.
+// options answered as the core's defaults), no multitap (00.23: Multiplayer Adapter On plugs the 6 Player Adaptors in,
+// BuildVariables). Every option it reads is answered.
 void BuildSaturnVariables(const std::string&)
 {
   const std::string p = "yabasanshiro_";
@@ -1538,6 +1792,20 @@ void BuildSaturnVariables(const std::string&)
 // chosen (PC Engine Pad), no turbo or soft reset switches of the core's (the app's buttons), Reduce Sprite Flicker; the
 // app skips the frames (GET_AUDIO_VIDEO_ENABLE: scripts/build-beetle-cores.sh). (The CD's options - its System Card,
 // image cache, drive speed and volumes - are left at the core's defaults since 00.83: no CD game is given to it.)
+#ifdef EMUSUNI_OPENBOR
+// (with-openbor) OpenBOR's options: the engine version picked by the core (by the .pak's contents, or a tag in its
+// name, "[ob6391]"), its own analog stick option off (the app moves the D-pad with the left stick: Controls.cpp), rumble
+// on (the games that have it), no gamma of its own (the app's picture settings do that). Every option it declares is
+// answered.
+void BuildOpenborVariables(const std::string&)
+{
+  s_variables["openbor_engine"] = "auto";
+  s_variables["openbor_analog"] = "disabled";
+  s_variables["openbor_rumble"] = "enabled";
+  s_variables["openbor_gamma"] = "0";
+}
+
+#endif
 void BuildPceVariables(const std::string& g)
 {
   const std::string p = "pce_fast_";
@@ -1562,10 +1830,157 @@ void BuildPceVariables(const std::string& g)
   set("mouse_sensitivity", "1.25");
 }
 
+// Stella's options (the Atari 2600, 00.90): the console's region and colours as the cartridge's own (its game list),
+// the whole picture without Stella's TV effects (the app's NTSC Filter, Tube TV and Scanlines do that), its own shape
+// (par), 2600 Phosphor, the paddles on the left stick (and the D-pad), no reload button, no messages of its own. Every
+// option it declares is answered.
+void BuildA2600Variables(const std::string& g)
+{
+  const std::string p = "stella_";
+  auto set = [&](const char* key, const std::string& value) { s_variables[p + key] = value; };
+  set("console", "auto");
+  set("palette", "standard");
+  set("filter", "disabled");
+  set("crop_hoverscan", "disabled");
+  set("crop_voverscan", "0");
+  set("ntsc_aspect", "par");
+  set("pal_aspect", "par");
+  set("stereo", "auto");
+  const std::string phosphor = Settings::Get("a2600_phosphor", g);
+  set("phosphor", phosphor == "on" || phosphor == "off" ? phosphor : "auto");
+  set("phosphor_blend", "60");
+  set("paddle_mouse_sensitivity", "10");
+  set("paddle_joypad_sensitivity", "3");
+  set("paddle_analog_sensitivity", "20");
+  set("paddle_analog_deadzone", "15");
+  set("paddle_analog_absolute", "disabled");
+  set("lightgun_crosshair", "disabled");
+  set("reload", "off");
+  set("detect_pal60", "disabled");
+  set("detect_ntsc50", "disabled");
+  for (const char* knob : {"pal_contrast", "pal_brightness", "pal_hue", "pal_saturation", "pal_gamma"})
+    set(knob, "0");
+  set("dpc_pitch", "20000");
+  set("messages", "disabled");
+}
+
+// ProSystem's options (the Atari 7800, 00.90): 16-bit colours (the app's game texture is RGB565), no low-pass filter of
+// its own (the app's Sound Filter), no dual-stick hack (the second player's joystick on the right stick).
+void BuildA7800Variables(const std::string&)
+{
+  const std::string p = "prosystem_";
+  auto set = [&](const char* key, const std::string& value) { s_variables[p + key] = value; };
+  set("color_depth", "16bit");
+  set("low_pass_filter", "disabled");
+  set("low_pass_range", "60");
+  set("gamepad_dual_stick_hack", "disabled");
+}
+
+#ifdef EMUSUNI_JAGUAR
+// Virtual Jaguar's options (the Jaguar, 00.90): its HLE BIOS, or the player's own boot ROM (Jaguar BIOS: On; the core
+// looks for jagboot.rom, "[BIOS] Atari Jaguar (World).j64"... in /data/EmuSuNi/system, else boots through its HLE BIOS:
+// scripts/build-atari-cores.sh); the accurate blitter (Doom's the fast one) at the console's own clocks and resolution,
+// its idle loops fast-forwarded; its per-title presets for speed (Enhancement Profile: performance - never their 2x
+// picture, too slow for the PS4 - and still the ones a game needs); Jaguar GPU/DSP Speed's half clock for a game that
+// plays better so;
+// the frames it would skip are the app's Frame Skip's; no CD, link cable, debugger, texture dumps or remapping (the
+// pad as the app maps it; the number pad from the touchpad: the keyboard's 0-9, - and =).
+// The games known to play better with something, by the start of their name (lower case; "doom": Doom and its
+// romhacks), each checked on the PC against the defaults - its picture and its sound frame for frame - with what it
+// gains. Not for every game: Virtual Jaguar's fast blitter draws some wrong (Iron Soldier's briefing tank, I-War's title,
+// Syndicate's text: its docs/cart-issue-triage.md), and the half clock changes a game's timing.
+struct JaguarTune
+{
+  const char* name;
+  bool fast_blitter;  // (00.92) Virtual Jaguar's fast blitter, always
+  bool half_risc;     // Jaguar GPU/DSP Speed's Auto: half
+};
+// (00.95) Checked too, and left out: Wolfenstein 3D (the fast blitter stripes its floor and ceiling), Iron Soldier and
+// Rayman (the same pictures and sound with it, 0-2% lighter only); the half clock for none of them (Tempest 2000's
+// music is the DSP's; the others gain 0-10%).
+constexpr JaguarTune JAGUAR_TUNES[] = {
+    {"doom", true, true},           // the fast blitter 24-33% lighter, the half clock 18% more (3D at half the rate)
+    {"tempest 2000", true, false},  // (00.95) the fast blitter 35-45% lighter: its attract mode and a game
+    // (00.96) the fast blitter half as heavy in a game: the final game's and the v0.93 beta's attract modes and a game,
+    // the same pictures and sound since its window with BKGWREN is the accurate one's and its blits under 8 bits a
+    // pixel are the accurate one's (scripts/build-atari-cores.sh: the beta's HUD bar and the final's "GAME OVER"
+    // were a pixel short a line). The name: both ("Alien vs Predator (World)", "... (v0.93) (Beta) ...").
+    {"alien vs predator", true, false},
+    // (00.98) the fast blitter 12-13% lighter (its 3D demo, a game, its attract mode and briefing: the same pictures and
+    // sound). "iron soldier (": not Iron Soldier 2, not tried.
+    {"iron soldier (", true, false},
+    // (00.98) the fast blitter: its screen clear (cmd 01800000, SRCDATA at the destination's pixel size since 00.98's
+    // scripts/build-atari-cores.sh) was its only difference; the same pictures and sound in its attract mode and a game.
+    {"wolfenstein 3d", true, false},
+};
+
+void BuildJaguarVariables(const std::string& g)
+{
+  const std::string p = "virtualjaguar_";
+  auto set = [&](const char* key, const std::string& value) { s_variables[p + key] = value; };
+  const bool bios = Settings::Get("jaguar_bios", g) == "on";
+  set("bios", bios ? "enabled" : "disabled");
+  set("bios_type", "custom");
+  std::string name = g.substr(g.find('/') + 1);
+  for (char& c : name)
+    c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  JaguarTune tune = {"", false, false};
+  for (const JaguarTune& known : JAGUAR_TUNES)
+  {
+    if (name.compare(0, std::strlen(known.name), known.name) == 0)
+      tune = known;
+  }
+  set("usefastblitter", tune.fast_blitter ? "enabled" : "disabled");
+  if (tune.fast_blitter)
+    LogF("jaguar: the fast blitter for this game");
+  set("internal_resolution", "1x");
+  set("true_color", "disabled");
+  set("widescreen", "disabled");
+  set("pertitle_defaults", "enabled");
+  set("enhancement_profile", "performance");
+  set("enhancement_hooks", "disabled");
+  set("risc_idle_skip", "enabled");
+  // (Jaguar GPU/DSP Speed's Auto: half for the games JAGUAR_TUNES names - Doom's 3D drawn at half the rate, the game at
+  // its speed, the picture right -, normal for the others: Rayman's core 5% lighter only.)
+  std::string risc = Settings::Get("jaguar_risc", g);
+  if (risc == "auto")
+  {
+    risc = tune.half_risc ? "0.5x" : "1x";
+    if (tune.half_risc)
+      LogF("jaguar: GPU/DSP Speed Auto: half for this game");
+  }
+  set("risc_clock_scale", risc == "0.5x" ? "0.5x" : "1x");
+  // (00.96) Jaguar Recompiler: the GPU's and the DSP's (scripts/vjaguar-jit/emusuni_gpu_jit.h, emusuni_dsp_jit.h),
+  // or their interpreters.
+  const char* const jaguar_jit = Settings::Get("jaguar_jit", g) == "off" ? "disabled" : "enabled";
+  set("emusuni_jit", jaguar_jit);
+  set("emusuni_jit_dsp", jaguar_jit);
+  set("m68k_clock_scale", "1x");
+  set("blit_memo", "disabled");
+  set("blitter_timing", "disabled");
+  set("dram_timing", "disabled");
+  set("gpu_pipeline_timing", "disabled");
+  set("crash_detect", "enabled");
+  set("frameskip", "disabled");
+  set("frameskip_max", "3");
+  set("pal", "disabled");
+  set("jgd", "auto");
+  set("jgd_sd", "disabled");
+  set("memory_track", "disabled");
+  set("texture_dump", "disabled");
+  set("texture_replace", "disabled");
+  set("alt_inputs", "disabled");
+  set("p1_numpad_to_kb", "disabled");
+  set("p2_numpad_to_kb", "disabled");
+}
+#endif
+
 void BuildVariables()
 {
   s_variables.clear();
-  if (s_system == SystemId::NES)
+  if (s_gblink)
+    BuildGbLinkVariables();  // (00.95: a link cable match's two Game Boys, SameBoy's)
+  else if (s_system == SystemId::NES)
     BuildNesVariables(s_game_id);
   else if (s_system == SystemId::N64)
     BuildN64Variables(s_game_id);
@@ -1591,9 +2006,28 @@ void BuildVariables()
 #endif
   else if (s_system == SystemId::PCE)
     BuildPceVariables(s_game_id);
+  else if (s_system == SystemId::A2600)
+    BuildA2600Variables(s_game_id);
+  else if (s_system == SystemId::A7800)
+    BuildA7800Variables(s_game_id);
+#ifdef EMUSUNI_JAGUAR
+  else if (s_system == SystemId::JAGUAR)
+    BuildJaguarVariables(s_game_id);
+#endif
+#ifdef EMUSUNI_OPENBOR
+  else if (s_system == SystemId::OPENBOR)
+    BuildOpenborVariables(s_game_id);
+#endif
   else
     BuildSnesVariables(s_game_id);
+  // (00.23) The PlayStation's Multitap, the Saturn's 6 Player Adaptors: options of their cores.
+  Multiplayer::AddVariables(s_system, s_adapter, &s_variables);
   s_variables_changed = true;
+  // (00.23) Online: the match's options stay - the host's, as the match started (src/Netplay.h) - whatever is changed
+  // on either console while it lasts.
+  Netplay::KeepVariables(&s_variables, &s_variables_changed);
+  if (s_gblink)
+    GbLinkLocalVariables();  // (00.95: the sound of this console's Game Boy, not the host's)
 }
 
 // ---- libretro's Vulkan interface (the core's side of the display) ----
@@ -1713,7 +2147,15 @@ bool Environment(unsigned command, void* data)
     return true;
   case RETRO_ENVIRONMENT_GET_AUDIO_VIDEO_ENABLE:
     // 1: draw the picture, 2: make the sound.
-    *static_cast<int*>(data) = (s_render_video ? 1 : 0) | 2;
+    // (00.23: online, a rollback's frames run again undrawn when the console's rules allow it: Netplay::SkipVideo.)
+    // (00.95) 4, "fast savestates", in an Arcade match: FinalBurn Neo's netplay - a fixed clock and random seed on every
+    // console, its high scores off (the option is off too: BuildArcadeVariables).
+    // (01.03) And in a 7800 match: ProSystem's whole state (its sound chips, the RIOT's timer: 1942 (Extended) went on
+    // otherwise from a state without them) and no BIOS (scripts/build-atari-cores.sh). Not the 2600's: Stella's state
+    // would grow to 1 MiB.
+    *static_cast<int*>(data) =
+        (s_render_video && !Netplay::SkipVideo() ? 1 : 0) | 2 |
+        (Netplay::Active() && (s_system == SystemId::ARCADE || s_system == SystemId::A7800) ? 4 : 0);
     return true;
   case RETRO_ENVIRONMENT_GET_GAME_INFO_EXT:
     if (!s_info_ext.data)
@@ -1746,7 +2188,7 @@ bool Environment(unsigned command, void* data)
     // Fast (00.82) read all the buttons at once (InputState's mask); the others as before.
     return IsHandheld(s_system) || s_system == SystemId::PS1 || s_system == SystemId::NDS ||
            s_system == SystemId::PSP || IsFlycast(s_system) || IsGpgx(s_system) || s_system == SystemId::ARCADE ||
-           s_system == SystemId::SATURN || s_system == SystemId::PCE;
+           s_system == SystemId::SATURN || s_system == SystemId::PCE || IsAtari(s_system);
   case RETRO_ENVIRONMENT_GET_SENSOR_INTERFACE:
   {
     if (!IsHandheld(s_system) || !data)
@@ -1891,6 +2333,8 @@ void VideoRefresh(const void* pixels, unsigned width, unsigned height, size_t pi
 {
   if (pixels)
     StartGuard::Picture();  // (the start watchdog: a picture came)
+  if (Netplay::Replaying())
+    return;  // (00.23: online, a rollback's frames run again aren't shown - the frame after them is)
   if (pixels == RETRO_HW_FRAME_BUFFER_VALID)
   {
     // The core's own image (set_image): nothing to upload.
@@ -1916,6 +2360,14 @@ void VideoRefresh(const void* pixels, unsigned width, unsigned height, size_t pi
   if (!pixels)
     return;  // a duplicated frame
   s_frame_hw = false;
+  if (s_gblink)
+  {
+    // (00.95) A link cable match: the two Game Boys' screens side by side (SameBoy's), this console's alone shown.
+    unsigned first = 0, columns = width;
+    GbLink::VisibleHalf(width, &first, &columns);
+    pixels = static_cast<const uint8_t*>(pixels) + static_cast<size_t>(first) * (s_xrgb8888 ? 4 : 2);
+    width = columns;
+  }
   if (s_xrgb8888)
   {
     // 32-bit pixels: 5-6-5 bits of each (the DS draws 6 bits per colour; the picture stays the same). (Until 00.79
@@ -1966,7 +2418,8 @@ void VideoRefresh(const void* pixels, unsigned width, unsigned height, size_t pi
 
 size_t AudioBatch(const int16_t* samples, size_t frames)
 {
-  if (s_audio)
+  // (00.23: online, a rollback's frames run again aren't heard - their sound was played as first predicted.)
+  if (s_audio && !Netplay::Replaying())
     s_audio->Push(samples, frames, s_sample_rate);
   return frames;
 }
@@ -1981,6 +2434,9 @@ void InputPoll() {}
 
 int16_t InputState(unsigned port, unsigned device, unsigned index, unsigned id)
 {
+  // (00.90) The Jaguar's number pad from the touchpad: Virtual Jaguar reads player 1's keys as the keyboard's.
+  if ((device & 0xFF) == RETRO_DEVICE_KEYBOARD)
+    return s_system == SystemId::JAGUAR && s_jaguar_key >= 0 && id == JAGUAR_KEYS[s_jaguar_key] ? 1 : 0;
   if ((device & 0xFF) == RETRO_DEVICE_POINTER)
   {
     // Player 1's touchpad as a touch screen (the DS's stylus): -0x7FFF..0x7FFF over the picture.
@@ -2012,6 +2468,10 @@ int16_t InputState(unsigned port, unsigned device, unsigned index, unsigned id)
 }
 
 // ---- The DualShock 4s: player 1 is the user who started the app, then the others signed in. ----
+// (00.23) Each other user keeps their player while signed in (a new one takes the first free player: the players
+// after them don't move when one signs out), each player's light bar shows its colour as the PS4 gives its users'
+// (Multiplayer::PlayerColour: blue, red, green, pink) until the game ends, and a controller that comes or goes after
+// the game's first seconds is told (changes: the in-game menu's toast).
 struct Pads
 {
   struct Pad
@@ -2021,48 +2481,73 @@ struct Pads
     uint32_t held = 0;
     OrbisPadData data = {};
     bool ok = false;
+    bool lit = false;  // its light bar has the player's colour (set again when the controller comes back)
   };
   std::array<Pad, MAX_PLAYERS> pads;
   int32_t first_user = -1;
   float recheck = 0.0f;
+  // The players whose controller is there as last told, how long another state has lasted, the time since Open (the
+  // first 2 s told nothing: the controllers of the game's start), the changes not taken yet (player, connected).
+  std::array<bool, MAX_PLAYERS> shown{};
+  std::array<float, MAX_PLAYERS> flip{};
+  float age = 0.0f;
+  std::vector<std::pair<int, bool>> changes;
 
   void Open()
   {
     sceUserServiceGetInitialUser(&first_user);
     Refresh(true);
   }
+  // The pad's light bar back to the PS4's colour for its user, and the pad closed.
+  static void Release(Pad& pad)
+  {
+    if (pad.handle >= 0)
+    {
+      if (pad.lit)
+        scePadResetLightBar(pad.handle);
+      scePadClose(pad.handle);
+    }
+    pad = {};
+  }
   void Close()
   {
     for (Pad& pad : pads)
-    {
-      if (pad.handle >= 0)
-        scePadClose(pad.handle);
-      pad = {};
-    }
+      Release(pad);
   }
-  // Signed-in users in player order; a new one becomes the next player.
+  // Signed-in users in player order: player 1 the user who started the app, each other one the player they were while
+  // signed in, a new one the first free player.
   void Refresh(bool log)
   {
     OrbisUserServiceLoginUserIdList users;
     std::memset(&users, 0xFF, sizeof(users));
     sceUserServiceGetLoginUserIdList(&users);
-    std::vector<int32_t> order;
-    if (first_user >= 0)
-      order.push_back(first_user);
+    auto signed_in = [&users](int32_t user) {
+      return user >= 0 && std::find(std::begin(users.userId), std::end(users.userId), user) != std::end(users.userId);
+    };
+    std::array<int32_t, MAX_PLAYERS> order;
+    order.fill(-1);
+    const size_t others = first_user >= 0 ? 1 : 0;  // (without the first user, the others from player 1)
+    order[0] = first_user;
+    for (size_t i = others; i < pads.size(); i++)
+    {
+      if (pads[i].user != first_user && signed_in(pads[i].user))
+        order[i] = pads[i].user;
+    }
     for (int32_t user : users.userId)
     {
-      if (user >= 0 && user != first_user && order.size() < MAX_PLAYERS)
-        order.push_back(user);
+      if (user < 0 || user == first_user || std::find(order.begin(), order.end(), user) != order.end())
+        continue;
+      const auto free = std::find(order.begin() + others, order.end(), -1);
+      if (free != order.end())
+        *free = user;
     }
     for (size_t i = 0; i < pads.size(); i++)
     {
-      const int32_t user = i < order.size() ? order[i] : -1;
+      const int32_t user = order[i];
       Pad& pad = pads[i];
       if (pad.user == user && (user < 0 || pad.handle >= 0))
         continue;
-      if (pad.handle >= 0)
-        scePadClose(pad.handle);
-      pad = {};
+      Release(pad);
       pad.user = user;
       if (user >= 0)
       {
@@ -2092,8 +2577,113 @@ struct Pads
         pad.ok = true;
       }
     }
+    age += dt;
+    for (size_t i = 0; i < pads.size(); i++)
+    {
+      Pad& pad = pads[i];
+      // The player's colour on a controller that is there (again: it came back with its user's colour).
+      if (pad.ok && !pad.lit)
+      {
+        const Multiplayer::Colour colour = Multiplayer::PlayerColour(static_cast<int>(i));
+        OrbisPadColor bar = {colour.r, colour.g, colour.b, 0xFF};
+        const int result = scePadSetLightBar(pad.handle, &bar);
+        pad.lit = true;  // (tried once per connection)
+        if (result != 0)
+          LogF("pads: player %zu's light bar not set (%#x)", i + 1, static_cast<unsigned>(result));
+      }
+      else if (!pad.ok)
+      {
+        pad.lit = false;
+      }
+      // A controller there or gone for half a second (not a missed read): told once the game's first 2 s are over.
+      if (age < 2.0f || pad.ok == shown[i])
+      {
+        if (age < 2.0f)
+          shown[i] = pad.ok;
+        flip[i] = 0.0f;
+        continue;
+      }
+      flip[i] += dt;
+      if (flip[i] >= 0.5f)
+      {
+        shown[i] = pad.ok;
+        flip[i] = 0.0f;
+        changes.emplace_back(static_cast<int>(i), pad.ok);
+        LogF("pads: player %zu's controller %s (user %d)", i + 1, pad.ok ? "connected" : "disconnected", pad.user);
+      }
+    }
   }
 };
+
+// ---- Online play (00.23, src/Netplay.h) ----
+// This pass's local players for the match: each player's input as the pads gave it (s_buttons and the others, by
+// player: a player without a controller is neutral), up to the last player with one - the match keeps each player on
+// its port. Neutral while the in-game menu is open: the match goes on, this console's players stand still.
+void NetplayLocalInputs(const Pads& pads, bool menu_open)
+{
+  NetProto::PortInput inputs[NetProto::MAX_PORTS];
+  int count = 1;
+  for (int i = 0; i < NetProto::MAX_PORTS && i < MAX_PLAYERS; i++)
+  {
+    if (pads.pads[static_cast<size_t>(i)].ok)
+      count = i + 1;
+    if (menu_open)
+      continue;
+    NetProto::PortInput& in = inputs[i];
+    in.buttons = s_buttons[static_cast<size_t>(i)];
+    in.flags = s_gun_reload[static_cast<size_t>(i)] ? 1 : 0;
+    in.axes[0] = s_analog[static_cast<size_t>(i)][0][0];
+    in.axes[1] = s_analog[static_cast<size_t>(i)][0][1];
+    in.axes[2] = s_analog[static_cast<size_t>(i)][1][0];
+    in.axes[3] = s_analog[static_cast<size_t>(i)][1][1];
+    in.triggers[0] = s_triggers[static_cast<size_t>(i)][0];
+    in.triggers[1] = s_triggers[static_cast<size_t>(i)][1];
+  }
+  Netplay::SetLocalInputs(inputs, count);
+}
+
+// A frame's inputs of every port of the match on the console's ports (Netplay, before each frame it runs - those a
+// rollback runs again too).
+void NetplayApply(const NetProto::PortInput* ports, int count)
+{
+  for (int p = 0; p < MAX_PLAYERS; p++)
+  {
+    const NetProto::PortInput in = p < count && p < NetProto::MAX_PORTS ? ports[p] : NetProto::PortInput();
+    const size_t i = static_cast<size_t>(p);
+    s_buttons[i] = in.buttons;
+    s_gun_reload[i] = (in.flags & 1) != 0;
+    s_analog[i][0] = {in.axes[0], in.axes[1]};
+    s_analog[i][1] = {in.axes[2], in.axes[3]};
+    s_triggers[i] = {in.triggers[0], in.triggers[1]};
+  }
+}
+
+// A guest: the host's core options before its core starts (Netplay::AgreeOptions: they reach it in a moment, the
+// host sends them as its own game starts), the screen saying so meanwhile. False: the match ended (*error: why).
+bool NetplayAgree(Display& display, ImFont* regular, ImFont* bold, std::string* error)
+{
+  StartGuard::Step("online: the host's settings");
+  for (;;)
+  {
+    StartGuard::Beat();
+    const Netplay::Wait wait = Netplay::AgreeOptions(&s_variables);
+    if (wait == Netplay::Wait::Done)
+      return true;
+    if (wait == Netplay::Wait::Failed)
+    {
+      std::string why;
+      Netplay::Ended(&why);
+      *error = why.empty() ? std::string("The online match ended") : why;
+      return false;
+    }
+    ImGui::GetIO().DeltaTime = 1.0f / 60.0f;
+    display.BeginFrame();
+    ImGui::NewFrame();
+    NetplayUi::DrawWaiting(ImGui::GetForegroundDrawList(), regular, bold, Netplay::GetStatus().line);
+    ImGui::Render();
+    display.EndFrame();
+  }
+}
 
 // ---- Drawing the picture ----
 struct Picture
@@ -2150,7 +2740,7 @@ std::string BuiltinBezel(const std::string& name, const std::string& shape)
   const std::string builtin = std::string(App::ASSETS_DIR) + "/xmb/bezels/" + name;
   for (const std::string& variant : {shape, std::string(shape == "-wide" ? "-169" : "")})
   {
-    if (!variant.empty() && FileExists(builtin + variant + ".png"))
+    if (!variant.empty() && AssetPack::Exists(builtin + variant + ".png"))
       return builtin + variant + ".png";
   }
   return builtin + ".png";
@@ -2169,13 +2759,14 @@ std::string OwnBezel(const System& system, const std::string& shape)
   if (SharedFrame(own))
     return BuiltinBezel("frame-" + own, shape);
   const std::string first = std::string(App::ASSETS_DIR) + "/xmb/bezels/" + system.key + "-" + own + ".png";
-  return FileExists(first) ? BuiltinBezel(std::string(system.key) + "-" + own, shape) : BuiltinBezel("tv", shape);
+  return AssetPack::Exists(first) ? BuiltinBezel(std::string(system.key) + "-" + own, shape) :
+                                    BuiltinBezel("tv", shape);
 }
 
 // A bezel of the data folder (Your Own, Per Game): data_dir/bezels/...
 bool DataBezel(const std::string& path)
 {
-  const std::string folder = std::string(App::DATA_DIR) + "/bezels/";
+  const std::string folder = Portable::UserDir() + "/bezels/";  // (00.87: the player's data, src/Portable.h)
   return path.compare(0, folder.size(), folder) == 0;
 }
 
@@ -2195,7 +2786,7 @@ std::string BezelPath(const Library::Game& game, const std::string& shape)
     return BuiltinBezel("tv", shape);
   if (SharedFrame(choice))
     return BuiltinBezel("frame-" + choice, shape);
-  const std::string own = std::string(App::DATA_DIR) + "/bezels/" + system.key;
+  const std::string own = Portable::UserDir() + "/bezels/" + system.key;  // (00.87: src/Portable.h)
   if (choice == "game")
   {
     for (const std::string& path : {own + "/" + game.id + ".png", own + "/" + game.title + ".png"})
@@ -2203,8 +2794,8 @@ std::string BezelPath(const Library::Game& game, const std::string& shape)
       if (FileExists(path))
         return path;
     }
-    LogF("bezel: no bezel of The Bezel Project's for %s in %s/bezels/%s (Settings -> Game Bezels): the console's own",
-         game.id.c_str(), App::DATA_DIR, system.key);
+    LogF("bezel: no bezel of The Bezel Project's for %s in %s (Settings -> Game Bezels): the console's own",
+         game.id.c_str(), own.c_str());
     return OwnBezel(system, shape);
   }
   if (choice != "custom")
@@ -2214,9 +2805,10 @@ std::string BezelPath(const Library::Game& game, const std::string& shape)
     if (FileExists(path))
       return path;
   }
-  LogF("bezel: none of your own in %s/bezels/%s", App::DATA_DIR, system.key);
+  LogF("bezel: none of your own in %s", own.c_str());
   const std::string first = builtin + system.key + "-console.png";
-  return FileExists(first) ? BuiltinBezel(std::string(system.key) + "-console", shape) : BuiltinBezel("tv", shape);
+  return AssetPack::Exists(first) ? BuiltinBezel(std::string(system.key) + "-console", shape) :
+                                    BuiltinBezel("tv", shape);
 }
 
 void FreeBezel(Display& display)
@@ -2526,6 +3118,8 @@ Picture PlacePicture(const std::string& game, bool framed)
     ratio = frame_w / std::max(1.0f, frame_h);  // its pixels square (the picture is turned already)
   else if (turned && (aspect == "auto" || aspect == "pixel"))
     ratio = 3.0f / 4.0f;  // a vertical NAOMI or Atomiswave game: its monitor's 4:3 standing upright
+  else if (aspect == "pixel" && IsAtari(s_system) && s_core_aspect > 0.0f)
+    ratio = s_core_aspect;  // (00.90) the console's own pixels' shape, as its core reports it (the 2600's are wide)
   else if (aspect == "pixel" && (IsGpgx(s_system) || s_system == SystemId::PCE))
     ratio = frame_w / std::max(1.0f, lines);  // the Mega Drive's 320 or 256 pixels, the GG's 160; the PC Engine's 256 to
                                               // 352 (00.82)
@@ -2877,6 +3471,7 @@ void UploadPicture(Display& display, const std::string& game)
   const bool doubled = s_system == SystemId::ARCADE                         ? false :
                        IsGpgx(s_system)                                  ? s_frame_h > 300 :
                        s_system == SystemId::PCE                         ? s_frame_w > 400 :
+                       IsAtari(s_system)                                 ? s_frame_h > 300 :  // (00.90: the 7800's 320)
                                                                            s_frame_w > 300 || s_frame_h > 300;
   if (doubled && s_system != SystemId::NDS)
     factor /= 2;
@@ -3176,14 +3771,114 @@ void AdoptDiscsCard(const Library::Game& game)
     LogF("save: the memory card of %s (%d saves) for all the game's discs", best_path.c_str(), best_saves);
 }
 
+// (00.95) A link cable match's battery saves (src/GbLink.h). The host: its own game's save in Game Boy 1, the guest's -
+// as it sent it - in Game Boy 2, the clocks brought to now; a guest: none (both come in the host's state). Each keeps a
+// copy of its own game's save from before the match (BackupSave) and, as last written, its RAM (s_gblink_saved).
+void LoadGbLinkSaves()
+{
+#ifdef EMUSUNI_GBLINK
+  const GbLink::Match& match = GbLink::Get();
+  const GbLink::Game& own = match.games[match.local];
+  GbLink::BackupSave(own.key);
+  const std::vector<uint8_t> mine = GbLink::ReadSave(own.key, static_cast<uint64_t>(std::time(nullptr)));
+  const size_t ram = std::min(mine.size(), sameboy_emusuni_ram_size(static_cast<unsigned>(match.local)));
+  s_gblink_saved.assign(mine.begin(), mine.begin() + static_cast<std::ptrdiff_t>(ram));
+  if (match.local == 0)
+  {
+    sameboy_emusuni_load_battery(0, mine.data(), mine.size());
+    sameboy_emusuni_load_battery(1, match.guest_save.data(), match.guest_save.size());
+    LogF("gblink: battery saves loaded: ours %zu bytes in Game Boy 1 (it keeps %zu), the guest's %zu in Game Boy 2 (it "
+         "keeps %zu)", mine.size(), sameboy_emusuni_battery_size(0), match.guest_save.size(),
+         sameboy_emusuni_battery_size(1));
+  }
+  else
+    LogF("gblink: our save (%zu bytes) comes in the host's state, in Game Boy 2", mine.size());
+#endif
+}
+
+// A guest, once the host's state is in (before its first frame): Game Boy 2's battery RAM is its own save's as it is
+// on this console - false: it isn't (the host sent another), and the match ends without writing it.
+bool CheckGbLinkSave()
+{
+#ifdef EMUSUNI_GBLINK
+  const size_t size = sameboy_emusuni_battery_size(1), ram = sameboy_emusuni_ram_size(1);
+  std::vector<uint8_t> data(size);
+  if (s_gblink_saved.empty())
+    return true;  // (no save of ours yet: a new game)
+  if (size == 0 || ram < s_gblink_saved.size() || !sameboy_emusuni_save_battery(1, data.data(), size))
+    return false;
+  return std::equal(s_gblink_saved.begin(), s_gblink_saved.end(), data.begin());
+#else
+  return false;
+#endif
+}
+
+// This console's Game Boy's battery save written into its own game's (its RAM into <key>.srm, its clock into
+// <key>.rtc) when its RAM changed since last written, or `force`d (the game's end: the clock too). Beside the
+// emulation (the SaveWriter) during play. A guest writes nothing before its own save came in the host's state.
+void SaveGbLinkSave(bool force)
+{
+#ifdef EMUSUNI_GBLINK
+  const GbLink::Match& match = GbLink::Get();
+  const unsigned gb = static_cast<unsigned>(match.local);
+  if (s_gblink_failed || (gb == 1 && !s_gblink_checked))
+    return;
+  const size_t size = sameboy_emusuni_battery_size(gb), ram = sameboy_emusuni_ram_size(gb);
+  if (size == 0 || ram > size)
+    return;
+  std::vector<uint8_t> data(size);
+  if (!sameboy_emusuni_save_battery(gb, data.data(), size))
+    return;
+  const bool same = s_gblink_saved.size() == ram && std::equal(s_gblink_saved.begin(), s_gblink_saved.end(), data.begin());
+  if (same && !force)
+    return;
+  const std::string& key = match.games[gb].key;
+  if (std::all_of(data.begin(), data.begin() + static_cast<std::ptrdiff_t>(ram), [](uint8_t b) { return b == 0xFF; }) &&
+      !FileExists(Saves::SramPath(key)))
+    return;  // (nothing saved yet: no file made)
+  const bool clock = size > ram;
+  if (!force && s_save_writer &&
+      s_save_writer->Post(Saves::SramPath(key), std::vector<uint8_t>(data.begin(), data.begin() + ram), "battery save"))
+  {
+    if (clock)
+      s_save_writer->Post(Saves::RtcPath(key), std::vector<uint8_t>(data.begin() + ram, data.end()), "cartridge clock");
+    s_gblink_saved.assign(data.begin(), data.begin() + static_cast<std::ptrdiff_t>(ram));
+    return;
+  }
+  if (s_save_writer)
+    s_save_writer->Flush();  // (an older copy mustn't land after this one)
+  if (GbLink::WriteSave(key, data.data(), size, ram, clock))
+  {
+    s_gblink_saved.assign(data.begin(), data.begin() + static_cast<std::ptrdiff_t>(ram));
+    LogF("gblink: Game Boy %u's battery save written into %s (%zu bytes%s)", gb + 1, key.c_str(), ram,
+         clock ? ", and its clock" : "");
+  }
+#endif
+}
+
 void LoadSram()
 {
+  if (s_gblink)
+  {
+    LoadGbLinkSaves();
+    return;
+  }
   LoadMemory(RETRO_MEMORY_SAVE_RAM, Saves::SramPath(s_game_id), &s_sram_saved, "battery save");
   LoadMemory(RETRO_MEMORY_RTC, Saves::RtcPath(s_game_id), &s_rtc_saved, "cartridge clock");
 }
 
 void SaveSram(bool force)
 {
+  // (00.95) A link cable match: each console writes its own Game Boy's save into its own game's.
+  if (s_gblink)
+  {
+    SaveGbLinkSave(force);
+    return;
+  }
+  // (00.23) Online, a guest plays the host's game (its battery save came with the host's state): its own save file
+  // isn't written over.
+  if (Netplay::KeepOwnSaves())
+    return;
   SaveMemory(RETRO_MEMORY_SAVE_RAM, Saves::SramPath(s_game_id), &s_sram_saved, "battery save", force);
   SaveMemory(RETRO_MEMORY_RTC, Saves::RtcPath(s_game_id), &s_rtc_saved, "cartridge clock", force);
 }
@@ -3208,6 +3903,31 @@ bool SerializeCore(std::vector<uint8_t>* out)
   return false;
 }
 
+// (00.85) The game's picture on the screen now - the last drawing, the in-game menu not yet over it -, kept for the
+// states saved while the menu is open when the core draws its own image (SaveState: no pixels of it here). Where
+// DrawPicture put it (PlacePicture; the 3DS's screens are inside it), at most 512 x 448 as the other thumbnails.
+void KeepMenuPicture(Display& display, const std::string& game)
+{
+  s_menu_picture = ImageRGBA();
+  if (!s_frame_hw || !s_hw_image_set || s_frame_w == 0 || s_frame_h == 0)
+    return;
+  const Picture picture = PlacePicture(game);
+  const int x = static_cast<int>(std::floor(picture.min.x)), y = static_cast<int>(std::floor(picture.min.y));
+  const int w = static_cast<int>(std::ceil(picture.max.x)) - x, h = static_cast<int>(std::ceil(picture.max.y)) - y;
+  const auto start = Clock::now();
+  ImageRGBA image;
+  if (!display.CaptureArea(x, y, w, h, 512, 448, &image.pixels, &image.width, &image.height))
+  {
+    LogF("menu: the game's picture (%d,%d %dx%d) couldn't be read from the screen: its states get no thumbnail", x, y,
+         w, h);
+    return;
+  }
+  s_menu_picture = std::move(image);
+  LogF("menu: the game's picture kept for a state's thumbnail (%ux%u, from %dx%d of the screen, %.1f ms)",
+       s_menu_picture.width, s_menu_picture.height, w, h,
+       std::chrono::duration<double, std::milli>(Clock::now() - start).count());
+}
+
 bool SaveState(int slot)
 {
   std::vector<uint8_t> state;
@@ -3224,13 +3944,26 @@ bool SaveState(int slot)
     WriteTextFile(disc, std::to_string(DiscIn()));
   else
     std::remove(disc.c_str());
-  if (s_frame && s_frame_w && s_frame_h)
+  // The state's picture (its slot's thumbnail): the core's own pixels; a core that draws its own image (the N64, the
+  // PlayStation, the PSP, Flycast's machines, the 3DS: s_frame NULL) the screen's picture as the in-game menu opened
+  // (s_menu_picture). Until 00.84 those had none - "Empty slot" beside a state saved, GitHub #33. No picture: the slot's
+  // older one goes, not shown for this state.
+  const std::string picture_path = Saves::StatePicturePath(s_game_id, slot);
+  const char* pictured = nullptr;
+  if (s_frame && s_frame_w && s_frame_h && !s_frame_hw)
   {
     ImageRGBA picture = FromRgb565(static_cast<const uint16_t*>(s_frame), s_frame_w, s_frame_h,
                                    s_frame_pitch);
-    SavePng(Saves::StatePicturePath(s_game_id, slot), Shrink(picture, 512, 448));
+    if (SavePng(picture_path, Shrink(picture, 512, 448)))
+      pictured = "its picture";
   }
-  LogF("state: saved slot %d (%zu bytes)", slot, size);
+  else if (!s_menu_picture.empty() && SavePng(picture_path, s_menu_picture))
+  {
+    pictured = "the screen's picture";
+  }
+  if (!pictured)
+    std::remove(picture_path.c_str());
+  LogF("state: saved slot %d (%zu bytes, %s)", slot, size, pictured ? pictured : "no picture");
   Achievements::StateSaved(path);  // (the achievements' progress beside it: <state>.ra)
   return true;
 }
@@ -3706,6 +4439,26 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
            std::string* error)
 {
   LogF("game: %s (%s)", game.title.c_str(), game.path.c_str());
+  // (00.95) A link cable match (src/GbLink.h) is this game's alone: over at every return.
+  struct GbLinkEnd
+  {
+    ~GbLinkEnd()
+    {
+      GbLink::Clear();
+      s_gblink = false;
+      std::vector<uint8_t>().swap(s_gblink_rom2);
+      std::vector<uint8_t>().swap(s_gblink_saved);
+    }
+  } gblink_end;
+  // (00.87) The player's data on a USB drive (src/Portable.h) that was taken out: no game until EmuSuNi starts again -
+  // its saves would begin empty in the fallback folder, and later be taken for newer than the drive's.
+  if (!Portable::CheckDrive() || Portable::Lost())
+  {
+    *error = "The USB drive with your data was removed.\nRestart EmuSuNi to play:\nwith this PS4's data, or with the "
+             "drive's\nonce it is connected again.";
+    LogLine("game: not started: the USB drive with the player's data is gone (portable data)");
+    return Result::Failed;
+  }
   // The start watched until a while after its first picture (src/StartGuard.h); every return ends the watch.
   const StartGuard::Scope start_guard(game.path, game.title, GetSystem(game.system).key, StartLimits(game.system));
   if (!EnoughMemory(game, error))
@@ -3737,10 +4490,58 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   }
   s_system = game.system;
   s_core = GetSystem(game.system).core;
+  // (00.95) A link cable match (src/GbLink.h): SameBoy runs both Game Boys, this game (Game Boy 1: the host's) and the
+  // other (Game Boy 2: the guest's), whose ROM is read now.
+  s_gblink = GbLink::Active();
+  s_gblink_checked = false;
+  s_gblink_failed = false;
+  if (!s_gblink && Netplay::Active() && Netplay::LinkRoom())
+  {
+    // (A link cable room's match without its two games set - the menu's SetGbLinkMatch: not one Game Boy alone.)
+    *error = "The Game Boy link cable's games aren't ready";
+    LogLine("gblink: a link cable match without its games set (GbLink::Set): not started");
+    return Result::Failed;
+  }
+  if (s_gblink)
+  {
+#ifdef EMUSUNI_GBLINK
+    const GbLink::Game& other = GbLink::Get().games[1];
+    if (!Library::ReadRom(other.path, other.system, &s_gblink_rom2, error))
+    {
+      LogF("gblink: can't read Game Boy 2's ROM (%s): %s", other.path.c_str(), error->c_str());
+      return Result::Failed;
+    }
+    s_core = &Cores::SAMEBOY;
+#else
+    *error = "This version of EmuSuNi has no Game Boy link cable";
+    LogLine("gblink: no SameBoy in this build (scripts/build.sh with-gblink): the match can't start");
+    return Result::Failed;
+#endif
+  }
+  // (00.23) Online (src/Netplay.h): the core's controller devices kept by the match (the host's are the guest's); the
+  // room left, the others told, at every end of the game (NetplayEnd).
+  const bool online = Netplay::Active();
+  if (online)
+    s_core = Netplay::WrapCore(s_core);
+  UsageStats::SetPlaying(GetSystem(game.system).key, online);  // (00.23: the anonymous statistics' "playing")
+  MyStats::GameStarted(game.path, GetSystem(game.system).key, online);  // (00.23: Settings -> My Stats, on the PS4)
+  struct NetplayEnd
+  {
+    bool on;
+    ~NetplayEnd()
+    {
+      UsageStats::SetPlaying(nullptr, false);
+      MyStats::GameEnded();
+      if (on)
+        Netplay::GameEnded();
+    }
+  } netplay_end{online};
   s_game_id = game.key;
   s_message.clear();
   s_ps1_disc_error.clear();
   s_ps1_libcrypt = false;
+  s_ps1_openbios = false;
+  s_ps1_cooked = false;
   s_display = &display;
   s_pad_handles.fill(-1);
   s_rumble = {};
@@ -3751,6 +4552,7 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   s_xrgb8888 = false;  // RGB565 unless the core asks for XRGB8888
   s_pointer = {};
   s_stylus = {};
+  s_jaguar_key = -1;
   s_r3_swap = false;
   s_3ds_r3 = false;
   s_screens_seen.clear();
@@ -3802,8 +4604,12 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
          s_rsp_jit_ok ? "possible" : "not possible (CXD4)");
   }
 #endif
-  s_system_dir = std::string(App::DATA_DIR) + "/system";
-  s_save_dir = std::string(App::DATA_DIR) + "/saves";
+  // (00.87) The player's saves where the player's data is (src/Portable.h: a USB drive's portable data, else
+  // /data/EmuSuNi): every core's own folders in them too (PPSSPP's memory stick, Flycast's VMUs, the Saturn's backup
+  // memory, Azahar's sdmc and nand). The BIOS from the drive's EmuSuNi-Portable/system when the player put the
+  // console's there, else from /data/EmuSuNi/system.
+  s_system_dir = Portable::SystemDir(GetSystem(s_system).key);
+  s_save_dir = Portable::UserDir() + "/saves";
   MakeDirs(s_system_dir);
   if (s_system == SystemId::PSP)
   {
@@ -3831,9 +4637,10 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
     MakeDirs(s_system_dir);
     MakeDirs(s_save_dir);
     uint32_t crc = 0;
-    const std::string bios = SaturnTest::FindSaturnBios(
-        {s_system_dir, std::string(App::DATA_DIR) + "/system", std::filesystem::path(game.path).parent_path().string()},
-        &crc);
+    // (00.87: the portable data's system/saturn and system first, then this PS4's - src/Portable.h.)
+    std::vector<std::string> bios_folders = Portable::BiosFolders("saturn");
+    bios_folders.push_back(std::filesystem::path(game.path).parent_path().string());
+    const std::string bios = SaturnTest::FindSaturnBios(bios_folders, &crc);
     if (bios.empty())
     {
       LogF("saturn: no BIOS (a .bin of 512 KiB) in %s, system or the game's folder", s_system_dir.c_str());
@@ -3859,6 +4666,25 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
     s_system_dir += "/pce";
     MakeDirs(s_system_dir);
   }
+  // Atari's consoles (00.90): their own saves' folder (the 2600's Stella keeps the SaveKey's and AtariVox's EEPROM and
+  // a cartridge's flash in saves/atari2600/stella/nvram; the Jaguar's EEPROM saves are the app's, saves/atarijaguar). The
+  // system folder as RetroArch's: the 7800's optional BIOS ("7800 BIOS (U).rom") and the Jaguar's
+  // ("[BIOS] Atari Jaguar (World).j64", jagboot.rom) right in /data/EmuSuNi/system.
+  if (s_system == SystemId::A2600)
+  {
+    s_save_dir += "/atari2600";
+    MakeDirs(s_save_dir);
+  }
+#ifdef EMUSUNI_OPENBOR
+  // (with-openbor) OpenBOR: what its games write - settings (<mod>.cfg), high scores, saved games, the engine's log -
+  // in saves/openbor/OpenBOR/<engine build>/{Saves,Logs,ScreenShots}, made by the core (a folder per engine version:
+  // those files are raw structures that differ between versions).
+  if (s_system == SystemId::OPENBOR)
+  {
+    s_save_dir += "/openbor";
+    MakeDirs(s_save_dir);
+  }
+#endif
   // A NAOMI or Atomiswave game: its board's EEPROM and flash (the operator menu's settings, the high scores) in
   // saves/naomi/reicast and saves/atomiswave/reicast, made by the core and named after the zip; system/dc (Flycast's
   // own folder) can hold the BIOS zips, which it also finds beside the game. What the game needs and isn't there is
@@ -3916,7 +4742,8 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
                      [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
       const bool lower_there = FileExists((path.parent_path() / lower).string());
       const std::string passed = lower_there ? std::filesystem::path(lower).stem().string() : path.stem().string();
-      if (!s_board_set || passed != s_board_set->name)
+      // (00.90: a zip named after its game, or in capitals, is its set too - Naomi::CheckSet tells the core which.)
+      if (!s_board_set || Naomi::Find(passed) != s_board_set)
         refusal = "Unknown game";
       else
         refusal = Naomi::CheckSet(lower_there ? (path.parent_path() / lower).string() : game.path, s_system_dir);
@@ -3981,7 +4808,7 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   s_psp_30fps_auto = false;
   s_psp_vblanks_known = false;  // (the PSP core gives its count again from its first run: PspFrames)
   s_nds_r3 = false;
-  Saves::Init(App::DATA_DIR);
+  Saves::Init(Portable::UserDir());  // (00.87: src/Portable.h)
   // A Game Boy cartridge's header: for the Game Boy Color (0x80: also the Game Boy, 0xC0: only it),
   // with Super Game Boy features (0x03).
   s_gb_color_game = rom.size() > 0x146 && (rom[0x143] & 0x80) != 0;
@@ -4039,16 +4866,33 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
 #ifdef EMUSUNI_3DS
   display.PublishDeviceLists(s_system == SystemId::THREEDS);  // (the 3DS core is told more of the device)
 #endif
+  // (00.23) Multiplayer Adapter: what the game is (its cartridge's bytes are read now: some cores free them once it
+  // loaded), the adapter for it (a PlayStation disc's Auto again once the core read its code: below).
+  s_mp_game = Multiplayer::ReadGame(game.system, game.path, rom);
+  UsageStats::SetGame(GetSystem(game.system).key, game.path, rom);  // (00.23: a checksum or set, never the name)
+  s_adapter = Multiplayer::Adapter::None;
+  if (Multiplayer::HasAdapter(s_system))
+    s_adapter = Multiplayer::Decide(Settings::Get("multiplayer_adapter", game.key), s_mp_game).adapter;
   BuildVariables();
+  // (00.23) Online: the host's core options are the match's - sent from here; a guest waits for them before its core
+  // starts (the emulation the same on both from the first frame).
+  if (online && !NetplayAgree(display, regular, bold, error))
+    return Result::Failed;
+  if (s_gblink)
+    GbLinkLocalVariables();  // (00.95: a guest has the host's options now, its sound too)
   if (IsFlycast(s_system))
   {
     if (IsFlycastBoard(s_system))
       LogF("naomi: region %s, TEST and SERVICE buttons on, free play %s", s_variables["reicast_region"].c_str(),
            s_variables["reicast_force_freeplay"].c_str());
     LogF("dc: CPU clock %s MHz (Dreamcast CPU Clock), sound DSP %s; picture %s, texture sharpness %s (Quality); "
-         "threads %s",
+         "language %s, region %s (Dreamcast Language %s); online %s (Dreamcast Online); threads %s",
          s_dc_clock.c_str(), s_variables["reicast_enable_dsp"] == "enabled" ? "on" : "off", s_dc_resolution.c_str(),
-         s_dc_anisotropy == "off" ? "off" : (s_dc_anisotropy + "x").c_str(),
+         s_dc_anisotropy == "off" ? "off" : (s_dc_anisotropy + "x").c_str(), s_variables["reicast_language"].c_str(),
+         s_variables["reicast_region"].c_str(), Settings::Get("dc_language", game.key).c_str(),
+         s_variables["reicast_dcnet"] != "enabled"          ? "off" :
+         s_variables["reicast_emulate_bba"] == "enabled"    ? "DCNet, broadband adapter" :
+                                                              "DCNet, modem",
          s_dc_threads_free ? "left to the PS4: any core, the priority they start with (/data/EmuSuNi/dc-threads-free)" :
                              "placed: the renderer (retro_run) on core 2, Flycast-emu on core 3, both at priority 480");
   }
@@ -4070,6 +4914,11 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
          Settings::Get("3ds_accurate_mul", game.key).c_str(), s_3ds_right_eye ? "drawn" : "not drawn",
          Settings::Get("3ds_right_eye", game.key).c_str(),
          FileExists("/data/EmuSuNi/3ds-right-eye") ? "; /data/EmuSuNi/3ds-right-eye: drawn in every game" : "");
+    // (00.85) The GPU timing emulation (Luigi's Mansion 2), and the vertex shaders on the CPU (the diagnosis file).
+    LogF("3ds: GPU timings %s%s; vertex shaders on the %s",
+         s_3ds_gpu_timings ? "emulated (the game's list)" : "not emulated",
+         FileExists("/data/EmuSuNi/3ds-gpu-timings") ? " (/data/EmuSuNi/3ds-gpu-timings: emulated in every game)" : "",
+         FileExists("/data/EmuSuNi/3ds-cpu-shaders") ? "CPU (/data/EmuSuNi/3ds-cpu-shaders)" : "GPU");
   }
   LogScreens(game.key, "the game's start");
   if (TwoScreens())
@@ -4147,6 +4996,18 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   // sessions aren't compiled again at each start (God of War recompiled 115, 60-140 ms each).
   if (s_system == SystemId::PSP)
     setenv("EMUSUNI_PSP_PIPELINE_CACHE", "1", 1);
+  // PPSSPP's CPU depth rasterizer (the lens flares of Midnight Club: LA Remix, Syphon Filter, Wipeout...: compat.ini's
+  // SoftwareRasterDepth), on a thread of its own (00.89, build-psp-core.sh): at low quality, as upstream on phones,
+  // unless the file psp-depth-raster-full or psp-depth-raster-off says otherwise (an A/B on the PS4).
+  if (s_system == SystemId::PSP)
+  {
+    const char* depth = FileExists(std::string(App::DATA_DIR) + "/psp-depth-raster-off")  ? "off" :
+                        FileExists(std::string(App::DATA_DIR) + "/psp-depth-raster-full") ? "full" :
+                                                                                            "low";
+    setenv("EMUSUNI_PSP_DEPTH_RASTER", depth, 1);
+    if (strcmp(depth, "low") != 0)
+      LogF("psp: depth raster %s (the file psp-depth-raster-%s)", depth, depth);
+  }
   // A game on several discs: an .m3u of them (data_dir/cache/m3u/<console>), the core's disc changer
   // swaps them (the in-game menu's Disc). It starts with the disc it was played with last: a state
   // saved on disc 2 is disc 2's.
@@ -4239,6 +5100,7 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   // RetroAchievements (00.73): the game identified as rcheevos does it (a cartridge from the ROM's bytes, now: the
   // core may free its copy; a disc - the one it starts with - or an arcade set from its file, on the module's
   // thread) and its achievements asked for. Nothing when no one is logged in; never a reason not to start the game.
+  if (!s_gblink)  // (00.95: a link cable match's two Game Boys: no achievements, as online)
   {
     retro_system_info core_info = {};
     s_core->get_system_info(&core_info);
@@ -4255,12 +5117,28 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
     Achievements::GameStarting(ra);
   }
   StartGuard::Step("the core loads the game", true);
-  bool loaded = s_core->load_game(&info);
+  bool loaded = false;
+  if (s_gblink)
+  {
+    // (00.95) The link cable's two Game Boys: Game Boy 1 this game, Game Boy 2 the other (SameBoy copies both ROMs).
+    retro_game_info games[2] = {info, {}};
+    games[1].path = GbLink::Get().games[1].path.c_str();
+    games[1].data = s_gblink_rom2.data();
+    games[1].size = s_gblink_rom2.size();
+    loaded = s_core->load_game_special(GbLink::GAME_TYPE_LINK_2P, games, 2);
+    std::vector<uint8_t>().swap(s_gblink_rom2);
+    LogF("gblink: SameBoy %s Game Boy 1 (%s) and Game Boy 2 (%s), joined by the cable; ours Game Boy %d",
+         loaded ? "loaded" : "couldn't load", GbLink::Get().games[0].title.c_str(),
+         GbLink::Get().games[1].title.c_str(), GbLink::Get().local + 1);
+  }
+  else
+    loaded = s_core->load_game(&info);
   s_info_ext = {};
   // Mupen64Plus, mGBA and Genesis Plus GX copy the ROM: up to 64 MiB back to the heap.
-  // (00.82: Beetle PCE Fast too - a HuCard in its ROM space.)
+  // (00.82: Beetle PCE Fast too - a HuCard in its ROM space; 00.90: Stella too. ProSystem plays the 7800's from the
+  // app's copy: kept.)
   if (s_system == SystemId::N64 || IsHandheld(s_system) || s_system == SystemId::NDS || IsGpgx(s_system) ||
-      s_system == SystemId::PCE)
+      s_system == SystemId::PCE || s_system == SystemId::A2600)
     std::vector<uint8_t>().swap(rom);
   if (loaded && s_hw_vulkan && s_hw_render.context_reset)
   {
@@ -4318,7 +5196,7 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
     if (s_system == SystemId::ARCADE)
     {
       std::string reason = fbneo_emusuni_error();
-      *error = Arcade::LoadError(reason, arcade_not_found, s_system_dir);
+      *error = Arcade::LoadError(reason, arcade_not_found, s_system_dir, game.path);  // (00.90: another version)
       std::replace(reason.begin(), reason.end(), '\n', '|');
       LogF("arcade: %s refused: %s", game.id.c_str(), reason.c_str());
       s_core->unload_game();  // what the load set up before it failed: FinalBurn Neo frees it here
@@ -4331,6 +5209,20 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
     {
       LogF("naomi: %s refused: %s", game.id.c_str(), s_message.empty() ? "(no message)" : s_message.c_str());
       *error = Naomi::LoadError(s_message, s_board_set, board_missing, s_system_dir);
+    }
+    // (00.89) A Dreamcast disc image Flycast can't read (its error, which closed the app before 00.89: the rescue of
+    // scripts/build-dc-core.sh): said as such, with how a good one is made.
+    if (s_system == SystemId::DC && !s_message.empty())
+    {
+      LogF("dc: %s refused: %s", game.id.c_str(), s_message.c_str());
+      auto has = [](const std::string& text, const char* part) { return text.find(part) != std::string::npos; };
+      if (has(s_message, "CHD") || has(s_message, "chd:"))
+        *error = "The disc image couldn't be opened:\n" + s_message +
+                 "\nA Dreamcast CHD is made with chdman createcd\nfrom the game's .gdi or .cue";
+      else if (has(s_message, "CDI") || has(s_message, "CUE") || has(s_message, "Unknown disk format") ||
+               has(s_message, "This media cannot be loaded"))
+        *error = "The disc image couldn't be opened:\n" + s_message +
+                 "\nThe file is damaged or isn't a whole disc:\na .gdi with its tracks, a .chd, .cdi or .cue";
     }
     // The disc played last doesn't start (gone, or damaged): the game starts with disc 1 next time.
     if (last_disc > 0)
@@ -4379,6 +5271,10 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   NoteGeometry(av.geometry);  // (FinalBurn Neo sends no SET_GEOMETRY as a game starts: its shape is here)
   s_sample_rate = av.timing.sample_rate > 0 ? av.timing.sample_rate : 32040.0;
   s_game_fps = av.timing.fps > 0 ? av.timing.fps : 60.0988;
+  // (00.90) The Jaguar's pictures change size with its games' video modes, and its drawing can run beside its emulation
+  // (overlap_drawing): their RGB565 copy must never move while one is drawn - room for the largest from the start.
+  if (s_system == SystemId::JAGUAR)
+    s_converted.reserve(static_cast<size_t>(av.geometry.max_width) * av.geometry.max_height);
   LogF("game: %s, %.4f FPS, %.0f Hz sound, %s", s_core->name, s_game_fps, s_sample_rate,
        s_core->get_region() == RETRO_REGION_PAL ? "PAL" : "NTSC");
   // (00.81) The core's game list's settings for this cartridge (mupen64plus.ini: the core wrote its copy when it
@@ -4387,22 +5283,28 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   if (s_system == SystemId::N64)
     GameDb::LogN64(s_system_dir + "/Mupen64plus/mupen64plus.ini", s_n64_crc1, s_n64_crc2, s_n64_name);
   LogMemory("game loaded");
-  // The PlayStation's pads are DualShocks (SwanStation's analog controller); the Super Multitap is
-  // the Super Nintendo's (FCEUmm plugs in the Four Score by itself).
+  // The PlayStation's pads are DualShocks (SwanStation's analog controller); the adapters for 3 or more players
+  // (the Super Multitap, the Four Score...) are plugged in below (00.23: Multiplayer Adapter).
   constexpr unsigned DEVICE_DUALSHOCK = (1 << 8) | RETRO_DEVICE_ANALOG;
   // The Arcade's pads are FinalBurn Neo's "Modern" RetroPad (RETRO_DEVICE_SUBCLASS(ANALOG, 1): a Neo Geo
   // game's A, B, C, D on Square, Cross, Triangle, Circle, as on its own pad), on every port.
   constexpr unsigned DEVICE_MODERN = (2 << 8) | RETRO_DEVICE_ANALOG;
   const bool ps1 = s_system == SystemId::PS1, arcade = s_system == SystemId::ARCADE;
   s_core->set_controller_port_device(0, ps1 ? DEVICE_DUALSHOCK : arcade ? DEVICE_MODERN : RETRO_DEVICE_JOYPAD);
-  const bool snes = s_system == SystemId::SNES;
-  bool multitap = snes && Settings::GetOn("multitap", game.key);
-  s_core->set_controller_port_device(1, ps1    ? DEVICE_DUALSHOCK :
-                                        arcade ? DEVICE_MODERN :
-                                        multitap ? DEVICE_MULTITAP :
-                                                   RETRO_DEVICE_JOYPAD);
+  s_core->set_controller_port_device(1, ps1 ? DEVICE_DUALSHOCK : arcade ? DEVICE_MODERN : RETRO_DEVICE_JOYPAD);
   for (unsigned port = 2; arcade && port < MAX_PLAYERS; port++)
     s_core->set_controller_port_device(port, DEVICE_MODERN);
+  // (00.23) The game's adapter for 3 or more players: a PlayStation disc's Auto again, now that the core read its code
+  // (its Multitap is an option of the core's: given to it with the others when it changes).
+  if (Multiplayer::HasAdapter(s_system))
+  {
+    const Multiplayer::Decision adapter =
+        Multiplayer::Decide(Settings::Get("multiplayer_adapter", game.key), s_mp_game);
+    const bool options_changed = adapter.adapter != s_adapter;
+    PlugAdapter(adapter, Multiplayer::Adapter::None, "the game's start");
+    if (options_changed)
+      BuildVariables();
+  }
   AdoptDiscsCard(game);
   LoadSram();
   LoadBezel(display, game);
@@ -4415,9 +5317,13 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
 
   IngameMenu menu;
   menu.Init(&display, regular, bold);
-  menu.SetGame(App::DATA_DIR, game.key, game.title, game.system, game.path);
-  // The cheats (RetroAchievements is Casual only, 00.78: they always apply).
-  auto apply_cheats = [&]() { menu.CheatList().ApplyToCore(*s_core, s_system); };
+  menu.SetGame(Portable::UserDir(), game.key, game.title, game.system, game.path);  // (00.87: its cheats there)
+  // The cheats (RetroAchievements is Casual only, 00.78: they always apply). (00.23: none online - one console's would
+  // be the match's.)
+  auto apply_cheats = [&]() {
+    if (!online)
+      menu.CheatList().ApplyToCore(*s_core, s_system);
+  };
   apply_cheats();
   if (!menu.CheatList().Entries().empty())
     LogF("cheats: %zu codes", menu.CheatList().Entries().size());
@@ -4464,8 +5370,9 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   // takes a state only once it has run a frame: before, it says it took it).
   bool resume_pending = false;
   // (Not after the start watchdog restarted EmuSuNi because the start stopped while that state loaded: SkipContinue.)
+  // (00.95: nor in a link cable match: its game's Continue is mGBA's, of the game alone.)
   const bool resume_state = Settings::GetOn("resume", game.key) && Saves::Modified(Saves::StatePath(game.key, 0)) &&
-                            !StartGuard::SkipContinue();
+                            !StartGuard::SkipContinue() && !s_gblink;
   if (resume_state)
   {
     if (s_system == SystemId::PSP || s_system == SystemId::SATURN)
@@ -4491,6 +5398,25 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
     LogLine("ps1: a LibCrypt-protected disc without its .sbi file: started anyway, the player told");
     menu.Toast("Protected disc (LibCrypt): put its .sbi file beside it, or the game may stop later.", 10.0f);
   }
+  else if (s_system == SystemId::PS1 && s_ps1_cooked)
+  {
+    // (00.90) An ISO of 2048-byte sectors (a converter's "BIN to ISO"): the core makes its data sectors whole, but the
+    // sound and film sectors (XA voices and music, STR videos) were cut by the converter: videos without voices
+    // (Tombi), games that freeze at a video (Tekken 3's endings, Metal Gear Solid, Driver 2: GitHub #43).
+    LogLine("ps1: a disc image of 2048-byte sectors (no sound or film sectors): the player told");
+    menu.Toast("This ISO lacks the sound and video sectors: it may freeze. Use its .cue/.bin or .chd", 10.0f);
+  }
+  else if (s_system == SystemId::PS1 && s_ps1_openbios)
+  {
+    // (00.90) No PlayStation BIOS file: the core's built-in OpenBIOS starts the game, and fewer games start with it
+    // (players' "PS1 games don't open": Alone in the Dark, "5 games and only 1"). Said once a session; the log every time.
+    static bool told = false;
+    LogF("ps1: no BIOS file in %s: the built-in OpenBIOS starts the game%s", s_system_dir.c_str(),
+         told ? "" : ", the player told");
+    if (!told)
+      menu.Toast("No PS1 BIOS: fewer games start. Put one (scph5501.bin...) in /data/EmuSuNi/system", 10.0f);
+    told = true;
+  }
   if (IsFlycastBoard(s_system))
   {
     // An arcade board: coins and START, and where its TEST and SERVICE buttons are (the operator menu).
@@ -4500,6 +5426,10 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   // A start again (the start watchdog, src/StartGuard.h): why, over the console's own toast.
   if (!StartGuard::RetryToast().empty())
     menu.Toast(StartGuard::RetryToast(), 8.0f);
+  // (00.23) Online: the game loaded (Continue's state too): the host sends its state, a guest waits for it; the frames
+  // run once both have it (Netplay::FramesThisPass).
+  if (online)
+    Netplay::GameLoaded(GetSystem(game.system).key, s_game_fps, NetplayApply);
 
   GameAudio audio;
   audio.Start(Settings::GetInt("audio_buffer", game.key));
@@ -4533,9 +5463,12 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   uint64_t old_mask = 0;
   bool pinned = false;
   // The DS: its 3D thread on core 3; the PSP, the Dreamcast (and its arcade boards) and the 3DS: their other
-  // threads off core 2 (port/ps4_n64.c).
+  // threads off core 2 (port/ps4_n64.c). (00.89) The Arcade too: its drawing beside a heavy board's emulation (Killer
+  // Instinct's MIPS at 100 MHz) is on cores 1, 4 and 5 (DrawWorker), the sound's thread off core 2 (GameAudio).
+  // (00.99) The Jaguar the same way (00.98's log: its emulation on CPU 0, 2 and 3 in turn, 0 with the sound's thread).
   if ((fixed_cores || s_system == SystemId::NDS || s_system == SystemId::PSP || IsFlycast(s_system) ||
-       s_system == SystemId::THREEDS || s_system == SystemId::SATURN) &&
+       s_system == SystemId::THREEDS || s_system == SystemId::SATURN || s_system == SystemId::ARCADE ||
+       s_system == SystemId::JAGUAR) &&
       !s_dc_threads_free)
   {
     const int got = emusuni_get_affinity(scePthreadSelf(), &old_mask);
@@ -4569,11 +5502,17 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   } forget_save_writer;
   // The DS: its drawing beside its emulation (DrawWorker).
   DrawWorker drawer;
-  // The PSP: only while its core is heavy (one frame more latency then: psp_overlap).
+  // The PSP: only while its core is heavy (one frame more latency then: psp_overlap). (00.89) The Arcade the same way
+  // (#26, #35: Killer Instinct at 59-65% speed, the drawing's 2-3 ms after each of its frames). (00.90) The Jaguar too
+  // (Rayman: its core 13-17 ms a frame, the drawing 3.8 ms after each: 80-97% speed).
   const bool overlap_drawing = (s_system == SystemId::NDS || s_system == SystemId::PSP || IsFlycast(s_system) ||
-                                s_system == SystemId::THREEDS || s_system == SystemId::SATURN) &&
+                                s_system == SystemId::THREEDS || s_system == SystemId::SATURN ||
+                                s_system == SystemId::ARCADE || s_system == SystemId::JAGUAR) &&
                                drawer.Start();
+  if (s_system == SystemId::JAGUAR && overlap_drawing)
+    LogF("pacing: the Jaguar's drawing always beside its emulation (a frame later)");
   bool psp_overlap = false;
+  int arcade_overlap_said = 0;  // (the Arcade's changes between the two, in the log: the first ten)
   s_defer_frame = false;
   s_pending = {};
 
@@ -4610,6 +5549,7 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   Controls::MenuOpener menu_opener;  // the in-game menu's buttons, a hold's time (00.68)
   float memory_log = 0.0f;
   float audio_log = 0.0f;  // play time since the sound's last health line
+  uint32_t join_noticed = 0;  // (00.86: the last request to join our room said in the game)
   StartGuard::Step("the game runs");
   while (!quit)
   {
@@ -4623,6 +5563,27 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
     pads.Read(dt);
     for (int i = 0; i < MAX_PLAYERS; i++)
       s_pad_handles[i] = pads.pads[i].handle;
+    // (00.23) A controller that came or went while the game runs: whose it is (Pads).
+    for (const auto& [player, connected] : pads.changes)
+    {
+      const std::string n = std::to_string(player + 1);
+      menu.Toast("Controller " + n + (connected ? " connected: Player " : " disconnected: Player ") + n, 3.0f);
+    }
+    pads.changes.clear();
+    // (00.86) Our online room stays open while this game is played alone: its network every pass (the server drops a
+    // console silent for 30 s), and a player asking to join is said - the in-game menu answers (Accept Player ends the
+    // game and opens the room; the request waits Netplay::ASK_SECONDS).
+    if (!online && Netplay::Hosting())
+    {
+      Netplay::Update();
+      const Netplay::JoinRequest ask = Netplay::GetJoinRequest();
+      if (ask.member >= 0 && ask.serial != join_noticed)
+      {
+        join_noticed = ask.serial;
+        LogF("online: %s asks to join our room while we play alone", ask.nick.c_str());
+        menu.Toast(ask.nick + " wants to join your room: open the menu to answer", 6.0f);
+      }
+    }
     // Player 1's pad drives the menu (the screenshot tour presses its buttons too).
     const Tour::Step tour = Tour::Next(dt);
     if (tour.command == "quit")
@@ -4644,6 +5605,9 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
         // (R3's press made no swap of the DS's or the 3DS's screens: forgotten, so letting it go swaps none.)
         s_nds_r3 = s_3ds_r3 = false;
         StopRumble();
+        // (00.85) The game's picture as the screen shows it, before the menu covers it: a state's thumbnail when the
+        // core draws its own image.
+        KeepMenuPicture(display, game.key);
         // A disc being changed goes in first (the menu's states and Quit Game see it in).
         if (disc_lid_open > 0)
           insert_disc();
@@ -4660,6 +5624,7 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
         menu.SetDiscs(DiscCount(), DiscIn());
         menu.Open();
         Touchpad::Forget(s_stylus);  // (no tap made of a finger lifted while the menu is open)
+        s_jaguar_key = -1;           // (nor a Jaguar key held through it)
         audio.SetMuted(true);
         if (audio_log >= 1.0f)
           audio.LogHealth(audio_log);  // the play before the menu
@@ -4669,7 +5634,9 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
     }
     else
     {
-      const IngameMenu::Action action = menu.Poll(p1_pressed, p1_held, dt);
+      // (00.90) With the sticks' directions (Controls::StickBits): Controls can put a console button on one.
+      const IngameMenu::Action action =
+          menu.Poll(p1_pressed, p1_held | (p1.ok && !touring ? Controls::StickBits(p1.data) : 0u), dt);
       Achievements::Paused();  // (rc_client's waiting work while the game is paused: retries, pings)
       switch (action)
       {
@@ -4741,6 +5708,13 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
       }
       if (menu.TakeSettingsChanged())
       {
+        // (00.23) Multiplayer Adapter: the adapter again, before the core's options (the PlayStation's Multitap and the
+        // Saturn's adaptors are options; the others' are ports: PlugAdapter below).
+        const Multiplayer::Adapter adapter_before = s_adapter;
+        const Multiplayer::Decision adapter =
+            Multiplayer::Decide(Settings::Get("multiplayer_adapter", game.key), s_mp_game);
+        if (Multiplayer::HasAdapter(s_system))
+          s_adapter = adapter.adapter;
         BuildVariables();
         update_motion();
         // The DS's and the 3DS's screens: their settings changed, the screens as the menu shows them (R3's swap off).
@@ -4752,12 +5726,8 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
         }
         LoadBezel(display, game);
         audio.SetVolume(Settings::GetInt("volume", game.key));
-        const bool want_multitap = snes && Settings::GetOn("multitap", game.key);
-        if (want_multitap != multitap)
-        {
-          multitap = want_multitap;
-          s_core->set_controller_port_device(1, multitap ? DEVICE_MULTITAP : RETRO_DEVICE_JOYPAD);
-        }
+        if (Multiplayer::HasAdapter(s_system) && adapter.adapter != adapter_before)
+          PlugAdapter(adapter, adapter_before, "Multiplayer Adapter changed in the in-game menu");
       }
       if (menu.TakeCheatsChanged())
         apply_cheats();
@@ -4802,6 +5772,8 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
       ImDrawList* fg = ImGui::GetForegroundDrawList();
       DrawStats(fg, bold, stats, Settings::GetOn("show_fps", game.key),
                 Settings::GetOn("perf_overlay", game.key), audio.Fill());
+      if (online)
+        NetplayUi::DrawOverlay(fg, regular, bold);  // (00.23: the ping, who speaks, what the match waits for)
       menu.Draw(fg, dt);
       AchievementsUi::Draw(fg, display, regular, bold, dt);  // (RetroAchievements' popups, 00.73)
       ImGui::Render();
@@ -4819,7 +5791,8 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
     const Display::FlipState flip = display.GetFlipState();
     if (!menu.IsOpen())
       CountShownFlips(stats, flip.shown);
-    if (!menu.IsOpen())
+    // (00.23: online the match goes on while the in-game menu is open - this console's players neutral meanwhile.)
+    if (!menu.IsOpen() || online)
     {
       // Buttons of every player (the in-game menu combo isn't passed on). Player 1's untouched while the
       // buttons held as the in-game menu closed are down (Controls::MenuRelease).
@@ -4909,6 +5882,20 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
           {
             s_tilt.accel = s_tilt.rest;
             s_tilt.turn = 0.0f;
+          }
+        }
+        if (i == 0 && s_system == SystemId::JAGUAR)
+        {
+          // (00.90) The touchpad (1920x942) is the Jaguar's number pad, its twelve keys laid out as on the pad: three
+          // across, four down (1 2 3 / 4 5 6 / 7 8 9 / * 0 #); the finger on one holds it down.
+          const auto& touch = pad.data.touch;
+          const bool finger = pad.ok && !touring && touch.fingers > 0;
+          s_jaguar_key = -1;
+          if (finger)
+          {
+            const int column = std::clamp(static_cast<int>(touch.touch[0].x * 3.0f / Touchpad::PAD_W), 0, 2);
+            const int row = std::clamp(static_cast<int>(touch.touch[0].y * 4.0f / Touchpad::PAD_H), 0, 3);
+            s_jaguar_key = row * 3 + column;
           }
         }
         if (i == 0 && s_system == SystemId::NDS)
@@ -5012,6 +5999,14 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
           }
         }
       }
+      // (00.23) Online: this pass's local players to the match (src/Netplay.h); no fast forward; RetroAchievements
+      // paused (a rollback's frames run again, a prediction's would count).
+      if (online)
+      {
+        fast = false;
+        NetplayLocalInputs(pads, menu.IsOpen());
+        Achievements::Paused();
+      }
       // Frames per TV refresh: the game's own rate (60.1 FPS is run at the TV's 60, the sound
       // follows), times the speed setting or fast forward.
       const std::string limit = Settings::Get("fps_limit", game.key);
@@ -5029,6 +6024,9 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
         ratio = std::atoi(ff.c_str());
       if (limit == "0")
         ratio = std::max(ratio, 4.0);
+      // (00.23) Online: the game's own speed on both consoles (no Emulation Speed, no FPS limit of one's own).
+      if (online)
+        ratio = std::abs(s_game_fps / hz - 1.0) < 0.012 ? 1.0 : s_game_fps / hz;
 #ifdef EMUSUNI_DC
       // Flycast keeps the console to this pace while no picture holds it back (00.69: a loading screen or a board's
       // BIOS ran the emulation as fast as the PS4 could, its sound too fast for the app): the frames a second these
@@ -5158,6 +6156,24 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
       // (The PSP with Frame Skip: the vblanks its runs covered ahead of the pacing: PspFrames.)
       if (s_system == SystemId::PSP && !paced)
         frames = psp_frames.Pay(frames);
+      // (00.23) Online: the frames the other console's inputs allow (none while waiting for it; the network first).
+      if (online)
+        frames = Netplay::FramesThisPass(frames);
+      // (00.95) A link cable match's guest, before its first frame: its own save must be Game Boy 2's in the host's
+      // state (else the match ends, nothing written: s_gblink_failed). The host loaded both itself.
+      if (s_gblink && frames > 0 && !s_gblink_checked && !s_gblink_failed)
+      {
+        if (GbLink::Get().local == 0 || CheckGbLinkSave())
+        {
+          s_gblink_checked = true;
+        }
+        else
+        {
+          s_gblink_failed = true;
+          frames = 0;
+          LogLine("gblink: our save in the host's state isn't the one on this PS4: the match ends, nothing written");
+        }
+      }
       stats.per_pass[static_cast<size_t>(std::min(frames, 3))]++;
       audio.SetMuted(fast && ff != "off");
       // (The PSP's and the Dreamcast's Frame Skip are their cores' own: BuildPspVariables, BuildDcVariables -
@@ -5168,25 +6184,36 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
                              Settings::Get("frameskip", game.key);
       if (s_system == SystemId::ARCADE && skip != "auto")
         skip = "off";
-      // The DS: the last picture drawn while these frames run; the PSP, Flycast's machines and the Saturn only
-      // while their core is heavy.
-      if (s_system == SystemId::PSP || IsFlycast(s_system) || s_system == SystemId::SATURN)
+      // The DS: the last picture drawn while these frames run; the PSP, Flycast's machines, the Saturn, the Arcade and
+      // the Jaguar only while their core is heavy.
+      if (s_system == SystemId::PSP || IsFlycast(s_system) || s_system == SystemId::SATURN ||
+          s_system == SystemId::ARCADE || s_system == SystemId::JAGUAR)
       {
         const double refresh_ms = 1000.0 / std::max(display.RefreshHz(), 1.0);
+        const bool was_overlap = psp_overlap;
         if (!psp_overlap && core_avg > refresh_ms * 0.85)
           psp_overlap = true;
         else if (psp_overlap && core_avg < refresh_ms * 0.75)
           psp_overlap = false;
+        if (s_system == SystemId::ARCADE && psp_overlap != was_overlap && arcade_overlap_said < 10)
+        {
+          arcade_overlap_said++;
+          LogF("pacing: the %s takes %.1f ms a frame: the drawing %s", s_system == SystemId::ARCADE ? "board" : "core",
+               core_avg, psp_overlap ? "beside the emulation (a frame later)" : "after the emulation again");
+        }
         // (The Saturn, 00.69: always - each change between the two showed a picture twice or jumped one, and its core
-        // is near a refresh most of the time.)
-        if (s_system == SystemId::SATURN)
+        // is near a refresh most of the time. (00.99) The Jaguar too: its core's average at those thresholds, Alien vs
+        // Predator's and Iron Soldier's 12-16 ms, changed between the two every few seconds in 00.98's log.)
+        if (s_system == SystemId::SATURN || s_system == SystemId::JAGUAR)
           psp_overlap = true;
       }
       // (The 3DS: only in the heavy mode, one frame a pass: the core renders into a ring of 3 images and must
       // never reach the one being drawn.)
       // (The Saturn: one frame a pass only - YabaSanshiro's renderer keeps three pictures, the one drawn here among
       // them, and makes one each frame: more runs than one beside the drawing would reach it.)
-      const bool overlap = overlap_drawing && frames > 0 && !touring &&
+      // (Online - the Arcade's -: never; the match's rollbacks run the core again and its overlay is drawn from
+      // what they change.)
+      const bool overlap = overlap_drawing && frames > 0 && !touring && !online &&
                            (s_system == SystemId::NDS || (s_system == SystemId::THREEDS ? heavy && !forward : psp_overlap)) &&
                            (s_system != SystemId::SATURN || frames == 1);
       if (overlap)
@@ -5206,11 +6233,16 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
           render = (skip_counter++ % (std::atoi(skip.c_str()) + 1)) == 0;
         s_render_video = render;
         const auto run_start = Clock::now();
-        s_core->run();
+        // (00.23: online, the frame with every port's input of the match, after any rollback - Netplay::RunFrame.)
+        if (online)
+          Netplay::RunFrame();
+        else
+          s_core->run();
         const float run_ms = std::chrono::duration<float, std::milli>(Clock::now() - run_start).count();
         // RetroAchievements (00.73): every frame the core ran (fast forward's and skipped pictures' too), the game's
-        // achievements checked against its memory - nothing when the game has none.
-        Achievements::DoFrame();
+        // achievements checked against its memory - nothing when the game has none. (00.23: not online.)
+        if (!online)
+          Achievements::DoFrame();
         // The 3DS (00.70): a game drawing at 30 FPS alternates a heavy frame (its picture) and a light one, and once
         // the heavy ones pass a refresh the heavy mode ran one frame a pass, a light frame waiting a whole refresh by
         // itself (00.69's log, Hey! Pikmin's busy scenes: frames of 34 and 5 ms, 51 ms for two, 62% speed). A light
@@ -5297,6 +6329,26 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
         quit = true;
         break;
       }
+      // (00.23) Online: the match ended - the other left, the connection was lost -: the game ends, the menu says why.
+      std::string netplay_ended;
+      if (s_gblink_failed)
+      {
+        // (00.95: a guest's own Game Boy save didn't come as it is here - CheckGbLinkSave.)
+        *error = "Your Game Boy save didn't arrive as it is on this PS4.\nThe match ended without saving.";
+        if (online)
+          Netplay::Leave();
+        result = Result::Failed;
+        quit = true;
+        break;
+      }
+      if (online && Netplay::Ended(&netplay_ended))
+      {
+        // (A Choose Together match the other ended: no error - back to the room.)
+        *error = netplay_ended;
+        result = netplay_ended.empty() ? Result::Menu : Result::Failed;
+        quit = true;
+        break;
+      }
       // Flycast's HLE BIOS has no menu for a game to go back to (a game whose lid opened when it didn't
       // ask for another disc - Crazy Taxi; a game's own Exit) and says so every frame: the console starts
       // again then, as after the real BIOS's menu, with the disc in it (scripts/build-dc-core.sh), once
@@ -5328,6 +6380,12 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
       {
         menu.Toast(s_message, 3.0f);
         s_message.clear();
+      }
+      // (00.87) The player's data on a USB drive (src/Portable.h): taken out, its next save went to this PS4 - said.
+      if (const std::string warning = Portable::TakeWarning(); !warning.empty())
+      {
+        menu.Toast(warning, 6.0f);
+        Saves::Init(Portable::UserDir());  // (the fallback folder's)
       }
       // Battery saves: written a few seconds after the game changes them.
       sram_timer += dt;
@@ -5463,13 +6521,20 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
       stats.draws++;
     }
     // ---- The start watchdog (src/StartGuard.h): the first picture, or none in the console's time ----
-    const StartGuard::Verdict start_verdict = StartGuard::Pass(stats.total, menu.IsOpen());
+    // (00.23: online, the time waiting for the other console - the host's state, its inputs - isn't the game's.)
+    const StartGuard::Verdict start_verdict = StartGuard::Pass(stats.total, menu.IsOpen() || Netplay::Waiting());
     if (start_verdict != StartGuard::Verdict::Go)
     {
       // Stopped as Quit Game stops it: started once more (Retry), or the menu says why (the second time).
       result = start_verdict == StartGuard::Verdict::Retry ? Result::Retry : Result::Failed;
       if (start_verdict == StartGuard::Verdict::Fail)
         *error = StartGuard::FailMessage();
+      // (00.23: online a start again would be a game of its own: the match ends instead.)
+      if (online && result == Result::Retry)
+      {
+        result = Result::Failed;
+        *error = "The game showed no picture: the online match ended";
+      }
       quit = true;
       break;
     }
@@ -5515,7 +6580,9 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   // arcade board's older EEPROM.)
   // (A start the start watchdog stopped - Retry - keeps the state it continues from as it was: neither saved over
   // nor deleted.)
-  const bool resume = Settings::GetOn("resume", game.key);
+  // (00.23: online, a guest's Continue state isn't written over with the host's game.)
+  // (00.95: nor a link cable match's: its two Game Boys' state isn't the game's alone, which Continue is.)
+  const bool resume = Settings::GetOn("resume", game.key) && !Netplay::KeepOwnSaves() && !s_gblink;
   const bool saved = resume && result == Result::Menu && !dc_reboot_pending && SaveState(0);
   if (resume && !saved && IsFlycast(s_system) && result != Result::Retry)
     Saves::DeleteState(game.key, 0);
@@ -5530,6 +6597,7 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   std::vector<uint16_t>().swap(s_rotated);
   pads.Close();
   menu.ForgetPictures();
+  s_menu_picture = ImageRGBA();  // (the thumbnail kept as the in-game menu last opened)
   FreeBezel(display);
   // RetroAchievements (00.73): the game's achievements unloaded (an unlock still on its way goes on being sent), their
   // pictures' textures freed.

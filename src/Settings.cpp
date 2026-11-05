@@ -63,13 +63,13 @@ const std::vector<Setting> SETTINGS = {
      {{"1", "Native (240p)", "The N64's own picture: the smoothest."},
       {"2", "2x (480p)", "Twice the size: sharper 3D; heavy scenes can slow down."},
       {"4", "4x (960p)", "Four times (about Full HD): the sharpest; heavy games can slow down."}},
-     "1", false, "The size the GPU draws N64 games at (ParaLLEl-RDP). Native is the smoothest.", FOR_N64},
+     "4", false, "The size the GPU draws N64 games at (ParaLLEl-RDP). Native is the smoothest.", FOR_N64},
     {"ps1_resolution", "PS1 Resolution", "Video",
      {{"1", "Native (240p)", "The PlayStation's own picture."},
       {"2", "2x (480p)", "Twice the size: sharper 3D."},
       {"3", "3x (720p)", "Three times: for 720p TVs."},
       {"4", "4x (960p)", "Four times (about Full HD): the sharpest 3D."}},
-     "1", true, "The size the GPU draws PlayStation games at: real HD 3D, not an enlarged picture.", FOR_PS1},
+     "4", true, "The size the GPU draws PlayStation games at: real HD 3D, not an enlarged picture.", FOR_PS1},
     {"aspect", "Aspect Ratio", "Video",
      {{"auto", "Auto (4:3)", "As the console looked on a TV of the time."},
       {"pixel", "Pixel Perfect",
@@ -84,12 +84,13 @@ const std::vector<Setting> SETTINGS = {
 // configuración del tamaño y lugar de las pantallas"): one set of settings, the same names, choices, order and texts on
 // both consoles (this macro), each console with values of its own (nds_*, 3ds_*: a DS game and a 3DS game can be shown
 // differently), drawn one way for both (src/DualScreens.h: the cores give their screens side by side, the app places
-// them, so the touchpad's place on the touch screen never changes). One Above the Other is the default for both - the
-// 3DS's since 00.64, the DS's since 00.80 (Side by Side before). Until 00.79 the DS had Side by Side, Big Screen ("big",
+// them, so the touchpad's place on the touch screen never changes). Each console has a default of its own (LAYOUT):
+// the 3DS's One Above the Other (since 00.64), the DS's Side by Side (01.02, the owner; One Above the Other from 00.80
+// to 01.01, Side by Side before). Until 00.79 the DS had Side by Side, Big Screen ("big",
 // now Large Screen + Small at a third, on the right), One Above the Other and One Screen ("single", now Top Screen Only),
 // the 3DS Azahar's own layouts (its Big Top Screen a quarter, at the bottom right: Load's one-time change keeps that).
 // Every one is shown at once: the screens are placed by the app, the cores never change their picture.
-#define EMUSUNI_SCREEN_SETTINGS(PREFIX, SYSTEMS)                                                                       \
+#define EMUSUNI_SCREEN_SETTINGS(PREFIX, LAYOUT, SYSTEMS)                                                               \
   {PREFIX "layout", "Screen Layout", "Video",                                                                          \
    {{"stack", "One Above the Other", "The top screen over the touch screen, as on the console."},                      \
     {"side", "Side by Side", "The two screens next to each other, the top screen on the left."},                       \
@@ -99,7 +100,7 @@ const std::vector<Setting> SETTINGS = {
     {"top", "Top Screen Only",                                                                                         \
      "Only the top screen, as big as the TV allows. The touchpad still touches the touch screen, unseen."},            \
     {"bottom", "Touch Screen Only", "Only the touch screen, as big as the TV allows."}},                               \
-   "stack", true,                                                                                                      \
+   LAYOUT, true,                                                                                                       \
    "How the two screens are shown. Swap Screens (or R3 in the game) trades their places. The DualShock 4's "           \
    "touchpad is always the touch screen, wherever it is.",                                                             \
    SYSTEMS},                                                                                                           \
@@ -137,8 +138,8 @@ const std::vector<Setting> SETTINGS = {
    "Black space between the two screens, as the hinge left between them on the console (not with one screen "          \
    "only).",                                                                                                           \
    SYSTEMS}
-    EMUSUNI_SCREEN_SETTINGS("nds_", FOR_NDS),
-    EMUSUNI_SCREEN_SETTINGS("3ds_", FOR_3DS),
+    EMUSUNI_SCREEN_SETTINGS("nds_", "side", FOR_NDS),
+    EMUSUNI_SCREEN_SETTINGS("3ds_", "stack", FOR_3DS),
 #undef EMUSUNI_SCREEN_SETTINGS
     {"ps1_widescreen", "PS1 Widescreen", "Video",
      {{"off", "Off (4:3)", "As the PlayStation drew it."},
@@ -149,7 +150,7 @@ const std::vector<Setting> SETTINGS = {
       {"2", "2x (544p)", "Twice the size: sharper 3D."},
       {"3", "3x (816p)", "Three times: for 720p TVs and up."},
       {"4", "4x (1088p)", "Four times: Full HD, the sharpest 3D."}},
-     "1", true, "The size the GPU draws PSP games at: real HD 3D, not an enlarged picture.", FOR_PSP},
+     "4", true, "The size the GPU draws PSP games at: real HD 3D, not an enlarged picture.", FOR_PSP},
     // (Hidden from 00.53 to 00.67, the Dreamcast at 640x480 whatever the Quality; 00.68: the levels' 1x, 2x, 3x. No 4x:
     // the PS4 shows a 1080p picture, and 2560x1920 made that small only shimmers more than 3x does.)
     {"dc_resolution", "Dreamcast Resolution", "Video",
@@ -157,7 +158,7 @@ const std::vector<Setting> SETTINGS = {
       {"2", "2x (960p)", "Twice the size (1280x960): sharper 3D."},
       {"3", "3x (1440p)",
        "Three times (1920x1440), made smaller for a 1080p TV: the sharpest 3D, the smoothest edges."}},
-     "1", false,
+     "3", false,
      "The size the GPU draws Dreamcast, NAOMI and Atomiswave games at: real HD 3D, not an enlarged picture. The size "
      "changes at the next start.",
      FOR_FLYCAST},
@@ -169,7 +170,7 @@ const std::vector<Setting> SETTINGS = {
       {"2", "2x (480p)", "Twice the size (800x480): sharper 3D."},
       {"3", "3x (720p)", "Three times (1200x720): sharper 3D still."},
       {"4", "4x (960p)", "Four times (1600x960, about Full HD): the sharpest 3D."}},
-     "1", false,
+     "4", false,
      "The size the GPU draws 3DS games at: real HD 3D, not an enlarged picture. A bigger size is more work for the "
      "GPU only, but a game that reads its picture back (a few do, for effects) waits for it and can slow down.",
      FOR_3DS},
@@ -180,7 +181,7 @@ const std::vector<Setting> SETTINGS = {
       {"4", "4x (900p)", "Redrawn at 1024x896."},
       {"5", "5x (1080p)", "Redrawn at 1280x1120: the closest to a 1080p (Full HD) TV."},
       {"6", "6x (1440p)", "Redrawn at 1536x1344, then made smaller for the TV (a little smoother)."}},
-     "1", true,
+     "6", true,
      "Redraws the game bigger with the Upscaling Filter (Graphics) before it is fitted to the TV: "
      "3x for 720p, 5x for 1080p. Uses CPU time: lower it if a game slows down.", FOR_PIXELS},
     {"scaling", "Picture Size", "Video",
@@ -409,6 +410,34 @@ const std::vector<Setting> SETTINGS = {
        "Your own 1920x1080 PNG, see-through where the game goes: /data/EmuSuNi/bezels/pce/ with the "
        "ROM's name, or bezels/pce.png for every game."}},
      "console", true, "A frame over the sides of the TV, see-through where the game goes.", FOR_PCE},
+    // 00.90: Atari's own (scripts/make-bezels.py atari2600-console, atari7800-console, atarijaguar-console).
+    {"atari2600_bezel", "Bezel", "Video",
+     {{"off", "Off", "The picture alone, on black."},
+      {"console", "Atari 2600", "Woodgrain under the black ribbed top, its switches and the joystick's red button."},
+      EMUSUNI_SHARED_FRAMES,
+      EMUSUNI_GAME_BEZEL,
+      {"custom", "Your Own",
+       "Your own 1920x1080 PNG, see-through where the game goes: /data/EmuSuNi/bezels/atari2600/ with the "
+       "ROM's name, or bezels/atari2600.png for every game."}},
+     "console", true, "A frame over the sides of the TV, see-through where the game goes.", FOR_A2600},
+    {"atari7800_bezel", "Bezel", "Video",
+     {{"off", "Off", "The picture alone, on black."},
+      {"console", "Atari 7800", "Glossy black with its silver band, the joystick's two buttons, PAUSE, SELECT, RESET."},
+      EMUSUNI_SHARED_FRAMES,
+      EMUSUNI_GAME_BEZEL,
+      {"custom", "Your Own",
+       "Your own 1920x1080 PNG, see-through where the game goes: /data/EmuSuNi/bezels/atari7800/ with the "
+       "ROM's name, or bezels/atari7800.png for every game."}},
+     "console", true, "A frame over the sides of the TV, see-through where the game goes.", FOR_A7800},
+    {"atarijaguar_bezel", "Bezel", "Video",
+     {{"off", "Off", "The picture alone, on black."},
+      {"console", "Atari Jaguar", "Black with red lines, the pad's D-pad, A B C and its number pad."},
+      EMUSUNI_SHARED_FRAMES,
+      EMUSUNI_GAME_BEZEL,
+      {"custom", "Your Own",
+       "Your own 1920x1080 PNG, see-through where the game goes: /data/EmuSuNi/bezels/atarijaguar/ with the "
+       "ROM's name, or bezels/atarijaguar.png for every game."}},
+     "console", true, "A frame over the sides of the TV, see-through where the game goes.", FOR_JAGUAR},
     {"overscan", "Crop Overscan", "Video",
      {{"enabled", "On", "224 lines: the empty lines at the top and bottom are hidden."},
       {"disabled", "Off", "Every line (some games show a black stripe or glitches at the edges)."},
@@ -461,7 +490,7 @@ const std::vector<Setting> SETTINGS = {
       {"sharpen", "HD Sharpen (AMD RCAS)",
        "The picture as it is, made crisper by AMD's sharpening (RCAS): for the N64 at 4x and pictures "
        "already made bigger."}},
-     "off", true,
+     "ai", true,
      "Draws the picture with the GPU's filters at the TV's resolution. Every filter but HD Sharpen "
      "starts from the console's own picture: Resolution and the Upscaling Filter are left out.",
      FOR_ALL /* Flycast's consoles too since 00.69 (a vertical NAOMI or Atomiswave game: none), the 3DS since 00.71 */},
@@ -500,29 +529,29 @@ const std::vector<Setting> SETTINGS = {
     {"ps1_pgxp", "PS1 Geometry (PGXP)", "Graphics",
      {{"off", "As the PlayStation", "Polygons that shake and textures that bend, as on the console."},
       {"on", "Steady (PGXP)", "Steady polygons and straight textures; costs CPU time (heavy games can slow down)."}},
-     "off", true, "Fixes the PlayStation's shaking 3D and warped textures.", FOR_PS1},
+     "on", true, "Fixes the PlayStation's shaking 3D and warped textures.", FOR_PS1},
     {"ps1_texture_filter", "PS1 Texture Filtering", "Graphics",
      {{"Nearest", "Sharp (as the PlayStation)", "Every texture pixel crisp."},
       {"Bilinear", "Smooth (Bilinear)", "Soft, blended textures."},
       {"JINC2", "JINC2", "Smooth textures that keep sharp edges."},
       {"xBR", "xBR", "Textures redrawn with rounded edges, like xBRZ."}},
-     "Nearest", true, "How the 3D's textures are drawn.", FOR_PS1},
+     "xBR", true, "How the 3D's textures are drawn.", FOR_PS1},
     {"ps1_colors", "PS1 Colours", "Graphics",
      {{"dither", "As the PlayStation (dithered)", "Its 16-bit colours with their dot pattern."},
       {"true", "True Colour (smooth)", "Smooth 24-bit colours, without the dots: cleaner skies and shadows."}},
-     "dither", true, "The PlayStation drew its colours with a pattern of dots; True Colour drops it.", FOR_PS1},
+     "true", true, "The PlayStation drew its colours with a pattern of dots; True Colour drops it.", FOR_PS1},
     {"ps1_antialiasing", "PS1 Anti-Aliasing", "Graphics",
      {{"1", "Off", "The 3D's edges as they are drawn."},
       {"2", "2x MSAA", "Smoother 3D edges."},
       {"4", "4x MSAA", "Much smoother 3D edges (more GPU time)."},
       {"8", "8x MSAA", "The smoothest edges (the most GPU time)."}},
-     "1", true, "Smooths the jagged edges of the 3D (multisampling, on the GPU).", FOR_PS1},
+     "4", true, "Smooths the jagged edges of the 3D (multisampling, on the GPU).", FOR_PS1},
     {"psp_anisotropy", "PSP Texture Sharpness", "Graphics",
      {{"0", "Off", "Floors and walls blur into the distance, as on the PSP."},
       {"4", "4x", "Sharper textures far away."},
       {"8", "8x", "Sharper still."},
       {"16", "16x", "The sharpest textures far away."}},
-     "0", true, "How sharp the textures of far, slanted surfaces stay (anisotropic filtering, on the GPU).",
+     "16", true, "How sharp the textures of far, slanted surfaces stay (anisotropic filtering, on the GPU).",
      FOR_PSP},
     {"psp_texture_shader", "PSP Texture Upscaling", "Graphics",
      {{"off", "Off", "The games' own textures."},
@@ -544,7 +573,7 @@ const std::vector<Setting> SETTINGS = {
       {"4", "4x", "Sharper textures far away."},
       {"8", "8x", "Sharper still."},
       {"16", "16x", "The sharpest textures far away."}},
-     "4", false,
+     "16", false,
      "How sharp the textures of far, slanted surfaces stay (anisotropic filtering, on the GPU). It changes at the next "
      "game start.",
      FOR_FLYCAST},
@@ -635,6 +664,15 @@ const std::vector<Setting> SETTINGS = {
      {{"enabled", "On", "Water, shadows and fades as on the console."},
       {"disabled", "Off", "No colour math (to find graphic glitches)."}},
      "enabled", true, "Colour math: water, shadows, fades. Off only to diagnose glitches.", FOR_SNES},
+    // (00.90) Stella's phosphor: many 2600 games draw their sprites every other frame (Pac-Man's ghosts, Asteroids).
+    {"a2600_phosphor", "2600 Phosphor", "Graphics",
+     {{"auto", "Auto", "On for the games that need it, as Stella's game list knows them."},
+      {"on", "On", "Each frame blended with the one before, as an old TV's glow: no flicker, a little trail."},
+      {"off", "Off", "Each frame as the console drew it."}},
+     "auto", true,
+     "Blends each frame with the one before, as an old TV did: the games that draw their sprites every other frame "
+     "stop flickering.",
+     FOR_A2600},
     {"gb_palette", "Game Boy Colours", "Graphics",
      {{"gbc", "Game Boy Color", "As a Game Boy Color showed them: its own colours for Nintendo's games, green and blue for the others."},
       {"dmg", "Game Boy (green)", "The first Game Boy's green screen."},
@@ -729,7 +767,7 @@ const std::vector<Setting> SETTINGS = {
       {"1", "1", "Draws every other frame."},
       {"2", "2", "Draws one frame in three."}},
      "off", true, "Skips drawing some frames when the PS4 can't keep up (the game keeps its speed).",
-     FOR_RETRO | FOR_PSP | FOR_NDS | FOR_FLYCAST | FOR_SEGA | FOR_ARCADE | FOR_PCE},
+     FOR_RETRO | FOR_PSP | FOR_NDS | FOR_FLYCAST | FOR_SEGA | FOR_ARCADE | FOR_PCE | FOR_JAGUAR},
     {"frame_pacing", "N64 Frame Pacing", "Performance",
      {{"even", "Even (V-Sync)",
        "Each refresh shows the frame the game should be at when the TV shows it: PAL's 50 frames come out "
@@ -745,6 +783,35 @@ const std::vector<Setting> SETTINGS = {
       {"ntsc", "NTSC (60 Hz)", "As an American or Japanese console."},
       {"pal", "PAL (50 Hz)", "As a European console: the game and its music run slower."}},
      "auto", false, "Auto uses the game's own region.", FOR_RETRO | FOR_PS1 | FOR_SEGA},
+    // The Dreamcast's language (00.89): the console's own setting, which games with several languages follow (most
+    // European ones: "I can't change my European games to Spanish"). Auto is the menus' language; a European language
+    // chosen also makes the console a European one for a disc that allows it (Emulator.cpp BuildDcVariables).
+    {"dc_language", "Dreamcast Language", "Emulation",
+     {{"auto", "Auto", "The menus' language (English when the Dreamcast doesn't have it)."},
+      {"en", "English"},
+      {"es", "Español"},
+      {"fr", "Français"},
+      {"de", "Deutsch"},
+      {"it", "Italiano"},
+      {"ja", "日本語"}},
+     "auto", false,
+     "The language of the Dreamcast, which games with several languages follow (most European ones). A European "
+     "language also makes it a European console for a disc that allows it.",
+     FOR_DC},
+    // Dreamcast online (01.02): DCNet, Flycast's free servers (dcnet.flyca.st), through the Dreamcast's modem or its
+    // broadband adapter (Emulator.cpp BuildDcVariables: reicast_dcnet, reicast_emulate_bba). Off: a game that dials
+    // gets no answer (scripts/build-dc-core.sh, "Dreamcast online").
+    {"dc_online", "Dreamcast Online", "Emulation",
+     {{"off", "Off", "No network: a game's online mode says it can't connect."},
+      {"modem", "DCNet (modem)", "Through the Dreamcast's modem: most online games (ChuChu Rocket!...)."},
+      {"bba", "DCNet (broadband adapter)",
+       "Through the broadband adapter, for the games made for it (Phantasy Star Online...). The Dreamcast has no "
+       "modem then."}},
+     "off", false,
+     "Online play through DCNet, Flycast's free servers: choose the game's online mode. Nothing is sent until the game "
+     "dials. The server and the other players see your public IP, as with a real Dreamcast. Some games ask for a name "
+     "the first time and keep it on the VMU.",
+     FOR_DC},
     // The PC Engine's pad (00.82): its two buttons, or NEC's six-button Avenue Pad 6 for the few games made for it
     // (Beetle PCE Fast's pce_fast_default_joypad_type; its L2 switch between the two is left out of the app's pad).
     {"pce_pad", "PC Engine Pad", "Emulation",
@@ -752,6 +819,36 @@ const std::vector<Setting> SETTINGS = {
       {"6", "6 Buttons (Avenue Pad 6)",
        "For the few games made for it (Street Fighter II'): III, IV, V, VI on Square, Triangle, L1 and R1."}},
      "2", false, "The pad the PC Engine's games see: two buttons, or six for the games made for it.", FOR_PCE},
+    // (00.90) The Jaguar's boot: Virtual Jaguar's HLE BIOS, or the player's own boot ROM (scripts/build-atari-cores.sh;
+    // without one, the HLE BIOS). The real one shows the boot animation, and a few games sound right only with it.
+    {"jaguar_bios", "Jaguar BIOS", "Emulation",
+     {{"off", "Off (built-in start)", "The game starts at once: the fastest and the most games."},
+      {"on", "On (your own BIOS)",
+       "Your own Jaguar boot ROM (jagboot.rom, 128 KB) in /data/EmuSuNi/system: the boot animation, and the sound of "
+       "Wolfenstein 3D and Skyhammer. Without the file, the built-in start."}},
+     "off", false, "How the Jaguar starts a game: built in, or with your own BIOS.", FOR_JAGUAR},
+    // (00.90) Virtual Jaguar's RISC clock: its GPU and DSP at half their clock, for a game that plays better so (its 3D
+    // drawn at half the rate; some games run slower inside or go wrong). Auto: half for the games known to (Emulator.cpp,
+    // BuildJaguarVariables: Doom, its core 18% lighter on the PC), normal for the others (Rayman: 5% only). (00.91's
+    // default; a Normal kept by 00.90 goes once, Load: jaguar_auto.)
+    {"jaguar_risc", "Jaguar GPU/DSP Speed", "Performance",
+     {{"auto", "Auto", "Half for the games known to play better so (Doom), normal for the others."},
+      {"1x", "Normal", "As the console."},
+      {"0.5x", "Half (faster)",
+       "The Jaguar's graphics and sound processors at half their speed: much lighter for the PS4; some games slow "
+       "down inside or go wrong."}},
+     "auto", false,
+     "For a Jaguar game that runs slow: its graphics and sound processors at half speed lighten the work (Doom: by "
+     "about a fifth).",
+     FOR_JAGUAR},
+    // (00.96) Virtual Jaguar's GPU and DSP recompiled to the PS4's own code (scripts/vjaguar-jit/emusuni_gpu_jit.h,
+    // emusuni_dsp_jit.h): the same pictures and sound as their interpreters, faster. Off: the interpreters, for a game
+    // that goes wrong with them.
+    {"jaguar_jit", "Jaguar Recompiler", "Performance",
+     {{"on", "On",
+       "The Jaguar's graphics and sound processors turned into the PS4's own code: the same game, faster."},
+      {"off", "Off", "Interpreted, as before: slower. For a game that goes wrong with the recompiler."}},
+     "on", false, "The Jaguar's graphics and sound processors recompiled for speed, or interpreted.", FOR_JAGUAR},
     {"block_vram", "Block Invalid VRAM Access", "Emulation",
      {{"enabled", "On", "As the console."}, {"disabled", "Off", "For hacks and translations that need it."}},
      "enabled", true, "As the console does. A few hacks and translations need Off.", FOR_SNES},
@@ -839,6 +936,31 @@ const std::vector<Setting> SETTINGS = {
      "How much of the PSP's stick a push gives. Higher reaches its edge before the DualShock 4's stick does (for a "
      "worn stick, or a game that wants it all the way).",
      FOR_PSP},
+    // PSP online (01.02): the PSP's Wi-Fi (Emulator.cpp BuildPspVariables: ppsspp_enable_wlan), for the games' own
+    // servers where fans revived them (PS Rewired's DNS, or the game's in PPSSPP's infra-dns.json) and for ad hoc play
+    // through PSP Ad Hoc Server's relay (scripts/build-psp-core.sh, "Online play"). Off: no network at all.
+    {"psp_online", "PSP Online", "Emulation",
+     {{"off", "Off", "No network: a game's network menu says it can't connect."},
+      {"on", "On",
+       "The PSP's Wi-Fi: the games' own servers where fans revived them (FIFA, MotorStorm, WipEout, SOCOM...) and ad "
+       "hoc play through PSP Ad Hoc Server (Monster Hunter, Tekken 6, Dissidia...)."}},
+     "off", false,
+     "Online play for PSP games, from the game's own network menu or ad hoc mode. Nothing is sent until the game "
+     "connects. The servers see your public IP, as with a real PSP; other players never do (ad hoc goes through the "
+     "server's relay). Your name in the games is your online nickname (or EmuSuNi- and a code of this PS4's own).",
+     FOR_PSP},
+    // The PRO ad hoc server PSP Online's ad hoc play meets through (ppsspp_change_pro_ad_hoc_server_address): free
+    // community servers, each with a relay (the core always uses it: no player sees another's address).
+    {"psp_adhoc_server", "PSP Ad Hoc Server", "Emulation",
+     {{"socom.cc", "Socom (France)", "The most players, any game."},
+      {"psp.mgn.pub", "Madness Gaming Network (USA)", "Any game; many Monster Hunter players."},
+      {"psi-hate.com", "Psi-Hate (USA)", "Any game."},
+      {"jpa36a7.glddns.com", "Relay Brasileiro (Brazil)", "Any game; the nearest to South America."},
+      {"brazil-01.sprawl-relay.link", "Sprawl Relay (Brazil)", "Any game."}},
+     "socom.cc", false,
+     "The server ad hoc games meet through, with PSP Online on. Players who want to play together must choose the "
+     "same one.",
+     FOR_PSP},
     // The touchpad as the DS's and the 3DS's touch screen (src/Touchpad.h): "click", a trackpad (00.64; the finger put
     // the stylus where it landed until then), or "touch", the screen itself.
     {"nds_touch", "DS Touch Screen", "Emulation",
@@ -851,6 +973,17 @@ const std::vector<Setting> SETTINGS = {
      "click", true,
      "How the DualShock 4's touchpad is the DS's touch screen. The stylus stays where it was left; the right stick "
      "moves it too; the Tap button is set in Controls.", FOR_NDS},
+    // (00.95) The DS's Wi-Fi for the games' Nintendo Wi-Fi Connection (src/Emulator.cpp, BuildNdsVariables): the DNS
+    // of a server that took over from Nintendo's, in the firmware's connection; Off, no network at all.
+    {"nds_wifi", "DS Wi-Fi", "Emulation",
+     {{"wiimmfi", "Wiimmfi", "Wiimmfi, through Kaeru WFC's gateway: the most DS games and players."},
+      {"wiilink", "WiiLink WFC", "WiiLink WFC: another server, open source."},
+      {"off", "Off", "No network: a game's Nintendo WFC says it can't connect (error 52000)."}},
+     "wiimmfi", false,
+     "The server a game's Nintendo Wi-Fi Connection uses to play online (Mario Kart DS, Pokémon...). Nothing is sent "
+     "until you connect in the game. The server and the other players see your public IP, as with a real DS; the DS "
+     "can't reach your home network. Friends registered on one server aren't on the other.",
+     FOR_NDS},
     {"3ds_touch", "3DS Touch Screen", "Emulation",
      {{"click", "Trackpad",
        "As a laptop's trackpad: the finger moves the stylus from where it is (putting it down doesn't move it), a "
@@ -893,8 +1026,8 @@ const std::vector<Setting> SETTINGS = {
     // games of Emulator.cpp ThreedsRightEyeGame; the file /data/EmuSuNi/3ds-right-eye still draws it in every game.
     {"3ds_right_eye", "3DS Right Eye", "Emulation",
      {{"auto", "Auto",
-       "Not drawn, but drawn in the games known to need it (Majora's Mask 3D, Kingdom Hearts 3D, Pokémon Super "
-       "Mystery Dungeon, Fire Emblem Warriors, Minecraft: New Nintendo 3DS Edition)."},
+       "Not drawn, but drawn in the games known to need it (Majora's Mask 3D, Metroid: Samus Returns, Kingdom Hearts "
+       "3D, Pokémon Super Mystery Dungeon, Fire Emblem Warriors, Minecraft: New Nintendo 3DS Edition)."},
       {"skip", "Not Drawn (faster)",
        "The PS4 shows no 3D, so the right eye's picture is left out: less work in the games that draw both eyes."},
       {"draw", "Drawn",
@@ -947,6 +1080,11 @@ const std::vector<Setting> SETTINGS = {
       {"r3", "R3 (hold)",
        "The right stick pressed for a second. A game that uses R3 sees it meanwhile; on the DS and the 3DS, R3 swaps "
        "the screens when let go sooner."},
+      // (00.85, a player: "put an option to just click and get out (not hold), it takes time") R3, L1 + R1 and L2 + R2
+      // pressed as well, the menu at once (Controls::MenuButtonsFor); the holds stay, L3 + R3 stays the default.
+      {"r3_press", "R3",
+       "The right stick pressed: the menu opens at once. A game that uses R3 doesn't get it any more; on the DS and the "
+       "3DS, R3 then opens the menu instead of swapping the screens."},
       {"touchpad", "Touchpad (hold)",
        "The touchpad pressed for a second (a game sees its SELECT meanwhile). On the DS and the 3DS, where it is the "
        "touch screen: L3 + R3."},
@@ -956,12 +1094,30 @@ const std::vector<Setting> SETTINGS = {
       {"l1r1", "L1 + R1 (hold)",
        "Both held for a second; the game sees them meanwhile (on the DS and the 3DS, its L and R). It can clash with a "
        "game that holds both together."},
+      {"l1r1_press", "L1 + R1",
+       "Both pressed together: the menu opens at once. One held and the other pressed later is the game's; a game that "
+       "presses both at the same moment opens the menu."},
       {"l2r2", "L2 + R2 (hold)",
        "Both held for a second; the game sees them meanwhile. It can clash with a game that holds both together (a "
-       "racing game's L2 and R2), or with R2's Fast Forward."}},
+       "racing game's L2 and R2), or with R2's Fast Forward."},
+      {"l2r2_press", "L2 + R2",
+       "Both pressed together: the menu opens at once. One held and the other pressed later is the game's (a racing "
+       "game's accelerator and brake); a game that presses both at the same moment opens the menu."}},
      "l3r3", true,
      "The buttons that open the menu in a game; L3 + R3 always open it too. In the menu, Circle goes back to the game. "
      "(The PS button is the PS4's own.)",
+     0},
+    // (00.85, a player: "Add MENU SCALE FACTOR! I can see only 10 games on my TV") The menu's games drawn smaller, more
+    // of them in view: the XMB's rows, the Library's covers (src/Menu.cpp s_menu_scale). The menu's own, in Settings ->
+    // Menu Size, not in the settings lists; kept by Reset All Settings, as the menu's other options.
+    {"menu_size", "Menu Size", "System",
+     {{"100", "100%", "The usual size."},
+      {"90", "90%", "A little smaller: a few more games in view."},
+      {"80", "80%", "Smaller: more games in view."},
+      {"70", "70%", "The smallest: the most games in view (the Library's row: about 11 covers instead of 7)."}},
+     "100", true,
+     "How big the games are drawn in the menu (the XMB's list, the Library's covers): smaller shows more of them at "
+     "once.",
      0},
     {"language", "Language", "System",
      {{"en", "English"},
@@ -1000,9 +1156,21 @@ const std::vector<Setting> SETTINGS = {
       {"128", "128 ms", "The smoothest sound, the most delay."}},
      "64", false,
      "Larger is smoother when a game runs below full speed; smaller has less delay."},
-    {"multitap", "Multitap (3-5 Players)", "System",
-     {{"off", "Off", "Two players."}, {"on", "On", "Up to five players with more DualShock 4s."}},
-     "off", true, "The Super Multitap in port 2, for Bomberman and other 3-5 player games.", FOR_SNES},
+    // (00.23) Local multiplayer: the adapter each console had for 3 or more players (src/Multiplayer.h; 00.22's
+    // "multitap", the Super Nintendo's alone, becomes it: Load).
+    {"multiplayer_adapter", "Multiplayer Adapter", "System",
+     {{"auto", "Auto",
+       "Plugged in for the games known to use it (the emulator's own list, the game's header or the adapter's list "
+       "of games); every other game has the console's two ports, as before."},
+      {"off", "Off", "Never plugged in: two players."},
+      {"on", "On",
+       "Always plugged in, also for a game Auto doesn't know (a game made without it may not read the pads "
+       "right)."}},
+     "auto", true,
+     "The adapter for 3 or more players each console had: the Super Multitap (Super Nintendo), the Four Score or "
+     "the Famicom's 4 player adapter (NES), the Team Player or EA's 4 Way Play (Genesis), the Multitap "
+     "(PlayStation), the 6 Player Adaptor (Saturn). Each player needs a DualShock 4 signed in to a PS4 user.",
+     FOR_SNES | FOR_NES | FOR_MD | FOR_PS1 | FOR_SATURN},
     {"resume", "Resume Where You Left Off", "System",
      {{"off", "Off", "Each start begins from the game's own start (or its battery save)."},
       {"on", "On", "Quit Game keeps the moment you left; the next start goes on from there."}},
@@ -1023,8 +1191,9 @@ struct Preset
   std::vector<std::pair<const char*, const char*>> values;
 };
 // Low is each console's own resolution with no upscaler and no filter (00.63: the PSP without anisotropic filtering,
-// its textures not upscaled; 00.69: Low is also what a setting never changed reads, so a new install and Reset All
-// Settings start at Low). Each level above is clearly sharper than the one below (00.69, the owner: "que de verdad se
+// its textures not upscaled; from 00.69 to 01.01 Low was also what a setting never changed read, so a new install and
+// Reset All Settings started at Low: since 01.02 Ultra is, the 3DS's Medium - SETTINGS' defaults, Fallback). Each
+// level above is clearly sharper than the one below (00.69, the owner: "que de verdad se
 // sienta la subida de calidad"; 00.40 to 00.68 went Smooth Edges, Natural HD, Natural AI, three looks hard to tell
 // apart, and on the 3D consoles' HD pictures Natural AI was softer than Natural HD - PC, the filter harness: Tekken 3 at
 // 4x 6.4 against 14.4 of fine detail, GoldenEye at 2x 2.3 against 4.4 - the network only works at about 768x576 to
@@ -1109,10 +1278,63 @@ std::string Trim(std::string text)
   return text;
 }
 
+// (01.02) The defaults until 01.01, of the settings whose default changed: Low's values (what a value never set read,
+// so a new install started at Low) and the DS's screens one above the other. Load's one-time changes of before read a
+// value never set as they were made to (s_old_defaults, while [global] defaults=01.02 isn't set yet), and 01.02's
+// takes their copies out of a console's or a game's settings.
+const std::pair<const char*, const char*> OLD_DEFAULTS[] = {
+    {"resolution", "1"},     {"n64_resolution", "1"},           {"gpu_filter", "off"},  {"ps1_resolution", "1"},
+    {"ps1_texture_filter", "Nearest"}, {"ps1_colors", "dither"}, {"ps1_pgxp", "off"},    {"ps1_antialiasing", "1"},
+    {"psp_resolution", "1"}, {"psp_anisotropy", "0"},           {"dc_resolution", "1"}, {"dc_anisotropy", "4"},
+    {"3ds_resolution", "1"}, {"nds_layout", "stack"}};
+bool s_old_defaults = false;
+
+// (01.02) The level a console's games start at where it isn't every console's (Ultra: SETTINGS' defaults are its
+// values): the 3DS at Medium, the owner's (its picture at 2x with Smooth Edges; the GPU Upscaler is one setting for
+// every console, so its own default is here, not in SETTINGS).
+const char* StartLevel(SystemId system)
+{
+  return system == SystemId::THREEDS ? "medium" : nullptr;
+}
+
 std::string Fallback(const std::string& key)
 {
+  if (s_old_defaults)
+  {
+    for (const auto& [old_key, value] : OLD_DEFAULTS)
+    {
+      if (key == old_key)
+        return value;
+    }
+  }
   const Setting* setting = Find(key);
   return setting ? setting->fallback : "";
+}
+
+// A value never set, as a game reads it (01.02): its console's start level's (StartLevel), else the setting's default.
+// All Games' page (no game) reads the setting's own.
+std::string Fallback(const std::string& key, const std::string& game_id)
+{
+  if (!s_old_defaults && !game_id.empty())
+  {
+    const SystemId system = SystemOfKey(game_id).id;
+    const Setting* setting = Find(key);
+    const char* level = StartLevel(system);
+    if (level != nullptr && setting != nullptr && setting->systems != 0 && AppliesTo(*setting, system))
+    {
+      for (const Preset& preset : PRESETS)
+      {
+        if (std::string(preset.name) != level)
+          continue;
+        for (const auto& [preset_key, value] : preset.values)
+        {
+          if (key == preset_key)
+            return value;
+        }
+      }
+    }
+  }
+  return Fallback(key);
 }
 
 // A section's "custom" value ("" when there is none).
@@ -1163,7 +1385,7 @@ std::string GetLocked(const std::string& key, const std::string& game_id)
     if (value != it->second.end())
       return value->second;
   }
-  return Fallback(key);
+  return Fallback(key, game_id);
 }
 
 // The level whose values the game (or the global settings) uses, else "custom". A game's level is read from
@@ -1299,6 +1521,15 @@ void Load(const std::string& data_dir)
     const size_t eq = line.find('=');
     if (eq != std::string::npos)
       s_sections[section][line.substr(0, eq)] = line.substr(eq + 1);
+  }
+  // (01.02) Until its change below is made ([global] defaults=01.02), a value never set reads the defaults of before
+  // (OLD_DEFAULTS), as the changes before it were made to. A new install: no file.
+  const bool new_install = !file.is_open();
+  s_old_defaults = true;
+  if (const auto global = s_sections.find("global"); global != s_sections.end())
+  {
+    const auto marker = global->second.find("defaults");
+    s_old_defaults = marker == global->second.end() || marker->second != "01.02";
   }
   // The consoles that came after the Quality levels, in the order they came (their values left out
   // where a level chosen before them is recognised): the PlayStation (00.33; the public 00.19 has
@@ -1734,6 +1965,174 @@ void Load(const std::string& data_dir)
     s_sections["global"]["screens"] = "00.80";
     SaveLocked();
   }
+  // 00.23: Multitap (3-5 Players), the Super Nintendo's only, is Multiplayer Adapter, for every console that had one
+  // ("multitap" -> "multiplayer_adapter"). On stays On where only Super Nintendo games read it (a game's own settings,
+  // the Super Nintendo's This Console); anywhere else (All Games, another console's, another console's game: copies of
+  // the value) it would now plug an adapter into every console's games, so it becomes Auto, as Off does everywhere
+  // (Off was the default: a choice can't be told from a copy; Auto plugs the Multitap into the games known to use it,
+  // the others play as with Off). Done once per section, as its old key goes.
+  {
+    int moved = 0;
+    std::string ons;  // the places that had On, and what they have now
+    for (auto& [name, values] : s_sections)
+    {
+      const auto old = values.find("multitap");
+      if (old == values.end())
+        continue;
+      const bool snes_only = name == "console:snes" || (name != "global" && name.rfind("console:", 0) != 0 &&
+                                                        SystemOfKey(name).id == SystemId::SNES);
+      const std::string value = old->second == "on" && snes_only ? "on" : "auto";
+      if (old->second == "on")
+        ons += (ons.empty() ? "" : ", ") + name + " (" + value + ")";
+      values.emplace("multiplayer_adapter", value);
+      values.erase(old);
+      moved++;
+    }
+    if (moved > 0)
+    {
+      LogF("settings: Multitap is Multiplayer Adapter (00.23), in %d places: %s", moved,
+           ons.empty() ? "every one Off, now Auto" : ("Off now Auto; On: " + ons).c_str());
+      SaveLocked();
+    }
+  }
+  // 00.92: Jaguar GPU/DSP Speed's Auto (00.91's new default: Doom at half, Emulator.cpp) stayed hidden behind a Normal
+  // ("1x") kept by 00.90, whose default it was: copied with the rest into This Console's or This Game's settings (the
+  // owner's [console:atarijaguar]). A Normal chosen then changed nothing, so every "1x" kept goes, once ([global]
+  // jaguar_auto=00.92): Auto again. A Half kept stays; a Normal chosen from now on stays.
+  if (s_sections["global"]["jaguar_auto"] != "00.92")
+  {
+    std::string changed;
+    for (auto& [name, values] : s_sections)
+    {
+      const auto risc = values.find("jaguar_risc");
+      if (risc == values.end() || risc->second != "1x")
+        continue;
+      changed += (changed.empty() ? "" : ", ") + name;
+      values.erase(risc);
+    }
+    LogF("settings: Jaguar GPU/DSP Speed's Normal kept by 00.90 is Auto (00.92), once: %s",
+         changed.empty() ? "none was kept" : changed.c_str());
+    s_sections["global"]["jaguar_auto"] = "00.92";
+    SaveLocked();
+  }
+  // 01.02: the new defaults (the owner): Quality Ultra on every console but the 3DS, Medium there (StartLevel), the
+  // DS's screens Side by Side. A value never set reads them, after an update too: everyone moves to them. But a
+  // console's or a game's own settings start as a copy of every value its games read then (StartConsoleLocked,
+  // SetScope), the old defaults among them, which would keep that console at Low. So, once ([global] defaults=01.02),
+  // a value there of a setting whose default changed (OLD_DEFAULTS) is a copy where it is what the place read without
+  // it, under the old defaults - All Games' value (for a game, its console's own settings' first), else the old
+  // default - and goes: the place reads All Games' (a level chosen there) or the new default. A value that differs was
+  // chosen and stays, as every value of All Games' and those of a level chosen in the place itself (its "quality" not
+  // the level it read without it: a copy's is that one, and goes with its values). The 3DS's own settings also lose
+  // 00.71's 3DS Resolution 1x and GPU Upscaler Off, kept there where no level was chosen ("the 3DS stays as it
+  // played": not a choice). Last: the changes above read the old defaults. The log says what went.
+  if (s_old_defaults)
+  {
+    // What a place read without its own values, under the old defaults: taken before anything goes (so a game's copy of
+    // its console's copy goes too).
+    auto read_before = [](const std::string& name, const std::string& key) {
+      std::vector<std::string> order;
+      if (name.rfind("console:", 0) != 0 && ModeLocked(ConsoleSection(name)) == "on")
+        order.push_back(ConsoleSection(name));
+      order.push_back("global");
+      for (const std::string& place : order)
+      {
+        const auto section = s_sections.find(place);
+        if (section == s_sections.end())
+          continue;
+        const auto value = section->second.find(key);
+        if (value != section->second.end())
+          return value->second;
+      }
+      return Fallback(key);  // (the old default: s_old_defaults)
+    };
+    // The level a console's games read there without its own values (the levels differ on every console).
+    auto level_before = [&read_before](const std::string& name, SystemId system) -> std::string {
+      for (const Preset& preset : PRESETS)
+      {
+        bool all = true;
+        for (const auto& [key, value] : preset.values)
+        {
+          const Setting* setting = Find(key);
+          if (setting != nullptr && setting->systems != 0 && AppliesTo(*setting, system))
+            all = all && read_before(name, key) == value;
+        }
+        if (all)
+          return preset.name;
+      }
+      return "custom";
+    };
+    std::vector<std::pair<std::string, std::string>> copies;  // (place, setting)
+    std::string changed;
+    for (const auto& [name, values] : s_sections)
+    {
+      if (name == "global")
+        continue;
+      SystemId system = SystemOfKey(name).id;
+      if (name.rfind("console:", 0) == 0)
+      {
+        const System* console = SystemByKey(name.substr(8));
+        if (console == nullptr)
+          continue;
+        system = console->id;
+      }
+      const auto quality = values.find("quality");
+      const Preset* chosen = nullptr;  // a level chosen in the place itself
+      if (quality != values.end() && quality->second != level_before(name, system))
+      {
+        for (const Preset& preset : PRESETS)
+        {
+          if (quality->second == preset.name)
+            chosen = &preset;
+        }
+      }
+      std::string what;
+      int others = 0;  // (a game's This Game holds every console's settings: the log names its console's)
+      for (const auto& [key, old] : OLD_DEFAULTS)
+      {
+        const auto value = values.find(key);
+        if (value == values.end())
+          continue;
+        bool of_chosen = false;
+        if (chosen != nullptr)
+        {
+          for (const auto& [preset_key, preset_value] : chosen->values)
+            of_chosen = of_chosen || (std::string(preset_key) == key && value->second == preset_value);
+        }
+        const bool as_played = system == SystemId::THREEDS && quality == values.end() &&
+                               ((std::string(key) == "3ds_resolution" && value->second == "1") ||
+                                (std::string(key) == "gpu_filter" && value->second == "off"));
+        if (of_chosen || (value->second != read_before(name, key) && !as_played))
+          continue;
+        copies.emplace_back(name, key);
+        const Setting* setting = Find(key);
+        if (setting != nullptr && setting->systems != 0 && !AppliesTo(*setting, system))
+          others++;
+        else
+          what += (what.empty() ? "" : ", ") + std::string(key) + " " + value->second;
+      }
+      if ((!what.empty() || others > 0) && quality != values.end() && chosen == nullptr)
+      {
+        copies.emplace_back(name, "quality");
+        what += (what.empty() ? "" : ", ") + std::string("quality ") + quality->second;
+      }
+      if (others > 0)
+        what += (what.empty() ? "" : "; ") + std::to_string(others) + " of other consoles";
+      if (!what.empty())
+        changed += (changed.empty() ? "" : "; ") + name + " (" + what + ")";
+    }
+    for (const auto& [name, key] : copies)
+      s_sections[name].erase(key);
+    s_old_defaults = false;
+    if (new_install)
+      LogF("settings: a new install: Quality Ultra (the 3DS Medium), the DS's screens Side by Side (01.02)");
+    else
+      LogF("settings: the new defaults (01.02: Quality Ultra, the 3DS Medium, the DS's screens Side by Side), once: %s",
+           changed.empty() ? "no copy to take out"
+                           : ("copies taken out (the places read All Games' or the new defaults): " + changed).c_str());
+    s_sections["global"]["defaults"] = "01.02";
+    SaveLocked();
+  }
 }
 
 void Save()
@@ -1949,6 +2348,7 @@ void ResetAll()
   s_sections["global"]["3ds_stack"] = "00.69";
   s_sections["global"]["3ds_levels"] = "00.71";
   s_sections["global"]["screens"] = "00.80";
+  s_sections["global"]["defaults"] = "01.02";
   SaveLocked();
 }
 

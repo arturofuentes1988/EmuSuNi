@@ -15,6 +15,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -69,6 +70,9 @@ std::string GdromFile(const Set& set);
 // system/dc), a clone's parent zip (beside it: "may", a non-merged set carries its parent's files) and a GD-ROM
 // game's disc image (in a folder named after the set, or after its parent, beside the zip). None when all are there.
 std::vector<std::string> Missing(const Set& set, const std::string& folder, const std::string& system_dir);
+// The same, each file looked for with `exists` (00.85: the Library's read answers from the folders it has read).
+std::vector<std::string> Missing(const Set& set, const std::string& folder, const std::string& system_dir,
+                                 const std::function<bool(const std::string&)>& exists);
 // The message for a game the core refused: its reason (Flycast's message, as it sent it) in the app's words, and
 // where the files go. '\n' between the lines: each of English that fits the error page (the language file
 // translates it), or data under such a line (a file's name, a path).
@@ -102,4 +106,6 @@ const Set* MatchImage(const std::string& title, const Image& image);
 std::string ImageTitle(const std::string& file_title, const Image& image, const Set* set);
 // What an image needs and isn't there: naomi.zip (beside it or in system/dc, where the core looks).
 std::vector<std::string> ImageMissing(const std::string& folder, const std::string& system_dir);
+std::vector<std::string> ImageMissing(const std::string& folder, const std::string& system_dir,
+                                      const std::function<bool(const std::string&)>& exists);
 }  // namespace Naomi

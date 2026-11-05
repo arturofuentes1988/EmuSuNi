@@ -2,6 +2,7 @@
 
 #include "Controls.h"
 
+#include <algorithm>
 #include <fstream>
 #include <map>
 #include <mutex>
@@ -34,6 +35,10 @@ enum JoypadId
   ID_R3 = 15,
 };
 
+// (00.89) The three macros every console has, last (Controls.h: Macro): none at first.
+#define EMUSUNI_MACROS \
+  {"macro_1", "Macro 1", "None", false}, {"macro_2", "Macro 2", "None", false}, {"macro_3", "Macro 3", "None", false}
+
 // Same positions as on the SNES pad: B bottom, A right, Y left, X top.
 const std::vector<Binding> SNES_BINDINGS = {
     {"b", "B", "Cross", false},          {"a", "A", "Circle", false},
@@ -42,6 +47,7 @@ const std::vector<Binding> SNES_BINDINGS = {
     {"start", "START", "Options", false}, {"select", "SELECT", "Touchpad", false},
     {"dpad", "D-Pad", "D-Pad + Left Stick", true},
     {"fast_forward", "Fast Forward (hold)", "R2", false},
+    EMUSUNI_MACROS,
 };
 // The NES pad: B left, A right as on the SNES pad; turbo B and turbo A (Settings -> Emulation ->
 // Turbo Buttons) where Y and X are; FCEUmm's Famicom Disk System buttons on L and R.
@@ -52,20 +58,23 @@ const std::vector<Binding> NES_BINDINGS = {
     {"l", "Disk Side (FDS)", "L1", false},      {"r", "Insert/Eject Disk (FDS)", "R1", false},
     {"dpad", "D-Pad", "D-Pad + Left Stick", true},
     {"fast_forward", "Fast Forward (hold)", "R2", false},
+    EMUSUNI_MACROS,
 };
 // The N64 pad: the left stick is its control stick and the right stick its C buttons (both
 // analog); A and B where they sit on its pad (B up and left of A); Z on both triggers (GoldenEye
 // fires and Zelda targets with either), R and L on R1 and L1; C Up and C Down also on Triangle and
-// Circle. Fast forward on the touchpad: R2 is Z here.
+// Circle. Fast forward on the touchpad: R2 is Z here. (00.90, GitHub #45) C Left and C Right on the right stick's left
+// and right (the core reads that stick as the C buttons anyway): rows the Controls pages show, and change.
 const std::vector<Binding> N64_BINDINGS = {
     {"n64_a", "A", "Cross", false},          {"n64_b", "B", "Square", false},
     {"z", "Z", "L2", false},                 {"z2", "Z (second trigger)", "R2", false},
     {"n64_r", "R", "R1", false},             {"n64_l", "L", "L1", false},
     {"start", "START", "Options", false},
     {"c_up", "C Up", "Triangle", false},     {"c_down", "C Down", "Circle", false},
-    {"c_left", "C Left", "None", false},     {"c_right", "C Right", "None", false},
+    {"c_left", "C Left", "Right X-", false}, {"c_right", "C Right", "Right X+", false},
     {"dpad", "D-Pad", "D-Pad", true},
     {"fast_forward", "Fast Forward (hold)", "Touchpad", false},
+    EMUSUNI_MACROS,
 };
 // The PlayStation pad is the DualShock 4's own: every button where it is, both sticks the
 // DualShock's (analog). No fast forward: the touchpad is SELECT.
@@ -78,6 +87,7 @@ const std::vector<Binding> PS1_BINDINGS = {
     {"start", "START", "Options", false},        {"select", "SELECT", "Touchpad", false},
     {"dpad", "D-Pad", "D-Pad", true},
     {"fast_forward", "Fast Forward (hold)", "None", false},
+    EMUSUNI_MACROS,
 };
 // The Nintendo DS: its buttons where the SNES pad has them (A right, B bottom, X top, Y left), SELECT
 // on L2 (the touchpad is its touch screen, a trackpad: the finger moves the stylus, a tap or the touchpad's click
@@ -93,6 +103,7 @@ const std::vector<Binding> NDS_BINDINGS = {
     {"tap", "Tap the Screen", "Touchpad", false},
     {"dpad", "D-Pad", "D-Pad + Left Stick", true},
     {"fast_forward", "Fast Forward (hold)", "R2", false},
+    EMUSUNI_MACROS,
 };
 // The PSP: its buttons where the DualShock 4 has them, its stick the left stick (analog), SELECT on
 // the touchpad, fast forward on R2.
@@ -103,6 +114,7 @@ const std::vector<Binding> PSP_BINDINGS = {
     {"start", "START", "Options", false},        {"select", "SELECT", "Touchpad", false},
     {"dpad", "D-Pad", "D-Pad", true},
     {"fast_forward", "Fast Forward (hold)", "R2", false},
+    EMUSUNI_MACROS,
 };
 // The Dreamcast: A bottom, B right, X left, Y top (where the DualShock 4 has them), START on Options,
 // its analog triggers on L2 / R2 (src/Emulator.cpp: their pressure), its stick the left stick
@@ -114,6 +126,7 @@ const std::vector<Binding> DC_BINDINGS = {
     {"start", "START", "Options", false},
     {"dpad", "D-Pad", "D-Pad", true},
     {"fast_forward", "Fast Forward (hold)", "None", false},
+    EMUSUNI_MACROS,
 };
 // The Mega Drive's six-button pad: A, B and C along the bottom (Square, Cross, Circle), X, Y and Z
 // above them (L1, Triangle, R1), MODE on the touchpad. A game for the three-button pad has only A,
@@ -125,6 +138,7 @@ const std::vector<Binding> MD_BINDINGS = {
     {"start", "START", "Options", false},       {"mode", "MODE", "Touchpad", false},
     {"dpad", "D-Pad", "D-Pad + Left Stick", true},
     {"fast_forward", "Fast Forward (hold)", "R2", false},
+    EMUSUNI_MACROS,
 };
 #ifdef EMUSUNI_SATURN
 // The Saturn's pad: A, B and C along the bottom (Square, Cross, Circle), X, Y and Z above them (L1, Triangle, R1)
@@ -138,6 +152,7 @@ const std::vector<Binding> SATURN_BINDINGS = {
     {"start", "START", "Options", false},
     {"dpad", "D-Pad", "D-Pad + Left Stick", true},
     {"fast_forward", "Fast Forward (hold)", "Touchpad", false},
+    EMUSUNI_MACROS,
 };
 #endif
 // The Master System's and the SG-1000's pad: buttons 1 and 2 (Cross, Circle); the console's PAUSE
@@ -147,6 +162,7 @@ const std::vector<Binding> SMS_BINDINGS = {
     {"start", "PAUSE", "Options", false},
     {"dpad", "D-Pad", "D-Pad + Left Stick", true},
     {"fast_forward", "Fast Forward (hold)", "R2", false},
+    EMUSUNI_MACROS,
 };
 // The Game Gear: the same buttons 1 and 2, and its START.
 const std::vector<Binding> GG_BINDINGS = {
@@ -154,6 +170,7 @@ const std::vector<Binding> GG_BINDINGS = {
     {"start", "START", "Options", false},
     {"dpad", "D-Pad", "D-Pad + Left Stick", true},
     {"fast_forward", "Fast Forward (hold)", "R2", false},
+    EMUSUNI_MACROS,
 };
 // The PC Engine (00.82, Beetle PCE Fast's RetroPad: II on B, I on A, III on Y, IV on X, V on L, VI on R): II and I
 // where the NES pad has B and A (Cross, Circle), SELECT on the touchpad and RUN on Options; the six-button pad's III,
@@ -165,6 +182,68 @@ const std::vector<Binding> PCE_BINDINGS = {
     {"start", "RUN", "Options", false},         {"select", "SELECT", "Touchpad", false},
     {"dpad", "D-Pad", "D-Pad + Left Stick", true},
     {"fast_forward", "Fast Forward (hold)", "R2", false},
+    EMUSUNI_MACROS,
+};
+// The Atari 2600 (00.90, Stella's RetroPad: Fire on B, the Booster Grip's Trigger on A and Booster on Y, the console's
+// SELECT and RESET switches on SELECT and START, its difficulty switches set to A on L and R and to B on L2 and R2, its
+// TV Type set to Color on L3 and to B/W on R3): Fire on Cross; each switch on a button of its own, where it stays set
+// (L1 and L2 the left player's A and B, R1 and R2 the right player's); Color and B/W on Square and Triangle, not on
+// L3 and R3 (L3 + R3 opens the in-game menu: the TV Type would change with it); the Booster on R3. No Fast Forward at
+// first: R2 is a switch.
+const std::vector<Binding> A2600_BINDINGS = {
+    {"b", "Fire", "Cross", false},                         {"a", "Trigger (Booster Grip)", "Circle", false},
+    {"start", "RESET", "Options", false},                  {"select", "SELECT", "Touchpad", false},
+    {"l", "Left Difficulty: A", "L1", false},              {"l2", "Left Difficulty: B", "L2", false},
+    {"r", "Right Difficulty: A", "R1", false},             {"r2", "Right Difficulty: B", "R2", false},
+    {"l3", "TV Type: Color", "Square", false},             {"r3", "TV Type: B/W", "Triangle", false},
+    {"y", "Booster (Booster Grip)", "R3", false},
+    {"dpad", "Joystick", "D-Pad + Left Stick", true},
+    {"fast_forward", "Fast Forward (hold)", "None", false},
+    EMUSUNI_MACROS,
+};
+#ifdef EMUSUNI_OPENBOR
+// OpenBOR (with-openbor; the core's RetroPad: Jump on B, Attack 1 on Y, Special on A, Attack 2 on X, Attacks 3 and 4
+// on L and R, START, SELECT the engine's Esc - back in the game's menus -; the left stick moves as the D-pad here, the
+// core's own analog option off): Jump on Cross, Attack on Square, Special on Circle, as most beat 'em ups on the
+// DualShock 4; SELECT on the touchpad as the other consoles'.
+const std::vector<Binding> OPENBOR_BINDINGS = {
+    {"b", "Jump", "Cross", false},                {"y", "Attack", "Square", false},
+    {"a", "Special", "Circle", false},            {"x", "Attack 2", "Triangle", false},
+    {"l", "Attack 3", "L1", false},               {"r", "Attack 4", "R1", false},
+    {"start", "START", "Options", false},         {"select", "SELECT (Back)", "Touchpad", false},
+    {"dpad", "D-Pad", "D-Pad + Left Stick", true},
+    {"fast_forward", "Fast Forward (hold)", "R2", false},
+    EMUSUNI_MACROS,
+};
+#endif
+// The Atari 7800 (00.90, ProSystem's RetroPad: the joystick's buttons 1 and 2 on B and A, the console's RESET on X,
+// SELECT on SELECT, PAUSE on START, each difficulty switch set to B while L or R is held): 1 and 2 on Cross and Circle,
+// PAUSE on Options, SELECT on the touchpad, RESET on Triangle.
+const std::vector<Binding> A7800_BINDINGS = {
+    {"b", "Button 1", "Cross", false},                     {"a", "Button 2", "Circle", false},
+    {"start", "PAUSE", "Options", false},                  {"select", "SELECT", "Touchpad", false},
+    {"x", "RESET", "Triangle", false},
+    {"l", "Left Difficulty: B (hold)", "L1", false},       {"r", "Right Difficulty: B (hold)", "R1", false},
+    {"dpad", "Joystick", "D-Pad + Left Stick", true},
+    {"fast_forward", "Fast Forward (hold)", "R2", false},
+    EMUSUNI_MACROS,
+};
+// The Atari Jaguar (00.90, Virtual Jaguar's RetroPad: A, B, C on A, B, Y, PAUSE on SELECT, OPTION on START, the number
+// pad's 0 on X and 1-6 on L, R, L2, R2, L3, R3): B, A, C on Cross, Circle, Square as on the Jaguar's pad (C B A from
+// left to right); PAUSE on Options, OPTION on Triangle; the number pad's 1-4, which most games use most, on L1, R1, L2,
+// R2, and all twelve keys on the touchpad (src/Emulator.cpp: three across, four down, as on the pad); 0, 5 and 6 also
+// bindable (not on L3 and R3 at first: L3 + R3 opens the in-game menu). No Fast Forward at first: R2 is a key.
+const std::vector<Binding> JAGUAR_BINDINGS = {
+    {"b", "B", "Cross", false},                            {"a", "A", "Circle", false},
+    {"y", "C", "Square", false},
+    {"select", "PAUSE", "Options", false},                 {"start", "OPTION", "Triangle", false},
+    {"l", "Number Pad 1", "L1", false},                    {"r", "Number Pad 2", "R1", false},
+    {"l2", "Number Pad 3", "L2", false},                   {"r2", "Number Pad 4", "R2", false},
+    {"x", "Number Pad 0", "None", false},
+    {"l3", "Number Pad 5", "None", false},                 {"r3", "Number Pad 6", "None", false},
+    {"dpad", "D-Pad", "D-Pad + Left Stick", true},
+    {"fast_forward", "Fast Forward (hold)", "None", false},
+    EMUSUNI_MACROS,
 };
 // The Arcade (FinalBurn Neo's "Modern" RetroPad): the DualShock 4's buttons as they are. Buttons 1-4
 // on Cross, Circle, Square, Triangle, 5-8 on R2, R1, L2, L1, 9 and 10 on R3 and L3 (a Neo Geo game's
@@ -180,6 +259,7 @@ const std::vector<Binding> ARCADE_BINDINGS = {
     {"start", "START", "Options", false},     {"select", "COIN", "Touchpad", false},
     {"dpad", "D-Pad", "D-Pad + Left Stick", true},
     {"fast_forward", "Fast Forward (hold)", "None", false},
+    EMUSUNI_MACROS,
 };
 // The NAOMI (Flycast's arcade board, as its libretro core reads the RetroPad: B, A, Y, X, R, L, R2, L2 are buttons 1
 // to 8, SELECT the coin slot, L3 and R3 the board's TEST and SERVICE buttons): buttons 1 to 4 on Cross, Circle,
@@ -198,6 +278,7 @@ const std::vector<Binding> NAOMI_BINDINGS = {
     {"reload", "Gun Reload", "R1", false},
     {"dpad", "D-Pad", "D-Pad + Left Stick", true},
     {"fast_forward", "Fast Forward (hold)", "None", false},
+    EMUSUNI_MACROS,
 };
 // The Atomiswave: the same, with its five buttons (the core gives L, L2 and R2 no button on this board; a driving
 // game's pedals are the triggers' pressure).
@@ -210,6 +291,7 @@ const std::vector<Binding> ATOMISWAVE_BINDINGS = {
     {"reload", "Gun Reload", "R1", false},
     {"dpad", "D-Pad", "D-Pad + Left Stick", true},
     {"fast_forward", "Fast Forward (hold)", "None", false},
+    EMUSUNI_MACROS,
 };
 // The Nintendo 3DS: its buttons where the SNES pad has them (A right, B bottom, X top, Y left), L and R on
 // L1 and R1, ZL and ZR (the New 3DS's: Old mode has no use for them, but the Circle Pad Pro games read them)
@@ -228,6 +310,7 @@ const std::vector<Binding> THREEDS_BINDINGS = {
     {"r3", "Swap Screens", "R3", false},   {"tap", "Tap the Screen", "Touchpad", false},
     {"dpad", "D-Pad", "D-Pad", true},
     {"fast_forward", "Fast Forward (hold)", "None", false},
+    EMUSUNI_MACROS,
 };
 // The Game Boy and Game Boy Color: B left, A right as on the NES pad; mGBA's turbo B and turbo A
 // (on Y and X) where Y and X are.
@@ -237,6 +320,7 @@ const std::vector<Binding> GB_BINDINGS = {
     {"start", "START", "Options", false},       {"select", "SELECT", "Touchpad", false},
     {"dpad", "D-Pad", "D-Pad + Left Stick", true},
     {"fast_forward", "Fast Forward (hold)", "R2", false},
+    EMUSUNI_MACROS,
 };
 // The Game Boy Advance: the same, with its shoulder buttons on L1 and R1.
 const std::vector<Binding> GBA_BINDINGS = {
@@ -246,6 +330,7 @@ const std::vector<Binding> GBA_BINDINGS = {
     {"start", "START", "Options", false},       {"select", "SELECT", "Touchpad", false},
     {"dpad", "D-Pad", "D-Pad + Left Stick", true},
     {"fast_forward", "Fast Forward (hold)", "R2", false},
+    EMUSUNI_MACROS,
 };
 
 // The libretro joypad id each binding key presses (turbo B and A: Y and X for FCEUmm; the N64's
@@ -302,6 +387,18 @@ const Control CONTROLS[] = {
     {"Options", ORBIS_PAD_BUTTON_OPTIONS},   {"Touchpad", ORBIS_PAD_BUTTON_TOUCH_PAD},
     {"Pad N", ORBIS_PAD_BUTTON_UP},          {"Pad S", ORBIS_PAD_BUTTON_DOWN},
     {"Pad W", ORBIS_PAD_BUTTON_LEFT},        {"Pad E", ORBIS_PAD_BUTTON_RIGHT},
+    // (00.90) The sticks' directions: the app's bits (STICK_BITS, StickBits), last (a button pressed with one wins).
+    {"Left Y-", 0x00010000},                 {"Left Y+", 0x00020000},
+    {"Left X-", 0x00040000},                 {"Left X+", 0x00080000},
+    {"Right Y-", 0x00200000},                {"Right Y+", 0x00400000},
+    {"Right X-", 0x00800000},                {"Right X+", 0x01000000},
+};
+// What a stick's direction is called where its icon isn't drawn (the in-game menu's rows, a macro's text).
+const std::pair<const char*, const char*> STICK_WORDS[] = {
+    {"Left Y-", "Left Stick Up"},     {"Left Y+", "Left Stick Down"},
+    {"Left X-", "Left Stick Left"},   {"Left X+", "Left Stick Right"},
+    {"Right Y-", "Right Stick Up"},   {"Right Y+", "Right Stick Down"},
+    {"Right X-", "Right Stick Left"}, {"Right X+", "Right Stick Right"},
 };
 
 std::mutex s_mutex;
@@ -348,6 +445,41 @@ std::string GetLocked(const Binding& binding, const std::string& game_id, System
   }
   return binding.fallback;
 }
+
+// A macro's presses (Controls.h: IsMacro), kept next to its button.
+std::string PressesKey(const Binding& binding)
+{
+  return std::string(binding.key) + "_presses";
+}
+
+std::string GetPressesLocked(const Binding& binding, const std::string& game_id, SystemId system)
+{
+  for (const std::string& section : {game_id, GlobalSection(system)})
+  {
+    if (section.empty())
+      continue;
+    auto it = s_sections.find(section);
+    if (it == s_sections.end())
+      continue;
+    auto value = it->second.find(PressesKey(binding));
+    if (value != it->second.end())
+      return value->second;
+  }
+  return "";
+}
+
+// "Cross+Triangle": their bits.
+uint32_t MaskOfList(const std::string& names)
+{
+  uint32_t mask = 0;
+  for (size_t start = 0; start < names.size();)
+  {
+    const size_t end = std::min(names.find('+', start), names.size());
+    mask |= MaskOf(names.substr(start, end - start));
+    start = end + 1;
+  }
+  return mask;
+}
 }  // namespace
 
 const std::vector<Binding>& Bindings(SystemId system)
@@ -392,6 +524,16 @@ const std::vector<Binding>& Bindings(SystemId system)
 #endif
   case SystemId::PCE:
     return PCE_BINDINGS;
+  case SystemId::A2600:
+    return A2600_BINDINGS;
+  case SystemId::A7800:
+    return A7800_BINDINGS;
+  case SystemId::JAGUAR:
+    return JAGUAR_BINDINGS;
+#ifdef EMUSUNI_OPENBOR
+  case SystemId::OPENBOR:
+    return OPENBOR_BINDINGS;
+#endif
   default:
     return SNES_BINDINGS;
   }
@@ -460,7 +602,11 @@ void CreateGameProfile(const std::string& game_id, SystemId system)
   std::lock_guard lock(s_mutex);
   auto& section = s_sections[game_id];
   for (const Binding& binding : Bindings(system))
+  {
     section[binding.key] = GetLocked(binding, "", system);
+    if (IsMacro(binding))
+      section[PressesKey(binding)] = GetPressesLocked(binding, "", system);
+  }
   SaveLocked();
 }
 
@@ -476,8 +622,96 @@ void ResetToDefault(const std::string& game_id, SystemId system)
   std::lock_guard lock(s_mutex);
   auto& section = s_sections[game_id.empty() ? GlobalSection(system) : game_id];
   for (const Binding& binding : Bindings(system))
+  {
     section[binding.key] = binding.fallback;
+    if (IsMacro(binding))
+      section.erase(PressesKey(binding));
+  }
   SaveLocked();
+}
+
+bool IsMacro(const Binding& binding)
+{
+  return std::string(binding.key).rfind("macro_", 0) == 0;
+}
+
+std::string MacroPresses(const Binding& binding, const std::string& game_id, SystemId system)
+{
+  std::lock_guard lock(s_mutex);
+  return GetPressesLocked(binding, game_id, system);
+}
+
+void SetMacroPresses(const Binding& binding, const std::string& presses, const std::string& game_id, SystemId system)
+{
+  std::lock_guard lock(s_mutex);
+  s_sections[game_id.empty() ? GlobalSection(system) : game_id][PressesKey(binding)] = presses;
+  SaveLocked();
+}
+
+std::string MacroText(const Binding& binding, const std::string& game_id, SystemId system)
+{
+  std::string trigger, presses;
+  {
+    std::lock_guard lock(s_mutex);
+    trigger = GetLocked(binding, game_id, system);
+    presses = GetPressesLocked(binding, game_id, system);
+  }
+  if (MaskOf(trigger) == 0 || MaskOfList(presses) == 0)
+    return "None";
+  std::string text = Describe(trigger) + " =";
+  for (size_t start = 0, n = 0; start < presses.size(); n++)
+  {
+    const size_t end = std::min(presses.find('+', start), presses.size());
+    text += (n == 0 ? " " : " + ") + Describe(presses.substr(start, end - start));
+    start = end + 1;
+  }
+  return text;
+}
+
+uint32_t PressedControls(const OrbisPadData& data)
+{
+  const uint32_t buttons = data.buttons | StickBits(data);
+  uint32_t mask = 0;
+  for (const Control& control : CONTROLS)
+    mask |= buttons & control.mask;
+  return mask;
+}
+
+uint32_t StickBits(const OrbisPadData& data)
+{
+  // Half way or more from the middle (128), as the N64 core's C-stick. (CONTROLS' bits: Left Y-, Y+, X-, X+, then
+  // the right stick's.)
+  constexpr int HALF = 64;
+  const int lx = data.leftStick.x - 128, ly = data.leftStick.y - 128;
+  const int rx = data.rightStick.x - 128, ry = data.rightStick.y - 128;
+  return (ly <= -HALF ? 0x00010000u : 0u) | (ly >= HALF ? 0x00020000u : 0u) | (lx <= -HALF ? 0x00040000u : 0u) |
+         (lx >= HALF ? 0x00080000u : 0u) | (ry <= -HALF ? 0x00200000u : 0u) | (ry >= HALF ? 0x00400000u : 0u) |
+         (rx <= -HALF ? 0x00800000u : 0u) | (rx >= HALF ? 0x01000000u : 0u);
+}
+
+bool TakesSticks(const Binding& binding)
+{
+  if (binding.stick_group)
+    return false;
+  if (IsMacro(binding))
+    return true;
+  for (const auto& [name, id] : KEY_IDS)
+  {
+    if (std::string(binding.key) == name)
+      return true;
+  }
+  return false;
+}
+
+std::string NamesOf(uint32_t controls)
+{
+  std::string names;
+  for (const Control& control : CONTROLS)
+  {
+    if (controls & control.mask)
+      names += (names.empty() ? "" : "+") + std::string(control.name);
+  }
+  return names;
 }
 
 std::string Describe(const std::string& value)
@@ -490,6 +724,11 @@ std::string Describe(const std::string& value)
     return "D-Pad Left";
   if (value == "Pad E")
     return "D-Pad Right";
+  for (const auto& [name, words] : STICK_WORDS)
+  {
+    if (value == name)
+      return words;
+  }
   if (value.empty() || value == "None")
     return "None";
   return value;
@@ -522,14 +761,16 @@ std::string FastForwardHelp(const std::string& game_key, SystemId system)
 
 bool IsAtRest(const OrbisPadData& data)
 {
-  return (data.buttons & ~0u) == 0 && data.analogButtons.l2 < 40 && data.analogButtons.r2 < 40;
+  return (data.buttons & ~0u) == 0 && data.analogButtons.l2 < 40 && data.analogButtons.r2 < 40 &&
+         StickBits(data) == 0;
 }
 
-std::string Capture(const OrbisPadData& data)
+std::string Capture(const OrbisPadData& data, bool sticks)
 {
+  const uint32_t buttons = data.buttons | StickBits(data);
   for (const Control& control : CONTROLS)
   {
-    if (data.buttons & control.mask)
+    if ((buttons & control.mask) && (sticks || (control.mask & STICK_BITS) == 0))
       return control.name;
   }
   return "";
@@ -540,6 +781,7 @@ Layout LayoutFor(const std::string& game_id, SystemId system)
   Layout layout;
   std::lock_guard lock(s_mutex);
   std::string dpad;
+  size_t macros = 0;
   for (const Binding& binding : Bindings(system))
   {
     const std::string key = binding.key, value = GetLocked(binding, game_id, system);
@@ -551,6 +793,12 @@ Layout LayoutFor(const std::string& game_id, SystemId system)
       layout.tap = MaskOf(value);
     else if (key == "reload")
       layout.reload = MaskOf(value);
+    else if (IsMacro(binding) && macros < std::size(layout.macros))
+    {
+      const uint32_t trigger = MaskOf(value), presses = MaskOfList(GetPressesLocked(binding, game_id, system));
+      if (trigger && presses)
+        layout.macros[macros++] = {trigger, presses};
+    }
     for (const auto& [name, id] : KEY_IDS)
     {
       if (key == name)
@@ -560,13 +808,31 @@ Layout LayoutFor(const std::string& game_id, SystemId system)
   layout.dpad = dpad != "Left Stick";
   layout.left_stick = dpad != "D-Pad";
   // A D-pad direction bound to a button (Pad N...) still works as the D-pad too.
+  // A macro's button does the macro only (IsMacro).
+  for (const Layout::Macro& macro : layout.macros)
+  {
+    layout.fast_forward &= ~macro.trigger;
+    layout.tap &= ~macro.trigger;
+    layout.reload &= ~macro.trigger;
+  }
+  if (macros > 0)
+    LogF("controls: %zu macro(s) for %s", macros, game_id.empty() ? GetSystem(system).key : game_id.c_str());
   return layout;
 }
 
 uint16_t PadButtons(const Layout& layout, const OrbisPadData& data)
 {
   uint16_t out = 0;
-  const uint32_t buttons = data.buttons;
+  uint32_t buttons = data.buttons | StickBits(data);  // (00.90: the sticks' directions, STICK_BITS)
+  // A macro's button held: its presses held in its place (IsMacro).
+  uint32_t triggers = 0, pressed = 0;
+  for (const Layout::Macro& macro : layout.macros)
+  {
+    triggers |= macro.trigger;
+    if (buttons & macro.trigger)
+      pressed |= macro.presses;
+  }
+  buttons = (buttons & ~triggers) | pressed;
   for (int id : {ID_B, ID_A, ID_Y, ID_X, ID_L, ID_R, ID_START, ID_SELECT, ID_L2, ID_R2, ID_L3, ID_R3})
   {
     if (layout.button_mask[id] && (buttons & layout.button_mask[id]))
@@ -626,6 +892,13 @@ MenuButtons MenuButtonsFor(const std::string& choice, SystemId system)
     return {ORBIS_PAD_BUTTON_L1 | ORBIS_PAD_BUTTON_R1, 1.0f};
   if (choice == "l2r2")
     return {ORBIS_PAD_BUTTON_L2 | ORBIS_PAD_BUTTON_R2, 1.0f};
+  // (00.85: the same pressed, the menu at once - the two buttons together, a chord.)
+  if (choice == "r3_press")
+    return {ORBIS_PAD_BUTTON_R3, 0.0f};
+  if (choice == "l1r1_press")
+    return {ORBIS_PAD_BUTTON_L1 | ORBIS_PAD_BUTTON_R1, 0.0f, true};
+  if (choice == "l2r2_press")
+    return {ORBIS_PAD_BUTTON_L2 | ORBIS_PAD_BUTTON_R2, 0.0f, true};
   return {STICKS, 0.0f};
 }
 
@@ -641,6 +914,20 @@ bool MenuOpener::Update(const MenuButtons& buttons, uint32_t held, uint32_t pres
   if (buttons.mask == 0 || buttons.mask == STICKS)
     return false;
   const bool down = (held & buttons.mask) == buttons.mask;
+  if (buttons.hold <= 0.0f && buttons.chord)
+  {
+    // (00.85) L1 + R1 or L2 + R2 pressed: the last of them down this pass, a quarter of a second at most after the
+    // first (m_time: how long some of them, not all, have been down) - a shoulder button the game holds, then the
+    // other pressed, isn't the menu's.
+    if (!down)
+    {
+      m_time = (held & buttons.mask) != 0 ? m_time + dt : 0.0f;
+      return false;
+    }
+    const bool together = (pressed & buttons.mask) != 0 && m_time <= 0.25f;
+    m_time = 0.0f;
+    return together;
+  }
   if (buttons.hold <= 0.0f)
     return down && (pressed & buttons.mask) != 0;
   if (!down)

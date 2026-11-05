@@ -26,6 +26,9 @@ extern "C" unsigned flycast_emusuni_arcade_list(void (*add)(void* user, const ch
 // (00.65) What would make the set's start fail, looked for as the core looks, without loading anything or a C++
 // exception: 1 when it would start, else 0 and Flycast's message. bios_dir: Flycast's system/dc.
 extern "C" int flycast_emusuni_check_set(const char* path, const char* bios_dir, char* error, unsigned error_size);
+// (00.90) The set a file not named after it is (the file's name without its extension), for the core's next looks;
+// nullptr: none.
+extern "C" void flycast_emusuni_set_alias(const char* file, const char* set);
 #endif
 
 namespace Naomi
@@ -103,11 +106,12 @@ std::string Head(const std::string& title)
   return open == std::string::npos ? title : title.substr(0, open);
 }
 
-bool AnyFile(const std::string& stem, std::initializer_list<const char*> extensions)
+bool AnyFile(const std::function<bool(const std::string&)>& exists, const std::string& stem,
+             std::initializer_list<const char*> extensions)
 {
   for (const char* extension : extensions)
   {
-    if (FileExists(stem + extension))
+    if (exists(stem + extension))
       return true;
   }
   return false;
@@ -170,6 +174,40 @@ std::string TitleCase(const std::string& upper)
   }
   return out;
 }
+
+// (00.90) A zip named after its game, as many sites name their downloads ("The King of Fighters XI.zip", "Metal Slug
+// 6 (Atomiswave).zip", "The House of the Dead 2 (USA).zip"; players: "Atomiswave doesn't find my games", "House of
+// the Dead doesn't appear"): its set by the title's words, with or without "The" first and a board's name last. A
+// name with a region in parentheses is looked for among the full titles first (a clone's own: "(Export)"), one
+// without among the parents' heads first (the merged set the zip most likely is: "The House of the Dead 2" is hotd2,
+// not its clone hotd2o, whose full title that is).
+std::map<std::string, size_t> s_by_title, s_by_head;
+bool s_titles_read = false;
+
+std::string TitleKey(const std::string& name)
+{
+  std::string key = Key(name);
+  for (const char* board : {" atomiswave", " naomi 2", " naomi", " arcade", " mame"})
+  {
+    const size_t length = std::strlen(board);
+    if (key.size() > length && key.compare(key.size() - length, length, board) == 0)
+      key.erase(key.size() - length);
+  }
+  return key.rfind("the ", 0) == 0 ? key.substr(4) : key;
+}
+
+void TitlesLocked()
+{
+  if (s_titles_read)
+    return;
+  s_titles_read = true;
+  for (size_t i = 0; i < s_sets.size(); i++)
+  {
+    s_by_title.emplace(TitleKey(s_sets[i].title), i);  // (the first: a parent comes before its clones)
+    if (s_sets[i].parent.empty())
+      s_by_head.emplace(TitleKey(Head(s_sets[i].title)), i);
+  }
+}
 }  // namespace
 
 const std::vector<Set>& Sets()
@@ -184,7 +222,21 @@ const Set* Find(const std::string& name)
   std::lock_guard lock(s_mutex);
   ReadLocked();
   const auto it = s_by_name.find(Lower(name));
-  return it == s_by_name.end() ? nullptr : &s_sets[it->second];
+  if (it != s_by_name.end())
+    return &s_sets[it->second];
+  // (00.90) A zip named after its game: its set by the title (TitlesLocked).
+  TitlesLocked();
+  const std::string key = TitleKey(name);
+  if (key.empty())
+    return nullptr;
+  const bool region = name.find('(') != std::string::npos;
+  for (const auto* titles : {region ? &s_by_title : &s_by_head, region ? &s_by_head : &s_by_title})
+  {
+    const auto found = titles->find(key);
+    if (found != titles->end())
+      return &s_sets[found->second];
+  }
+  return nullptr;
 }
 
 const Set* Parent(const Set& set)
@@ -275,16 +327,23 @@ std::string GdromFile(const Set& set)
 
 std::vector<std::string> Missing(const Set& set, const std::string& folder, const std::string& system_dir)
 {
+  return Missing(set, folder, system_dir, FileExists);
+}
+
+std::vector<std::string> Missing(const Set& set, const std::string& folder, const std::string& system_dir,
+                                 const std::function<bool(const std::string&)>& exists)
+{
   std::vector<std::string> missing;
   // The BIOS: <system>/dc/<zip>, then beside the game (Flycast's findNaomiBios, a .zip, then a .7z).
-  if (!AnyFile(system_dir + "/dc/" + set.bios, {".zip", ".7z"}) && !AnyFile(folder + "/" + set.bios, {".zip", ".7z"}))
+  if (!AnyFile(exists, system_dir + "/dc/" + set.bios, {".zip", ".7z"}) &&
+      !AnyFile(exists, folder + "/" + set.bios, {".zip", ".7z"}))
     missing.push_back(BiosZip(set));
   // A clone's parent: beside it (OpenArchive: .7z, .7Z, .zip, .ZIP).
-  if (!set.parent.empty() && !AnyFile(folder + "/" + set.parent, {".zip", ".7z", ".ZIP", ".7Z"}))
+  if (!set.parent.empty() && !AnyFile(exists, folder + "/" + set.parent, {".zip", ".7z", ".ZIP", ".7Z"}))
     missing.push_back(set.parent + ".zip");
   // A GD-ROM game's disc: <folder>/<set>/<gdrom>.chd, else its parent's folder (GDCartridge::Init).
-  if (!set.gdrom.empty() && !FileExists(folder + "/" + GdromFile(set)) &&
-      (set.parent.empty() || !FileExists(folder + "/" + set.parent + "/" + set.gdrom + ".chd")))
+  if (!set.gdrom.empty() && !exists(folder + "/" + GdromFile(set)) &&
+      (set.parent.empty() || !exists(folder + "/" + set.parent + "/" + set.gdrom + ".chd")))
     missing.push_back(GdromFile(set));
   return missing;
 }
@@ -337,6 +396,20 @@ std::string LoadError(const std::string& core_message, const Set* set, const std
 std::string CheckSet(const std::string& path, const std::string& system_dir)
 {
 #ifdef EMUSUNI_DC
+  // (00.90) A zip not named as its set - after its game, or the set's name in capitals on the PS4's storage, which
+  // tells case apart -: the core told which set it is, for this check and the start that follows.
+  const size_t slash = path.find_last_of('/');
+  std::string stem = slash == std::string::npos ? path : path.substr(slash + 1);
+  if (const size_t dot = stem.rfind('.'); dot != std::string::npos)
+    stem.erase(dot);
+  const Set* set = Find(stem);
+  if (set && stem != set->name)
+  {
+    LogF("naomi: %s is the set %s, \"%s\" (by its name)", stem.c_str(), set->name.c_str(), set->title.c_str());
+    flycast_emusuni_set_alias(stem.c_str(), set->name.c_str());
+  }
+  else
+    flycast_emusuni_set_alias(nullptr, nullptr);
   char error[256] = {};
   const auto start = std::chrono::steady_clock::now();
   const bool starts = flycast_emusuni_check_set(path.c_str(), (system_dir + "/dc").c_str(), error, sizeof(error)) != 0;
@@ -435,8 +508,14 @@ std::string ImageTitle(const std::string& file_title, const Image& image, const 
 
 std::vector<std::string> ImageMissing(const std::string& folder, const std::string& system_dir)
 {
+  return ImageMissing(folder, system_dir, FileExists);
+}
+
+std::vector<std::string> ImageMissing(const std::string& folder, const std::string& system_dir,
+                                      const std::function<bool(const std::string&)>& exists)
+{
   // (loadDecryptedRom: always naomi.zip; findNaomiBios: system/dc, then the image's folder; a .zip, then a .7z.)
-  if (AnyFile(system_dir + "/dc/naomi", {".zip", ".7z"}) || AnyFile(folder + "/naomi", {".zip", ".7z"}))
+  if (AnyFile(exists, system_dir + "/dc/naomi", {".zip", ".7z"}) || AnyFile(exists, folder + "/naomi", {".zip", ".7z"}))
     return {};
   return {"naomi.zip"};
 }

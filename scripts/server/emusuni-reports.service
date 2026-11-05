@@ -1,0 +1,28 @@
+[Unit]
+Description=EmuSuNi log reports (HTTPS, TCP 443): the players' logs, sent from the app; the owner's panel
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=emusuni-reports
+Group=emusuni-reports
+# The statistics' country file (DB-IP's, /var/lib/emusuni-netd: that group may read it); (00.92) the panel reads
+# emusuni-netd's stats.db and titles.txt there too, read only.
+SupplementaryGroups=emusuni-netd
+# (00.92) The panel: EMUSUNI_REPORTS_ARGS="--public-host <the server's IP> --http-port 80" (deploy-reports.sh panel).
+EnvironmentFile=-/etc/emusuni-reports/env
+ExecStart=/usr/bin/python3 /opt/emusuni-reports/emusuni-reports.py --dir /var/lib/emusuni-reports serve --port 443 $EMUSUNI_REPORTS_ARGS
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ReadWritePaths=/var/lib/emusuni-reports
+MemoryMax=256M
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

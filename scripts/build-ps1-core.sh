@@ -45,6 +45,13 @@
 #   - (00.81) A LibCrypt disc without its .sbi starts (the core refused it: the app could only say the
 #     game didn't load), logged for the app to tell the player; and each start logs the disc (or none:
 #     an image the core couldn't open boots the BIOS without one), its code, the BIOS and the CPU.
+#   - (00.89) Pauses as a game goes to a new scene (GitHub #1): the shader worker compiles only the game's texture
+#     filter and the depth tests it can use (not ~12000 pipelines), its pipelines are written to the cache file as
+#     soon as it is done (not only as the game ends), it and the disc's read thread get PS4 priorities and cores of
+#     their own (the POSIX "lower" raised the worker on the PS4), and the log says what each pause waited for.
+#   - (00.90) The 00.81 interrupt change leaves the block early only outside a branch's delay slot (there it lost the
+#     branch: a game could jump to the wrong place); and any image of 2048-byte sectors (a .cue's MODE1/2048 track, a
+#     .chd made from an ISO, not only a lone .iso) is logged once, for the app to tell the player.
 # The object is checked at the end: only swanstation_retro_* defined globally, the C++ operator
 # new/delete it uses all EmuSuNi's own (port/ps4_new.cpp, on the app's heap) and none defined in
 # it, and every other symbol it needs found in what the app links (OpenOrbis' libc, libkernel,
@@ -406,12 +413,22 @@ patch('src/core/cpu_recompiler_code_generator.cpp',
       '#ifdef EMUSUNI_PORT\n'
       '            // EmuSuNi (DuckStation 312790c9): an interrupt pending now is taken now, not at the block\'s end\n'
       '            // (Jackie Chan Stuntmaster, MTV Sports games: a software interrupt raised by writing SR.Im).\n'
-      '            EmitBranch(GetCurrentFarCodePointer());\n'
-      '            SwitchToFarCode();\n'
-      '            WriteNewPC(CalculatePC(), false);\n'
-      '            EmitStoreCPUStructField(offsetof(State, downcount), Value::FromConstantU32(0));\n'
-      '            EmitExceptionExit();\n'
-      '            SwitchToNearCode();\n'
+      '            // (00.90) Not in a branch\'s delay slot: the PC known there is the one after the delay slot (or a\n'
+      '            // stale one after a jump to a register), so leaving the block lost the branch. The block ends\n'
+      '            // right after the delay slot anyway, and the events run then, as upstream.\n'
+      '            if (!cbi.is_branch_delay_slot && m_pc_valid)\n'
+      '            {\n'
+      '              EmitBranch(GetCurrentFarCodePointer());\n'
+      '              SwitchToFarCode();\n'
+      '              WriteNewPC(CalculatePC(), false);\n'
+      '              EmitStoreCPUStructField(offsetof(State, downcount), Value::FromConstantU32(0));\n'
+      '              EmitExceptionExit();\n'
+      '              SwitchToNearCode();\n'
+      '            }\n'
+      '            else\n'
+      '            {\n'
+      '              EmitStoreCPUStructField(offsetof(State, downcount), Value::FromConstantU32(0));\n'
+      '            }\n'
       '#else\n'
       '            EmitStoreCPUStructField(offsetof(State, downcount), Value::FromConstantU32(0));\n'
       '#endif\n'
@@ -484,6 +501,14 @@ patch('src/common/cd_image.cpp',
       '      if (m_current_index->file_sector_size == DATA_SECTOR_SIZE &&\n'
       '          (m_current_index->mode == TrackMode::Mode1 || m_current_index->mode == TrackMode::Mode2Form1))\n'
       '      {\n'
+      '        // (00.90) Said once an image, whatever holds it (a .cue\'s MODE1/2048 track, a .chd made from an ISO): the\n'
+      '        // app tells the player that films and voices are lost (src/Emulator.cpp looks for this line).\n'
+      '        if (!m_emusuni_cooked_logged)\n'
+      '        {\n'
+      '          m_emusuni_cooked_logged = true;\n'
+      '          Log_InfoPrintf("EmuSuNi: \'%s\' has 2048-byte sectors (an ISO\'s: no sound or film sectors): read as Mode 2 Form 1",\n'
+      '                         m_filename.c_str());\n'
+      '        }\n'
       '        static constexpr uint8_t sync[SECTOR_SYNC_SIZE] = {0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,\n'
       '                                                           0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00};\n'
       '        uint8_t* const sector = static_cast<uint8_t*>(buffer);\n'
@@ -499,6 +524,12 @@ patch('src/common/cd_image.cpp',
       '        sector[22] = 0x08;\n'
       '        std::memset(sector + 24 + DATA_SECTOR_SIZE, 0, RAW_SECTOR_SIZE - 24 - DATA_SECTOR_SIZE);\n'
       '      }\n'
+      '#endif\n')
+patch('src/common/cd_image.h',
+      '  std::string m_filename;\n',
+      '  std::string m_filename;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '  bool m_emusuni_cooked_logged = false; // EmuSuNi (00.90): its 2048-byte sectors already in the log\n'
       '#endif\n')
 # A lone .bin, .img or .iso (the core opens it as one data track): its sector size from what it holds - a raw image's
 # first sector begins with the sync (2352 bytes a sector, as before), a cooked one has its volume descriptor
@@ -576,6 +607,335 @@ patch('src/libretro/libretro_host_interface.cpp',
       '                                                                      "from a BIOS file",\n'
       '                 Settings::GetCPUExecutionModeName(g_settings.cpu_execution_mode));\n'
       '#endif\n')
+
+# --- (00.89) Pauses of seconds as a PlayStation game goes from one scene to the next (Bust a Groove after Fever Time,
+# Ninpuu Sentai Harikenger after its first boss: GitHub #1). The Vulkan renderer's pipelines are compiled the first
+# time a draw needs one ("Lazy": the emulation thread waits for it) while a worker thread compiles them all ahead of
+# use. Three things made that worse on the PS4:
+#   - The worker walked the whole matrix of every texture filter (7 of them) and depth test (3): ~12000 pipelines,
+#     minutes of a PS4 core and their memory; a game draws with one filter, and the PGXP depth buffer's test only when
+#     it is on (the app never turns it on). Now the game's filter and the depth tests it can use: about a tenth.
+#   - Its pipeline cache file (system/swanstation/vulkan_pipelines.bin) was written only as the game ended: a game left
+#     any other way kept nothing and compiled everything again next time. Now also as soon as the worker's walk ends.
+#   - Its priority: LowerCurrentThreadPriority moves halfway to POSIX's minimum, and the PS4's priorities run the other
+#     way (256 the highest, 767 the lowest): it could put the worker above the emulation thread (480). Now the app's
+#     workers' 700, off core 2; and the disc's read thread, which the emulation waits for at every seek (it kept the
+#     priority it was made with), at the emulation's 480. Both logged with what POSIX said.
+# And the app's log now says what a pause was: a pipeline the emulation thread had to build itself (and how long), a
+# wait for the disc's read thread of 20 ms or more, and what the worker did ("EmuSuNi: shader worker done: ...").
+patch('src/common/thread_priority.h',
+      '}\n\n} // namespace ThreadPriority\n',
+      '}\n\n} // namespace ThreadPriority\n\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '// EmuSuNi (scripts/build-ps1-core.sh): the core\'s threads placed as the app places the other cores\' (port/ps4_n64.c):\n'
+      '// a priority and cores of the PS4\'s own. Its priorities run the other way from POSIX\'s (256 the highest, 767 the\n'
+      '// lowest, 700 the default): LowerCurrentThreadPriority\'s "halfway to the minimum" could raise a thread above the\n'
+      '// emulation\'s 480. What POSIX says of the thread is kept for the log. On the PC (the tests) nothing is changed.\n'
+      '#include <cstdint>\n'
+      '#include <pthread.h>\n'
+      '#include <sched.h>\n'
+      '#if defined(__ORBIS__)\n'
+      'extern "C" void* emusuni_ps1_thread_self(void) __asm__("scePthreadSelf");\n'
+      'extern "C" int emusuni_ps1_thread_getprio(void* thread, int* priority) __asm__("scePthreadGetprio");\n'
+      'extern "C" int emusuni_ps1_thread_setprio(void* thread, int priority) __asm__("scePthreadSetprio");\n'
+      'extern "C" int emusuni_ps1_thread_setaffinity(void* thread, uint64_t mask) __asm__("scePthreadSetaffinity");\n'
+      'extern "C" int emusuni_ps1_thread_rename(void* thread, const char* name) __asm__("scePthreadRename");\n'
+      'extern "C" int sceKernelGetCurrentCpu(void);\n'
+      '#endif\n\n'
+      'namespace ThreadPriority {\n\n'
+      'struct EmuSuNiPlacement\n'
+      '{\n'
+      '  int posix_policy = -1, posix_priority = -1, posix_min = -1, posix_max = -1; // what POSIX says of the thread\n'
+      '  int before = -1;                              // the PS4 priority it had\n'
+      '  int priority_result = -1, cores_result = -1;  // scePthreadSetprio\'s, scePthreadSetaffinity\'s (0: done)\n'
+      '  int cpu = -1;                                 // the core it runs on now\n'
+      '};\n\n'
+      '// Places the calling thread: the PS4 priority, the cores (a mask) and the name.\n'
+      'inline EmuSuNiPlacement EmuSuNiPlaceThread(const char* name, int priority, uint64_t cores)\n'
+      '{\n'
+      '  EmuSuNiPlacement placed;\n'
+      '  sched_param sp = {};\n'
+      '  if (pthread_getschedparam(pthread_self(), &placed.posix_policy, &sp) == 0)\n'
+      '  {\n'
+      '    placed.posix_priority = sp.sched_priority;\n'
+      '    placed.posix_min = sched_get_priority_min(placed.posix_policy);\n'
+      '    placed.posix_max = sched_get_priority_max(placed.posix_policy);\n'
+      '  }\n'
+      '#if defined(__ORBIS__)\n'
+      '  void* const self = emusuni_ps1_thread_self();\n'
+      '  emusuni_ps1_thread_getprio(self, &placed.before);\n'
+      '  placed.cores_result = emusuni_ps1_thread_setaffinity(self, cores);\n'
+      '  placed.priority_result = emusuni_ps1_thread_setprio(self, priority);\n'
+      '  emusuni_ps1_thread_rename(self, name);\n'
+      '  placed.cpu = sceKernelGetCurrentCpu();\n'
+      '#else\n'
+      '  (void)name;\n  (void)priority;\n  (void)cores;\n'
+      '#endif\n'
+      '  return placed;\n'
+      '}\n\n'
+      '} // namespace ThreadPriority\n'
+      '#endif\n')
+patch('src/common/vulkan/shader_cache.h',
+      '  void MergeWorkerPipelineCache(VkPipelineCache cache);\n',
+      '  void MergeWorkerPipelineCache(VkPipelineCache cache);\n\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '  /// EmuSuNi: writes a worker\'s cache (seeded with this one\'s) to the file now, when it holds more than the file\n'
+      '  /// did; by that worker, its walk done (the file was written only at the end of the game).\n'
+      '  bool SaveWorkerPipelineCache(VkPipelineCache cache);\n'
+      '#endif\n')
+patch('src/common/vulkan/shader_cache.h',
+      '  bool m_pipeline_cache_dirty = false;\n',
+      '  bool m_pipeline_cache_dirty = false;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '  size_t m_saved_size = 0; // EmuSuNi: the file\'s size as it was read, or as a worker last wrote it\n'
+      '#endif\n')
+patch('src/common/vulkan/shader_cache.cpp',
+      '#include <file/file_path.h>\n',
+      '#include <file/file_path.h>\n'
+      '#ifdef EMUSUNI_PORT\n#include <cstdio>\n#endif\n')
+patch('src/common/vulkan/shader_cache.cpp',
+      '    LOG_VULKAN_ERROR(res, "vkCreatePipelineCache() failed: ");\n'
+      '    return false;\n'
+      '  }\n\n'
+      '  return true;\n'
+      '}\n\n'
+      'bool ShaderCache::FlushPipelineCache()\n',
+      '    LOG_VULKAN_ERROR(res, "vkCreatePipelineCache() failed: ");\n'
+      '    return false;\n'
+      '  }\n\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '  m_saved_size = data->size();\n'
+      '  Log_InfoPrintf("EmuSuNi: pipeline cache: %zu bytes read from \'%s\'", data->size(), m_pipeline_cache_filename.c_str());\n'
+      '#endif\n'
+      '  return true;\n'
+      '}\n\n'
+      'bool ShaderCache::FlushPipelineCache()\n')
+patch('src/common/vulkan/shader_cache.cpp',
+      'void ShaderCache::ClosePipelineCache()\n{\n',
+      '#ifdef EMUSUNI_PORT\n'
+      'bool ShaderCache::SaveWorkerPipelineCache(VkPipelineCache cache)\n'
+      '{\n'
+      '  // EmuSuNi: only the worker uses its cache (vkGetPipelineCacheData from it is safe here); the file is written\n'
+      '  // beside and renamed over the old one, so an app closed meanwhile keeps the old file whole.\n'
+      '  if (cache == VK_NULL_HANDLE || m_pipeline_cache_filename.empty())\n'
+      '    return false;\n'
+      '  const VkDevice device = g_vulkan_context->GetDevice();\n'
+      '  size_t data_size = 0;\n'
+      '  if (vkGetPipelineCacheData(device, cache, &data_size, nullptr) != VK_SUCCESS || data_size <= m_saved_size)\n'
+      '    return false;\n'
+      '  std::vector<uint8_t> data(data_size);\n'
+      '  if (vkGetPipelineCacheData(device, cache, &data_size, data.data()) != VK_SUCCESS)\n'
+      '    return false;\n'
+      '  const std::string temp = m_pipeline_cache_filename + ".new";\n'
+      '  if (!FileSystem::WriteBinaryFile(temp.c_str(), data.data(), data_size) ||\n'
+      '      std::rename(temp.c_str(), m_pipeline_cache_filename.c_str()) != 0)\n'
+      '  {\n'
+      '    Log_ErrorPrintf("EmuSuNi: the shader worker\'s pipelines couldn\'t be written to \'%s\'", m_pipeline_cache_filename.c_str());\n'
+      '    filestream_delete(temp.c_str());\n'
+      '    return false;\n'
+      '  }\n'
+      '  m_saved_size = data_size;\n'
+      '  Log_InfoPrintf("EmuSuNi: pipeline cache: the shader worker\'s %zu bytes written to \'%s\'", data_size,\n'
+      '                 m_pipeline_cache_filename.c_str());\n'
+      '  return true;\n'
+      '}\n\n'
+      '#endif\n'
+      'void ShaderCache::ClosePipelineCache()\n{\n')
+patch('src/core/gpu_hw_vulkan.h',
+      '  VkPipelineCache m_worker_pipeline_cache = VK_NULL_HANDLE;\n',
+      '  VkPipelineCache m_worker_pipeline_cache = VK_NULL_HANDLE;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '  // EmuSuNi (scripts/build-ps1-core.sh), for the app\'s log: the pipelines the emulation thread built itself (the\n'
+      '  // worker hadn\'t reached them) and their time - the emulation thread\'s only; the worker\'s count - the worker\'s.\n'
+      '  uint32_t m_emusuni_main_builds = 0;\n'
+      '  uint32_t m_emusuni_main_logged = 0;\n'
+      '  double m_emusuni_main_build_ms = 0.0;\n'
+      '  uint32_t m_emusuni_worker_builds = 0;\n'
+      '#endif\n')
+patch('src/core/gpu_hw_vulkan.cpp',
+      '  ThreadPriority::LowerCurrentThreadPriority();\n\n'
+      '  // Filter is the outermost loop.',
+      '#ifdef EMUSUNI_PORT\n'
+      '  // EmuSuNi: below the emulation thread (480), the sound and the disc\'s read thread: the app\'s workers\' one priority\n'
+      '  // (700), off core 2, as the other cores\' workers (port/ps4_n64.c). On the PS4 LowerCurrentThreadPriority\'s\n'
+      '  // "halfway to the minimum" counts the wrong way (256 is its highest priority).\n'
+      '  const ThreadPriority::EmuSuNiPlacement placed = ThreadPriority::EmuSuNiPlaceThread("ps1 shaders", 700, 0x3Aull);\n'
+      '  Log_InfoPrintf("EmuSuNi: thread \\"ps1 shaders\\": priority %d -> 700 (%#x), cores 1,3,4,5 (%#x), running on CPU %d; "\n'
+      '                 "POSIX: policy %d, priority %d, range %d to %d",\n'
+      '                 placed.before, static_cast<unsigned>(placed.priority_result), static_cast<unsigned>(placed.cores_result),\n'
+      '                 placed.cpu, placed.posix_policy, placed.posix_priority, placed.posix_min, placed.posix_max);\n'
+      '  const Common::Timer::Value emusuni_start = Common::Timer::GetValue();\n'
+      '  m_emusuni_worker_builds = 0;\n'
+      '  const bool emusuni_depth_buffer = m_pgxp_depth_buffer;\n'
+      '#else\n'
+      '  ThreadPriority::LowerCurrentThreadPriority();\n'
+      '#endif\n\n'
+      '  // Filter is the outermost loop.')
+patch('src/core/gpu_hw_vulkan.cpp',
+      '  const bool scaled_dithering = m_scaled_dithering;\n'
+      '  for (uint8_t f_offset = 0;',
+      '  const bool scaled_dithering = m_scaled_dithering;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '  // EmuSuNi: what the worker did, in the app\'s log; its walk done, its pipelines written to the cache file at once.\n'
+      '  const auto emusuni_summary = [&](bool done) {\n'
+      '    const double seconds = static_cast<double>(Common::Timer::GetValue() - emusuni_start) / 1e9;\n'
+      '    Log_InfoPrintf("EmuSuNi: shader worker %s: %u pipelines built in %.1f s (texture filter %u, PGXP depth buffer %s)",\n'
+      '                   done ? "done" : "stopped (the game ended, or a setting changed)", m_emusuni_worker_builds, seconds,\n'
+      '                   static_cast<unsigned>(current_filter), emusuni_depth_buffer ? "on" : "off");\n'
+      '    if (done)\n'
+      '      g_vulkan_shader_cache->SaveWorkerPipelineCache(m_worker_pipeline_cache);\n'
+      '  };\n'
+      '#endif\n'
+      '  for (uint8_t f_offset = 0;')
+patch('src/core/gpu_hw_vulkan.cpp',
+      '    if (!dual_source && TextureFilterRequiresDualSourceBlend(filter))\n'
+      '      continue;\n\n'
+      '    for (uint8_t depth_test = 0; depth_test < 3; depth_test++)\n'
+      '    {\n',
+      '    if (!dual_source && TextureFilterRequiresDualSourceBlend(filter))\n'
+      '      continue;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '    // EmuSuNi: the filter the game draws with only (the other six were most of the walk: minutes of a PS4 core and\n'
+      '    // their pipelines\' memory, for a change of filter the player seldom makes; a change starts a worker for it).\n'
+      '    if (f_offset > 0)\n'
+      '      break;\n'
+      '#endif\n\n'
+      '    for (uint8_t depth_test = 0; depth_test < 3; depth_test++)\n'
+      '    {\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '      // EmuSuNi: the PGXP depth buffer\'s test (2) only while it is on: the draws ask for it only then.\n'
+      '      if (depth_test == 2 && !emusuni_depth_buffer)\n'
+      '        continue;\n'
+      '#endif\n')
+patch('src/core/gpu_hw_vulkan.cpp',
+      '                if (retro_atomic_load_acquire_int(&m_shader_compile_thread_quit))\n'
+      '                  return;\n',
+      '                if (retro_atomic_load_acquire_int(&m_shader_compile_thread_quit))\n'
+      '                {\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '                  emusuni_summary(false);\n'
+      '#endif\n'
+      '                  return;\n'
+      '                }\n')
+patch('src/core/gpu_hw_vulkan.cpp',
+      '  }\n}\n\nVkShaderModule GPU_HW_Vulkan::GetBatchFragmentShader(',
+      '  }\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '  emusuni_summary(true);\n'
+      '#endif\n'
+      '}\n\nVkShaderModule GPU_HW_Vulkan::GetBatchFragmentShader(')
+patch('src/core/gpu_hw_vulkan.cpp',
+      '  const VkPipeline fresh = gpbuilder.Create(g_vulkan_context->GetDevice(), pipeline_cache);\n'
+      '  if (fresh == VK_NULL_HANDLE)\n'
+      '  {\n'
+      '    Log_ErrorPrintf("Lazy batch PSO compile failed',
+      '#ifdef EMUSUNI_PORT\n'
+      '  const Common::Timer::Value emusuni_start = Common::Timer::GetValue();\n'
+      '#endif\n'
+      '  const VkPipeline fresh = gpbuilder.Create(g_vulkan_context->GetDevice(), pipeline_cache);\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '  if (fresh != VK_NULL_HANDLE && on_worker)\n'
+      '  {\n'
+      '    m_emusuni_worker_builds++;\n'
+      '  }\n'
+      '  else if (fresh != VK_NULL_HANDLE)\n'
+      '  {\n'
+      '    // EmuSuNi: one the worker hadn\'t reached, built on the emulation thread: the game waited for it (a new\n'
+      '    // scene\'s first draws). The first 40 of 10 ms or more in the app\'s log, then every 50th, with the totals.\n'
+      '    const double ms = static_cast<double>(Common::Timer::GetValue() - emusuni_start) / 1e6;\n'
+      '    m_emusuni_main_builds++;\n'
+      '    m_emusuni_main_build_ms += ms;\n'
+      '    if (ms >= 10.0 && (m_emusuni_main_logged < 40 || m_emusuni_main_builds % 50 == 0))\n'
+      '    {\n'
+      '      m_emusuni_main_logged++;\n'
+      '      Log_InfoPrintf("EmuSuNi: a pipeline built on the emulation thread in %.0f ms (the shader worker hadn\'t "\n'
+      '                     "reached it): %u so far, %.0f ms in all", ms, m_emusuni_main_builds, m_emusuni_main_build_ms);\n'
+      '    }\n'
+      '  }\n'
+      '#endif\n'
+      '  if (fresh == VK_NULL_HANDLE)\n'
+      '  {\n'
+      '    Log_ErrorPrintf("Lazy batch PSO compile failed')
+patch('src/core/cdrom_async_reader.cpp',
+      '#include <rthreads/rthreads.h>\nLog_SetChannel(CDROMAsyncReader);\n',
+      '#include <rthreads/rthreads.h>\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '#include "common/thread_priority.h"\n'
+      '#include "common/timer.h"\n'
+      '#endif\n'
+      'Log_SetChannel(CDROMAsyncReader);\n\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '// EmuSuNi (scripts/build-ps1-core.sh): the emulation\'s waits for the read thread long enough to be seen (20 ms or\n'
+      '// more: a frame), for the app\'s log - the first 30 of a game, then every 25th, with the totals.\n'
+      'static uint32_t s_emusuni_long_waits = 0;\n'
+      'static double s_emusuni_long_wait_ms = 0.0;\n'
+      '#endif\n')
+patch('src/core/cdrom_async_reader.cpp',
+      '  m_buffers.clear();\n  m_buffers.resize(readahead_count);\n',
+      '  m_buffers.clear();\n  m_buffers.resize(readahead_count);\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '  s_emusuni_long_waits = 0;\n'
+      '  s_emusuni_long_wait_ms = 0.0;\n'
+      '#endif\n')
+patch('src/core/cdrom_async_reader.cpp',
+      '  int state;\n'
+      '  while ((state = poll()) < 0)\n'
+      '  {\n'
+      '    const int key = retro_eventcount_prepare_wait(&t->reader_ec);\n'
+      '    if ((state = poll()) >= 0)\n'
+      '    {\n'
+      '      retro_eventcount_cancel_wait(&t->reader_ec);\n'
+      '      break;\n'
+      '    }\n'
+      '    retro_eventcount_commit_wait(&t->reader_ec, key);\n'
+      '  }\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '  Common::Timer::Value emusuni_from = 0;\n'
+      '#endif\n'
+      '  int state;\n'
+      '  while ((state = poll()) < 0)\n'
+      '  {\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '    if (emusuni_from == 0)\n'
+      '      emusuni_from = Common::Timer::GetValue();\n'
+      '#endif\n'
+      '    const int key = retro_eventcount_prepare_wait(&t->reader_ec);\n'
+      '    if ((state = poll()) >= 0)\n'
+      '    {\n'
+      '      retro_eventcount_cancel_wait(&t->reader_ec);\n'
+      '      break;\n'
+      '    }\n'
+      '    retro_eventcount_commit_wait(&t->reader_ec, key);\n'
+      '  }\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '  if (emusuni_from != 0)\n'
+      '  {\n'
+      '    const double ms = static_cast<double>(Common::Timer::GetValue() - emusuni_from) / 1e6;\n'
+      '    if (ms >= 20.0)\n'
+      '    {\n'
+      '      s_emusuni_long_waits++;\n'
+      '      s_emusuni_long_wait_ms += ms;\n'
+      '      if (s_emusuni_long_waits <= 30 || s_emusuni_long_waits % 25 == 0)\n'
+      '        Log_InfoPrintf("EmuSuNi: the disc\'s next sector (reading from LBA %d) waited %.0f ms for the read thread: "\n'
+      '                       "%u such waits, %.0f ms in all", retro_atomic_load_relaxed_int(&t->request_lba), ms,\n'
+      '                       s_emusuni_long_waits, s_emusuni_long_wait_ms);\n'
+      '    }\n'
+      '  }\n'
+      '#endif\n')
+patch('src/core/cdrom_async_reader.cpp',
+      '  ThreadState* t = static_cast<ThreadState*>(userdata);\n'
+      '  t->owner->WorkerThread(t);\n',
+      '  ThreadState* t = static_cast<ThreadState*>(userdata);\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '  // EmuSuNi: the emulation waits for this thread at every seek: at the emulation thread\'s priority (480), as the\n'
+      '  // app\'s other cores\' threads it waits for (port/ps4_n64.c), off core 2. It kept the priority it was made with.\n'
+      '  const ThreadPriority::EmuSuNiPlacement placed = ThreadPriority::EmuSuNiPlaceThread("ps1 disc", 480, 0x3Aull);\n'
+      '  Log_InfoPrintf("EmuSuNi: thread \\"ps1 disc\\": priority %d -> 480 (%#x), cores 1,3,4,5 (%#x), running on CPU %d; "\n'
+      '                 "POSIX: policy %d, priority %d, range %d to %d",\n'
+      '                 placed.before, static_cast<unsigned>(placed.priority_result), static_cast<unsigned>(placed.cores_result),\n'
+      '                 placed.cpu, placed.posix_policy, placed.posix_priority, placed.posix_min, placed.posix_max);\n'
+      '#endif\n'
+      '  t->owner->WorkerThread(t);\n')
 
 for path, text in patched.items():
     full = root + '/' + path

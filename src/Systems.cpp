@@ -139,6 +139,38 @@ const std::vector<System>& Systems()
        "/usb0/Roms/pce", {".pce"}, "NEC - PC Engine - TurboGrafx 16",
        "libretro-thumbnails/NEC_-_PC_Engine_-_TurboGrafx_16", &Cores::BEETLE_PCE},
 #endif
+#ifdef EMUSUNI_A2600
+      // The Atari 2600 (00.90): Stella (scripts/build-atari-cores.sh). Cartridges: a .a26 or a .bin (AtariAge's sets;
+      // a .bin of 64 KiB or less is the 2600's, a Genesis cartridge is 128 KiB or more: src/Library.cpp), or a .zip of
+      // one, read by the app and handed over from memory. The badge in the woodgrain's gold.
+      {SystemId::A2600, "atari2600", "Atari 2600", "Atari 2600", "2600", "ATARI 2600", "ATARI 2600", 0xB8902A,
+       0xB8902A, "atari2600/", "/usb0/Roms/atari2600", {".a26", ".bin"}, "Atari - 2600",
+       "libretro-thumbnails/Atari_-_2600", &Cores::STELLA},
+#endif
+#ifdef EMUSUNI_A7800
+      // The Atari 7800 (00.90): ProSystem. Cartridges: a .a78 (with its header, which says the cartridge's kind; one
+      // without is found in its game database), or a .zip of one. Its BIOS is optional (the player's own). The badge
+      // in a lime green no other console has.
+      {SystemId::A7800, "atari7800", "Atari 7800", "Atari 7800", "7800", "ATARI 7800", "ATARI 7800", 0x7CB342,
+       0x7CB342, "atari7800/", "/usb0/Roms/atari7800", {".a78"}, "Atari - 7800",
+       "libretro-thumbnails/Atari_-_7800", &Cores::PROSYSTEM},
+#endif
+#ifdef EMUSUNI_JAGUAR
+      // The Atari Jaguar (00.90): Virtual Jaguar. Cartridges: a .j64 or .jag (and the homebrew's .abs, .cof), or a
+      // .zip of one. Its BIOS is optional (the player's own): the games start without it. The badge in the red of
+      // its "64-BIT".
+      {SystemId::JAGUAR, "atarijaguar", "Atari Jaguar", "Atari Jaguar", "Jaguar", "JAGUAR", "JAGUAR", 0xC62828,
+       0xC62828, "atarijaguar/", "/usb0/Roms/atarijaguar", {".j64", ".jag", ".abs", ".cof"}, "Atari - Jaguar",
+       "libretro-thumbnails/Atari_-_Jaguar", &Cores::VIRTUAL_JAGUAR},
+#endif
+#ifdef EMUSUNI_OPENBOR
+      // OpenBOR (with-openbor): not a console, the beat 'em up engine's games ("mods", fan-made, free): a .pak that the
+      // core reads itself from its path (by_path: no .zip), and whose engine version (3.0 build 6391 or 4.0 build
+      // 8025) it picks by what the .pak holds (scripts/build-openbor-core.sh). No libretro thumbnails (empty: no cover
+      // downloads). The badge in a steel blue no other console has.
+      {SystemId::OPENBOR, "openbor", "OpenBOR", "OpenBOR", "OpenBOR", "OPENBOR", "OPENBOR", 0x37617A, 0x37617A,
+       "openbor/", "/usb0/Roms/openbor", {".pak"}, "", "", &Cores::OPENBOR, true},
+#endif
   };
   return SYSTEMS;
 }

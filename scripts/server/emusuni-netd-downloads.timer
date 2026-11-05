@@ -1,0 +1,11 @@
+# GitHub's download counts recorded once a day (UTC: the statistics' days). Installed by scripts/server/deploy.sh.
+[Unit]
+Description=EmuSuNi online server: GitHub's download counts, daily
+
+[Timer]
+OnCalendar=*-*-* 23:30:00 UTC
+RandomizedDelaySec=10m
+Persistent=true
+
+[Install]
+WantedBy=timers.target

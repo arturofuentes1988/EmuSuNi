@@ -1,0 +1,19 @@
+# EmuSuNi's online server: the game titles of the statistics (update-titles.sh: libretro-database's and FinalBurn
+# Neo's lists into titles.txt), run by emusuni-netd-titles.timer once a month. Installed by scripts/server/deploy.sh.
+[Unit]
+Description=EmuSuNi online server: the statistics' game titles
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=emusuni-netd
+Group=emusuni-netd
+StateDirectory=emusuni-netd
+StateDirectoryMode=0750
+UMask=0027
+ExecStart=/opt/emusuni-netd/update-titles.sh /var/lib/emusuni-netd
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes

@@ -101,6 +101,17 @@
 #     the emulated swapchain made again at the new size; the swapchain's old images kept until the frontend
 #     can't be using them, each picture handed with its own image's size) and the anisotropic filtering's
 #     level (the samplers made again), as upstream does the texture shader and the anti-aliasing (MSAA).
+#   - Upstream's later CPU depth rasterizer (scripts/psp-core-upstream.diff, applied before the changes here:
+#     compat.ini's SoftwareRasterDepth, the lens flares of Midnight Club: LA Remix, Syphon Filter, Wipeout...):
+#     on a thread of its own ("DepthRaster", port/'s placement) instead of the emulation thread, its fixes and a
+#     row stopped once it has left the triangle. At low quality (every other row, as upstream on phones) unless
+#     EMUSUNI_PSP_DEPTH_RASTER says "full" or "off" (src/Emulator.cpp: the files psp-depth-raster-full and
+#     -off). Its time in the log's lines (the thread's, and the emulation's waits for it).
+#   - Online play (off unless src/Emulator.cpp turns the PSP's Wi-Fi on): the games' own servers (infrastructure: the
+#     revival servers, through PS Rewired's DNS or the game's in infra-dns.json) and ad hoc through a PRO ad hoc server
+#     and its relay. The PS4's socket values (FreeBSD's) where OpenOrbis' headers have Linux's (MSG_*, IP_*, TCP_KEEP*),
+#     SO_NOSIGPIPE on each socket, names looked up by the PS4's resolver (not musl's getaddrinfo), the game's DNS asked
+#     with a timeout, nothing downloaded, no IPv4 address in the log ("<IP>").
 #   - Built as a static library, without LTO (ld -r of LLVM bitcode), with its own zlib, libpng,
 #     zstd (without its dictionary builder), libchdr... (nothing of the system's), no Discord, UPnP or
 #     HTTPS. As one object: the JIT's common files only in Core (upstream also puts them in Common for
@@ -133,11 +144,14 @@ LOG="$OUT/psp-core.log"
 HOST="${PSP_CORE_HOST:-0}"
 JOBS="${PSP_CORE_JOBS:-4}"   # at most 4 compilers at once (the PC's load)
 
-python3 -I - "$SRC" <<'PATCH'
+UPSTREAM_DIFF="$HERE/psp-core-upstream.diff"
+
+python3 -I - "$SRC" "$UPSTREAM_DIFF" <<'PATCH'
 import os
 import subprocess
 import sys
 root = sys.argv[1]
+upstream_diff = sys.argv[2]
 patched = {}
 def git_file(repo, path):
     blob = subprocess.run(['git', '-C', repo, 'show', 'HEAD:' + path], check=True,
@@ -155,6 +169,52 @@ def patch(path, old, new, repo=None):
 def addfile(path, text):
     # A file of EmuSuNi's own in the tree (git doesn't know it).
     patched[(root, path)] = text
+def apply_diff(diff_path):
+    # Upstream's own later changes, a git diff against the commit setup.sh pins (scripts/psp-core-upstream.diff),
+    # before EmuSuNi's patches: each hunk's old lines found once more where it says (the nearest match), else
+    # the build stops. Its lines before the first file are notes.
+    lines = open(diff_path, encoding='utf-8').read().replace('\r\n', '\n').split('\n')
+    i, path, shift = 0, None, 0
+    while i < len(lines):
+        line = lines[i]
+        i += 1
+        if line.startswith('+++ b/'):
+            path, shift = line[6:], 0
+            if (root, path) not in patched:
+                patched[(root, path)] = git_file(root, path)
+            continue
+        if not line.startswith('@@ ') or path is None:
+            continue
+        olds, news = line.split()[1:3]
+        old_left = int(olds.split(',')[1]) if ',' in olds else 1
+        new_left = int(news.split(',')[1]) if ',' in news else 1
+        at = int(olds[1:].split(',')[0]) - 1 + shift
+        old, new = [], []
+        while old_left > 0 or new_left > 0:
+            h = lines[i]
+            i += 1
+            if h.startswith('\\'):
+                continue
+            kind, body = (h[0], h[1:]) if h else (' ', '')  # (an empty line: context whose space was lost)
+            if kind != '+':
+                old.append(body)
+                old_left -= 1
+            if kind != '-':
+                new.append(body)
+                new_left -= 1
+        text = patched[(root, path)]
+        old_text, new_text = ''.join(l + '\n' for l in old), ''.join(l + '\n' for l in new)
+        found, pos = [], text.find(old_text)
+        while pos >= 0:
+            if pos == 0 or text[pos - 1] == '\n':
+                found.append(pos)
+            pos = text.find(old_text, pos + 1)
+        assert found, (diff_path, path, 'hunk at line', at + 1, old[:3])
+        pos = min(found, key=lambda p: abs(text.count('\n', 0, p) - at))
+        patched[(root, path)] = text[:pos] + new_text + text[pos + len(old_text):]
+        shift += len(new) - len(old)
+
+apply_diff(upstream_diff)
 
 # --- The build: the EMUSUNI_PORT option, a static libretro core, Vulkan only, no system libraries.
 patch('CMakeLists.txt',
@@ -1841,6 +1901,537 @@ for request in ('void UPnP_Add(const char* protocol, unsigned short port, unsign
           '\t\treturn;  // EmuSuNi: no UPnP service to take it (sceNet.cpp)\n'
           '#endif\n')
 
+# --- Online play: the games' own (infrastructure, through the servers that revived them: PS Rewired's DNS or the
+# game's in infra-dns.json) and ad hoc's (through a PRO ad hoc server and its relay, aemu_postoffice). Off unless the
+# app's PSP Online turns the Wi-Fi on (src/Emulator.cpp: ppsspp_enable_wlan, the server ppsspp_change_pro_ad_hoc_
+# server_address). What the PS4 needs:
+#   - OpenOrbis' headers have Linux's values for MSG_*, IP_* and TCP_KEEP*, where the PS4's kernel (FreeBSD's) has
+#     others: MSG_NOSIGNAL is its MSG_NBIO, MSG_DONTWAIT its MSG_WAITALL, IP_TTL its IP_HDRINCL, TCP_KEEPIDLE its
+#     TCP_NOPUSH (the ad hoc server's connection would have held back every small packet). FreeBSD's values in
+#     SocketCompat.h, which every network file of PPSSPP includes. No SIGPIPE: SO_NOSIGPIPE (FreeBSD's 0x0800, in
+#     the PS4's headers) on each socket, as upstream does on the BSDs (its setSockNoSIGPIPE: the ad hoc server's,
+#     the PDP and PTP sockets, the games' own; the relay's sockets set it themselves); MSG_NOSIGNAL is then 0, as
+#     upstream's where there is none. No SOCK_NONBLOCK/SOCK_CLOEXEC (the PS4 refuses a socket asked with them).
+#   - Names looked up by the PS4's resolver (libSceNet's, as the app's src/Net.cpp), never musl's getaddrinfo
+#     (no /etc/resolv.conf: it asks 127.0.0.1 and waits seconds); IPv4 only.
+#   - The game's own DNS (the revival servers') asked with an answer awaited at most 2 s, asked again once (upstream
+#     waited for ever: one datagram lost and the game stopped there, and a failed receive was parsed as 4 GiB long).
+#   - Nothing downloaded: infra-dns.json from the PPSSPP folder (scripts/package.sh), the relay always on (every
+#     server the app offers is one: no adhoc-servers.json needed), no built-in server, no UPnP, no chat.
+#   - The log: never an IPv4 address (each written "<IP>": the players', the servers'); PPSSPP's network lines from
+#     WARNING up unless EMUSUNI_PSP_NET_LOG=1 (src/Emulator.cpp: the file psp-net-log), its INFO lines then too
+#     (one for each of the games' calls). Ours: "psp: online play on/off" and "EmuSuNi: ..." for each lookup and the
+#     ad hoc server's login; every ~10 s while anything went out or came in, "psp: online in 10.0 s: ..." (connections
+#     made and failed, KiB out and in; the games' own servers apart from ad hoc's).
+#   - The PSP's nickname: the app's online nickname (EMUSUNI_PSP_NICKNAME, src/Emulator.cpp), else "EmuSuNi".
+def net_tabs(text):
+    return text.replace('    ', '\t')  # (as tabs() below: PPSSPP's files indent with tabs)
+
+patch('Common/Net/SocketCompat.h',
+      '#ifdef ERROR\n#undef ERROR\n#endif\n',
+      '#ifdef ERROR\n#undef ERROR\n#endif\n'
+      '\n'
+      '#if defined(EMUSUNI_PORT) && defined(__ORBIS__)\n'
+      '// EmuSuNi (scripts/build-psp-core.sh): the PS4 kernel\'s (FreeBSD\'s) values where OpenOrbis\' headers have Linux\'s.\n'
+      '#include <cstddef>\n'
+      '#undef MSG_EOR\n#define MSG_EOR 0x8\n'
+      '#undef MSG_TRUNC\n#define MSG_TRUNC 0x10\n'
+      '#undef MSG_CTRUNC\n#define MSG_CTRUNC 0x20\n'
+      '#undef MSG_WAITALL\n#define MSG_WAITALL 0x40\n'
+      '#undef MSG_DONTWAIT\n#define MSG_DONTWAIT 0x80\n'
+      '#undef MSG_NOSIGNAL\n#define MSG_NOSIGNAL 0  // (Linux\'s 0x4000 is FreeBSD\'s MSG_NBIO): SO_NOSIGPIPE on each socket instead\n'
+      '#undef IP_OPTIONS\n#define IP_OPTIONS 1\n'
+      '#undef IP_HDRINCL\n#define IP_HDRINCL 2\n'
+      '#undef IP_TOS\n#define IP_TOS 3\n'
+      '#undef IP_TTL\n#define IP_TTL 4\n'
+      '#undef IP_MULTICAST_IF\n#define IP_MULTICAST_IF 9\n'
+      '#undef IP_MULTICAST_TTL\n#define IP_MULTICAST_TTL 10\n'
+      '#undef IP_MULTICAST_LOOP\n#define IP_MULTICAST_LOOP 11\n'
+      '#undef IP_ADD_MEMBERSHIP\n#define IP_ADD_MEMBERSHIP 12\n'
+      '#undef IP_DROP_MEMBERSHIP\n#define IP_DROP_MEMBERSHIP 13\n'
+      '#undef TCP_KEEPIDLE\n#define TCP_KEEPIDLE 0x100  // (Linux\'s 4 is FreeBSD\'s TCP_NOPUSH)\n'
+      '#undef TCP_KEEPINTVL\n#define TCP_KEEPINTVL 0x200\n'
+      '#undef TCP_KEEPCNT\n#define TCP_KEEPCNT 0x400\n'
+      '#undef TCP_QUICKACK  // (Linux\'s only)\n'
+      '#undef SOCK_NONBLOCK  // (the PS4 refuses a socket asked with them)\n'
+      '#undef SOCK_CLOEXEC\n'
+      'static_assert(SO_NOSIGPIPE == 0x0800 && SOL_SOCKET == 0xffff && SO_REUSEPORT == 0x0200 && SO_LINGER == 0x0080 &&\n'
+      '              FIONBIO == 0x8004667e && FIONREAD == 0x4004667f && O_NONBLOCK == 4 && EAGAIN == 35 && EINPROGRESS == 36 &&\n'
+      '              ECONNRESET == 54 && EPIPE == 32 && AF_INET == 2 && TCP_NODELAY == 1 && TCP_MAXSEG == 2 &&\n'
+      '              offsetof(struct sockaddr_in, sin_family) == 1 && sizeof(struct sockaddr_in) == 16 &&\n'
+      '              offsetof(struct sockaddr, sa_family) == 1,\n'
+      '              "EmuSuNi: a socket value isn\'t FreeBSD\'s");\n'
+      '#endif\n')
+patch('Common/Net/Resolve.cpp',
+      '#include "Common/Net/Resolve.h"\n',
+      '#include "Common/Net/Resolve.h"\n'
+      '\n'
+      '#if defined(EMUSUNI_PORT) && defined(__ORBIS__)\n'
+      '#include <mutex>\n'
+      '\n'
+      '// EmuSuNi: libSceNet\'s resolver and libSceSysmodule (the app links both: src/Net.cpp).\n'
+      'extern "C" {\n'
+      'int sceSysmoduleLoadModuleInternal(uint32_t id);\n'
+      'int sceNetInit(void);\n'
+      'int sceNetPoolCreate(const char *name, int size, int flags);\n'
+      'int sceNetResolverCreate(const char *name, int memid, int flags);\n'
+      'int sceNetResolverDestroy(int rid);\n'
+      'int sceNetResolverStartNtoa(int rid, const char *hostname, uint32_t *addr, int timeout, int retry, int flags);\n'
+      '}\n'
+      '#endif\n')
+patch('Common/Net/Resolve.cpp',
+      '// NOTE: Due to the nature of getaddrinfo, this can block indefinitely. Not good.\n'
+      'bool DNSResolve(const std::string &host, const std::string &service, addrinfo **res, std::string &error, DNSType type) {\n',
+      net_tabs(r'''#if defined(EMUSUNI_PORT) && defined(__ORBIS__)
+// EmuSuNi (scripts/build-psp-core.sh): names looked up by the PS4's own resolver, libSceNet's, as the app's (src/Net.cpp):
+// musl's getaddrinfo has no /etc/resolv.conf there and asks 127.0.0.1, waiting seconds for nothing. IPv4 only (as the
+// PS4's network). One block, the addrinfo and its address, freed by DNSResolveFree. Each lookup logged with the name
+// and how long it took, never the address found.
+struct EmuSuNiAddrinfo {
+    addrinfo info;
+    sockaddr_in address;
+};
+
+static bool EmuSuNiDNSResolve(const std::string &host, const std::string &service, addrinfo **res, std::string &error, DNSType type) {
+    *res = nullptr;
+    if (type == DNSType::IPV6) {
+        error = "no IPv6 on the PS4";
+        return false;
+    }
+    long port = 0;
+    if (!service.empty()) {
+        char *end = nullptr;
+        port = strtol(service.c_str(), &end, 10);
+        if (end == service.c_str() || *end != 0 || port < 0 || port > 65535) {
+            error = "not a port number";
+            return false;
+        }
+    }
+    in_addr_t address = 0;
+    if (::inet_pton(AF_INET, host.c_str(), &address) != 1) {
+        static std::mutex poolMutex;
+        static int pool = -1;
+        {
+            std::lock_guard<std::mutex> guard(poolMutex);
+            if (pool < 0) {
+                sceSysmoduleLoadModuleInternal(0x80000009);  // ORBIS_SYSMODULE_INTERNAL_NET (as src/Net.cpp)
+                sceNetInit();
+                pool = sceNetPoolCreate("emusuni-psp-dns", 16 * 1024, 0);
+            }
+        }
+        const double start = time_now_d();
+        const int resolver = pool >= 0 ? sceNetResolverCreate("emusuni-psp", pool, 0) : pool;
+        uint32_t found = 0;
+        const int result = resolver >= 0 ? sceNetResolverStartNtoa(resolver, host.c_str(), &found, 5 * 1000 * 1000, 2, 0) : resolver;
+        if (resolver >= 0)
+            sceNetResolverDestroy(resolver);
+        if (result < 0 || found == 0) {
+            NOTICE_LOG(Log::sceNet, "EmuSuNi: %s not found by the PS4's resolver (%#x, %.1f s): is the PS4 online?", host.c_str(), (unsigned)result, time_now_d() - start);
+            error = "not found";
+            return false;
+        }
+        NOTICE_LOG(Log::sceNet, "EmuSuNi: %s found by the PS4's resolver (%.1f s)", host.c_str(), time_now_d() - start);
+        address = found;  // (the network's order, as s_addr)
+    }
+    EmuSuNiAddrinfo *made = (EmuSuNiAddrinfo *)calloc(1, sizeof(EmuSuNiAddrinfo));
+    if (!made) {
+        error = "out of memory";
+        return false;
+    }
+    made->address.sin_len = sizeof(sockaddr_in);
+    made->address.sin_family = AF_INET;
+    made->address.sin_port = htons((uint16_t)port);
+    made->address.sin_addr.s_addr = address;
+    made->info.ai_family = AF_INET;
+    made->info.ai_socktype = SOCK_STREAM;
+    made->info.ai_protocol = IPPROTO_TCP;
+    made->info.ai_addrlen = sizeof(sockaddr_in);
+    made->info.ai_addr = (sockaddr *)&made->address;
+    *res = &made->info;
+    return true;
+}
+#endif
+
+''') +
+      '// NOTE: Due to the nature of getaddrinfo, this can block indefinitely. Not good.\n'
+      'bool DNSResolve(const std::string &host, const std::string &service, addrinfo **res, std::string &error, DNSType type) {\n'
+      '#if defined(EMUSUNI_PORT) && defined(__ORBIS__)\n'
+      '\treturn EmuSuNiDNSResolve(host, service, res, error, type);  // EmuSuNi: the PS4\'s resolver (above)\n'
+      '#else\n')
+patch('Common/Net/Resolve.cpp',
+      '\t\t*res = nullptr;\n\t\treturn false;\n\t}\n\n\treturn true;\n}\n\nvoid DNSResolveFree(addrinfo *res)\n{\n'
+      '\tif (res)\n\t\tfreeaddrinfo(res);\n',
+      '\t\t*res = nullptr;\n\t\treturn false;\n\t}\n\n\treturn true;\n#endif\n}\n\nvoid DNSResolveFree(addrinfo *res)\n{\n'
+      '#if defined(EMUSUNI_PORT) && defined(__ORBIS__)\n'
+      '\tfree(res);  // EmuSuNi: EmuSuNiDNSResolve\'s one block (or nullptr)\n'
+      '#else\n'
+      '\tif (res)\n\t\tfreeaddrinfo(res);\n'
+      '#endif\n')
+patch('Common/Net/Resolve.cpp',
+      '\tif (sockfd < 0) {\n\t\tERROR_LOG(Log::sceNet, "Socket creation for direct DNS failed");\n\t\treturn false;\n\t}\n',
+      '\tif (sockfd < 0) {\n\t\tERROR_LOG(Log::sceNet, "Socket creation for direct DNS failed");\n\t\treturn false;\n\t}\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t{\n'
+      '\t\t// EmuSuNi: an answer awaited at most 2 s, then asked once more (below).\n'
+      '\t\tstruct timeval wait{};\n'
+      '\t\twait.tv_sec = 2;\n'
+      '\t\tsetsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, (const char *)&wait, sizeof(wait));\n'
+      '\t}\n'
+      '#endif\n')
+patch('Common/Net/Resolve.cpp',
+      '\tsize_t response_len;\n'
+      '\tif ((response_len = recvfrom(sockfd, (char *)buffer, sizeof(buffer), 0, (struct sockaddr *)&server_addr, &server_len)) < 0) {\n',
+      '\tsize_t response_len;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t// EmuSuNi: no answer in 2 s, asked once more; a failed receive fails (upstream\'s size_t was never below 0: the\n'
+      '\t// failure was parsed as 4 GiB long).\n'
+      '\tint received = (int)recvfrom(sockfd, (char *)buffer, sizeof(buffer), 0, (struct sockaddr *)&server_addr, &server_len);\n'
+      '\tif (received < 0 && (socket_errno == EAGAIN || socket_errno == EWOULDBLOCK || socket_errno == EINTR) &&\n'
+      '\t    sendto(sockfd, (const char *)buffer, (int)query_len, 0, (struct sockaddr *)&server_addr, sizeof(server_addr)) >= 0) {\n'
+      '\t\tserver_len = sizeof(server_addr);\n'
+      '\t\treceived = (int)recvfrom(sockfd, (char *)buffer, sizeof(buffer), 0, (struct sockaddr *)&server_addr, &server_len);\n'
+      '\t}\n'
+      '\tresponse_len = received > 0 ? (size_t)received : 0;\n'
+      '\tif (received <= 0) {\n'
+      '\t\tNOTICE_LOG(Log::sceNet, "EmuSuNi: the game\'s DNS didn\'t answer for %s (twice in 2 s)", domain);\n'
+      '#else\n'
+      '\tif ((response_len = recvfrom(sockfd, (char *)buffer, sizeof(buffer), 0, (struct sockaddr *)&server_addr, &server_len)) < 0) {\n'
+      '#endif\n')
+patch('Common/Net/Resolve.cpp',
+      '\tg_directDNSCache[key] = DNSCacheEntry{ *ipv4_addr };\n\treturn true;\n',
+      '\tg_directDNSCache[key] = DNSCacheEntry{ *ipv4_addr };\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\tNOTICE_LOG(Log::sceNet, "EmuSuNi: %s found by the game\'s DNS (infra-dns.json\'s, else PS Rewired\'s)", domain);\n'
+      '#endif\n'
+      '\treturn true;\n')
+patch('Core/HLE/sceNet.cpp',
+      '\t\tstd::unique_ptr<uint8_t[]> jsonStr(g_VFS.ReadFile("infra-dns.json", &jsonSize));\n'
+      '\t\tif (!jsonStr) {\n'
+      '\t\t\tjsonOutput->clear();\n'
+      '\t\t\treturn true;  // A clear output but returning true means something went very wrong.\n',
+      '\t\tstd::unique_ptr<uint8_t[]> jsonStr(g_VFS.ReadFile("infra-dns.json", &jsonSize));\n'
+      '\t\tif (!jsonStr) {\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\t\tNOTICE_LOG(Log::sceNet, "EmuSuNi: infra-dns.json isn\'t in the PPSSPP folder: the games\' names go to PS Rewired\'s DNS");\n'
+      '#endif\n'
+      '\t\t\tjsonOutput->clear();\n'
+      '\t\t\treturn true;  // A clear output but returning true means something went very wrong.\n')
+patch('Core/HLE/proAdhoc.cpp',
+      '\tint sent = (int)send((int)metasocket, (char*)&packet, sizeof(packet), MSG_NOSIGNAL);\n\tif (sent > 0) {\n',
+      '\tint sent = (int)send((int)metasocket, (char*)&packet, sizeof(packet), MSG_NOSIGNAL);\n\tif (sent > 0) {\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\tNOTICE_LOG(Log::sceNet, "EmuSuNi: logged in to the ad hoc server %s as %s", g_Config.sProAdhocServer.c_str(),\n'
+      '\t\t\tg_Config.sNickName.c_str());\n'
+      '\t\tEmuSuNiNetCount(EMUSUNI_NET_ADHOC_MADE, 1);\n'
+      '\t\tEmuSuNiNetCount(EMUSUNI_NET_ADHOC_OUT, sent);\n'
+      '#endif\n')
+# The log's online line (every ~10 s while anything went out or came in: libretro.cpp's EmuSuNiLog): connections made and
+# failed, bytes out and in, the games' own servers' (sceNetInet: a TCP connection counted once, made at connect() or
+# when SO_ERROR says so with a peer, or at its first data; failed at connect() or by SO_ERROR) apart from ad hoc's (the
+# ad hoc server's connection and the relay's sessions). Never an address.
+addfile('Common/Net/EmuSuNiNetStats.h', r'''// EmuSuNi (scripts/build-psp-core.sh): online play's counts, for the log's line every ~10 s (libretro.cpp's EmuSuNiLog),
+// summed from any thread: connections made and failed, bytes out and in, the games' own servers' (sceNetInet.cpp) and ad
+// hoc's (the ad hoc server's connection, proAdhoc.cpp and sceNetAdhoc.cpp; the relay's sessions, aemu_postoffice).
+// Never an address. C and C++ (the relay is C); defined in Common/Net/Resolve.cpp.
+#pragma once
+#include <stdint.h>
+
+enum {
+	EMUSUNI_NET_INET_MADE, EMUSUNI_NET_INET_FAILED, EMUSUNI_NET_INET_OUT, EMUSUNI_NET_INET_IN,
+	EMUSUNI_NET_ADHOC_MADE, EMUSUNI_NET_ADHOC_FAILED, EMUSUNI_NET_ADHOC_OUT, EMUSUNI_NET_ADHOC_IN,
+	EMUSUNI_NET_COUNTS
+};
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+extern uint64_t emusuni_net[EMUSUNI_NET_COUNTS];
+#ifdef __cplusplus
+}
+#endif
+
+static inline void EmuSuNiNetCount(int which, long long amount) {
+	if (amount > 0)
+		__atomic_fetch_add(&emusuni_net[which], (uint64_t)amount, __ATOMIC_RELAXED);
+}
+''')
+patch('Common/Net/Resolve.cpp',
+      '#include "Common/Net/Resolve.h"\n',
+      '#include "Common/Net/Resolve.h"\n'
+      '\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '#include "Common/Net/EmuSuNiNetStats.h"\n'
+      '\n'
+      'extern "C" {\n'
+      'uint64_t emusuni_net[EMUSUNI_NET_COUNTS];  // EmuSuNi: online play\'s counts (EmuSuNiNetStats.h)\n'
+      '}\n'
+      '#endif\n')
+patch('Core/HLE/SocketManager.h',
+      '\t// Metadata for debug use only.\n\tstd::string addr;\n\tint port;\n};\n',
+      '\t// Metadata for debug use only.\n\tstd::string addr;\n\tint port;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\tint emusuniConnect = 0;  // EmuSuNi: a TCP connection counted once (sceNetInet.cpp): 0 not yet, 1 made, 2 failed\n'
+      '#endif\n'
+      '};\n')
+patch('Core/HLE/SocketManager.cpp',
+      '\t\t\tinetSock->protocol = derive->protocol;\n',
+      '\t\t\tinetSock->protocol = derive->protocol;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\t\tinetSock->emusuniConnect = 0;  // EmuSuNi: counted at its first data (sceNetInet.cpp)\n'
+      '#endif\n')
+patch('Core/HLE/sceNetInet.cpp',
+      '#include "Core/Instance.h"\n',
+      '#include "Core/Instance.h"\n'
+      + net_tabs(r'''
+#ifdef EMUSUNI_PORT
+#include "Common/Net/EmuSuNiNetStats.h"
+
+// EmuSuNi (scripts/build-psp-core.sh): the games' own connections for the log's online line, each TCP one counted once,
+// made or failed, and the bytes each call moved.
+static void EmuSuNiInetConnected(InetSocket *inetSock, bool made) {
+    if (inetSock->type != PSP_NET_INET_SOCK_STREAM || inetSock->emusuniConnect != 0)
+        return;
+    inetSock->emusuniConnect = made ? 1 : 2;
+    EmuSuNiNetCount(made ? EMUSUNI_NET_INET_MADE : EMUSUNI_NET_INET_FAILED, 1);
+}
+
+static void EmuSuNiInetMoved(InetSocket *inetSock, int which, int bytes) {
+    if (bytes <= 0)
+        return;
+    EmuSuNiNetCount(which, bytes);
+    EmuSuNiInetConnected(inetSock, true);  // (a game that waits with select(): its first data)
+}
+#endif
+'''))
+patch('Core/HLE/sceNetInet.cpp',
+      '\tint retval = recv(inetSock->sock, (char*)Memory::GetPointer(bufPtr), bufLen, flgs | MSG_NOSIGNAL);\n',
+      '\tint retval = recv(inetSock->sock, (char*)Memory::GetPointer(bufPtr), bufLen, flgs | MSG_NOSIGNAL);\n'
+      '#ifdef EMUSUNI_PORT\n\tEmuSuNiInetMoved(inetSock, EMUSUNI_NET_INET_IN, retval);\n#endif\n')
+patch('Core/HLE/sceNetInet.cpp',
+      '\tint retval = send(inetSock->sock, (char*)Memory::GetPointer(bufPtr), bufLen, flgs | MSG_NOSIGNAL);\n',
+      '\tint retval = send(inetSock->sock, (char*)Memory::GetPointer(bufPtr), bufLen, flgs | MSG_NOSIGNAL);\n'
+      '#ifdef EMUSUNI_PORT\n\tEmuSuNiInetMoved(inetSock, EMUSUNI_NET_INET_OUT, retval);\n#endif\n')
+patch('Core/HLE/sceNetInet.cpp',
+      '\tint retval = recvfrom(inetSock->sock, (char*)Memory::GetPointer(bufferPtr), len, flgs | MSG_NOSIGNAL, (struct sockaddr*)&saddr.addr, srclen);\n',
+      '\tint retval = recvfrom(inetSock->sock, (char*)Memory::GetPointer(bufferPtr), len, flgs | MSG_NOSIGNAL, (struct sockaddr*)&saddr.addr, srclen);\n'
+      '#ifdef EMUSUNI_PORT\n\tEmuSuNiInetMoved(inetSock, EMUSUNI_NET_INET_IN, retval);\n#endif\n')
+for indent in ('\t\t\t', '\t\t'):
+    patch('Core/HLE/sceNetInet.cpp',
+          '\n' + indent + 'retval = sendto(inetSock->sock, (char*)Memory::GetPointer(bufferPtr), len, flgs | MSG_NOSIGNAL, (struct sockaddr*)&saddr.addr, dstlen);\n',
+          '\n' + indent + 'retval = sendto(inetSock->sock, (char*)Memory::GetPointer(bufferPtr), len, flgs | MSG_NOSIGNAL, (struct sockaddr*)&saddr.addr, dstlen);\n'
+          '#ifdef EMUSUNI_PORT\n' + indent + 'EmuSuNiInetMoved(inetSock, EMUSUNI_NET_INET_OUT, retval);\n#endif\n')
+patch('Core/HLE/sceNetInet.cpp',
+      '\tint retval = connect(inetSock->sock, (struct sockaddr*)&saddr.addr, dstlen);\n\tint hostErrno = socket_errno;\n',
+      '\tint retval = connect(inetSock->sock, (struct sockaddr*)&saddr.addr, dstlen);\n\tint hostErrno = socket_errno;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\tif (retval == 0 || hostErrno == EISCONN)\n'
+      '\t\tEmuSuNiInetConnected(inetSock, true);\n'
+      '\telse if (!connectInProgress(hostErrno))\n'
+      '\t\tEmuSuNiInetConnected(inetSock, false);\n'
+      '#endif\n')
+patch('Core/HLE/sceNetInet.cpp',
+      '\tDEBUG_LOG(Log::sceNet, "SockOpt: OptValue = %d", *optval);\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '\t// EmuSuNi: a non-blocking connect()\'s end, as the game asks it (SO_ERROR): an error, or 0 with a peer.\n'
+      '\tif (level == PSP_NET_INET_SOL_SOCKET && optname == PSP_NET_INET_SO_ERROR && optval && inetSock->emusuniConnect == 0) {\n'
+      '\t\tsockaddr_in peer{};\n'
+      '\t\tsocklen_t peerLen = sizeof(peer);\n'
+      '\t\tif (*optval != 0)\n'
+      '\t\t\tEmuSuNiInetConnected(inetSock, false);\n'
+      '\t\telse if (getpeername(inetSock->sock, (sockaddr *)&peer, &peerLen) == 0)\n'
+      '\t\t\tEmuSuNiInetConnected(inetSock, true);\n'
+      '\t}\n'
+      '#endif\n'
+      '\tDEBUG_LOG(Log::sceNet, "SockOpt: OptValue = %d", *optval);\n')
+patch('Core/HLE/proAdhoc.cpp',
+      '\t\tERROR_LOG(Log::sceNet, "DNS Error Resolving %s\\n", g_Config.sProAdhocServer.c_str());\n',
+      '\t\tERROR_LOG(Log::sceNet, "DNS Error Resolving %s\\n", g_Config.sProAdhocServer.c_str());\n'
+      '#ifdef EMUSUNI_PORT\n\t\tEmuSuNiNetCount(EMUSUNI_NET_ADHOC_FAILED, 1);  // EmuSuNi: the log\'s online line\n#endif\n')
+patch('Core/HLE/proAdhoc.cpp',
+      '\t\t\tERROR_LOG(Log::sceNet, "Socket error (%i) when connecting to AdhocServer [%s/%s:%u]"',
+      '#ifdef EMUSUNI_PORT\n\t\t\tEmuSuNiNetCount(EMUSUNI_NET_ADHOC_FAILED, 1);  // EmuSuNi: the log\'s online line\n#endif\n'
+      '\t\t\tERROR_LOG(Log::sceNet, "Socket error (%i) when connecting to AdhocServer [%s/%s:%u]"')
+patch('Core/HLE/proAdhoc.cpp',
+      '\t\t\t\t\tint iResult = (int)send((int)metasocket, (const char*)&opcode, 1, MSG_NOSIGNAL);\n',
+      '\t\t\t\t\tint iResult = (int)send((int)metasocket, (const char*)&opcode, 1, MSG_NOSIGNAL);\n'
+      '#ifdef EMUSUNI_PORT\n\t\t\t\t\tEmuSuNiNetCount(EMUSUNI_NET_ADHOC_OUT, iResult);\n#endif\n')
+patch('Core/HLE/proAdhoc.cpp',
+      '\t\t\t\tint received = (int)recv((int)metasocket, (char*)(rx + rxpos), sizeof(rx) - rxpos, MSG_NOSIGNAL);\n',
+      '\t\t\t\tint received = (int)recv((int)metasocket, (char*)(rx + rxpos), sizeof(rx) - rxpos, MSG_NOSIGNAL);\n'
+      '#ifdef EMUSUNI_PORT\n\t\t\t\tEmuSuNiNetCount(EMUSUNI_NET_ADHOC_IN, received);\n#endif\n')
+patch('Core/HLE/proAdhoc.h',
+      '#include "Common/Net/SocketCompat.h"\n',
+      '#include "Common/Net/SocketCompat.h"\n'
+      '#ifdef EMUSUNI_PORT\n#include "Common/Net/EmuSuNiNetStats.h"  // EmuSuNi: the log\'s online line\n#endif\n')
+patch('Core/HLE/sceNetAdhoc.cpp',
+      '\t\t\t\tret = send((int)metasocket, (const char*)&packet, len, MSG_NOSIGNAL);\n',
+      '\t\t\t\tret = send((int)metasocket, (const char*)&packet, len, MSG_NOSIGNAL);\n'
+      '#ifdef EMUSUNI_PORT\n\t\t\t\tEmuSuNiNetCount(EMUSUNI_NET_ADHOC_OUT, ret);\n#endif\n')
+patch('client/sock_impl_linux.c',
+      '#include "postoffice_client.h"\n',
+      '#include "postoffice_client.h"\n'
+      '#ifdef EMUSUNI_PORT\n#include "../../../Common/Net/EmuSuNiNetStats.h"  /* EmuSuNi: the log\'s online line */\n#endif\n',
+      repo=root + '/ext/aemu_postoffice')
+patch('client/sock_impl_linux.c',
+      '\tif (connect_status == -1){\n',
+      '\tif (connect_status == -1){\n'
+      '#ifdef EMUSUNI_PORT\n\t\tEmuSuNiNetCount(EMUSUNI_NET_ADHOC_FAILED, 1);\n#endif\n',
+      repo=root + '/ext/aemu_postoffice')
+patch('client/sock_impl_linux.c',
+      '\t\treturn AEMU_POSTOFFICE_CLIENT_SESSION_NETWORK;\n\t}\n\n\t// Set socket options\n',
+      '\t\treturn AEMU_POSTOFFICE_CLIENT_SESSION_NETWORK;\n\t}\n'
+      '#ifdef EMUSUNI_PORT\n\tEmuSuNiNetCount(EMUSUNI_NET_ADHOC_MADE, 1);  /* a relay session */\n#endif\n'
+      '\n\t// Set socket options\n',
+      repo=root + '/ext/aemu_postoffice')
+patch('client/sock_impl_linux.c',
+      '\t\twrite_offset += write_status;\n',
+      '#ifdef EMUSUNI_PORT\n\t\tEmuSuNiNetCount(EMUSUNI_NET_ADHOC_OUT, write_status);\n#endif\n'
+      '\t\twrite_offset += write_status;\n',
+      repo=root + '/ext/aemu_postoffice')
+patch('client/sock_impl_linux.c',
+      '\t\tread_offset += recv_status;\n',
+      '#ifdef EMUSUNI_PORT\n\t\tEmuSuNiNetCount(EMUSUNI_NET_ADHOC_IN, recv_status);\n#endif\n'
+      '\t\tread_offset += recv_status;\n',
+      repo=root + '/ext/aemu_postoffice')
+patch('libretro/libretro.cpp',
+      'void RetroLogCallback(const LogMessage &message, void *userdata) {\n'
+      '   retro_log_printf_t fn = (retro_log_printf_t)userdata;\n'
+      '   switch (message.level) {\n'
+      '   case LogLevel::LVERBOSE:\n'
+      '   case LogLevel::LDEBUG:\n'
+      '      (fn)(RETRO_LOG_DEBUG, "[%s] %s", message.log, message.msg.c_str());\n'
+      '      break;\n'
+      '\n'
+      '   case LogLevel::LERROR:\n'
+      '      (fn)(RETRO_LOG_ERROR, "[%s] %s", message.log, message.msg.c_str());\n'
+      '      break;\n'
+      '   case LogLevel::LNOTICE:\n'
+      '   case LogLevel::LWARNING:\n'
+      '      (fn)(RETRO_LOG_WARN, "[%s] %s", message.log, message.msg.c_str());\n'
+      '      break;\n'
+      '   case LogLevel::LINFO:\n'
+      '   default:\n'
+      '      (fn)(RETRO_LOG_INFO, "[%s] %s", message.log, message.msg.c_str());\n'
+      '      break;\n'
+      '   }\n'
+      '}\n',
+      r'''#ifdef EMUSUNI_PORT
+#include "Common/Net/EmuSuNiNetStats.h"  // EmuSuNi: the log's online line (EmuSuNiLog)
+
+// EmuSuNi (scripts/build-psp-core.sh): no IPv4 address reaches the log (online play: the players', the servers'):
+// each a.b.c.d written "<IP>" (4 groups of 1 to 3 digits joined by dots, not within a longer number).
+static std::string EmuSuNiWithoutAddresses(const std::string &text)
+{
+   auto digit = [&](size_t at) { return at < text.size() && text[at] >= '0' && text[at] <= '9'; };
+   std::string out;
+   out.reserve(text.size());
+   size_t i = 0;
+   while (i < text.size())
+   {
+      if (digit(i) && (i == 0 || !(digit(i - 1) || text[i - 1] == '.')))
+      {
+         size_t j = i;
+         int groups = 0;
+         while (groups < 4)
+         {
+            size_t digits = 0;
+            while (digit(j) && digits < 4)
+            {
+               j++;
+               digits++;
+            }
+            if (digits == 0 || digits > 3)
+               break;
+            groups++;
+            if (groups == 4 || j >= text.size() || text[j] != '.' || !digit(j + 1))
+               break;
+            j++;
+         }
+         if (groups == 4 && !digit(j))
+         {
+            out += "<IP>";
+            i = j;
+            continue;
+         }
+      }
+      out += text[i++];
+   }
+   return out;
+}
+#endif
+
+void RetroLogCallback(const LogMessage &message, void *userdata) {
+   retro_log_printf_t fn = (retro_log_printf_t)userdata;
+#ifdef EMUSUNI_PORT
+   const std::string emusuniText = EmuSuNiWithoutAddresses(message.msg);  // EmuSuNi: no IPv4 address (above)
+   const char *text = emusuniText.c_str();
+#else
+   const char *text = message.msg.c_str();
+#endif
+   switch (message.level) {
+   case LogLevel::LVERBOSE:
+   case LogLevel::LDEBUG:
+      (fn)(RETRO_LOG_DEBUG, "[%s] %s", message.log, text);
+      break;
+
+   case LogLevel::LERROR:
+      (fn)(RETRO_LOG_ERROR, "[%s] %s", message.log, text);
+      break;
+   case LogLevel::LNOTICE:
+   case LogLevel::LWARNING:
+      (fn)(RETRO_LOG_WARN, "[%s] %s", message.log, text);
+      break;
+   case LogLevel::LINFO:
+   default:
+      (fn)(RETRO_LOG_INFO, "[%s] %s", message.log, text);
+      break;
+   }
+}
+''')
+patch('libretro/libretro.cpp',
+      '   g_Config.bTexHardwareScaling = g_Config.sTextureShaderName != "Off";\n',
+      r'''#ifdef EMUSUNI_PORT
+   {
+      // EmuSuNi (scripts/build-psp-core.sh): online play as the app says (the Wi-Fi and the ad hoc server, above), the rest
+      // fixed: nothing downloaded (infra-dns.json from the PPSSPP folder), the relay always on (every server the app
+      // offers is one), no built-in server, UPnP or chat. PPSSPP's network lines from WARNING up unless
+      // EMUSUNI_PSP_NET_LOG=1 (its INFO lines, one for each of the games' calls). Said in the log when it changes.
+      g_Config.iAdhocServerRelayMode = (int)AdhocServerRelayMode::AlwaysOn;
+      g_Config.sAdhocServerListUrl.clear();
+      g_Config.bDontDownloadInfraJson = true;
+      g_Config.bInfrastructureAutoDNS = true;
+      g_Config.bEnableAdhocServer = false;
+      g_Config.bEnableUPnP = false;
+      g_Config.bEnableNetworkChat = false;
+      // The PSP's nickname (its games show it, online too): the app's online nickname (EMUSUNI_PSP_NICKNAME), else
+      // "EmuSuNi"; the servers' sign-in name (infrastructure, the NP online ID) the same in letters, digits, - and _
+      // (3 to 16 of them), else "EmuSuNi". Nothing else about the player.
+      const char *nickname = getenv("EMUSUNI_PSP_NICKNAME");
+      g_Config.sNickName = nickname && *nickname ? std::string(nickname) : std::string("EmuSuNi");
+      const std::string signIn = SanitizeString(g_Config.sNickName, StringRestriction::AlphaNumDashUnderscore, 3, 16);
+      g_Config.sInfrastructureUsername = signIn.empty() ? std::string("EmuSuNi") : signIn;
+      const char *netLog = getenv("EMUSUNI_PSP_NET_LOG");
+      const bool detailed = netLog && !strcmp(netLog, "1");
+      g_logManager.SetLogLevel(Log::sceNet, detailed ? LogLevel::LINFO : LogLevel::LWARNING);
+      static std::string emusuniOnlineSaid;
+      char line[320];
+      if (g_Config.bEnableWlan)
+         snprintf(line, sizeof(line), "psp: online play on (the PSP's Wi-Fi): the games' own servers through infra-dns.json's "
+                  "DNS for the game (else PS Rewired's), ad hoc through %s (its relay: no player sees another's address), "
+                  "as %s%s", g_Config.sProAdhocServer.c_str(), g_Config.sNickName.c_str(),
+                  detailed ? "; the network's every call in the log (psp-net-log)" : "");
+      else
+         snprintf(line, sizeof(line), "psp: online play off (the PSP's Wi-Fi)");
+      if (log_cb && emusuniOnlineSaid != line)
+      {
+         emusuniOnlineSaid = line;
+         log_cb(RETRO_LOG_INFO, "%s\n", line);
+      }
+   }
+#endif
+   g_Config.bTexHardwareScaling = g_Config.sTextureShaderName != "Off";
+''')
+
 # --- The image's plain tables (00.63): the PS4 charges the app's whole image at load, .bss included, so a table
 # in it is memory gone for every game. These two are filled only by code PPSSPP seldom or never runs: on the heap
 # when first needed instead.
@@ -2130,6 +2721,8 @@ enum Slot {
     QueueSubmit,       // vkQueueSubmit under it
     CompilePipeline,   // vkCreateGraphicsPipelines (the pool's threads, or inline)
     CompileShader,     // GLSL to SPIR-V (glslang, its own threads)
+    DepthRaster,       // the CPU depth rasterizer's batches (its thread, DepthRasterWorker)
+    WaitDepth,         // the emulation thread waiting for it (a list's end, DrawSync, a readback...)
     NumSlots
 };
 
@@ -2172,6 +2765,63 @@ bool ProfileFrame();
 
 }  // namespace EmuSuNiTiming
 '''))
+
+# The CPU depth rasterizer (scripts/psp-core-upstream.diff: on its own thread). Its quality as the app says
+# (EMUSUNI_PSP_DEPTH_RASTER, read at each game's start): "full" (upstream's default on PCs), "off" (no lens flare
+# hidden behind walls, nothing to wait for), else low (every other row, upstream's default on phones: the PS4's
+# CPU is theirs). In the log at the start of a game compat.ini gives it to, with its time every ~10 s.
+patch('GPU/Common/DrawEngineCommon.cpp',
+      '#include "Core/Config.h"\n',
+      '#include "Core/Config.h"\n#ifdef EMUSUNI_PORT\n#include <cstdlib>\n#include <cstring>\n#endif\n')
+patch('GPU/Common/DrawEngineCommon.cpp',
+      'void DrawEngineCommon::InitDepthRaster() {\n\tswitch ((DepthRasterMode)g_Config.iDepthRasterMode) {\n',
+      'void DrawEngineCommon::InitDepthRaster() {\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\tconst char *emusuniMode = getenv("EMUSUNI_PSP_DEPTH_RASTER");\n'
+      '\tif (emusuniMode && !strcmp(emusuniMode, "off"))\n'
+      '\t\tg_Config.iDepthRasterMode = (int)DepthRasterMode::OFF;\n'
+      '\telse if (emusuniMode && !strcmp(emusuniMode, "full"))\n'
+      '\t\tg_Config.iDepthRasterMode = (int)DepthRasterMode::DEFAULT;\n'
+      '\telse\n'
+      '\t\tg_Config.iDepthRasterMode = (int)DepthRasterMode::LOW_QUALITY;\n'
+      '#endif\n'
+      '\tswitch ((DepthRasterMode)g_Config.iDepthRasterMode) {\n')
+patch('GPU/Common/DrawEngineCommon.cpp',
+      '\tif (useDepthRaster_) {\n'
+      '\t\tdepthWorker_ = new DepthRasterWorker(DEPTH_TRANSFORMED_MAX_VERTS, DEPTH_INDEXBUFFER_MAX_INDICES);\n\t}\n',
+      '\tif (useDepthRaster_) {\n'
+      '\t\tdepthWorker_ = new DepthRasterWorker(DEPTH_TRANSFORMED_MAX_VERTS, DEPTH_INDEXBUFFER_MAX_INDICES);\n\t}\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\tif (PSP_CoreParameter().compat.flags().SoftwareRasterDepth)\n'
+      '\t\tINFO_LOG(Log::G3D, "EmuSuNi: depth raster (compat.ini\'s SoftwareRasterDepth: the lens flares): %s",\n'
+      '\t\t\t!useDepthRaster_ ? "off (psp-depth-raster-off)" :\n'
+      '\t\t\tg_Config.iDepthRasterMode == (int)DepthRasterMode::LOW_QUALITY ? "low quality, on its own thread" :\n'
+      '\t\t\t"full quality, on its own thread (psp-depth-raster-full)");\n'
+      '#endif\n')
+patch('GPU/Common/DepthRaster.cpp',
+      '#include "Core/MemMap.h"\n',
+      '#include "Core/MemMap.h"\n#ifdef EMUSUNI_PORT\n#include "Common/EmuSuNiTiming.h"\n#endif\n')
+patch('GPU/Common/DepthRaster.cpp',
+      '\t\tdouble cull = 0.0, raster = 0.0;\n\t\tRasterize(*batch, &cull, &raster);\n',
+      '\t\tdouble cull = 0.0, raster = 0.0;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\tEmuSuNiTiming::Timer emusuniTimer(EmuSuNiTiming::DepthRaster);  // EmuSuNi: timed\n'
+      '#endif\n'
+      '\t\tRasterize(*batch, &cull, &raster);\n')
+# The waits (the emulation thread's): for a free batch, for those that may write what's read, for all.
+for wait in ('\tdone_.wait(lock, [this] { return !free_.empty(); });\n',
+             '\t\tdone_.wait(lock, [this] { return queue_.empty() && running_ == 0; });\n',
+             '\tstd::unique_lock<std::mutex> lock(mutex_);\n'
+             '\tdone_.wait(lock, [this] { return queue_.empty() && running_ == 0; });\n}\n'):
+    tab = '\t' * (len(wait) - len(wait.lstrip('\t')))
+    patch('GPU/Common/DepthRaster.cpp', wait,
+          wait.replace('done_.wait(',
+                       '{\n#ifdef EMUSUNI_PORT\n'
+                       + tab + '\tconst uint64_t emusuniT0 = EmuSuNiTiming::Now();  // EmuSuNi: timed\n#endif\n'
+                       + tab + '\tdone_.wait(', 1)
+              .replace('});\n', '});\n#ifdef EMUSUNI_PORT\n'
+                       + tab + '\tEmuSuNiTiming::AddWait(EmuSuNiTiming::WaitDepth, EmuSuNiTiming::Now() - emusuniT0);\n'
+                       '#endif\n' + tab + '}\n', 1))
 
 # The emulation thread: the display lists, BeginFrame's waits, the blocking readbacks and why.
 patch('GPU/GPUCommon.cpp',
@@ -2577,6 +3227,15 @@ static void EmuSuNiLog(uint64_t frames, double seconds, double msPerTick, const 
       per(1), per(2), per(3), per(4), per(5), per(6), per(7), per(8), per(9), per(10), per(11), per(12), per(13),
       per(14), per(15));
    log_cb(RETRO_LOG_INFO, "%s\n", line);
+   if (n[DepthRaster] || t[WaitDepth]) {
+      // (Its thread's time beside the emulation; only the waits are the emulation thread's.)
+      snprintf(line, sizeof(line),
+         "psp: depth raster (the lens flares, %s quality): %.2f ms per frame on its thread (%.1f batches); the emulation "
+         "waited for it %.2f ms per frame (%u times)",
+         g_Config.iDepthRasterMode == (int)DepthRasterMode::LOW_QUALITY ? "low" : "full", ms(DepthRaster),
+         (double)n[DepthRaster] / f, ms(WaitDepth), n[WaitDepth]);
+      log_cb(RETRO_LOG_INFO, "%s\n", line);
+   }
    if (s_emusuniReadbacks[0].name) {
       size_t at = (size_t)snprintf(line, sizeof(line), "psp: blocking readbacks by reason:");
       for (const EmuSuNiReadbacks &r : s_emusuniReadbacks) {
@@ -2624,6 +3283,27 @@ static void EmuSuNiLog(uint64_t frames, double seconds, double msPerTick, const 
       log_cb(RETRO_LOG_INFO, "%s\n", line);
    } else {
       log_cb(RETRO_LOG_INFO, "psp: %s; the GPU not timed\n", settings);
+   }
+   // Online play since the last line (Common/Net/EmuSuNiNetStats.h), only when anything went out or came in: never an
+   // address.
+   static uint64_t s_emusuniNetLast[EMUSUNI_NET_COUNTS];
+   uint64_t net[EMUSUNI_NET_COUNTS];
+   bool moved = false;
+   for (int i = 0; i < EMUSUNI_NET_COUNTS; i++) {
+      const uint64_t now = __atomic_load_n(&emusuni_net[i], __ATOMIC_RELAXED);
+      net[i] = now - s_emusuniNetLast[i];
+      s_emusuniNetLast[i] = now;
+      moved |= net[i] != 0;
+   }
+   if (moved) {
+      snprintf(line, sizeof(line),
+         "psp: online in %.1f s: the games' own servers %llu connections made, %llu failed, %.1f KiB out, %.1f KiB in; "
+         "ad hoc (its server and relay) %llu made, %llu failed, %.1f KiB out, %.1f KiB in",
+         seconds, (unsigned long long)net[EMUSUNI_NET_INET_MADE], (unsigned long long)net[EMUSUNI_NET_INET_FAILED],
+         net[EMUSUNI_NET_INET_OUT] / 1024.0, net[EMUSUNI_NET_INET_IN] / 1024.0,
+         (unsigned long long)net[EMUSUNI_NET_ADHOC_MADE], (unsigned long long)net[EMUSUNI_NET_ADHOC_FAILED],
+         net[EMUSUNI_NET_ADHOC_OUT] / 1024.0, net[EMUSUNI_NET_ADHOC_IN] / 1024.0);
+      log_cb(RETRO_LOG_INFO, "%s\n", line);
    }
 }
 
@@ -3269,7 +3949,7 @@ fi
 STAMP="$OUT/.emusuni-flags"
 COMMITS="$(git -C "$SRC" rev-parse HEAD 2>/dev/null || echo unknown)"
 COMMITS+=" $(git -C "$SRC" submodule status 2>/dev/null | awk '{print $1}' | tr -d '+-' | tr '\n' ' ')"
-WANT="$SRC | $COMMITS | host $HOST | ${OPTIONS[*]} | $(sha256sum "${BASH_SOURCE[0]}" | cut -d' ' -f1)"
+WANT="$SRC | $COMMITS | host $HOST | ${OPTIONS[*]} | $(sha256sum "${BASH_SOURCE[0]}" "$UPSTREAM_DIFF" | cut -d' ' -f1 | tr '\n' ' ')"
 if [ "${2:-}" = clean ] || [ "$(cat "$STAMP" 2>/dev/null)" != "$WANT" ] || [ ! -f "$BUILD/build.ninja" ]; then
   echo "PPSSPP: configuring and compiling everything (new flags, a new version of this script, or clean)"
   rm -rf "$BUILD" "$STAMP"
@@ -3345,7 +4025,9 @@ if [ "$HOST" != 1 ]; then
     echo "$NOT_APPS"
     exit 1
   fi
+  # (libSceNet and libSceSysmodule: the PS4's resolver for online play, Common/Net/Resolve.cpp; the app links both.)
   PS4LIBS="$OPENORBIS/lib/libc.a $OPENORBIS/lib/libkernel.so $OPENORBIS/lib/libSceLibcInternal.so
+    $OPENORBIS/lib/libSceNet.so $OPENORBIS/lib/libSceSysmodule.so
     $OPENORBIS/lib/libclang_rt.builtins-x86_64.a $PS4_BUILD_ROOT/sysroot/lib/libc++.a
     $PS4_BUILD_ROOT/sysroot/lib/libc++abi.a $OPENORBIS/lib/libunwind.a"
   PROVIDED=$( { for lib in $PS4LIBS; do

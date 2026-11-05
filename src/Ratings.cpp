@@ -15,11 +15,13 @@
 #include <map>
 #include <memory>
 #include <set>
+#include <sstream>
 
 #include <minizip/unzip.h>
 #include <orbis/libkernel.h>
 
 #include "Arcade.h"
+#include "AssetPack.h"
 #include "CoverDownload.h"
 #include "Log.h"
 #include "Naomi.h"
@@ -69,6 +71,10 @@ const std::vector<ConsolePlatforms>& Table()
       {SystemId::MD, {"Sega Genesis"}},
       // (00.82: LaunchBox has one platform for the PC Engine and the TurboGrafx-16.)
       {SystemId::PCE, {"NEC TurboGrafx-16"}},
+      // (00.90) Atari's.
+      {SystemId::A2600, {"Atari 2600"}},
+      {SystemId::A7800, {"Atari 7800"}},
+      {SystemId::JAGUAR, {"Atari Jaguar"}},
       {SystemId::ARCADE, {"Arcade", "SNK Neo Geo MVS", "SNK Neo Geo AES"}},
       {SystemId::NAOMI, {"Sega Naomi", "Sega Naomi 2", "Arcade"}},
       {SystemId::ATOMISWAVE, {"Sammy Atomiswave", "Arcade"}},
@@ -228,7 +234,9 @@ struct File
 
 void ReadIndex(const std::string& path, const CopyData& copy, std::set<std::string>* written, File* file)
 {
-  std::ifstream in(path);
+  std::string text;
+  AssetPack::Read(path, &text);  // (00.90: in xmb/assets.zip in the package)
+  std::istringstream in(text);
   std::string line;
   while (std::getline(in, line))
   {
@@ -1023,10 +1031,10 @@ void Matcher::Stop()
   m_cancel = false;
 }
 
-bool Matcher::Start(const std::vector<Library::Game>& games, const std::string& index_dir, const std::string& copy)
+bool Matcher::Start(std::vector<Library::Game> games, const std::string& index_dir, const std::string& copy)
 {
   Stop();
-  m_games = games;
+  m_games = std::move(games);  // (00.85: taken, not copied: 30 000 games are several MB)
   m_index_dir = index_dir;
   m_copy = copy;
   m_results.clear();
@@ -1057,7 +1065,7 @@ bool Matcher::Take(std::unordered_map<std::string, Rating>* out)
   m_started = false;
   *out = std::move(m_results);
   m_results.clear();
-  m_games.clear();
+  std::vector<Library::Game>().swap(m_games);  // (00.85: its room given back too, not only its games)
   return true;
 }
 }  // namespace Ratings

@@ -589,6 +589,10 @@ std::vector<Source> Sources(const std::string& console)
       {"saturn", {{"Saturn", "retroarch/overlay/GameBezels/Saturn"}}},
       // (00.82) The PC Engine's are the PC Engine and TurboGrafx-16 projects' (Japan's, America's).
       {"pce", {{"PCEngine", "retroarch/overlay/GameBezels/PCEngine"}, {"TG16", "retroarch/overlay/GameBezels/TG16"}}},
+      // (00.90) Atari's.
+      {"atari2600", {{"Atari2600", "retroarch/overlay/GameBezels/Atari2600"}}},
+      {"atari7800", {{"Atari7800", "retroarch/overlay/GameBezels/Atari7800"}}},
+      {"atarijaguar", {{"AtariJaguar", "retroarch/overlay/GameBezels/AtariJaguar"}}},
   };
   const auto it = SOURCES.find(console);
   return it == SOURCES.end() ? std::vector<Source>{} : it->second;
