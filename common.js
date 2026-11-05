@@ -13,6 +13,17 @@ var EmuSuNi = (function () {
     if (asked) BASE = asked.replace(/\/?$/, "/");
   } catch (e) {}
 
+  // Each page shown counts as a visit on EmuSuNi's own server (only its day, the page and the country: no
+  // cookies, no address kept, no third party), which answers the site's total. A browser that asks not to be tracked
+  // (Global Privacy Control, Do Not Track) only reads the total. ?visits=<url>: another server, for tests (then a page
+  // off emusuni.com counts too).
+  var VISITS = "https://panel.emusuni.com/v";
+  var VISITS_ASKED = false;
+  try {
+    var other = new URLSearchParams(location.search).get("visits");
+    if (other) { VISITS = other; VISITS_ASKED = true; }
+  } catch (e) {}
+
   var CONSOLES = [
     ["snes", "Super Nintendo", "Snes9x"], ["nes", "NES", "FCEUmm"], ["n64", "Nintendo 64", "Mupen64Plus-Next"],
     ["gb", "Game Boy", "mGBA"], ["gbc", "Game Boy Color", "mGBA"], ["gba", "Game Boy Advance", "mGBA"],
@@ -111,7 +122,36 @@ var EmuSuNi = (function () {
       applyTheme(next);
       store("emusuni-theme", next);
     });
+    listeners.push(showVisits);
     applyLanguage();
+    countVisit();
+  }
+
+  // ---- The visit ----
+  var visits = -1;
+  function pageName() {
+    var file = location.pathname.split("/").pop();
+    return file === "stats.html" ? "stats" : file === "compat.html" ? "compat" : "home";
+  }
+  function showVisits() {
+    var box = byId("visits");
+    if (!box) return;
+    box.hidden = visits < 0;
+    if (visits >= 0) box.textContent = fmt(visits === 1 ? "visits_one" : "visits_n", num(visits));
+  }
+  function countVisit() {
+    if (!window.fetch) return;
+    var untracked = navigator.globalPrivacyControl === true || navigator.doNotTrack === "1" || window.doNotTrack === "1";
+    var count = !untracked && (location.hostname === "emusuni.com" || VISITS_ASKED);
+    // (A plain text body: a "simple" request, no preflight; no cookies either way.)
+    var asked = count ? fetch(VISITS, { method: "POST", body: "page=" + pageName(), credentials: "omit", cache: "no-store" }) :
+                        fetch(VISITS, { credentials: "omit" });
+    asked.then(function (r) {
+      if (!r.ok) throw new Error(r.status);
+      return r.json();
+    }).then(function (answer) {
+      if (answer && typeof answer.views === "number" && answer.views >= 0) { visits = answer.views; showVisits(); }
+    }).catch(function () {});
   }
 
   // ---- Data ----
