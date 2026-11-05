@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>EmuSuNi compatibility</title>
+  <meta name="description" content="Which games EmuSuNi plays well on a PS4, console by console: tested games, their region, a rating and the recommended settings.">
+  <meta name="color-scheme" content="light dark">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <a class="skip" href="#main" data-i18n="skip">Skip to content</a>
+  <header class="top">
+    <a class="brand" href="./" aria-label="EmuSuNi">
+      <svg class="logo" viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="16" r="11" fill="#3f7de0"/><circle cx="16" cy="32" r="11" fill="#2fae5e"/><circle cx="48" cy="32" r="11" fill="#e04848"/><circle cx="32" cy="48" r="11" fill="#eebd2a"/></svg>
+      <span>EmuSuNi</span>
+    </a>
+    <nav class="nav" aria-label="Pages">
+      <a href="./" data-i18n="nav_home">Home</a>
+      <a href="./#systems" data-i18n="nav_systems">Consoles</a>
+      <a href="compat.html" class="tab active" aria-current="page" data-i18n="nav_compat">Compatibility</a>
+      <a href="stats.html" class="tab" data-i18n="nav_stats">Statistics</a>
+      <a href="./#donate" data-i18n="nav_donate">Donate</a>
+    </nav>
+    <div class="switches">
+      <button type="button" id="lang" class="pill" aria-label="Español / English">ES</button>
+      <button type="button" id="theme" class="pill" aria-label="Light or dark">◐</button>
+    </div>
+  </header>
+
+  <main id="main" class="compat-page">
+    <section class="band">
+      <h1 class="page-title" data-i18n="cp_title">Compatibility</h1>
+      <p class="note" data-i18n="cp_sub">The games we have played on a PS4 with EmuSuNi, console by console.</p>
+      <ul class="cp-legend" aria-label="Ratings">
+        <li><span class="cp-badge perfect" data-i18n="cp_r_perfect">Perfect</span><span data-i18n="cp_d_perfect">Plays as on the console.</span></li>
+        <li><span class="cp-badge playable" data-i18n="cp_r_playable">Playable</span><span data-i18n="cp_d_playable">Can be finished, with small issues.</span></li>
+        <li><span class="cp-badge boots" data-i18n="cp_r_boots">Boots</span><span data-i18n="cp_d_boots">Opens, with serious issues.</span></li>
+        <li><span class="cp-badge broken" data-i18n="cp_r_broken">Doesn't work</span><span data-i18n="cp_d_broken">Doesn't open, or closes.</span></li>
+      </ul>
+      <div class="cp-summary" id="cp-summary" aria-live="polite"></div>
+      <div class="cp-tools">
+        <label class="cp-search">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+          <input type="search" id="cp-q" autocomplete="off" data-i18n-placeholder="cp_search" placeholder="Search a game">
+        </label>
+        <div class="cp-filters">
+          <div class="cp-frow"><span class="cp-flabel" data-i18n="cp_f_consoles">Consoles</span><div class="sys-filters" id="cp-consoles" role="group"></div></div>
+          <div class="cp-frow"><span class="cp-flabel" data-i18n="cp_f_ratings">Rating</span><div class="sys-filters" id="cp-ratings" role="group"></div></div>
+          <button type="button" class="cp-clear" id="cp-clear" hidden data-i18n="cp_clear">Clear filters</button>
+        </div>
+      </div>
+      <p class="note notice" id="cp-state" data-i18n="cp_loading">Loading…</p>
+      <div id="cp-list" class="cp-list"></div>
+      <div class="cp-help">
+        <h2 data-i18n="cp_help_title">Tried a game?</h2>
+        <p data-i18n="cp_help">Play it a while, then send your log from the app: Settings → Send Log. Tell us its code on Telegram or GitHub, with how it went, and we will add it here.</p>
+        <p class="note small" id="cp-updated"></p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <p data-i18n="disclaimer">EmuSuNi is free software (GPL-2.0-or-later). No games or BIOS files are included. Not affiliated with Sony.</p>
+    <p>
+      <a href="https://github.com/arturofuentes1988/EmuSuNi/blob/main/THIRD_PARTY_NOTICES.md" data-i18n="notices">Third-party notices</a>
+    </p>
+  </footer>
+  <script src="strings.js" defer></script>
+  <script src="common.js" defer></script>
+  <script src="compat.js" defer></script>
+</body>
+</html>

@@ -1,0 +1,729 @@
+{
+  "updated": "2026-11-05",
+  "games": [
+    {
+      "console": "snes",
+      "title": "Killer Instinct",
+      "region": "USA",
+      "rating": "perfect",
+      "speed": "60 FPS · 100 %",
+      "settings": {
+        "es": "",
+        "en": ""
+      },
+      "notes": {
+        "es": "",
+        "en": ""
+      },
+      "version": "v00.23",
+      "by": "team",
+      "date": "2026-11-03",
+      "online": {
+        "es": "Sí, con amigos: probado en línea.",
+        "en": "Yes, with friends: tested online."
+      }
+    },
+    {
+      "console": "nds",
+      "title": "Mario Kart DS",
+      "region": "USA",
+      "rating": "perfect",
+      "speed": "60 FPS · 100 %",
+      "settings": {
+        "es": "Para jugar en línea: «Wi-Fi de DS» en Wiimmfi o WiiLink.",
+        "en": "For online play: set DS Wi-Fi to Wiimmfi or WiiLink."
+      },
+      "notes": {
+        "es": "",
+        "en": ""
+      },
+      "version": "v00.23",
+      "by": "team",
+      "date": "2026-11-05",
+      "online": {
+        "es": "Sí: Wiimmfi (Nintendo WFC de la comunidad); se encontraron rivales.",
+        "en": "Yes: Wiimmfi (the community's Nintendo WFC); rivals were found."
+      }
+    },
+    {
+      "console": "3ds",
+      "title": "Donkey Kong Country Returns 3D",
+      "region": "USA",
+      "rating": "playable",
+      "speed": "58 FPS · 97 %",
+      "settings": {
+        "es": "No uses la «Resolución de 3DS» en 1x: el fondo sale negro.",
+        "en": "Don't set 3DS Resolution to 1x: the background turns black."
+      },
+      "notes": {
+        "es": "Bajones y tirones a ratos: pide más CPU de la que tiene la PS4.",
+        "en": "Slowdowns and stutters at times: it needs more CPU than the PS4 has."
+      },
+      "version": "v00.23",
+      "by": "team",
+      "date": "2026-11-05"
+    },
+    {
+      "console": "3ds",
+      "title": "Driver Renegade 3D",
+      "region": "EUR",
+      "rating": "playable",
+      "speed": "59 FPS · 98 %",
+      "settings": {
+        "es": "",
+        "en": ""
+      },
+      "notes": {
+        "es": "Bajones a ratos.",
+        "en": "Slowdowns at times."
+      },
+      "version": "v00.23",
+      "by": "team",
+      "date": "2026-11-05"
+    },
+    {
+      "console": "3ds",
+      "title": "Hey! Pikmin",
+      "region": "EUR",
+      "rating": "playable",
+      "speed": "57 FPS · 95 %",
+      "settings": {
+        "es": "",
+        "en": ""
+      },
+      "notes": {
+        "es": "Va bien, con algunos tirones.",
+        "en": "Runs well, with some stutters."
+      },
+      "version": "v00.23",
+      "by": "team",
+      "date": "2026-11-04"
+    },
+    {
+      "console": "3ds",
+      "title": "Kirby: Planet Robobot",
+      "region": "EUR",
+      "rating": "playable",
+      "speed": "58 FPS · 97 %",
+      "settings": {
+        "es": "",
+        "en": ""
+      },
+      "notes": {
+        "es": "Va bien; tirones breves a ratos.",
+        "en": "Runs well; brief stutters at times."
+      },
+      "version": "v00.23",
+      "by": "team",
+      "date": "2026-11-03"
+    },
+    {
+      "console": "3ds",
+      "title": "Pokémon Ultra Sun",
+      "region": "EUR",
+      "rating": "playable",
+      "speed": "60 FPS · 100 %",
+      "settings": {
+        "es": "",
+        "en": ""
+      },
+      "notes": {
+        "es": "La intro va muy lenta; en el juego, bajadas y tirones a ratos.",
+        "en": "The intro runs very slowly; in game, drops and stutters at times."
+      },
+      "version": "v00.23",
+      "by": "team",
+      "date": "2026-11-05"
+    },
+    {
+      "console": "3ds",
+      "title": "Pokémon X",
+      "region": "EUR",
+      "rating": "boots",
+      "speed": "60 FPS · 99 %",
+      "settings": {
+        "es": "",
+        "en": ""
+      },
+      "notes": {
+        "es": "Va a velocidad completa; antes los modelos de personajes se veían mal y falta confirmar el arreglo.",
+        "en": "Runs at full speed; character models used to look wrong and the fix isn't confirmed yet."
+      },
+      "version": "v00.23",
+      "by": "team",
+      "date": "2026-11-05"
+    },
+    {
+      "console": "3ds",
+      "title": "Resident Evil: Revelations",
+      "region": "USA",
+      "rating": "playable",
+      "speed": "55 FPS · 92 %",
+      "settings": {
+        "es": "",
+        "en": ""
+      },
+      "notes": {
+        "es": "Jugable; a ratos baja a unos 48 FPS.",
+        "en": "Playable; drops to about 48 FPS at times."
+      },
+      "version": "v00.23",
+      "by": "team",
+      "date": "2026-11-04"
+    },
+    {
+      "console": "3ds",
+      "title": "Super Mario 3D Land",
+      "region": "EUR",
+      "rating": "perfect",
+      "speed": "60 FPS · 100 %",
+      "settings": {
+        "es": "",
+        "en": ""
+      },
+      "notes": {
+        "es": "Algún tirón breve al empezar.",
+        "en": "A brief stutter or two at the start."
+      },
+      "version": "v00.23",
+      "by": "team",
+      "date": "2026-11-04"
+    },
+    {
+      "console": "3ds",
+      "title": "Super Smash Bros. for Nintendo 3DS",
+      "region": "EUR",
+      "rating": "perfect",
+      "speed": "60 FPS · 100 %",
+      "settings": {
+        "es": "",
+        "en": ""
+      },
+      "notes": {
+        "es": "Tirones el primer minuto; los luchadores rotos se arreglaron en la v00.23.",
+        "en": "Stutters in the first minute; the broken fighters were fixed in v00.23."
+      },
+      "version": "v00.23",
+      "by": "team",
+      "date": "2026-11-05"
+    },
+    {
+      "console": "3ds",
+      "title": "Super Street Fighter IV: 3D Edition",
+      "region": "EUR",
+      "rating": "playable",
+      "speed": "56 FPS · 93 %",
+      "settings": {
+        "es": "",
+        "en": ""
+      },
+      "notes": {
+        "es": "Probado poco tiempo; bajadas a ratos.",
+        "en": "Short test; drops at times."
+      },
+      "version": "v00.23",
+      "by": "team",
+      "date": "2026-11-05"
+    },
+    {
+      "console": "3ds",
+      "title": "The Legend of Zelda: A Link Between Worlds",
+      "region": "USA",
+      "rating": "perfect",
+      "speed": "60 FPS · 100 %",
+      "settings": {
+        "es": "",
+        "en": ""
+      },
+      "notes": {
+        "es": "Probado poco tiempo; tirones al empezar.",
+        "en": "Short test; stutters at the start."
+      },
+      "version": "v00.23",
+      "by": "team",
+      "date": "2026-11-05"
+    },
+    {
+      "console": "3ds",
+      "title": "The Legend of Zelda: Ocarina of Time 3D",
+      "region": "",
+      "rating": "perfect",
+      "speed": "60 FPS · 100 %",
+      "settings": {
+        "es": "",
+        "en": ""
+      },
+      "notes": {
+        "es": "",
+        "en": ""
+      },
+      "version": "v00.23",
+      "by": "team",
+      "date": "2026-11-05"
+    },
+    {
+      "console": "3ds",
+      "title": "The Legend of Zelda: Tri Force Heroes",
+      "region": "USA",
+      "rating": "perfect",
+      "speed": "60 FPS · 100 %",
+      "settings": {
+        "es": "",
+        "en": ""
+      },
+      "notes": {
+        "es": "Probado poco tiempo; algún tirón.",
+        "en": "Short test; an occasional stutter."
+      },
+      "version": "v00.23",
+      "by": "team",
+      "date": "2026-11-05"
+    },
+    {
+      "console": "psp",
+      "title": "MotorStorm: Arctic Edge",
+      "region": "USA",
+      "rating": "perfect",
+      "speed": "60 FPS · 100 %",
+      "settings": {
+        "es": "Para jugar en línea: «Juego en línea de PSP» activado y un apodo.",
+        "en": "For online play: turn on PSP Online and set a nickname."
+      },
+      "notes": {
+        "es": "",
+        "en": ""
+      },
+      "version": "v00.23",
+      "by": "team",
+      "date": "2026-11-05",
+      "online": {
+        "es": "Sí: infraestructura de PPSSPP; conecta, pero no había partidas abiertas.",
+        "en": "Yes: PPSSPP's infrastructure; it connects, but no matches were open."
+      }
+    },
+    {
+      "console": "dc",
+      "title": "ChuChu Rocket!",
+      "region": "USA",
+      "rating": "perfect",
+      "speed": "60 FPS · 100 %",
+      "settings": {
+        "es": "Para jugar en línea: «Dreamcast en línea» en DCNet (módem).",
+        "en": "For online play: set Dreamcast Online to DCNet (modem)."
+      },
+      "notes": {
+        "es": "",
+        "en": ""
+      },
+      "version": "v00.23",
+      "by": "team",
+      "date": "2026-11-05",
+      "online": {
+        "es": "Sí: DCNet; llega a la sala en línea.",
+        "en": "Yes: DCNet; it reaches the online lobby."
+      }
+    },
+    {
+      "console": "dc",
+      "title": "De La Jet Set Radio",
+      "region": "JPN",
+      "rating": "perfect",
+      "speed": "60 FPS · 100 %",
+      "settings": {
+        "es": "",
+        "en": ""
+      },
+      "notes": {
+        "es": "Probado poco tiempo.",
+        "en": "Short test."
+      },
+      "version": "v00.23",
+      "by": "team",
+      "date": "2026-11-05"
+    },
+    {
+      "console": "dc",
+      "title": "Street Fighter III: 3rd Strike",
+      "region": "USA",
+      "rating": "perfect",
+      "speed": "60 FPS · 100 %",
+      "settings": {
+        "es": "",
+        "en": ""
+      },
+      "notes": {
+        "es": "Probado poco tiempo.",
+        "en": "Short test."
+      },
+      "version": "v00.23",
+      "by": "team",
+      "date": "2026-11-05"
+    },
+    {
+      "console": "atari2600",
+      "title": "Jr. Pac-Man",
+      "region": "USA",
+      "rating": "perfect",
+      "speed": "60 FPS · 100 %",
+      "settings": {
+        "es": "",
+        "en": ""
+      },
+      "notes": {
+        "es": "Probado poco tiempo.",
+        "en": "Short test."
+      },
+      "version": "v00.23",
+      "by": "team",
+      "date": "2026-11-02"
+    },
+    {
+      "console": "atari7800",
+      "title": "1942 Extended",
+      "region": "World",
+      "rating": "playable",
+      "speed": "60 FPS · 100 %",
+      "settings": {
+        "es": "",
+        "en": ""
+      },
+      "notes": {
+        "es": "Probado poco tiempo; puede faltar parte del sonido (el chip YM2151 no se emula).",
+        "en": "Short test; some sound may be missing (the YM2151 chip isn't emulated)."
+      },
+      "version": "v00.23",
+      "by": "team",
+      "date": "2026-11-04"
+    },
+    {
+      "console": "atari7800",
+      "title": "Donkey Kong XM",
+      "region": "World",
+      "rating": "perfect",
+      "speed": "60 FPS · 100 %",
+      "settings": {
+        "es": "",
+        "en": ""
+      },
+      "notes": {
+        "es": "Demo; probado poco tiempo.",
+        "en": "Demo; short test."
+      },
+      "version": "v00.23",
+      "by": "team",
+      "date": "2026-11-02"
+    },
+    {
+      "console": "atari7800",
+      "title": "Mario Bros.",
+      "region": "USA",
+      "rating": "perfect",
+      "speed": "60 FPS · 100 %",
+      "settings": {
+        "es": "",
+        "en": ""
+      },
+      "notes": {
+        "es": "Probado poco tiempo.",
+        "en": "Short test."
+      },
+      "version": "v00.23",
+      "by": "team",
+      "date": "2026-11-02"
+    },
+    {
+      "console": "atarijaguar",
+      "title": "Alien vs Predator",
+      "region": "World",
+      "rating": "playable",
+      "speed": "59 FPS · 98 %",
+      "settings": {
+        "es": "",
+        "en": ""
+      },
+      "notes": {
+        "es": "Baja de FPS a ratos en zonas con muchas texturas.",
+        "en": "FPS drops at times in texture-heavy areas."
+      },
+      "version": "v00.23",
+      "by": "team",
+      "date": "2026-11-04"
+    },
+    {
+      "console": "atarijaguar",
+      "title": "Doom",
+      "region": "World",
+      "rating": "playable",
+      "speed": "57 FPS · 94 %",
+      "settings": {
+        "es": "Deja «Velocidad GPU/DSP de Jaguar» en Auto.",
+        "en": "Keep Jaguar GPU/DSP Speed on Auto."
+      },
+      "notes": {
+        "es": "Bajadas leves a ratos.",
+        "en": "Slight drops at times."
+      },
+      "version": "v00.23",
+      "by": "team",
+      "date": "2026-11-04"
+    },
+    {
+      "console": "atarijaguar",
+      "title": "Iron Soldier",
+      "region": "World",
+      "rating": "playable",
+      "speed": "57 FPS · 95 %",
+      "settings": {
+        "es": "",
+        "en": ""
+      },
+      "notes": {
+        "es": "En las partes 3D va al 94-95 %, con tirones.",
+        "en": "In 3D sections it runs at 94-95 %, with stutters."
+      },
+      "version": "v00.23",
+      "by": "team",
+      "date": "2026-11-04"
+    },
+    {
+      "console": "atarijaguar",
+      "title": "Rayman",
+      "region": "World",
+      "rating": "playable",
+      "speed": "56 FPS · 96 %",
+      "settings": {
+        "es": "",
+        "en": ""
+      },
+      "notes": {
+        "es": "Probado poco tiempo.",
+        "en": "Short test."
+      },
+      "version": "v00.23",
+      "by": "team",
+      "date": "2026-11-04"
+    },
+    {
+      "console": "atarijaguar",
+      "title": "Tempest 2000",
+      "region": "World",
+      "rating": "boots",
+      "speed": "48 FPS · 80 %",
+      "settings": {
+        "es": "",
+        "en": ""
+      },
+      "notes": {
+        "es": "Menús a 60 FPS, pero la partida va a unos 48 FPS (más lenta).",
+        "en": "Menus at 60 FPS, but gameplay runs at about 48 FPS (slower)."
+      },
+      "version": "v00.23",
+      "by": "team",
+      "date": "2026-11-04"
+    },
+    {
+      "console": "atarijaguar",
+      "title": "Wolfenstein 3D",
+      "region": "World",
+      "rating": "playable",
+      "speed": "57 FPS · 94 %",
+      "settings": {
+        "es": "",
+        "en": ""
+      },
+      "notes": {
+        "es": "Bajadas leves a ratos.",
+        "en": "Slight drops at times."
+      },
+      "version": "v00.23",
+      "by": "team",
+      "date": "2026-11-04"
+    },
+    {
+      "console": "arcade",
+      "title": "Aero Fighters",
+      "region": "World",
+      "rating": "playable",
+      "speed": "60 FPS · 87 %",
+      "settings": {
+        "es": "",
+        "en": ""
+      },
+      "notes": {
+        "es": "Probado solo en línea, con mala conexión: bajaba por la red, no por el emulador.",
+        "en": "Tested only online, on a poor connection: it slowed down from the network, not the emulator."
+      },
+      "version": "v00.23",
+      "by": "team",
+      "date": "2026-11-02",
+      "online": {
+        "es": "Sí, con amigos: probado en línea (con mala conexión).",
+        "en": "Yes, with friends: tested online (on a poor connection)."
+      }
+    },
+    {
+      "console": "arcade",
+      "title": "Cadillacs and Dinosaurs",
+      "region": "World",
+      "rating": "perfect",
+      "speed": "60 FPS · 100 %",
+      "settings": {
+        "es": "",
+        "en": ""
+      },
+      "notes": {
+        "es": "",
+        "en": ""
+      },
+      "version": "v00.23",
+      "by": "team",
+      "date": "2026-11-03",
+      "online": {
+        "es": "Sí, con amigos: probado en línea.",
+        "en": "Yes, with friends: tested online."
+      }
+    },
+    {
+      "console": "arcade",
+      "title": "Mortal Kombat II",
+      "region": "",
+      "rating": "playable",
+      "speed": "27 FPS · 92 %",
+      "settings": {
+        "es": "",
+        "en": ""
+      },
+      "notes": {
+        "es": "Probado solo en línea con mucha latencia: la imagen iba a saltos.",
+        "en": "Tested only online with high latency: the picture was choppy."
+      },
+      "version": "v00.23",
+      "by": "team",
+      "date": "2026-11-03",
+      "online": {
+        "es": "Sí, con amigos: probado en línea (con mucha latencia).",
+        "en": "Yes, with friends: tested online (with high latency)."
+      }
+    },
+    {
+      "console": "arcade",
+      "title": "Street Fighter Alpha 3",
+      "region": "EUR",
+      "rating": "playable",
+      "speed": "60 FPS · 90 %",
+      "settings": {
+        "es": "",
+        "en": ""
+      },
+      "notes": {
+        "es": "Probado solo en línea, con mala conexión: bajaba por la red, no por el emulador.",
+        "en": "Tested only online, on a poor connection: it slowed down from the network, not the emulator."
+      },
+      "version": "v00.23",
+      "by": "team",
+      "date": "2026-11-02",
+      "online": {
+        "es": "Sí, con amigos: probado en línea (con mala conexión).",
+        "en": "Yes, with friends: tested online (on a poor connection)."
+      }
+    },
+    {
+      "console": "arcade",
+      "title": "Street Fighter Alpha: Warriors' Dreams",
+      "region": "EUR",
+      "rating": "perfect",
+      "speed": "60 FPS · 100 %",
+      "settings": {
+        "es": "",
+        "en": ""
+      },
+      "notes": {
+        "es": "",
+        "en": ""
+      },
+      "version": "v00.23",
+      "by": "team",
+      "date": "2026-11-03",
+      "online": {
+        "es": "Sí, con amigos: probado en línea.",
+        "en": "Yes, with friends: tested online."
+      }
+    },
+    {
+      "console": "arcade",
+      "title": "X-Men vs. Street Fighter",
+      "region": "EUR",
+      "rating": "playable",
+      "speed": "60 FPS · 89 %",
+      "settings": {
+        "es": "",
+        "en": ""
+      },
+      "notes": {
+        "es": "Probado solo en línea, con mala conexión: bajaba por la red, no por el emulador.",
+        "en": "Tested only online, on a poor connection: it slowed down from the network, not the emulator."
+      },
+      "version": "v00.23",
+      "by": "team",
+      "date": "2026-11-02",
+      "online": {
+        "es": "Sí, con amigos: probado en línea (con mala conexión).",
+        "en": "Yes, with friends: tested online (on a poor connection)."
+      }
+    },
+    {
+      "console": "openbor",
+      "title": "Ruvor Rush",
+      "region": "",
+      "rating": "perfect",
+      "speed": "60 FPS · 100 %",
+      "settings": {
+        "es": "",
+        "en": ""
+      },
+      "notes": {
+        "es": "Probado poco tiempo.",
+        "en": "Short test."
+      },
+      "version": "v00.23",
+      "by": "team",
+      "date": "2026-11-04"
+    },
+    {
+      "console": "openbor",
+      "title": "Super Mario Brawl",
+      "region": "",
+      "rating": "perfect",
+      "speed": "60 FPS · 100 %",
+      "settings": {
+        "es": "",
+        "en": ""
+      },
+      "notes": {
+        "es": "Probado poco tiempo.",
+        "en": "Short test."
+      },
+      "version": "v00.23",
+      "by": "team",
+      "date": "2026-11-04"
+    },
+    {
+      "console": "openbor",
+      "title": "Xelam",
+      "region": "",
+      "rating": "perfect",
+      "speed": "60 FPS · 100 %",
+      "settings": {
+        "es": "",
+        "en": ""
+      },
+      "notes": {
+        "es": "Probado poco tiempo.",
+        "en": "Short test."
+      },
+      "version": "v00.23",
+      "by": "team",
+      "date": "2026-11-04"
+    }
+  ]
+}

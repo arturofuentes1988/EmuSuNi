@@ -21,7 +21,9 @@ var EmuSuNi = (function () {
     ["atomiswave", "Atomiswave", "Flycast"], ["sg1000", "SG-1000", "Genesis Plus GX"],
     ["sms", "Master System", "Genesis Plus GX"], ["gg", "Game Gear", "Genesis Plus GX"],
     ["md", "Genesis / Mega Drive", "Genesis Plus GX"], ["saturn", "Saturn", "YabaSanshiro"],
-    ["pce", "PC Engine", "Beetle PCE Fast"], ["arcade", "Arcade", "FinalBurn Neo"]
+    ["pce", "PC Engine", "Beetle PCE Fast"], ["atari2600", "Atari 2600", "Stella"],
+    ["atari7800", "Atari 7800", "ProSystem"], ["atarijaguar", "Atari Jaguar", "Virtual Jaguar"],
+    ["arcade", "Arcade", "FinalBurn Neo"], ["openbor", "OpenBOR", "OpenBOR"]
   ];
   var CONSOLE_NAME = {};
   CONSOLES.forEach(function (c) { CONSOLE_NAME[c[0]] = c[1]; });
