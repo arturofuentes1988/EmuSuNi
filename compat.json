@@ -24,6 +24,68 @@
       }
     },
     {
+      "console": "snes",
+      "title": "Street Fighter Alpha 2",
+      "region": "USA",
+      "rating": "perfect",
+      "speed": "60 FPS · 99 %",
+      "settings": {
+        "es": "",
+        "en": ""
+      },
+      "notes": {
+        "es": "",
+        "en": ""
+      },
+      "version": "v00.23",
+      "by": "team",
+      "date": "2026-11-05",
+      "online": {
+        "es": "Sí, con amigos: probado en línea.",
+        "en": "Yes, with friends: tested online."
+      }
+    },
+    {
+      "console": "snes",
+      "title": "Super Mario Kart",
+      "region": "USA",
+      "rating": "perfect",
+      "speed": "60 FPS · 99 %",
+      "settings": {
+        "es": "",
+        "en": ""
+      },
+      "notes": {
+        "es": "",
+        "en": ""
+      },
+      "version": "v00.23",
+      "by": "team",
+      "date": "2026-11-05",
+      "online": {
+        "es": "Sí, con amigos: probado en línea.",
+        "en": "Yes, with friends: tested online."
+      }
+    },
+    {
+      "console": "ps1",
+      "title": "Bust a Groove",
+      "region": "USA",
+      "rating": "perfect",
+      "speed": "30-60 FPS · 100 %",
+      "settings": {
+        "es": "",
+        "en": ""
+      },
+      "notes": {
+        "es": "60 FPS en los menús y 30 en los bailes, como en la PlayStation. Sin pausas al cargar.",
+        "en": "60 FPS in menus and 30 in the dances, as on the PlayStation. No pauses while loading."
+      },
+      "version": "v00.23",
+      "by": "team",
+      "date": "2026-11-05"
+    },
+    {
       "console": "nds",
       "title": "Mario Kart DS",
       "region": "USA",
@@ -50,14 +112,14 @@
       "title": "Donkey Kong Country Returns 3D",
       "region": "USA",
       "rating": "playable",
-      "speed": "58 FPS · 97 %",
+      "speed": "51-58 FPS · 85-97 %",
       "settings": {
         "es": "No uses la «Resolución de 3DS» en 1x: el fondo sale negro.",
         "en": "Don't set 3DS Resolution to 1x: the background turns black."
       },
       "notes": {
-        "es": "Bajones y tirones a ratos: pide más CPU de la que tiene la PS4.",
-        "en": "Slowdowns and stutters at times: it needs more CPU than the PS4 has."
+        "es": "Bajones y tirones a ratos (hasta el 71 %): pide más CPU de la que tiene la PS4.",
+        "en": "Slowdowns and stutters at times (down to 71%): it needs more CPU than the PS4 has."
       },
       "version": "v00.23",
       "by": "team",
@@ -139,15 +201,15 @@
       "console": "3ds",
       "title": "Pokémon X",
       "region": "EUR",
-      "rating": "boots",
-      "speed": "60 FPS · 99 %",
+      "rating": "perfect",
+      "speed": "60 FPS · 100 %",
       "settings": {
         "es": "",
         "en": ""
       },
       "notes": {
-        "es": "Va a velocidad completa; antes los modelos de personajes se veían mal y falta confirmar el arreglo.",
-        "en": "Runs at full speed; character models used to look wrong and the fix isn't confirmed yet."
+        "es": "Tirones los primeros segundos, mientras se arman los shaders. Los modelos se ven bien desde la v00.23.",
+        "en": "Stutters in the first seconds, while shaders are built. The models look right since v00.23."
       },
       "version": "v00.23",
       "by": "team",
@@ -280,6 +342,78 @@
       "date": "2026-11-05"
     },
     {
+      "console": "3ds",
+      "title": "Persona Q: Shadow of the Labyrinth",
+      "region": "USA",
+      "rating": "perfect",
+      "speed": "60 FPS · 100 %",
+      "settings": {
+        "es": "",
+        "en": ""
+      },
+      "notes": {
+        "es": "Los modelos de las charlas y los menús se ven bien desde la v00.23.",
+        "en": "The models in talks and menus look right since v00.23."
+      },
+      "version": "v00.23",
+      "by": "team",
+      "date": "2026-11-05"
+    },
+    {
+      "console": "3ds",
+      "title": "Luigi's Mansion",
+      "region": "EUR",
+      "rating": "boots",
+      "speed": "",
+      "settings": {
+        "es": "Carga los estados con el mismo «Modo New 3DS» con que los guardaste.",
+        "en": "Load save states with the same New 3DS Mode they were saved with."
+      },
+      "notes": {
+        "es": "Arranca bien; probado poco tiempo. Cargar un estado guardado con el otro «Modo New 3DS» cierra la app (se arregla en la próxima versión).",
+        "en": "Boots fine; tested only briefly. Loading a save state made with the other New 3DS Mode setting closes the app (fixed in the next version)."
+      },
+      "version": "v00.23",
+      "by": "team",
+      "date": "2026-11-05"
+    },
+    {
+      "console": "3ds",
+      "title": "Sonic Generations",
+      "region": "EUR",
+      "rating": "playable",
+      "speed": "60 FPS · 100 %",
+      "settings": {
+        "es": "",
+        "en": ""
+      },
+      "notes": {
+        "es": "Probado poco tiempo.",
+        "en": "Tested only briefly."
+      },
+      "version": "v00.23",
+      "by": "team",
+      "date": "2026-11-05"
+    },
+    {
+      "console": "3ds",
+      "title": "New Super Mario Bros. 2",
+      "region": "USA",
+      "rating": "playable",
+      "speed": "60 FPS · 100 %",
+      "settings": {
+        "es": "",
+        "en": ""
+      },
+      "notes": {
+        "es": "Probado poco tiempo.",
+        "en": "Tested only briefly."
+      },
+      "version": "v00.23",
+      "by": "team",
+      "date": "2026-11-05"
+    },
+    {
       "console": "psp",
       "title": "MotorStorm: Arctic Edge",
       "region": "USA",
@@ -354,6 +488,24 @@
       "notes": {
         "es": "Probado poco tiempo.",
         "en": "Short test."
+      },
+      "version": "v00.23",
+      "by": "team",
+      "date": "2026-11-05"
+    },
+    {
+      "console": "dc",
+      "title": "Daytona USA",
+      "region": "USA",
+      "rating": "boots",
+      "speed": "50 FPS · 82 %",
+      "settings": {
+        "es": "",
+        "en": ""
+      },
+      "notes": {
+        "es": "Va más lento que el original, con bajones fuertes (hasta el 20 %).",
+        "en": "Runs slower than the original, with heavy drops (down to 20%)."
       },
       "version": "v00.23",
       "by": "team",
@@ -669,6 +821,116 @@
       "online": {
         "es": "Sí, con amigos: probado en línea (con mala conexión).",
         "en": "Yes, with friends: tested online (on a poor connection)."
+      }
+    },
+    {
+      "console": "arcade",
+      "title": "Metal Slug 3",
+      "region": "World",
+      "rating": "perfect",
+      "speed": "60 FPS · 100 %",
+      "settings": {
+        "es": "",
+        "en": ""
+      },
+      "notes": {
+        "es": "",
+        "en": ""
+      },
+      "version": "v00.23",
+      "by": "team",
+      "date": "2026-11-05",
+      "online": {
+        "es": "Sí, con amigos: probado en línea.",
+        "en": "Yes, with friends: tested online."
+      }
+    },
+    {
+      "console": "arcade",
+      "title": "Marvel vs. Capcom: Clash of Super Heroes",
+      "region": "EUR",
+      "rating": "perfect",
+      "speed": "60 FPS · 100 %",
+      "settings": {
+        "es": "",
+        "en": ""
+      },
+      "notes": {
+        "es": "",
+        "en": ""
+      },
+      "version": "v00.23",
+      "by": "team",
+      "date": "2026-11-05",
+      "online": {
+        "es": "Sí, con amigos: probado en línea.",
+        "en": "Yes, with friends: tested online."
+      }
+    },
+    {
+      "console": "arcade",
+      "title": "Garou: Mark of the Wolves",
+      "region": "World",
+      "rating": "playable",
+      "speed": "60 FPS · 100 %",
+      "settings": {
+        "es": "",
+        "en": ""
+      },
+      "notes": {
+        "es": "Probado poco tiempo, en línea.",
+        "en": "Tested only briefly, online."
+      },
+      "version": "v00.23",
+      "by": "team",
+      "date": "2026-11-05",
+      "online": {
+        "es": "Sí, con amigos: probado en línea.",
+        "en": "Yes, with friends: tested online."
+      }
+    },
+    {
+      "console": "arcade",
+      "title": "Street Fighter II': Champion Edition",
+      "region": "World",
+      "rating": "playable",
+      "speed": "60 FPS · 100 %",
+      "settings": {
+        "es": "",
+        "en": ""
+      },
+      "notes": {
+        "es": "Probado poco tiempo, en línea.",
+        "en": "Tested only briefly, online."
+      },
+      "version": "v00.23",
+      "by": "team",
+      "date": "2026-11-05",
+      "online": {
+        "es": "Sí, con amigos: probado en línea.",
+        "en": "Yes, with friends: tested online."
+      }
+    },
+    {
+      "console": "arcade",
+      "title": "Mortal Kombat",
+      "region": "",
+      "rating": "playable",
+      "speed": "46 FPS · 100 %",
+      "settings": {
+        "es": "",
+        "en": ""
+      },
+      "notes": {
+        "es": "Probado poco tiempo, en línea. Va a su velocidad (54,7 Hz), pero la pantalla mostró unos 46 FPS.",
+        "en": "Tested only briefly, online. It runs at its own speed (54.7 Hz), but the screen showed about 46 FPS."
+      },
+      "version": "v00.23",
+      "by": "team",
+      "date": "2026-11-05",
+      "online": {
+        "es": "Sí, con amigos: probado en línea.",
+        "en": "Yes, with friends: tested online."
       }
     },
     {
