@@ -527,3 +527,14 @@ section[id], .panel[id] { scroll-margin-top: 100px; }
   .cp-t td.cp-on { grid-column: 1 / -1; }
 }
 @media (min-width: 760px) { .cp-t td.cp-game { min-width: 180px; } .cp-t td.cp-when { min-width: 104px; } .cp-t td.cp-on { min-width: 150px; } }
+/* (v00.23) Compatibility: «From players' reports», the speed in the players' own logs, apart from our tests. */
+.cp-users { margin-top: 32px; }
+.cp-users > h2 { font-size: 24px; margin: 0 0 6px; }
+.cp-users > .note { margin: 0 0 14px; max-width: 72ch; }
+.cp-names h3 { margin: 0; font-size: 18px; }
+.cu-t td.cp-speed { width: 1%; }
+@media (max-width: 759px) {
+  .cu-t tr { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .cu-t td.cp-game { grid-column: 1 / -1; }
+  .cu-t td.cp-speed { width: auto; white-space: normal; }
+}

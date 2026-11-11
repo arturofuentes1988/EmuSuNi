@@ -189,7 +189,64 @@
     if (!shown) list.appendChild(E.el("p", "note cp-empty", E.t("cp_none")));
   }
 
+  // «From players' reports» (compat-reportes.json): the speed the players' own logs measured, apart from our tests.
+  // Only the game, its console and numbers: never a report code, a country or a file name.
+  var users = null;
+  function consoleName(key) {
+    for (var i = 0; i < E.CONSOLES.length; i++) if (E.CONSOLES[i][0] === key) return E.CONSOLES[i][1];
+    return key;
+  }
+  function usersGroup(titleKey, descKey, games) {
+    var group = E.el("section", "cp-group");
+    var head = E.el("header", "cp-head");
+    var names = E.el("div", "cp-names");
+    names.appendChild(E.el("h3", null, E.t(titleKey)));
+    names.appendChild(E.el("span", "emu", E.t(descKey)));
+    head.appendChild(names);
+    group.appendChild(head);
+    var table = E.el("table", "cp-t cu-t");
+    var hr = E.el("tr");
+    ["cp_h_game", "cu_h_logs", "cu_h_median", "cu_h_full"].forEach(function (k) {
+      var th = E.el("th", null, E.t(k));
+      th.scope = "col";
+      hr.appendChild(th);
+    });
+    var thead = E.el("thead");
+    thead.appendChild(hr);
+    table.appendChild(thead);
+    var body = E.el("tbody");
+    games.forEach(function (g) {
+      var tr = E.el("tr");
+      var title = E.el("td", "cp-game");
+      title.appendChild(E.el("b", null, g.title));
+      title.appendChild(E.el("span", "cp-note", consoleName(g.console)));
+      tr.appendChild(title);
+      [["cu_h_logs", E.num(g.reports)], ["cu_h_median", g.median + " %"], ["cu_h_full", g.full + " %"]].forEach(function (c) {
+        var td = E.el("td", "cp-speed", c[1]);
+        td.setAttribute("data-label", E.t(c[0]));
+        tr.appendChild(td);
+      });
+      body.appendChild(tr);
+    });
+    table.appendChild(body);
+    group.appendChild(table);
+    return group;
+  }
+  function renderUsers() {
+    var box = E.byId("cp-users");
+    if (!box || !users) return;
+    var good = users.good || [], slow = users.slow || [];
+    box.hidden = !good.length && !slow.length;
+    E.byId("cu-sub").textContent = E.fmt("cu_sub", users.version || "", E.num(users.reports || 0),
+      users.updated ? E.date(users.updated + "T12:00:00") : "");
+    var lists = E.byId("cu-lists");
+    E.clear(lists);
+    if (good.length) lists.appendChild(usersGroup("cu_good", "cu_good_d", good));
+    if (slow.length) lists.appendChild(usersGroup("cu_slow", "cu_slow_d", slow));
+  }
+
   function render() {
+    renderUsers();
     var state = E.byId("cp-state");
     if (!data) {
       state.hidden = false;
@@ -211,4 +268,8 @@
     .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
     .then(function (json) { data = json; render(); })
     .catch(function () { failed = true; render(); });
+  fetch("compat-reportes.json", { cache: "no-store" })
+    .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+    .then(function (json) { users = json; renderUsers(); })
+    .catch(function () { /* the section stays hidden */ });
 })();

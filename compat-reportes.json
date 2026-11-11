@@ -1,0 +1,199 @@
+{
+ "updated": "2026-11-11",
+ "version": "v00.23",
+ "reports": 265,
+ "note": "Speed only, from players' logs of v00.23 (the team's own reports left out). A game is listed with 2 or more logs and 10 or more speed readings; good: median >= 97% and >= 85% of readings at 95% or more; slow: median below 85%.",
+ "good": [
+  {
+   "console": "3ds",
+   "title": "The Legend of Zelda: A Link Between Worlds",
+   "reports": 22,
+   "median": 100,
+   "full": 96
+  },
+  {
+   "console": "3ds",
+   "title": "The Legend of Zelda: Ocarina of Time 3D",
+   "reports": 10,
+   "median": 100,
+   "full": 99
+  },
+  {
+   "console": "3ds",
+   "title": "Super Mario 3D Land",
+   "reports": 4,
+   "median": 100,
+   "full": 97
+  },
+  {
+   "console": "n64",
+   "title": "Super Mario 64",
+   "reports": 4,
+   "median": 100,
+   "full": 100
+  },
+  {
+   "console": "snes",
+   "title": "Super Mario World",
+   "reports": 4,
+   "median": 100,
+   "full": 90
+  },
+  {
+   "console": "arcade",
+   "title": "1941: Counter Attack",
+   "reports": 3,
+   "median": 100,
+   "full": 100
+  },
+  {
+   "console": "arcade",
+   "title": "DoDonPachi",
+   "reports": 3,
+   "median": 100,
+   "full": 99
+  },
+  {
+   "console": "3ds",
+   "title": "Mario Kart 7",
+   "reports": 3,
+   "median": 100,
+   "full": 95
+  },
+  {
+   "console": "3ds",
+   "title": "The Legend of Zelda: Majora's Mask 3D",
+   "reports": 3,
+   "median": 100,
+   "full": 98
+  },
+  {
+   "console": "n64",
+   "title": "The Legend of Zelda: Ocarina of Time",
+   "reports": 3,
+   "median": 100,
+   "full": 100
+  },
+  {
+   "console": "saturn",
+   "title": "Akumajou Dracula X: Gekka no Yasoukyoku",
+   "reports": 2,
+   "median": 99,
+   "full": 93
+  },
+  {
+   "console": "ps1",
+   "title": "Crash Bash",
+   "reports": 2,
+   "median": 100,
+   "full": 100
+  },
+  {
+   "console": "n64",
+   "title": "Diddy Kong Racing",
+   "reports": 2,
+   "median": 100,
+   "full": 100
+  },
+  {
+   "console": "saturn",
+   "title": "Exhumed",
+   "reports": 2,
+   "median": 100,
+   "full": 100
+  },
+  {
+   "console": "psp",
+   "title": "God of War: Chains of Olympus",
+   "reports": 2,
+   "median": 100,
+   "full": 97
+  },
+  {
+   "console": "psp",
+   "title": "God of War: Ghost of Sparta",
+   "reports": 2,
+   "median": 100,
+   "full": 99
+  },
+  {
+   "console": "snes",
+   "title": "Killer Instinct",
+   "reports": 2,
+   "median": 100,
+   "full": 100
+  },
+  {
+   "console": "nds",
+   "title": "New Super Mario Bros.",
+   "reports": 2,
+   "median": 100,
+   "full": 89
+  },
+  {
+   "console": "3ds",
+   "title": "New Super Mario Bros. 2",
+   "reports": 2,
+   "median": 100,
+   "full": 91
+  },
+  {
+   "console": "3ds",
+   "title": "Pokémon X",
+   "reports": 2,
+   "median": 100,
+   "full": 89
+  },
+  {
+   "console": "3ds",
+   "title": "Poochy & Yoshi's Woolly World",
+   "reports": 2,
+   "median": 100,
+   "full": 97
+  },
+  {
+   "console": "ps1",
+   "title": "Resident Evil 2: Dual Shock Ver.",
+   "reports": 2,
+   "median": 100,
+   "full": 100
+  },
+  {
+   "console": "arcade",
+   "title": "Street Fighter II: The World Warrior",
+   "reports": 2,
+   "median": 100,
+   "full": 92
+  },
+  {
+   "console": "md",
+   "title": "Streets of Rage 2",
+   "reports": 2,
+   "median": 100,
+   "full": 100
+  },
+  {
+   "console": "arcade",
+   "title": "Super Sidekicks 2: The World Championship",
+   "reports": 2,
+   "median": 100,
+   "full": 100
+  }
+ ],
+ "slow": [
+  {
+   "console": "3ds",
+   "title": "Castlevania: Lords of Shadow – Mirror of Fate",
+   "reports": 4,
+   "median": 36,
+   "full": 4
+  },
+  {
+   "console": "3ds",
+   "title": "Luigi's Mansion 2",
+   "reports": 2,
+   "median": 54,
+   "full": 0
+  }
+ ]
+}
