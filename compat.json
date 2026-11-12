@@ -1,5 +1,5 @@
 {
-  "updated": "2026-11-05",
+  "updated": "2026-11-12",
   "games": [
     {
       "console": "snes",
@@ -363,19 +363,19 @@
       "console": "3ds",
       "title": "Luigi's Mansion",
       "region": "EUR",
-      "rating": "boots",
-      "speed": "",
+      "rating": "playable",
+      "speed": "59 FPS · 99 %",
       "settings": {
-        "es": "Carga los estados con el mismo «Modo New 3DS» con que los guardaste.",
-        "en": "Load save states with the same New 3DS Mode they were saved with."
+        "es": "",
+        "en": ""
       },
       "notes": {
-        "es": "Arranca bien; probado poco tiempo. Cargar un estado guardado con el otro «Modo New 3DS» cierra la app (se arregla en la próxima versión).",
-        "en": "Boots fine; tested only briefly. Loading a save state made with the other New 3DS Mode setting closes the app (fixed in the next version)."
+        "es": "El cierre al cargar un estado de otro «Modo New 3DS» se arregló en la v00.24.",
+        "en": "The crash when loading a save state from the other New 3DS Mode was fixed in v00.24."
       },
-      "version": "v00.23",
+      "version": "v00.24",
       "by": "team",
-      "date": "2026-11-05"
+      "date": "2026-11-07"
     },
     {
       "console": "3ds",
@@ -412,6 +412,222 @@
       "version": "v00.23",
       "by": "team",
       "date": "2026-11-05"
+    },
+    {
+      "console": "3ds",
+      "title": "Luigi's Mansion: Dark Moon",
+      "region": "USA",
+      "rating": "playable",
+      "speed": "59 FPS · 100 %",
+      "settings": {
+        "es": "",
+        "en": ""
+      },
+      "notes": {
+        "es": "Algún bajón breve a ratos.",
+        "en": "A brief slowdown now and then."
+      },
+      "version": "v00.24",
+      "by": "team",
+      "date": "2026-11-11"
+    },
+    {
+      "console": "3ds",
+      "title": "Captain Toad: Treasure Tracker",
+      "region": "EUR",
+      "rating": "playable",
+      "speed": "49 FPS · 97 %",
+      "settings": {
+        "es": "",
+        "en": ""
+      },
+      "notes": {
+        "es": "",
+        "en": ""
+      },
+      "version": "v00.24",
+      "by": "team",
+      "date": "2026-11-11"
+    },
+    {
+      "console": "3ds",
+      "title": "Monster Hunter 4 Ultimate",
+      "region": "USA",
+      "rating": "playable",
+      "speed": "57 FPS · 96 %",
+      "settings": {
+        "es": "",
+        "en": ""
+      },
+      "notes": {
+        "es": "",
+        "en": ""
+      },
+      "version": "v00.24",
+      "by": "team",
+      "date": "2026-11-10"
+    },
+    {
+      "console": "3ds",
+      "title": "Poochy & Yoshi's Woolly World",
+      "region": "EUR",
+      "rating": "playable",
+      "speed": "60 FPS · 99 %",
+      "settings": {
+        "es": "",
+        "en": ""
+      },
+      "notes": {
+        "es": "",
+        "en": ""
+      },
+      "version": "v00.24",
+      "by": "team",
+      "date": "2026-11-07"
+    },
+    {
+      "console": "3ds",
+      "title": "Project X Zone 2",
+      "region": "EUR",
+      "rating": "playable",
+      "speed": "60 FPS · 100 %",
+      "settings": {
+        "es": "",
+        "en": ""
+      },
+      "notes": {
+        "es": "Probado poco tiempo.",
+        "en": "Tested only briefly."
+      },
+      "version": "v00.24",
+      "by": "team",
+      "date": "2026-11-10"
+    },
+    {
+      "console": "3ds",
+      "title": "Mario Kart 7",
+      "region": "EUR",
+      "rating": "playable",
+      "speed": "60 FPS · 99 %",
+      "settings": {
+        "es": "",
+        "en": ""
+      },
+      "notes": {
+        "es": "",
+        "en": ""
+      },
+      "version": "v00.23",
+      "by": "team",
+      "date": "2026-11-05"
+    },
+    {
+      "console": "3ds",
+      "title": "Mario & Luigi: Bowser's Inside Story + Bowser Jr.'s Journey",
+      "region": "EUR",
+      "rating": "playable",
+      "speed": "60 FPS · 100 %",
+      "settings": {
+        "es": "",
+        "en": ""
+      },
+      "notes": {
+        "es": "",
+        "en": ""
+      },
+      "version": "v00.23",
+      "by": "team",
+      "date": "2026-11-06"
+    },
+    {
+      "console": "3ds",
+      "title": "Metroid: Samus Returns",
+      "region": "USA",
+      "rating": "playable",
+      "speed": "60 FPS · 100 %",
+      "settings": {
+        "es": "",
+        "en": ""
+      },
+      "notes": {
+        "es": "Probado poco tiempo.",
+        "en": "Tested only briefly."
+      },
+      "version": "v00.23",
+      "by": "team",
+      "date": "2026-11-06"
+    },
+    {
+      "console": "3ds",
+      "title": "Fire Emblem: Awakening",
+      "region": "EUR",
+      "rating": "playable",
+      "speed": "58 FPS · 97 %",
+      "settings": {
+        "es": "",
+        "en": ""
+      },
+      "notes": {
+        "es": "Probado poco tiempo.",
+        "en": "Tested only briefly."
+      },
+      "version": "v00.23",
+      "by": "team",
+      "date": "2026-11-05"
+    },
+    {
+      "console": "3ds",
+      "title": "Dragon Ball Fusions",
+      "region": "EUR",
+      "rating": "playable",
+      "speed": "60 FPS · 100 %",
+      "settings": {
+        "es": "",
+        "en": ""
+      },
+      "notes": {
+        "es": "Probado poco tiempo.",
+        "en": "Tested only briefly."
+      },
+      "version": "v00.23",
+      "by": "team",
+      "date": "2026-11-06"
+    },
+    {
+      "console": "3ds",
+      "title": "Castlevania: Lords of Shadow – Mirror of Fate",
+      "region": "USA",
+      "rating": "boots",
+      "speed": "48 FPS · 80 %",
+      "settings": {
+        "es": "",
+        "en": ""
+      },
+      "notes": {
+        "es": "Va lento: buena parte del tiempo bajo la velocidad completa.",
+        "en": "Runs slow: much of the time below full speed."
+      },
+      "version": "v00.24",
+      "by": "team",
+      "date": "2026-11-11"
+    },
+    {
+      "console": "3ds",
+      "title": "Xenoblade Chronicles 3D",
+      "region": "USA",
+      "rating": "boots",
+      "speed": "30 FPS · 67 %",
+      "settings": {
+        "es": "Es solo para New 3DS: «Modo New 3DS» en Sí.",
+        "en": "New 3DS only: set New 3DS Mode to On."
+      },
+      "notes": {
+        "es": "Va lento: cerca de dos tercios de la velocidad.",
+        "en": "Runs slow: about two thirds of full speed."
+      },
+      "version": "v00.24",
+      "by": "team",
+      "date": "2026-11-10"
     },
     {
       "console": "psp",
