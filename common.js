@@ -170,6 +170,17 @@ var EmuSuNi = (function () {
     return (active.last_30_days || 0) > 0 || (active.today || 0) > 0 || (((s && s.online) || {}).now || 0) > 0 ||
            ((s && s.daily) || []).length > 0;
   }
+  // (v00.24) The rooms open now, from stats.json: the public ones (listed, with their players) and the private ones
+  // (only counted: waiting, or their match on) - the published versions' only. null: no numbers, or the online server
+  // not answering (its rooms then aren't known).
+  function rooms(s) {
+    if (!s || (s.online && s.online.current === false)) return null;
+    var list = s.public_rooms || [], p = s.private_rooms || {};
+    var out = { listed: list.length, hidden: (p.open || 0) + (p.playing || 0), playing: p.playing || 0, players: 0 };
+    list.forEach(function (r) { out.players += r.players || 0; if (r.playing) out.playing++; });
+    out.total = out.listed + out.hidden;
+    return out;
+  }
 
   // ---- Bars: a label, its number, a bar (one series: the accent) ----
   function bars(list, rows, labelOf, valueOf, extraOf) {
@@ -280,7 +291,7 @@ var EmuSuNi = (function () {
   return {
     REPO: REPO, BASE: function () { return BASE; }, CONSOLES: CONSOLES, start: start, t: t, fmt: fmt, num: num,
     hours: hours, el: el, byId: byId, clear: clear, flag: flag, countryName: countryName, consoleName: consoleName,
-    date: date, getJson: getJson, getStats: getStats, hasPlayers: hasPlayers, bars: bars, chart: chart,
+    date: date, getJson: getJson, getStats: getStats, hasPlayers: hasPlayers, rooms: rooms, bars: bars, chart: chart,
     lang: function () { return lang; }, NS: NS
   };
 })();

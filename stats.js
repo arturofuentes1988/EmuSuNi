@@ -6,6 +6,31 @@
   var stats = null, world = null, rankings = null, profile = null;
   var failed = false, gamesDays = 7, rankMode = "all", rankChoice = "", showAllCountries = false;
 
+  // (v00.24) A day of stats.json ("2026-11-08", UTC) as its day and month, in the page's language - read as the
+  // calendar day it is, not as a moment (new Date("2026-11-08") would be the 7th west of Greenwich).
+  function dayText(text) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text || "");
+    if (!m) return text || "";
+    var d = new Date(+m[1], +m[2] - 1, +m[3]);
+    try { return d.toLocaleDateString(E.lang() === "es" ? "es-ES" : "en-US", { day: "numeric", month: "long" }); }
+    catch (e) { return text; }
+  }
+  function dayNumber(text) {  // (days since 1970, for the gaps between two days)
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text || "");
+    return m ? Date.UTC(+m[1], +m[2] - 1, +m[3]) / 86400000 : NaN;
+  }
+  // (v00.24) Each day's downloads: a day's total less the day before's (downloads.history), only between two days in a
+  // row - a gap, or a total that went down (a file taken off GitHub), gives no bar.
+  function downloadsADay(history) {
+    var out = [];
+    for (var i = 1; i < history.length; i++) {
+      var n = (history[i].total || 0) - (history[i - 1].total || 0);
+      if (dayNumber(history[i].date) - dayNumber(history[i - 1].date) === 1 && n >= 0)
+        out.push({ x: history[i].date, y: n });
+    }
+    return out;
+  }
+
   // ---- The page ----
   function render() {
     var state = E.byId("stats-state");
@@ -23,7 +48,9 @@
       state.hidden = current;
       state.textContent = current ? "" : E.t("stats_stale");
     }
-    ["t-online", "t-today", "t-active", "t-new"].forEach(function (id) { E.byId(id).parentNode.hidden = noPlayers; });
+    ["t-online", "t-peak", "t-today", "t-week", "t-active", "t-new", "t-countries"].forEach(function (id) {
+      E.byId(id).parentNode.hidden = noPlayers;
+    });
     E.byId("stats-tiles").classList.toggle("solo", noPlayers);
     ["now-section", "countries", "games", "rooms-section", "rankings", "profile"].forEach(function (id) {
       E.byId(id).hidden = noPlayers;
@@ -35,9 +62,15 @@
     var online = s.online || {};
     var active = s.active || {};
     var downloads = s.downloads || {};
+    var daily = s.daily || [];
     E.byId("t-online").textContent = stats ? E.num(online.now || 0) : "–";
+    // (v00.24) The most online at once today (daily's last day: the server's today), the players of the last 7 days
+    // and the countries of the last 30.
+    E.byId("t-peak").textContent = stats && daily.length ? E.num(daily[daily.length - 1].peak || 0) : "–";
     E.byId("t-today").textContent = stats ? E.num(active.today || 0) : "–";
+    E.byId("t-week").textContent = stats ? E.num(active.last_7_days || 0) : "–";
     E.byId("t-active").textContent = stats ? E.num(active.last_30_days || 0) : "–";
+    E.byId("t-countries").textContent = stats ? E.num((s.countries_30d || []).length) : "–";
     E.byId("t-new").textContent = stats ? E.num(s.new_installs_30d || 0) : "–";
     E.byId("t-downloads").textContent = downloads.total ? E.num(downloads.total) : "–";
     // Now: by console, by country.
@@ -49,9 +82,16 @@
     byCountry.sort(function (a, b) { return b.n - a.n; });
     E.bars(E.byId("now-countries"), byCountry.slice(0, 10), function (r) { return E.flag(r.k) + " " + E.countryName(r.k); },
            function (r) { return r.n; });
+    // (v00.24) How many countries that is (the list shows 10).
+    E.byId("now-countries-n").textContent = byCountry.length ?
+      E.fmt(byCountry.length === 1 ? "now_countries_one" : "now_countries_n", E.num(byCountry.length)) : "";
     // The days.
-    var daily = s.daily || [];
     E.chart(E.byId("chart-daily"), daily.map(function (d) { return { x: d.date, y: d.active || 0 }; }), "line", E.t("p_daily"));
+    // (v00.24) Each day's most online at once (daily's peak), and the highest of them.
+    E.chart(E.byId("chart-peak"), daily.map(function (d) { return { x: d.date, y: d.peak || 0 }; }), "line", E.t("p_peak"));
+    var best = null;
+    daily.forEach(function (d) { if ((d.peak || 0) > 0 && (!best || d.peak > best.peak)) best = d; });
+    E.byId("peak-record").textContent = best ? E.fmt("peak_record", E.num(best.peak), dayText(best.date)) : "";
     E.chart(E.byId("chart-new"), daily.map(function (d) { return { x: d.date, y: d.new || 0 }; }), "bars", E.t("p_new"));
     // Countries: the map and the list.
     var countries = s.countries_30d || [];
@@ -65,6 +105,10 @@
            function (r) { return r.installs || 0; });
     E.bars(E.byId("list-consoles"), (s.consoles_30d || []).slice(0, 12), function (r) { return E.consoleName(r.console); },
            function (r) { return r.installs || 0; }, function (r) { return E.hours(r.hours || 0); });
+    // (v00.24) The hours of every console together (consoles_30d: each console's, all of them listed).
+    var hoursAll = 0;
+    (s.consoles_30d || []).forEach(function (r) { hoursAll += r.hours || 0; });
+    E.byId("consoles-hours").textContent = hoursAll > 0 ? E.fmt("consoles_hours", E.hours(hoursAll)) : "";
     // Games.
     E.byId("games-7").classList.toggle("on", gamesDays === 7);
     E.byId("games-30").classList.toggle("on", gamesDays === 30);
@@ -75,13 +119,27 @@
     top.slice(0, 20).forEach(function (g) {
       var li = E.el("li");
       li.appendChild(E.el("span", "title", g.title));
-      li.appendChild(E.el("span", "console", E.consoleName(g.console)));
+      // ((v00.24) and how many played it: an estimate of the installs, 3 at least for its title to show)
+      li.appendChild(E.el("span", "console", E.consoleName(g.console) +
+                          (g.installs ? " · " + E.fmt(g.installs === 1 ? "g_players_one" : "g_players", E.num(g.installs)) : "")));
       li.appendChild(E.el("span", "hours", E.hours(g.hours || 0)));
       games.appendChild(li);
     });
     // Downloads.
     E.chart(E.byId("chart-downloads"), (downloads.history || []).map(function (d) { return { x: d.date, y: d.total || 0 }; }),
             "line", E.t("p_downloads"));
+    // (v00.24) The downloads of each day, and of the last 7 (the last day's total less the one 7 days before it).
+    var history = downloads.history || [];
+    E.chart(E.byId("chart-dl-daily"), downloadsADay(history), "bars", E.t("p_dl_daily"));
+    var week = "";
+    if (history.length) {
+      var last = history[history.length - 1];
+      history.forEach(function (d) {
+        if (dayNumber(last.date) - dayNumber(d.date) === 7 && (last.total || 0) >= (d.total || 0))
+          week = E.fmt("dl_week", E.num((last.total || 0) - (d.total || 0)));
+      });
+    }
+    E.byId("dl-week").textContent = week;
     E.bars(E.byId("list-downloads"), (downloads.by_version || []).slice(0, 10), function (r) { return r.tag; },
            function (r) { return r.total || 0; });
     renderRooms(s);
@@ -93,6 +151,11 @@
   function renderRooms(s) {
     var box = E.byId("rooms");
     E.clear(box);
+    // (v00.24) The rooms open now in one line: public and private, those with a match on, the public ones' players
+    // (the private ones' players aren't published).
+    var all = E.rooms(stats);
+    E.byId("rooms-summary").textContent = all && all.total ?
+      E.fmt(all.total === 1 ? "rooms_summary_one" : "rooms_summary", E.num(all.total), E.num(all.playing), E.num(all.players)) : "";
     var list = s.public_rooms || [];
     if (!list.length) {
       box.appendChild(E.el("p", "empty", E.t("no_rooms")));
@@ -185,6 +248,10 @@
       select.value = rankChoice;
       rows = groups[rankChoice] || [];
     }
+    // (v00.24) How many players made their profile public (rankings.json's public_profiles).
+    var count = typeof r.public_profiles === "number" ? r.public_profiles : (r.top || []).length;
+    E.byId("rank-profiles").textContent = count > 0 ?
+      E.fmt(count === 1 ? "rank_profiles_one" : "rank_profiles", E.num(count)) : "";
     if (!rows.length) { box.appendChild(E.el("p", "empty", E.t("r_none"))); return; }
     var table = E.el("table", "rooms ranking");
     var head = E.el("tr");

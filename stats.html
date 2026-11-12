@@ -36,19 +36,23 @@
       <h1 class="page-title" data-i18n="st_title">Statistics</h1>
       <p class="note" data-i18n="st_sub">EmuSuNi's players, live.</p>
       <p class="note notice" id="stats-state" data-i18n="stats_loading">Loading…</p>
-      <div class="tiles five" id="stats-tiles">
+      <div class="tiles five eight" id="stats-tiles">
         <div class="tile"><span class="tile-value" id="t-online">–</span><span class="tile-label" data-i18n="t_online">players online now</span></div>
+        <div class="tile"><span class="tile-value" id="t-peak">–</span><span class="tile-label" data-i18n="t_peak">most online at once today</span></div>
         <div class="tile"><span class="tile-value" id="t-today">–</span><span class="tile-label" data-i18n="t_today">players today</span></div>
+        <div class="tile"><span class="tile-value" id="t-week">–</span><span class="tile-label" data-i18n="t_week">players in the last 7 days</span></div>
         <div class="tile"><span class="tile-value" id="t-active">–</span><span class="tile-label" data-i18n="t_active">players in the last 30 days</span></div>
         <div class="tile"><span class="tile-value" id="t-new">–</span><span class="tile-label" data-i18n="t_new">new installs in 30 days</span></div>
+        <div class="tile"><span class="tile-value" id="t-countries">–</span><span class="tile-label" data-i18n="t_countries">countries in the last 30 days</span></div>
         <div class="tile"><span class="tile-value" id="t-downloads">–</span><span class="tile-label" data-i18n="t_downloads">downloads</span></div>
       </div>
     </section>
 
     <section class="band grid" id="now-section">
       <article class="panel"><h2 data-i18n="p_online_console">Playing now, by console</h2><ul class="bars" id="now-consoles"></ul></article>
-      <article class="panel"><h2 data-i18n="p_online_country">Online now, by country</h2><ul class="bars" id="now-countries"></ul></article>
+      <article class="panel"><h2 data-i18n="p_online_country">Online now, by country</h2><ul class="bars" id="now-countries"></ul><p class="note small" id="now-countries-n"></p></article>
       <article class="panel wide"><h2 data-i18n="p_daily">Players a day</h2><div class="chart" id="chart-daily"></div></article>
+      <article class="panel wide"><h2 data-i18n="p_peak">Most players online at once, a day</h2><div class="chart" id="chart-peak"></div><p class="note small" id="peak-record"></p></article>
       <article class="panel wide"><h2 data-i18n="p_new">New installs a day</h2><div class="chart" id="chart-new"></div></article>
     </section>
 
@@ -68,6 +72,7 @@
         <ul class="bars" id="list-versions"></ul>
         <h2 class="second" data-i18n="p_consoles">Top consoles (30 days)</h2>
         <ul class="bars" id="list-consoles"></ul>
+        <p class="note small" id="consoles-hours"></p>
       </article>
     </section>
 
@@ -86,12 +91,14 @@
 
     <section id="downloads" class="band grid">
       <article class="panel wide"><h2 data-i18n="p_downloads">Downloads over time</h2><div class="chart" id="chart-downloads"></div></article>
+      <article class="panel wide"><h2 data-i18n="p_dl_daily">Downloads a day</h2><div class="chart" id="chart-dl-daily"></div><p class="note small" id="dl-week"></p></article>
       <article class="panel wide"><h2 data-i18n="p_by_version">Downloads by version</h2><ul class="bars" id="list-downloads"></ul></article>
     </section>
 
     <section id="rooms-section" class="band">
       <article class="panel">
         <h2 data-i18n="p_rooms">Live rooms</h2>
+        <p class="note" id="rooms-summary"></p>
         <div id="rooms"></div>
         <p class="note small" id="private-rooms"></p>
       </article>
@@ -109,6 +116,7 @@
         </div>
         <select id="rank-choice" class="choice" hidden aria-label="Choice"></select>
         <div id="ranking"></div>
+        <p class="note small" id="rank-profiles"></p>
         <p class="note small" data-i18n="r_note">Players show here when they turn on Public Profile in the app's Online tab.</p>
       </article>
     </section>

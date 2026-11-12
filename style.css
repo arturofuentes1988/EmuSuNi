@@ -538,3 +538,20 @@ section[id], .panel[id] { scroll-margin-top: 100px; }
   .cu-t td.cp-game { grid-column: 1 / -1; }
   .cu-t td.cp-speed { width: auto; white-space: normal; }
 }
+/* ---- (v00.24) What's new: a "New" tag on the new features' cards; the home page's four live numbers and the rooms
+   open; the statistics page's eight numbers (two rows of four from 640 px). ---- */
+.ft .ft-new { display: inline-block; margin: 0 0 6px; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 800;
+  line-height: 1.6; letter-spacing: .05em; text-transform: uppercase; background: var(--accent); color: var(--accent-ink); }
+.ft.is-new { border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); }
+@media (min-width: 1000px) { .ft.is-new:not(.wide) .ft-new { margin-bottom: 0; } }
+@media (min-width: 640px) { .live .tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@media (max-width: 639px) { .live .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.live .tiles.solo { grid-template-columns: minmax(0, 1fr); }
+.live-rooms { text-align: center; margin: 4px 0 0; font-size: 15px; }
+.live-rooms a { color: var(--text-2); text-decoration: none; }
+.live-rooms a::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 8px; border-radius: 50%;
+  background: var(--accent); vertical-align: 1px; }
+.live-rooms a:hover { color: var(--text); }
+.tiles.five.eight { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (min-width: 640px) { .tiles.five.eight { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.tiles.five.eight.solo { grid-template-columns: minmax(0, 1fr); }

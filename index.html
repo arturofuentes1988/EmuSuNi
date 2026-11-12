@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>EmuSuNi — classic consoles on your PS4</title>
-  <meta name="description" content="EmuSuNi: twenty-three classic consoles and arcade boards, and OpenBOR's games, in one app for jailbroken PS4 consoles. Online play with friends, RetroAchievements, HD picture. Free and open source.">
+  <meta name="description" content="EmuSuNi: twenty-three classic consoles and arcade boards, and OpenBOR's games, in one app for jailbroken PS4 consoles. Online play with friends, chat and rankings, RetroAchievements, HD picture. Free and open source.">
   <meta name="color-scheme" content="light dark">
   <meta property="og:title" content="EmuSuNi">
   <meta property="og:description" content="Twenty-three classic consoles and arcade boards, and OpenBOR's games, in one app for jailbroken PS4 consoles.">
@@ -39,7 +39,7 @@
     <section class="hero">
       <svg class="hero-logo" viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="16" r="11" fill="#3f7de0"/><circle cx="16" cy="32" r="11" fill="#2fae5e"/><circle cx="48" cy="32" r="11" fill="#e04848"/><circle cx="32" cy="48" r="11" fill="#eebd2a"/></svg>
       <h1>EmuSuNi</h1>
-      <p class="hero-ver"><a id="hero-version" class="ver-badge" href="https://github.com/arturofuentes1988/EmuSuNi/releases/latest"><b id="hero-version-tag">v00.23</b> <span data-i18n="hero_new">What's new →</span></a></p>
+      <p class="hero-ver"><a id="hero-version" class="ver-badge" href="https://github.com/arturofuentes1988/EmuSuNi/releases/latest"><b id="hero-version-tag">v00.24</b> <span data-i18n="hero_new">What's new →</span></a></p>
       <p class="tagline" data-i18n="tagline">Twenty-three classic consoles and arcade boards, and OpenBOR's games, in one app for jailbroken PS4 consoles.</p>
       <p class="sub" data-i18n="sub">A launcher that feels like a console's own: your games with their box art, an AI-enhanced HD picture, online play, RetroAchievements, save states and bezels.</p>
       <div class="cta">
@@ -57,8 +57,10 @@
       <div class="tiles" id="h-tiles">
         <a class="tile" href="stats.html"><span class="tile-value" id="h-online">–</span><span class="tile-label" data-i18n="h_online">players online now</span></a>
         <a class="tile" href="stats.html#countries"><span class="tile-value" id="h-active">–</span><span class="tile-label" data-i18n="h_active">players in the last 30 days</span></a>
+        <a class="tile" href="stats.html#countries"><span class="tile-value" id="h-countries">–</span><span class="tile-label" data-i18n="h_countries">countries in the last 30 days</span></a>
         <a class="tile" href="stats.html#downloads"><span class="tile-value" id="h-downloads">–</span><span class="tile-label" data-i18n="h_downloads">downloads</span></a>
       </div>
+      <p class="live-rooms" id="h-rooms-line" hidden><a href="stats.html#rooms-section" id="h-rooms"></a></p>
       <p class="more-link"><a href="stats.html" data-i18n="h_more">See all the statistics →</a></p>
     </section>
 
@@ -66,6 +68,13 @@
       <h2 data-i18n="features_title">Everything in one app</h2>
       <div class="bento">
         <article class="ft ft-hero"><span class="ft-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.6 2.9 3.9 5.9 3.9 9s-1.3 6.1-3.9 9c-2.6-2.9-3.9-5.9-3.9-9S9.4 5.9 12 3z"/></svg></span><div class="ft-body"><h3 data-i18n="f_online">Online play</h3><p data-i18n="f_online_text"></p><p class="ft-sub" data-i18n="f_online_own">With friends, through EmuSuNi's server</p><div class="ft-chips" id="online-own"></div><p class="ft-sub" data-i18n="f_online_comm">Through the community's servers</p><div class="ft-chips" id="online-comm"></div><a class="ft-link" href="#systems" id="online-more" data-i18n="f_online_more">The consoles that play online →</a></div></article>
+        <!-- (v00.24) What's new: four online cards beside the online one, then the 3DS and the Library. -->
+        <article class="ft is-new"><span class="ft-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h11a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H9l-4 3.5V14H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/><path d="M17 8.5h3a2 2 0 0 1 2 2V16a2 2 0 0 1-2 2h-1v3l-3.5-3H12a2 2 0 0 1-2-2"/></svg></span><div class="ft-body"><p class="ft-new" data-i18n="ft_new">New</p><h3 data-i18n="f_chat">chat</h3><p data-i18n="f_chat_text"></p></div></article>
+        <article class="ft is-new"><span class="ft-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></span><div class="ft-body"><p class="ft-new" data-i18n="ft_new">New</p><h3 data-i18n="f_watch">watch</h3><p data-i18n="f_watch_text"></p></div></article>
+        <article class="ft is-new"><span class="ft-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 20h18M5 20v-6h4v6M10 20V8h4v12M15 20v-9h4v9"/><path d="M12 3.5l.9 1.8 2 .3-1.45 1.4.35 2-1.8-.95-1.8.95.35-2L9.1 5.6l2-.3z"/></svg></span><div class="ft-body"><p class="ft-new" data-i18n="ft_new">New</p><h3 data-i18n="f_rank">rank</h3><p data-i18n="f_rank_text"></p></div></article>
+        <article class="ft is-new"><span class="ft-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 21V4.5A1.5 1.5 0 0 1 7.5 3H15l3 2v16"/><path d="M3 21h18M14.5 12.5h.01"/></svg></span><div class="ft-body"><p class="ft-new" data-i18n="ft_new">New</p><h3 data-i18n="f_room">room</h3><p data-i18n="f_room_text"></p></div></article>
+        <article class="ft wide is-new"><span class="ft-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2L4.5 13.5H11L10 22l8.5-11.5H12L13 2z"/></svg></span><div class="ft-body"><p class="ft-new" data-i18n="ft_new">New</p><h3 data-i18n="f_3ds">3ds</h3><p data-i18n="f_3ds_text"></p></div></article>
+        <article class="ft wide is-new"><span class="ft-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 4.5h18l-7 8.2V19l-4 2v-8.3L3 4.5z"/></svg></span><div class="ft-body"><p class="ft-new" data-i18n="ft_new">New</p><h3 data-i18n="f_library">library</h3><p data-i18n="f_library_text"></p></div></article>
         <article class="ft"><span class="ft-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></span><div class="ft-body"><h3 data-i18n="f_voice">voice</h3><p data-i18n="f_voice_text"></p></div></article>
         <article class="ft"><span class="ft-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><circle cx="17" cy="9" r="2.6"/><path d="M16 14.2c2.8.3 5 2.6 5 5.8"/></svg></span><div class="ft-body"><h3 data-i18n="f_local">local</h3><p data-i18n="f_local_text"></p></div></article>
         <article class="ft"><span class="ft-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4h8v5a4 4 0 0 1-8 0V4z"/><path d="M8 6H5a3 3 0 0 0 3 4M16 6h3a3 3 0 0 1-3 4M12 13v4M8.5 20h7M10 17h4"/></svg></span><div class="ft-body"><h3 data-i18n="f_ra">ra</h3><p data-i18n="f_ra_text"></p></div></article>
@@ -112,6 +121,14 @@
             <li data-i18n="ev_on10">PSP, Dreamcast and DS online.</li>
             <li data-i18n="ev_on11">Up to 4 players on one PS4.</li>
             <li data-i18n="ev_on12">Portable mode.</li>
+            <li data-i18n="ev_on13">World and room chat.</li>
+            <li data-i18n="ev_on14">Watch the Match.</li>
+            <li data-i18n="ev_on15">Join a match under way.</li>
+            <li data-i18n="ev_on16">Rooms, Chat, Most Played, Players.</li>
+            <li data-i18n="ev_on17">Players' ranking.</li>
+            <li data-i18n="ev_on18">Entry and Reset.</li>
+            <li data-i18n="ev_on19">Across versions.</li>
+            <li data-i18n="ev_on20">Country and version.</li>
           </ul>
         </section>
         <section class="ev-group" data-group="picture">
@@ -138,6 +155,12 @@
             <li data-i18n="ev_pl7">Controls.</li>
             <li data-i18n="ev_pl8">Fast forward.</li>
             <li data-i18n="ev_pl9">A game started again.</li>
+            <li data-i18n="ev_pl10">A faster 3DS.</li>
+            <li data-i18n="ev_pl11">3DS in your language.</li>
+            <li data-i18n="ev_pl12">3DS updates, DLC and mods.</li>
+            <li data-i18n="ev_pl13">Right stick as stylus.</li>
+            <li data-i18n="ev_pl14">Patched romsets.</li>
+            <li data-i18n="ev_pl15">Steadier consoles.</li>
           </ul>
         </section>
         <section class="ev-group" data-group="launcher">
@@ -153,6 +176,9 @@
             <li data-i18n="ev_la8">Settings for all, a console or a game.</li>
             <li data-i18n="ev_la9">13 languages.</li>
             <li data-i18n="ev_la10">Updates from the app.</li>
+            <li data-i18n="ev_la11">Order and Filters.</li>
+            <li data-i18n="ev_la12">Check My Games.</li>
+            <li data-i18n="ev_la13">Delete Game.</li>
           </ul>
         </section>
         <section class="ev-group" data-group="privacy">
@@ -164,6 +190,8 @@
             <li data-i18n="ev_pr4">Send Log.</li>
             <li data-i18n="ev_pr5">How to Help.</li>
             <li data-i18n="ev_pr6">Free.</li>
+            <li data-i18n="ev_pr7">Your country only.</li>
+            <li data-i18n="ev_pr8">Chat kept 30 days.</li>
           </ul>
         </section>
       </div>

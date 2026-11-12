@@ -87,7 +87,8 @@
   // (v2) How a game plays online: its own words, else what its console has. A rollback console (EmuSuNi's server)
   // plays every game with a friend; on the community's servers it depends on the game, so "–" without its words.
   var ONLINE_BY_CONSOLE = { snes: "own", nes: "own", sg1000: "own", sms: "own", gg: "own", md: "own", pce: "own",
-    arcade: "own", atari2600: "own", atari7800: "own", gb: "link", gbc: "link", nds: "comm", psp: "comm", dc: "comm" };
+    arcade: "own", atari2600: "own", atari7800: "own", gb: "link", gbc: "link", gba: "link", nds: "comm", psp: "comm",
+    dc: "comm" };  // ((v00.24) the Game Boy Advance's link cable online too)
   function onlineCell(g) {
     var own = local(g.online);
     var mode = ONLINE_BY_CONSOLE[g.console];

@@ -1,13 +1,15 @@
-// EmuSuNi's home page: the latest release (GitHub's API), three live numbers (stats.json), the consoles' grid and
-// (v00.23) each console's features.
+// EmuSuNi's home page: the latest release (GitHub's API), four live numbers and the rooms open (stats.json), the
+// consoles' grid and (v00.23) each console's features.
 (function () {
   "use strict";
   var E = EmuSuNi;
   var latest = null, apiDownloads = null, stats = null;
 
-  // (v00.23) What each console has in the app, as the code has it (checked against v00.23's src/):
+  // (v00.23) What each console has in the app, as the code has it (checked against v00.23's src/; (v00.24) against
+  // 01.23's: the Game Boy Advance's link cable online, the 2600's Warlords for 4, the Genesis's 32 MiB ROMs, the 3DS's
+  // CIAs, the Arcade's patched romsets - the 3DS's online play stays out: off unless a file turns it on):
   //  on: online play - "friends" EmuSuNi's own rollback through its server (Netplay::RulesFor), "link" the Game Boy's
-  //      link cable through it (src/GbLink.h), "wfc" the DS's Wi-Fi (nds_wifi: Wiimmfi, WiiLink WFC), "psp" PSP Online
+  //      and (v00.24) the Game Boy Advance's link cable through it (src/GbLink.h), "wfc" the DS's Wi-Fi (nds_wifi: Wiimmfi, WiiLink WFC), "psp" PSP Online
   //      (psp_online, psp_adhoc_server), "dcnet" Dreamcast Online (dc_online), "" none;
   //  ra: RetroAchievements (Achievements::ConsoleId; the 3DS has none in the app); st: save states (all but OpenBOR,
   //  IngameMenu.cpp); ch: cheat codes (IngameMenu.cpp: the Dreamcast, NAOMI, Atomiswave, 3DS, 2600, 7800, Arcade and
@@ -20,7 +22,7 @@
     n64: { on: "", ra: 1, st: 1, ch: 1, bios: "no", pl: 4, files: ".z64 .n64 .v64", zip: 1, note: "n_hd4" },
     gb: { on: "link", ra: 1, st: 1, ch: 1, bios: "no", pl: 1, files: ".gb .sgb .dmg", zip: 1 },
     gbc: { on: "link", ra: 1, st: 1, ch: 1, bios: "no", pl: 1, files: ".gbc .cgb", zip: 1 },
-    gba: { on: "", ra: 1, st: 1, ch: 1, bios: "no", pl: 1, files: ".gba .agb", zip: 1 },
+    gba: { on: "link", ra: 1, st: 1, ch: 1, bios: "no", pl: 1, files: ".gba .agb", zip: 1 },
     ps1: { on: "", ra: 1, st: 1, ch: 1, bios: "opt", pl: 4, files: ".cue .chd .pbp .m3u .iso .img .ecm .mds", note: "n_hd4" },
     nds: { on: "wfc", ra: 1, st: 1, ch: 1, bios: "opt", pl: 1, files: ".nds .ids" },
     "3ds": { on: "", ra: 0, st: 1, ch: 0, bios: "no", pl: 1, files: ".3ds .cci .cxi .3dsx", note: "n_3ds" },
@@ -31,10 +33,10 @@
     sg1000: { on: "friends", ra: 1, st: 1, ch: 1, bios: "no", pl: 2, files: ".sg .sc", zip: 1 },
     sms: { on: "friends", ra: 1, st: 1, ch: 1, bios: "no", pl: 2, files: ".sms .bms", zip: 1 },
     gg: { on: "friends", ra: 1, st: 1, ch: 1, bios: "no", pl: 1, files: ".gg", zip: 1 },
-    md: { on: "friends", ra: 1, st: 1, ch: 1, bios: "no", pl: 4, files: ".md .gen .smd .bin .mdx .68k .sgd", zip: 1 },
+    md: { on: "friends", ra: 1, st: 1, ch: 1, bios: "no", pl: 4, files: ".md .gen .smd .bin .mdx .68k .sgd", zip: 1, note: "n_md" },
     saturn: { on: "", ra: 1, st: 1, ch: 1, bios: "yes", pl: 4, files: ".cue .chd .iso .ccd .mds", note: "n_saturn" },
     pce: { on: "friends", ra: 1, st: 1, ch: 1, bios: "no", pl: 4, files: ".pce", zip: 1, note: "n_pce" },
-    atari2600: { on: "friends", ra: 1, st: 1, ch: 0, bios: "no", pl: 2, files: ".a26 .bin", zip: 1 },
+    atari2600: { on: "friends", ra: 1, st: 1, ch: 0, bios: "no", pl: 2, files: ".a26 .bin", zip: 1, note: "n_2600" },
     atari7800: { on: "friends", ra: 1, st: 1, ch: 0, bios: "opt", pl: 2, files: ".a78", zip: 1 },
     atarijaguar: { on: "", ra: 1, st: 1, ch: 1, bios: "opt", pl: 2, files: ".j64 .jag .abs .cof", zip: 1, note: "n_jaguar" },
     arcade: { on: "friends", ra: 1, st: 1, ch: 0, bios: "neogeo", pl: 4, files: ".zip .7z", note: "n_arcade" },
@@ -267,10 +269,20 @@
     E.byId("h-downloads").textContent = total ? E.num(total) : "–";
     E.byId("h-online").textContent = stats && stats.online ? E.num(stats.online.now || 0) : "–";
     E.byId("h-active").textContent = stats && stats.active ? E.num(stats.active.last_30_days || 0) : "–";
+    // (v00.24) The countries of the last 30 days (stats.json's countries_30d: one row a country).
+    E.byId("h-countries").textContent = stats && stats.countries_30d ? E.num(stats.countries_30d.length) : "–";
+    // (v00.24) The rooms open now: the public ones (listed) and the private ones (only counted), those with a match on.
+    var rooms = E.rooms(stats);
+    var roomsLine = E.byId("h-rooms-line");
+    roomsLine.hidden = !rooms;
+    E.byId("h-rooms").textContent = !rooms ? "" : rooms.total === 0 ? E.t("h_rooms_none") :
+      E.fmt(rooms.total === 1 ? "h_rooms_one" : "h_rooms", E.num(rooms.total), E.num(rooms.playing));
     // (00.95) No players counted yet (the published versions only): a note, the downloads alone.
     var noPlayers = !!stats && !E.hasPlayers(stats);
     E.byId("h-online").parentNode.hidden = noPlayers;
     E.byId("h-active").parentNode.hidden = noPlayers;
+    E.byId("h-countries").parentNode.hidden = noPlayers;
+    if (noPlayers) roomsLine.hidden = true;
     E.byId("h-tiles").classList.toggle("solo", noPlayers);
     var note = E.byId("h-note");
     note.hidden = !noPlayers;
