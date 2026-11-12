@@ -3,7 +3,9 @@ PS4 opens no link). A QR code of the address in byte mode, error correction leve
 33 x 33 modules), the mask with the lowest penalty - ISO/IEC 18004, as Project Nayuki's QR Code generator (MIT) does it -,
 drawn black on white with the 4-module quiet zone, 5 pixels a module (205 x 205: the menu draws it at its own size), as
 an RGBA PNG. The Python standard library only. Run it again only to change the address:
-    python3 -I scripts/make-help-qr.py assets/xmb/help-qr.png"""
+    python3 -I scripts/make-help-qr.py assets/xmb/help-qr.png
+(01.04) Another address's, the same way: the group on Telegram (How to Help, Send Log's code):
+    python3 -I scripts/make-help-qr.py assets/xmb/telegram-qr.png https://t.me/+A53DraC3it5mZTcx"""
 import struct
 import sys
 import zlib
@@ -271,6 +273,6 @@ def png(qr, path):
 
 if __name__ == "__main__":
     out = sys.argv[1] if len(sys.argv) > 1 else "assets/xmb/help-qr.png"
-    code = make(URL, LEAST_VERSION)
+    code = make(sys.argv[2] if len(sys.argv) > 2 else URL, LEAST_VERSION)
     n = png(code, out)
     print("%s: version %d (%d x %d modules), %d x %d pixels" % (out, code.ver, code.size, code.size, n, n))

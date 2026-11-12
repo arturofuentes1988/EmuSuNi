@@ -69,6 +69,7 @@ private:
     CheatPick,    // one list's codes, to choose from
     Controls,     // this console's buttons on the DualShock 4 (src/Controls.h): applied back in the game
     Achievements,  // RetroAchievements (00.73, src/Achievements.h): the game's achievements, unlocked or not
+    Extras,        // (01.22, src/GameExtras.h) the 3DS's Updates, DLC and Mods, the Arcade's Patched Romset
   };
   struct Row
   {
@@ -139,13 +140,37 @@ private:
   // removal asked twice (the player and when).
   void OnlineRows(std::vector<Row>* rows);
   void OnlineActivate(const std::string& key, int direction);
+  // (01.07) Our country as the others see it ("": none shown - no "I'm from ...").
+  static std::string MyCountry();
   float m_online_refresh = 0.0f;
+  // (01.05) The room's chat in a match: a quick phrase to send (Left / Right choose it, Cross sends it); the others'
+  // new lines as notices over the game (the newest seen: m_chat_seen; none for the lines before the match); with the
+  // menu open, the chat at the right of the screen (DrawChat). A line typed: in the room, before or after the match.
+  int m_chat_phrase = 1;
+  uint32_t m_chat_seen = 0;
+  bool m_chat_primed = false;
+  void DrawChat(ImDrawList* dl, float a);
   int m_kick_asked = -1;
   float m_kick_time = 0.0f;
   // (00.86) A game played alone while our online room stays open: a player asking to join it - Accept Player (the
   // game ends, the room opens) and Reject Player under Resume Game while the request lasts (the rows below them keep
   // their selection as these come and go).
   bool m_join_rows = false;
+  // (01.22, the owner: "en el menú L2 y R2 en un juego") This game's Updates, DLC and Mods (the 3DS) or Patched Romset
+  // (the Arcade), not online: what it has, the 3DS's Mods On / Off (from its next start), and what it can install or
+  // remove. Those are done with no game running (the 3DS core refuses them under one) and taken at the game's start:
+  // the game closes first - Close the Game, said before (save first) - and the menu then opens its panel on it, with
+  // its own confirmation and Start the Game (GameExtras::AskAfterGame). Read once as the page opens (m_extras_rows:
+  // the core reads the CIAs' headers), BuildRows takes them; m_extras_ask: the action asked, waiting for Close the Game
+  // or Cancel.
+  bool HasExtras() const;
+  void LoadExtras();
+  void ExtrasRows(std::vector<Row>* rows);
+  Action ExtrasActivate(const std::string& key);
+  std::vector<Row> m_extras_rows;
+  std::vector<std::string> m_extras_files;  // the files of its install rows (x:file:<i>)
+  std::string m_extras_ask, m_extras_what;  // the action for the menu and what it is ("Update v1.2"), said
+  uint64_t m_extras_title = 0;              // the 3DS game's title ID (0: none - a homebrew's)
   // The selected slot's picture.
   int m_picture_slot = -1;
   ImTextureID m_picture{};

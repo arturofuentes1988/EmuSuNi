@@ -62,6 +62,11 @@
 #     not in a tmpfile() - the PS4 has no /tmp for it, so the state went into a NULL FILE -; a state of another size
 #     than the frontend's room refused, not copied past its end; the VDP1's frame buffer in a state through the heap,
 #     not 256 KiB of the main thread's stack; the renderer's threads idle before the state's size is measured too.
+#   - 01.06 (v00.23 players' crashes, both in the second game of a session): the cheats' count back to 0 with their
+#     list (a game started again with its cheats wrote them past the new list's end); a CD directory record's name
+#     copied up to its 32 bytes (a record read wrong wrote over Cs2ReadFileSystem's saved registers: Panzer Dragoon
+#     Zwei after Exhumed); the CHD reader's sector found by its track's end (it read the entry after the last track,
+#     never made), a hunk it can't read a sector not read, the previous game's CHD closed.
 # Its libretro API becomes yabasanshiro_retro_* and everything else in it private (CMakeLists.txt's FCEUmm way).
 # The object is checked at the end: only that API defined globally, no weak references, no operator new/delete of
 # its own, no static array of 64 KiB or more, every symbol it needs in the PS4 libraries or the app.
@@ -1040,6 +1045,54 @@ patch('titan/titan.c',
       '   tt_context.backscreen = NULL;\n'
       '   tt_context.inited = 0;\n'
       '#endif\n\n   return 0;\n}\n')
+
+# --- 01.06: v00.23 players' crashes, both the second game of a session (the core is linked into the app: its
+# statics outlive a game) ---
+# cheat.c: the count of cheats back to 0 with the list. CheatDeInit freed the list and kept the count: the next game's
+# list (10 places) got the codes from the old count on (a game started again with 25 cheats: Dracula X, YEPS79 and
+# 39TH3W), past its end, and the heap's realloc ended the app.
+patch('cheat.c',
+      'int CheatInit(void)\n{  \n   cheatsize = 10;\n',
+      'int CheatInit(void)\n{  \n   numcheats = 0; /* EmuSuNi: a new list, no codes yet */\n   cheatsize = 10;\n')
+patch('cheat.c',
+      '   if (cheatlist)\n      free(cheatlist);\n   cheatlist = NULL;\n}\n',
+      '   if (cheatlist)\n      free(cheatlist);\n   cheatlist = NULL;\n'
+      '   numcheats = 0; /* EmuSuNi: the codes go with their list */\n}\n')
+# cs2.c: a directory record's name copied up to its 32 bytes. The length is the disc's byte (up to 255): a record
+# that isn't one (a sector read wrong) wrote past the name, and for the root's record, on Cs2ReadFileSystem's
+# stack, over its saved registers (Panzer Dragoon Zwei after Exhumed, H6KVWE and 5GD2DW: rbx restored as
+# 0x2020202020202020, the sector's spaces, and the app ended in Cs2ChangeDirectory).
+patch('cs2.c',
+      '  memset(dirrec->name, 0, sizeof(dirrec->name));\r\n'
+      '  memcpy(dirrec->name, buffer, dirrec->namelength);\r\n',
+      '  memset(dirrec->name, 0, sizeof(dirrec->name));\r\n'
+      '  /* EmuSuNi: no more than the name holds (the length is the disc\'s byte) */\r\n'
+      '  memcpy(dirrec->name, buffer, dirrec->namelength < sizeof(dirrec->name) ? dirrec->namelength : sizeof(dirrec->name));\r\n')
+# cd-libretro.c, its CHD reader: a sector's track by the track's own end (fad_end, where the next one starts: the
+# same number), not the entry after the last track, which was never copied (a read past the track list: the heap's
+# bytes, another game's after the first); a hunk that can't be read is a sector not read, not the last hunk's bytes
+# again; the previous game's CHD closed when the next one opens (it stayed open, with its file and buffers).
+patch('cd-libretro.c',
+      '      if (loglba < disc.session[i].track[j+1].logframeofs) {\r\n',
+      '      if (loglba < disc.session[i].track[j].fad_end) { /* EmuSuNi: track[j+1] is past the list for the last */\r\n')
+patch('cd-libretro.c',
+      '  if (pChdInfo->current_hunk_id != hunkid) {\r\n'
+      '    chd_read(pChdInfo->chd, hunkid, pChdInfo->hunk_buffer);\r\n'
+      '    pChdInfo->current_hunk_id = hunkid;\r\n',
+      '  if (pChdInfo->current_hunk_id != hunkid) {\r\n'
+      '    /* EmuSuNi: not read, the sector isn\'t (the buffer keeps another hunk) */\r\n'
+      '    if (chd_read(pChdInfo->chd, hunkid, pChdInfo->hunk_buffer) != CHDERR_NONE) {\r\n'
+      '      pChdInfo->current_hunk_id = -1;\r\n'
+      '      return 0;\r\n'
+      '    }\r\n'
+      '    pChdInfo->current_hunk_id = hunkid;\r\n')
+patch('cd-libretro.c',
+      '  if (pChdInfo != NULL) {\r\n    free(pChdInfo);\r\n  }\r\n',
+      '  if (pChdInfo != NULL) {\r\n'
+      '    /* EmuSuNi: the previous game\'s CHD closed, its hunk buffer freed */\r\n'
+      '    if (pChdInfo->chd != NULL)\r\n      chd_close(pChdInfo->chd);\r\n'
+      '    free(pChdInfo->hunk_buffer);\r\n'
+      '    free(pChdInfo);\r\n  }\r\n')
 
 written = 0
 for path, text in patched.items():

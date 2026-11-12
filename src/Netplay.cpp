@@ -12,8 +12,11 @@
 #include <cstring>
 #include <ctime>
 #include <deque>
+#include <cctype>
 #include <iterator>
+#include <map>
 #include <mutex>
+#include <set>
 #include <new>
 #include <random>
 
@@ -43,6 +46,7 @@ int sceNetResolverStartNtoa(int rid, const char* hostname, uint32_t* addr, int t
 #endif
 
 #include "Log.h"
+#include "NetplayLibrary.h"
 #include "UsageStats.h"
 
 // The voice chat (src/Voice.h, its own module): its packets go on this socket. Without it (a build before it, the PC
@@ -102,6 +106,11 @@ constexpr double RELAY_REOPEN = 20.0;
 // The most a peer packet may be: a Relay or RelayData around it still fits a datagram.
 constexpr size_t PEER_MAX = NetProto::MAX_PACKET - 24;
 constexpr int32_t NO_FRAME = INT32_MAX;
+// (01.05) A spectator plays the host's final inputs WATCH_DELAY s behind its frame (its buffer: the inputs come in
+// bursts, the host's match waits now and then), asks for the host's state again WATCH_ASK_EVERY s apart at most.
+constexpr double WATCH_DELAY = 1.0, WATCH_ASK_EVERY = 3.0;
+using NetProto::FIRST_WATCHER;
+using NetProto::MAX_WATCHERS;
 constexpr int BROWSE_PAGES = 4;  // pages of the list asked for (ListAll's: as many rooms as fit each, 6 to 20)
 // (00.85) ListAll's tries before the app takes the server for one before it (it drops ListAll): its List instead.
 constexpr int LIST_ALL_TRIES = 3;
@@ -109,6 +118,9 @@ constexpr int LIST_ALL_TRIES = 3;
 // lasts 2 to 3 minutes: the host's room asks for a new one before listing the rooms once its own is this old.
 constexpr double ASK_GRACE = 10.0;
 constexpr double COOKIE_FRESH = 100.0;
+// (01.16) The Online tab's list: a room gone from it stays this many lists more (the menu asks every 5 s); this many
+// refreshes in a row without an answer (about a minute) close the session as before.
+constexpr int ROOM_GRACE = 2, LIST_LATE_MOST = 10;
 
 double Now()
 {
@@ -160,6 +172,12 @@ struct Config
   bool voice = true;
   bool hide_address = false;
   bool latency_bar = true;  // (00.92) the players' latency bar shown
+  // (01.05) The room's chat: the others' lines of text shown (chat_text=off: their quick phrases only); the players
+  // blocked on this PS4 (blocked=, their nicknames apart with '|': muted, voice and chat, whenever they come).
+  bool chat_text = true;
+  std::vector<std::string> blocked;
+  bool show_country = true;  // (01.05) our country shown to the others (country=off: not)
+  bool ranked = true;        // (01.07) "Appear in the Ranking" (ranking=off: no - the server counts nothing of ours)
 };
 
 bool SplitHostPort(const std::string& text, std::string* host, uint16_t* port)
@@ -219,6 +237,23 @@ Config LoadConfig(const std::string& data_dir)
       c.hide_address = IsOn(value);
     else if (key == "latency_bar")
       c.latency_bar = value != "off" && value != "0" && value != "no";
+    else if (key == "chat_text")
+      c.chat_text = value != "off" && value != "0" && value != "no";  // (01.05)
+    else if (key == "country")
+      c.show_country = value != "off" && value != "0" && value != "no";  // (01.05)
+    else if (key == "ranking")
+      c.ranked = value != "off" && value != "0" && value != "no";  // (01.07)
+    else if (key == "blocked")
+    {
+      for (size_t at = 0; at <= value.size() && c.blocked.size() < 100;)
+      {
+        const size_t bar = std::min(value.find('|', at), value.size());
+        const std::string nick = Trim(value.substr(at, bar - at));
+        if (!nick.empty())
+          c.blocked.push_back(nick);
+        at = bar + 1;
+      }
+    }
   }
   return c;
 }
@@ -442,6 +477,7 @@ struct Netsim
   bool on = false, block_direct = false;
   double delay = 0.0, jitter = 0.0, loss = 0.0;
   double burst_every = 0.0, burst_for = 0.0, burst_ms = 0.0;
+  double outage_every = 0.0, outage_for = 0.0;  // (01.16)
   std::mt19937 rng{1};
   std::vector<SimPacket> queue;
 } s_sim;
@@ -504,10 +540,15 @@ void LoadNetsim()
       s_sim.burst_for = value;
     else if (key == "burst_ms")
       s_sim.burst_ms = value;
+    else if (key == "outage_every")
+      s_sim.outage_every = value;
+    else if (key == "outage_for")
+      s_sim.outage_for = value;
   }
   LogF("netplay: test network: %.0f ms one way, jitter %.0f ms, %.1f%% lost%s; bursts of %.0f ms more for %.1f s "
-       "every %.0f s", s_sim.delay, s_sim.jitter, s_sim.loss * 100.0,
-       s_sim.block_direct ? ", direct paths blocked" : "", s_sim.burst_ms, s_sim.burst_for, s_sim.burst_every);
+       "every %.0f s; nothing out for %.1f s every %.0f s", s_sim.delay, s_sim.jitter, s_sim.loss * 100.0,
+       s_sim.block_direct ? ", direct paths blocked" : "", s_sim.burst_ms, s_sim.burst_for, s_sim.burst_every,
+       s_sim.outage_for, s_sim.outage_every);
 }
 #endif
 
@@ -821,8 +862,42 @@ struct Peer
   bool link_game_in = false;
   std::vector<uint8_t> link_save;
   bool link_save_in = false;
+  // (01.05) The chat: blocked on this PS4 (muted too - voice and chat - kept in netplay.ini); its lines' bucket (a
+  // console that sends faster than one every CHAT_EVERY s, past a few, has the rest dropped).
+  bool blocked = false;
+  double chat_tokens = 3.0, chat_at = 0.0;
+  // (01.05) The host's view of a spectator: the match's start told it (StartGame, then the options), it asked for the
+  // state (its game loaded, or its frames went otherwise), the frame its state is of (its inputs from there: Watch;
+  // `acked` the newest it has every input of).
+  bool watch_started = false, watch_options = false, watch_wants = false;
+  int32_t watch_from = NO_FRAME;
+  // (01.05) Its file of the room's game as it said it (GameVersion): whether it has it, its version; the last of ours it
+  // got (S.version_serial: none yet 0).
+  LobbyGame said_game = LobbyGame::Looking;
+  std::string version;
+  bool version_in = false;
+  uint32_t version_sent = 0;
+  // (01.05) A player of the match: those in the room as it started (the host's Start, a guest's StartGame and Go), and
+  // one that joined it under way once every console added it (JoinResume). A console that came during the match is
+  // present before that (late): the match waits for no input of it, gives it no port. The host's view of one late:
+  // the match's start told (LateStart, then the options), its game loaded (LateReady).
+  bool in_match = false;
+  bool late = false, late_started = false, late_options = false, late_ready = false;
   Peer() { std::fill(std::begin(relay_ms), std::end(relay_ms), -1); }
 };
+
+// (01.05) A spectator's Peer (the host's watchers[]).
+bool IsWatcher(const Peer& p)
+{
+  return p.info.id >= FIRST_WATCHER;
+}
+
+// (01.05) One of the match's players (not only in the room).
+bool InMatch(const Peer& p)
+{
+  return p.present && p.in_match;
+}
+bool WatchableRoom();
 
 // A relay server of ServerInfo's list (0: the main server itself).
 struct RelayServer
@@ -909,8 +984,15 @@ struct Session
   int list_first = 0, rooms_total = 0;
   bool rooms_done = false;
   bool list_all_ok = false, list_old = false;
-  size_t rooms_logged = SIZE_MAX;
+  std::string rooms_logged = "-";  // ((01.06) the count, versions and those not playable last logged)
   double last_list = 0.0;
+  // (01.16, the owner: the rooms "a veces aparecen y a veces desaparecen, como si se desconectara") A list came whole in
+  // this session; the refreshes in a row the server didn't answer (the last list stays meanwhile: until 01.15 the
+  // session closed after one - the table empty for 10 s); each room of the last list absent from the new one: the lists
+  // it has been missing from (it stays ROOM_GRACE of them, unless its host has another room of its game listed).
+  bool rooms_listed = false;
+  int list_late = 0;
+  std::map<uint32_t, int> rooms_missed;
   // The room.
   bool start_pending = false;
   Peer peers[MAX_MEMBERS];
@@ -1013,6 +1095,64 @@ struct Session
   uint8_t admitted_mask = 1;
   bool room_list = false;
   double cookie_at = -1000.0;
+  // (01.05) The room's chat: its lines (the newest last, CHAT_KEPT), the next one's number, our last line's time (one
+  // every CHAT_EVERY s), the counts for the log - never a line's text.
+  std::deque<ChatLine> chat;
+  uint32_t chat_serial = 0;
+  double chat_last_sent = -100.0;
+  int chat_sent = 0, chat_in = 0, chat_dropped = 0;
+  // (01.07) The server keeps the room's chat (Members' third extra), its notice was shown (RoomNoticeShown): our lines'
+  // copies go to it then (RoomChatCopy).
+  bool chat_stored = false, chat_notice = false;
+  int chat_copies = 0;
+  // (01.05) Spectators ("Mirar"). The host: whether it lets them in (told to the server), each one watching (a Peer of
+  // its own: the players never know of them). This console one (watching: its member id from FIRST_WATCHER, the host
+  // its only peer): the host's final inputs as they came - every port's, frame by frame, from watch_base to
+  // watch_latest -, the host's frame then, its checksums and ours, when we asked for its state last, whether the frames
+  // run (the buffer filled), how many ran late or waited (the log).
+  bool watch_allowed = false;
+  Peer watchers[MAX_WATCHERS];
+  int watcher_count = 0;  // (the log: spectators who came)
+  bool watching = false;
+  std::vector<PortInput> watch_in = std::vector<PortInput>(static_cast<size_t>(HISTORY) * MAX_PORTS);
+  int32_t watch_base = -1, watch_latest = -1;
+  int watch_ports = 1, watch_check_every = 60;
+  int32_t watch_host_frame = 0;
+  double watch_host_at = 0.0;
+  std::map<int32_t, uint32_t> watch_host_checks, watch_my_checks;
+  double watch_asked = -100.0;
+  bool watch_running = false;
+  int watch_waits = 0, watch_states = 0;
+  std::string watch_offer;
+  // (01.05) A player joining the match under way. The host: whether it lets one (late_allowed; told to the server),
+  // the one coming in and the ports it gets. Every player: the frame the match stops at for it (join_at; NO_FRAME:
+  // none), whose (the notice), since when; one that couldn't go back to that frame (its frames past it: a resync after).
+  // The newcomer (late_join): the host's ports' layout (LateGo) and state, whether its game loaded was told.
+  bool late_allowed = false;
+  // (01.14, the owner) The host: a player that comes is in the room at once, without asking (free_entry: a public
+  // room's at first); its match started with no one else, for whoever comes (started_alone). Every player: the frame
+  // the game is reset at (reset_at; NO_FRAME none: ControlKind::ResetAt), the last one reset (reset_done).
+  bool free_entry = false, started_alone = false;
+  int32_t reset_at = NO_FRAME, reset_done = -1;
+  int join_member = -1, join_first = 0, join_ports = 0;
+  int32_t join_at = NO_FRAME;
+  bool join_state_sent = false, join_resync = false;
+  std::string join_nick;
+  double join_started = 0.0;
+  int late_joined = 0;  // (the log)
+  bool join_resume_pending = false;
+  int32_t join_done = NO_FRAME;  // (the last join's frame, gone on from: a JoinPause of it come late is old)
+  bool late_join = false, late_ready_sent = false, late_layout = false, late_state = false;
+  int32_t late_frame = 0, late_go_frame = -1;
+  int late_delay = 2, late_rollback = 0, late_check_every = 60;
+  int late_first[MAX_MEMBERS] = {}, late_ports[MAX_MEMBERS] = {};
+  bool late_listed[MAX_MEMBERS] = {};
+  // (01.05, the owner) Our file of the room's game as its name says it (SetGameVersion; its number changes with it:
+  // each peer gets it once, GameVersion), our country as the server says it, how many watch (Members; -1 not said).
+  std::string my_version;
+  uint32_t version_serial = 1;
+  std::string my_country;
+  int room_watchers = -1;
 } S;
 
 // The core the emulator calls in a match (WrapCore: its controller devices kept) and the core itself - outside the
@@ -1026,10 +1166,11 @@ Status s_status;
 
 void ResetSession()
 {
-  const std::string error = S.error;
+  const std::string error = S.error, watch_offer = S.watch_offer;
   S.~Session();
   new (&S) Session();
   S.error = error;
+  S.watch_offer = watch_offer;  // ((01.05) with the error it goes with: the menu offers to watch)
 }
 
 // ---- Sending ----
@@ -1048,6 +1189,10 @@ void SendRaw(const Address& to, const uint8_t* data, size_t size)
       return;
     std::uniform_real_distribution<double> unit(0.0, 1.0);
     if (unit(s_sim.rng) < s_sim.loss)
+      return;
+    // ((01.16) outage_every=25,outage_for=9: the last 9 s of every 25, every datagram lost - a server that doesn't
+    // answer for a while.)
+    if (s_sim.outage_every > 0.0 && std::fmod(Now(), s_sim.outage_every) >= s_sim.outage_every - s_sim.outage_for)
       return;
     SimPacket p;
     p.due = Now() + (s_sim.delay + unit(s_sim.rng) * s_sim.jitter) / 1000.0;
@@ -1104,6 +1249,25 @@ void ServerAuth(Writer& w, Type type)
   w.U64(S.token);
 }
 
+// (01.04) The host tells the server, for the room's history (server/emusuni-netd.cpp's room_log; the owner's panel:
+// why nobody plays), what only the consoles know - a Choose Together room's games every player has (NOTE_COMMON), a
+// request to join ended (NOTE_REFUSED: QUIT_REFUSED, QUIT_NO_ANSWER). Numbers only, never a title or a nickname. A
+// server before it drops the packet.
+void SendRoomNote(uint8_t kind, uint16_t value)
+{
+  if (!S.host || S.code.empty())
+    return;
+  uint8_t buf[64];
+  Writer w(buf, sizeof(buf));
+  ServerAuth(w, Type::RoomNote);
+  w.U8(kind);
+  if (kind == NetProto::NOTE_COMMON)
+    w.U16(value);
+  else
+    w.U8(static_cast<uint8_t>(value));
+  SendRaw(S.server, buf, w.Size());
+}
+
 // Is the address that of a server (the main one or a relay)? Its index (0: the main), else -1.
 int ServerIndex(const Address& a)
 {
@@ -1156,6 +1320,12 @@ void SendPeer(Peer& p, const uint8_t* data, size_t size)
 
 Peer* FindPeer(int id)
 {
+  if (id >= FIRST_WATCHER && id < NetProto::MAX_SLOTS)
+  {
+    // (01.05) A spectator: the host's only.
+    Peer& w = S.watchers[id - FIRST_WATCHER];
+    return S.host && w.present ? &w : nullptr;
+  }
   return id >= 0 && id < MAX_MEMBERS && id != S.my_id && S.peers[id].present ? &S.peers[id] : nullptr;
 }
 
@@ -1292,6 +1462,8 @@ void PumpBulk(Peer& p)
   const double now = Now();
   const double rto = std::max(0.25, (p.rtt_ms > 0.0 ? p.rtt_ms * 2.0 : 500.0) / 1000.0);
   int budget = p.direct_ok ? 24 : 5;
+  if (IsWatcher(p))
+    budget = p.direct_ok ? 4 : 2;  // ((01.05) a spectator's state, slowly: the match's own packets come first)
   const int end = std::min(b.chunks, b.base + NetProto::BULK_WINDOW);
   for (int i = b.base; i < end && budget > 0; i++)
   {
@@ -1457,7 +1629,7 @@ int32_t RemoteLatest()
   int32_t latest = NO_FRAME;
   for (int m = 0; m < MAX_MEMBERS; m++)
   {
-    if (m != S.my_id && S.peers[m].present)
+    if (m != S.my_id && InMatch(S.peers[m]))
       latest = std::min(latest, S.inputs[m].latest);
   }
   return latest;
@@ -1479,7 +1651,7 @@ void Apply(int32_t frame)
   PortInput ports[MAX_PORTS];
   for (int m = 0; m < MAX_MEMBERS; m++)
   {
-    if (m != S.my_id && !S.peers[m].present)
+    if (m != S.my_id && !InMatch(S.peers[m]))
       continue;
     for (int j = 0; j < S.ports[m]; j++)
     {
@@ -1657,7 +1829,7 @@ void DoChecks()
     S.stats.check_log.push_back({f, crc});
     for (Peer& p : S.peers)
     {
-      if (!p.present)
+      if (!InMatch(p))
         continue;
       auto it = p.checks.find(f);
       if (it != p.checks.end())
@@ -1681,8 +1853,12 @@ void OnRemoteCheck(Peer& p, int32_t frame, uint32_t crc, uint32_t epoch)
 // Our local players' inputs up to `frame + delay`.
 void AddLocalInputs()
 {
+  if (S.my_id >= MAX_MEMBERS)
+    return;  // ((01.05) a spectator plays nothing)
   InputLog& log = S.inputs[S.my_id];
-  while (S.local_next <= S.frame + S.delay)
+  // ((01.05) None for the frame a player joins at or after, until it is in: they wait.)
+  const int32_t until = S.join_at != NO_FRAME ? std::min(S.frame + S.delay, S.join_at - 1) : S.frame + S.delay;
+  while (S.local_next <= until)
   {
     for (int j = 0; j < S.ports[S.my_id] && j < MAX_PORTS; j++)
       log.At(S.local_next, j) = j < S.local_count ? S.local_now[j] : PortInput();
@@ -1701,6 +1877,8 @@ double Advantage(const Peer& p)
 
 void SendInputs(Peer& p)
 {
+  if (S.my_id >= MAX_MEMBERS || IsWatcher(p))
+    return;  // ((01.05) a spectator's are the host's Watch)
   InputLog& mine = S.inputs[S.my_id];
   const int ports = std::max(0, S.ports[S.my_id]);
   const bool full = S.rules.full_input;
@@ -1736,7 +1914,7 @@ void SendInputsAll()
 {
   for (Peer& p : S.peers)
   {
-    if (p.present)
+    if (InMatch(p))
       SendInputs(p);
   }
 }
@@ -1918,7 +2096,7 @@ void StartResync()
   const double now = Now();
   for (const Peer& p : S.peers)
   {
-    if (p.present && ((p.bulk_out.active && !p.bulk_out.Done() && p.bulk_out.kind == BulkKind::Resync) ||
+    if (InMatch(p) && ((p.bulk_out.active && !p.bulk_out.Done() && p.bulk_out.kind == BulkKind::Resync) ||
                       !p.bulk_queue.empty()))
       return;  // (one at a time)
   }
@@ -1956,7 +2134,7 @@ void StartResync()
   S.check_floor = std::max(S.check_floor, at);
   for (Peer& p : S.peers)
   {
-    if (!p.present)
+    if (!InMatch(p))
       continue;
     p.checks.clear();
     SendBulk(p, BulkKind::Resync, raw);
@@ -2008,10 +2186,695 @@ void ApplyResync(const std::vector<uint8_t>& raw)
        was, (Now() - S.resync_started) * 1000.0);
 }
 
+// ---- (01.05) Spectators ("Mirar") ----
+// A spectator is the host's alone: the server lists it only to the host, the players never hear of it. The host tells
+// it the match started (StartGame, then its core options); its game loaded, it asks for the host's state (WatchState),
+// which the host sends from a frame whose inputs are final, then those inputs from there on (Watch: every port's,
+// frame by frame - final inputs never change, so each frame is sent until acknowledged), with its newest checksum.
+// The spectator runs them WATCH_DELAY s behind the host, compares its checksums with the host's, and asks for the state
+// again if one differs. It sends nothing to play, no voice, no chat.
+
+// The host: every port's final input of `frame` (as the match's ports hold them).
+void WatchRow(int32_t frame, PortInput* out)
+{
+  for (int m = 0; m < MAX_MEMBERS; m++)
+  {
+    if (m != S.my_id && !InMatch(S.peers[m]))
+      continue;
+    for (int j = 0; j < S.ports[m]; j++)
+    {
+      const int port = S.first_port[m] + j;
+      if (port >= 0 && port < MAX_PORTS)
+        out[port] = S.inputs[m].At(frame, j);
+    }
+  }
+}
+
+// The host: the newest frame whose inputs are all in (ours run ahead by the delay).
+int32_t FinalInputFrame()
+{
+  const int32_t mine = S.inputs[S.my_id].latest, remote = RemoteLatest();
+  return remote == NO_FRAME ? mine : std::min(mine, remote);
+}
+
+// The host: a spectator's inputs from the newest it acknowledged, as many as fit (also none: our frame and checksum).
+void SendWatch(Peer& p)
+{
+  const int32_t final_frame = FinalInputFrame();
+  int32_t first = std::max(p.acked + 1, p.watch_from);
+  first = std::max(first, final_frame - HISTORY + 64);  // (older ones are gone: it asks for a state again)
+  const int ports = std::clamp(S.total_ports, 1, MAX_PORTS);
+  const bool full = S.rules.full_input;
+  const size_t per_frame = static_cast<size_t>(ports) * (full ? NetProto::INPUT_FULL : NetProto::INPUT_BUTTONS);
+  constexpr size_t FIXED = 4 + 9 + 4 + 1 + 1 + 1 + 2 + 4 + 4 + 4;
+  const int most = static_cast<int>(std::min<size_t>(64, (PEER_MAX - FIXED) / per_frame));
+  const int count = final_frame >= first ? std::min(most, static_cast<int>(final_frame - first + 1)) : 0;
+  uint8_t buf[NetProto::MAX_PACKET];
+  Writer w(buf, sizeof(buf));
+  PeerHeader(w, Type::Watch);
+  w.U32(static_cast<uint32_t>(first));
+  w.U8(static_cast<uint8_t>(count));
+  w.U8(static_cast<uint8_t>(ports));
+  w.U8(full ? 1 : 0);
+  w.U16(static_cast<uint16_t>(std::max(S.rules.check_every, 1)));
+  w.U32(static_cast<uint32_t>(S.last_check.first));
+  w.U32(S.last_check.second);
+  w.U32(static_cast<uint32_t>(S.frame));
+  for (int i = 0; i < count; i++)
+  {
+    PortInput row[MAX_PORTS];
+    WatchRow(first + i, row);
+    for (int j = 0; j < ports; j++)
+      NetProto::WriteInput(w, row[j], full);
+  }
+  if (w.Ok())
+    SendPeer(p, buf, w.Size());
+  p.last_input_sent = Now();
+}
+
+// The host: a spectator's state - ours at the newest frame whose inputs are final (from the ring, else now), with the
+// battery save and the controller devices -, its inputs from that frame on (SendWatch).
+void SendWatchState(Peer& p)
+{
+  p.watch_wants = false;
+  if (S.rollback_to < S.frame)
+    Rollback();
+  const int32_t latest = RemoteLatest();
+  int32_t at = latest == NO_FRAME ? S.frame : std::max(S.floor, std::min(latest + 1, S.frame));
+  const uint8_t* state = nullptr;
+  size_t size = 0;
+  if (at < S.frame && !S.ring.empty())
+  {
+    const Saved& s = S.ring[static_cast<size_t>(at) % S.ring.size()];
+    if (s.frame == at)
+    {
+      state = s.data.data();
+      size = s.size;
+    }
+  }
+  if (!state)
+  {
+    at = S.frame;
+    if (!SerializeTo(&S.scratch, &size))
+    {
+      LogF("netplay: %s watches: the state couldn't be made", p.info.nick.c_str());
+      return;
+    }
+    state = S.scratch.data();
+  }
+  std::vector<uint8_t> raw;
+  MakeStatePacket(at, state, size, true, &raw);
+  SendBulk(p, BulkKind::State, raw);
+  p.watch_from = at;
+  p.acked = at - 1;
+  LogF("netplay: %s watches: the state of frame %d sent (the host at frame %d)", p.info.nick.c_str(), at, S.frame);
+}
+
+void OnWatchAck(Peer& p, Reader& r)
+{
+  const int32_t latest = static_cast<int32_t>(r.U32());
+  const int32_t frame = static_cast<int32_t>(r.U32());
+  if (!r.Ok() || !S.host || !IsWatcher(p) || p.watch_from == NO_FRAME)
+    return;
+  p.acked = std::max(p.acked, std::min(latest, FinalInputFrame()));
+  p.remote_frame = frame;
+}
+
+// A spectator: the host's state, please (our game loaded, or a frame went otherwise than the host's) - WATCH_ASK_EVERY
+// s apart at most; the frames stop until it comes.
+void WatchAskState(const char* why)
+{
+  const double now = Now();
+  if (now - S.watch_asked < WATCH_ASK_EVERY)
+    return;
+  Peer* host = FindPeer(0);
+  if (!host)
+    return;
+  S.watch_asked = now;
+  SendControl(*host, ControlKind::WatchState, nullptr, 0);
+  if (S.match == Match::Running)
+    S.match = Match::Resync;
+  LogF("netplay: watching: the host's state asked for (%s)", why);
+}
+
+// A spectator: a frame's checksum, ours and the host's, once both are in.
+void WatchCompare(int32_t frame)
+{
+  const auto mine = S.watch_my_checks.find(frame), theirs = S.watch_host_checks.find(frame);
+  if (mine == S.watch_my_checks.end() || theirs == S.watch_host_checks.end())
+    return;
+  S.stats.checks++;
+  S.stats.check_log.push_back({frame, mine->second});
+  if (mine->second == theirs->second)
+    return;
+  S.stats.mismatches++;
+  LogF("netplay: watching: frame %d differs from the host's (%08x, its %08x)", frame, mine->second, theirs->second);
+  WatchAskState("a frame differs");
+}
+
+// A spectator: the host's Watch - its inputs taken in order (the ones we have, and those past our room for them,
+// skipped), its frame and checksum; acknowledged at once.
+void OnWatch(Peer& p, Reader& r)
+{
+  const int32_t first = static_cast<int32_t>(r.U32());
+  const int count = r.U8();
+  const int ports = r.U8();
+  const bool full = r.U8() != 0;
+  const int check_every = r.U16();
+  const int32_t check_frame = static_cast<int32_t>(r.U32());
+  const uint32_t check_crc = r.U32();
+  const int32_t host_frame = static_cast<int32_t>(r.U32());
+  if (!r.Ok() || !S.watching || p.info.id != 0 || ports < 1 || ports > MAX_PORTS || first < 0)
+    return;
+  S.watch_ports = ports;
+  S.watch_check_every = std::max(1, check_every);
+  if (host_frame >= S.watch_host_frame)
+  {
+    S.watch_host_frame = host_frame;
+    S.watch_host_at = Now();
+  }
+  if (check_frame >= 0 && check_frame != NO_FRAME && !S.watch_host_checks.count(check_frame))
+  {
+    S.watch_host_checks[check_frame] = check_crc;
+    while (S.watch_host_checks.size() > 64)
+      S.watch_host_checks.erase(S.watch_host_checks.begin());
+    WatchCompare(check_frame);
+  }
+  // (The inputs kept: HISTORY frames from the one to run next - from the first that came, before the state.)
+  const int32_t from = S.match == Match::Running || S.match == Match::Resync ? S.frame : S.watch_base;
+  for (int i = 0; i < count; i++)
+  {
+    const int32_t f = first + i;
+    PortInput row[MAX_PORTS];
+    for (int j = 0; j < ports; j++)
+      row[j] = NetProto::ReadInput(r, full);
+    if (!r.Ok())
+      return;
+    if (S.watch_latest < 0)
+    {
+      S.watch_base = f;
+      S.watch_latest = f - 1;
+    }
+    if (f != S.watch_latest + 1 || (from >= 0 && f >= from + HISTORY - 8))
+      continue;
+    for (int j = 0; j < MAX_PORTS; j++)
+      S.watch_in[static_cast<size_t>(f % HISTORY) * MAX_PORTS + static_cast<size_t>(j)] = j < ports ? row[j] : PortInput();
+    S.watch_latest = f;
+  }
+  // (Past a gap - the host no longer has the frames between -: its state again.)
+  if (S.watch_latest >= 0 && first > S.watch_latest + 1)
+    WatchAskState("the host's inputs went on without ours");
+  uint8_t buf[64];
+  Writer w(buf, sizeof(buf));
+  PeerHeader(w, Type::WatchAck);
+  w.U32(static_cast<uint32_t>(S.watch_latest));
+  w.U32(static_cast<uint32_t>(S.frame));
+  SendPeer(p, buf, w.Size());
+}
+
+// A spectator: the host's state loaded - the frames go on from it (the inputs we have from there kept: they are
+// final), once WATCH_DELAY s of them are in.
+void WatchTakeState(const std::vector<uint8_t>& raw)
+{
+  int32_t frame = 0;
+  uint32_t epoch = 0;
+  if (!TakeStatePacket(raw, &frame, &epoch, true))
+  {
+    EndMatch("The host's game state couldn't be loaded (is it the same game?)");
+    return;
+  }
+  S.frame = frame;
+  S.stats.frame = frame;
+  if (!(S.watch_base >= 0 && S.watch_base <= frame && frame <= S.watch_latest + 1))
+  {
+    S.watch_base = frame;
+    S.watch_latest = frame - 1;
+  }
+  S.watch_my_checks.clear();
+  S.ring.clear();
+  S.rollback_to = NO_FRAME;
+  S.watch_running = false;
+  S.watch_states++;
+  const bool first = S.phase != Phase::Playing;
+  S.match = Match::Running;
+  S.phase = Phase::Playing;
+  if (first)
+  {
+    S.seconds.clear();
+    S.second = Session::Second();
+    S.second_start = Now();
+  }
+  LogF("netplay: watching: the host's state of frame %d loaded (%zu bytes; its inputs here up to %d)", frame,
+       raw.size(), S.watch_latest);
+}
+
+// A spectator's frames this pass: none until WATCH_DELAY s of inputs are in, then as the pacing wants - a frame more
+// now and then when it falls behind, one less when it comes too close (the host's frame: the newest it said, a moment
+// on at most).
+int WatchFrames(int frames)
+{
+  if (S.over || S.match != Match::Running)
+    return 0;
+  if (frames > 0)
+    S.second.passes++;
+  const int32_t have = S.watch_latest - S.frame + 1;
+  const double fps = std::max(S.fps, 1.0);
+  const double host_now = S.watch_host_frame + std::min(Now() - S.watch_host_at, 0.5) * fps;
+  const double behind = host_now - S.frame;
+  const double target = WATCH_DELAY * fps;
+  if (have <= 0)
+  {
+    if (S.watch_running)
+    {
+      S.watch_running = false;  // (the buffer ran out: it fills again first)
+      S.watch_waits++;
+    }
+    if (frames > 0)
+      S.second.stalls++;
+    return 0;
+  }
+  if (!S.watch_running)
+  {
+    if (behind < target)
+      return 0;
+    S.watch_running = true;
+    LogF("netplay: watching: %.1f s behind the host (frame %d, its inputs here up to %d)", behind / fps, S.frame,
+         S.watch_latest);
+  }
+  int run = frames;
+  if (behind > target + 3.0 * fps)
+    run = frames + 3;
+  else if (behind > target + 0.5 * fps)
+    run = frames + (S.frame % 2 == 0 ? 1 : 0);
+  else if (behind < target - 0.4 * fps && frames > 0 && S.frame % 3 == 0)
+    run = frames - 1;
+  return std::clamp(std::min(run, static_cast<int>(have)), 0, 8);
+}
+
+// A spectator's frame: its checksum (as the host makes it: before the frame, from its state or its memory), the
+// host's inputs on every port, the core's run.
+void WatchRunFrame()
+{
+  if (S.match != Match::Running || S.frame > S.watch_latest)
+    return;
+  S.second.frames++;
+  if (S.frame % S.watch_check_every == 0)
+  {
+    uint32_t crc = 0;
+    size_t size = 0;
+    bool ok = true;
+    if (S.rules.check_memory)
+      crc = MemoryCrc();
+    else if ((ok = SerializeTo(&S.scratch, &size)))
+      crc = static_cast<uint32_t>(crc32(0L, S.scratch.data(), static_cast<uInt>(size)));
+    if (ok)
+    {
+      S.watch_my_checks[S.frame] = crc;
+      while (S.watch_my_checks.size() > 64)
+        S.watch_my_checks.erase(S.watch_my_checks.begin());
+      WatchCompare(S.frame);
+    }
+  }
+  Reload(S.frame);
+  PortInput ports[MAX_PORTS];
+  for (int j = 0; j < S.watch_ports && j < MAX_PORTS; j++)
+    ports[j] = S.watch_in[static_cast<size_t>(S.frame % HISTORY) * MAX_PORTS + static_cast<size_t>(j)];
+  if (S.apply)
+    S.apply(ports, std::max(S.watch_ports, 1));
+  RunCore();
+  S.frame++;
+  S.stats.frame = S.frame;
+}
+
+// The host: a spectator gone (it left, the connection lost, removed).
+void WatcherGone(Peer& p, const std::string& why)
+{
+  if (!p.present)
+    return;
+  LogF("netplay: %s (a spectator)", why.c_str());
+  p = Peer();
+}
+
+// The host's core options as a block (BulkKind::Options): a guest's, a spectator's, a player joining late.
+std::vector<uint8_t> OptionsBlock()
+{
+  std::vector<uint8_t> raw;
+  PutU32(raw, static_cast<uint32_t>(S.variables.size()));
+  for (const auto& [key, value] : S.variables)
+  {
+    PutU32(raw, static_cast<uint32_t>(key.size()));
+    PutBytes(raw, key.data(), key.size());
+    PutU32(raw, static_cast<uint32_t>(value.size()));
+    PutBytes(raw, value.data(), value.size());
+  }
+  return raw;
+}
+
+// ---- (01.05) A player joining the match under way ----
+// A room of 3 or 4 whose match has a place left (not a link cable's or Choose Together's), if its host lets it: the
+// server lets the newcomer in, the host accepts it at once and tells it the match is on (LateStart, the options). It
+// loads the game while the others play on, then says so (LateReady). The host picks a frame ahead of every console
+// (join_at) and tells the players (JoinPause): each one stops there - one already past it goes back to it, its state
+// in the ring - and makes no input of its own for it or after. There, every input before it in, the host sends the
+// newcomer the ports from then (LateGo) and its state of that frame; the newcomer loads it, its frames start there
+// (Ready), and the host tells the players to go on with it in the next free ports (JoinResume): each one takes the
+// newcomer's inputs from that frame (none in yet: run neutral, rolled back once they come). A newcomer that leaves or
+// takes too long: everyone goes on without it. The players already in play as ever; one that leaves still ends it.
+
+int RollbackReach();
+void RemoveMember(Peer& p, uint8_t reason, const std::string& why);
+void ApplyVoice();
+
+// The host's room takes a player during its match. ((01.14) A room of 2 too: its match may start with the host alone.)
+bool LateRoom()
+{
+  return S.host && !S.together && !LinkRoom() && S.max_members >= 2 && RulesFor(S.game.console).online;
+}
+
+// (01.06) A player whose app doesn't join a match under way (v00.23's: no CAP_LATE, as the server says) is in the room:
+// it knows nothing of the pause for a newcomer and would wait for inputs of a player it doesn't know.
+bool OldPlayerIn()
+{
+  for (const Peer& p : S.peers)
+  {
+    if (p.present && p.info.caps_known && !(p.info.caps & NetProto::CAP_LATE))
+      return true;
+  }
+  return false;
+}
+// A player may join the match under way: the host lets one, and no such player is in (the server is told so too).
+bool LateOpen()
+{
+  return S.late_allowed && !OldPlayerIn();
+}
+
+// (01.14, the owner) The match's Reset: the host's, while the match runs - no reset or join under way -, when every
+// player's app has it (CAP_RESET; *old: one hasn't).
+bool CanResetMatch(bool* old)
+{
+  *old = false;
+  if (!S.host || S.watching || S.phase != Phase::Playing || S.match != Match::Running || S.over)
+    return false;
+  for (const Peer& p : S.peers)
+  {
+    if (InMatch(p) && !(p.info.caps_known && (p.info.caps & NetProto::CAP_RESET)))
+      *old = true;
+  }
+  return !*old && S.reset_at == NO_FRAME && S.join_member < 0 && S.join_at == NO_FRAME;
+}
+
+// (01.23, the owner: "salir del juego sin salir de la sala") Back to the Room: a player's (not a spectator's) - the
+// match ends for every player, all back in the room - while the match is on; not a link cable room's (its guest's Game
+// Boy save goes to the host once, before its first match). Every console in the match's app must have it (CAP_ROOM:
+// one before it would wait for our inputs; *old). (A Choose Together room's always: its End Match, since 00.23.)
+bool CanBackToRoom(bool* old)
+{
+  *old = false;
+  if (S.watching || LinkRoom() || (S.phase != Phase::Starting && S.phase != Phase::Playing) || S.over)
+    return false;
+  if (S.together)
+    return true;
+  for (const Peer& p : S.peers)
+  {
+    if (p.present && !(p.info.caps_known && (p.info.caps & NetProto::CAP_ROOM)))
+      *old = true;
+  }
+  return !*old;
+}
+void AddNotice(const std::string& text);
+
+// A member in the match from `frame` on with its ports (every player, the newcomer's own view at its start too): its
+// inputs from there (the one before neutral: what is predicted until they come); our inputs it has up to there.
+void AddLateMember(Peer& p, int32_t frame, int first, int ports)
+{
+  const int m = p.info.id;
+  p.in_match = true;
+  p.late = false;
+  p.admitted = true;
+  S.first_port[m] = first;
+  S.ports[m] = ports;
+  InputLog& log = S.inputs[m];
+  for (int j = 0; j < MAX_PORTS; j++)
+    log.At(frame - 1, j) = PortInput();
+  log.latest = frame - 1;
+  p.acked = frame - 1;
+  p.remote_frame = frame;
+  p.remote_adv = 0;
+  p.my_adv_avg = p.their_adv_avg = 0.0;
+  p.checks.clear();
+  p.margin_now = p.margin_last = INT32_MAX;
+  S.total_ports = std::max(S.total_ports, first + ports);
+  S.late_joined++;
+  LogF("netplay: %s plays from frame %d (port%s %d%s)", p.info.nick.c_str(), frame, ports == 1 ? "" : "s", first + 1,
+       ports == 1 ? "" : ("-" + std::to_string(first + ports)).c_str());
+}
+
+// The host: no one joins now (the newcomer left, had no port, took too long): the players go on.
+void AbortJoin(const char* why)
+{
+  if (!S.host || S.join_member < 0)
+    return;
+  uint8_t payload[16];
+  Writer w(payload, sizeof(payload));
+  w.U32(static_cast<uint32_t>(S.join_at));
+  w.U8(NetProto::JOIN_NONE);
+  w.U8(0);
+  w.U8(0);
+  for (Peer& q : S.peers)
+  {
+    if (InMatch(q))
+      SendControl(q, ControlKind::JoinResume, payload, w.Size());
+  }
+  LogF("netplay: %s doesn't join the match (%s): it goes on", S.join_nick.c_str(), why);
+  S.join_member = -1;
+  S.join_at = NO_FRAME;
+  S.join_state_sent = false;
+}
+
+// The host: a newcomer's game loaded - its ports (none left: it can't play) and the frame everyone stops at, told.
+void BeginJoin(Peer& p)
+{
+  const int free_ports = MAX_PORTS - S.total_ports;
+  if (free_ports <= 0)
+  {
+    LogF("netplay: %s can't join the match: no controller port left", p.info.nick.c_str());
+    RemoveMember(p, NetProto::QUIT_NO_PORT, p.info.nick + " can't join: no controller port left");
+    return;
+  }
+  S.join_member = p.info.id;
+  S.join_first = S.total_ports;
+  S.join_ports = std::min(std::clamp(p.ready_locals, 1, MAX_PORTS), free_ports);
+  // (Past every console's frame: none runs more than the rollback past our inputs, which stop before it.)
+  S.join_at = S.frame + S.delay + RollbackReach() + 8;
+  S.join_state_sent = false;
+  S.join_nick = p.info.nick;
+  S.join_started = Now();
+  uint8_t payload[64];
+  Writer w(payload, sizeof(payload));
+  w.U32(static_cast<uint32_t>(S.join_at));
+  w.U8(static_cast<uint8_t>(p.info.id));
+  w.Str(p.info.nick, NetProto::MAX_NICK);
+  for (Peer& q : S.peers)
+  {
+    if (InMatch(q))
+      SendControl(q, ControlKind::JoinPause, payload, w.Size());
+  }
+  LogF("netplay: %s joins the match: everyone stops at frame %d (we are at %d)", p.info.nick.c_str(), S.join_at,
+       S.frame);
+}
+
+// The host, at the stop: every input before it in - the newcomer's ports and rules from there, and our state of it.
+void SendJoinState()
+{
+  Peer* p = FindPeer(S.join_member);
+  if (!p)
+  {
+    AbortJoin("it is gone");
+    return;
+  }
+  size_t size = 0;
+  if (!SerializeTo(&S.scratch, &size))
+  {
+    AbortJoin("the state couldn't be made");
+    return;
+  }
+  std::vector<uint8_t> raw;
+  MakeStatePacket(S.join_at, S.scratch.data(), size, true, &raw);
+  uint8_t payload[64];
+  Writer w(payload, sizeof(payload));
+  w.U32(static_cast<uint32_t>(S.join_at));
+  w.U8(static_cast<uint8_t>(S.delay));
+  w.U8(static_cast<uint8_t>(S.max_rollback));
+  w.U16(static_cast<uint16_t>(S.rules.check_every));
+  int count = 0;
+  for (int m = 0; m < MAX_MEMBERS; m++)
+    count += m == S.my_id || InMatch(S.peers[m]) || m == S.join_member ? 1 : 0;
+  w.U8(static_cast<uint8_t>(count));
+  for (int m = 0; m < MAX_MEMBERS; m++)
+  {
+    const bool newcomer = m == S.join_member;
+    if (m != S.my_id && !InMatch(S.peers[m]) && !newcomer)
+      continue;
+    w.U8(static_cast<uint8_t>(m));
+    w.U8(static_cast<uint8_t>(newcomer ? S.join_first : S.first_port[m]));
+    w.U8(static_cast<uint8_t>(newcomer ? S.join_ports : S.ports[m]));
+  }
+  SendControl(*p, ControlKind::LateGo, payload, w.Size());
+  SendBulk(*p, BulkKind::State, raw);
+  S.join_state_sent = true;
+  LogF("netplay: the state of frame %d sent to %s (%zu bytes)", S.join_at, p->info.nick.c_str(), size);
+}
+
+// The host: the newcomer's frames started (its Ready) - the players go on with it.
+void FinishJoin(Peer& p)
+{
+  uint8_t payload[16];
+  Writer w(payload, sizeof(payload));
+  w.U32(static_cast<uint32_t>(S.join_at));
+  w.U8(static_cast<uint8_t>(p.info.id));
+  w.U8(static_cast<uint8_t>(S.join_first));
+  w.U8(static_cast<uint8_t>(S.join_ports));
+  for (Peer& q : S.peers)
+  {
+    if (InMatch(q))
+      SendControl(q, ControlKind::JoinResume, payload, w.Size());
+  }
+  AddLateMember(p, S.join_at, S.join_first, S.join_ports);
+  LogF("netplay: the match goes on with %s (stopped %.1f s)", p.info.nick.c_str(), Now() - S.join_started);
+  S.join_member = -1;
+  S.join_at = NO_FRAME;
+  S.join_state_sent = false;
+}
+
+// The host, each pass: the newcomers - the match's start told once each is accepted and has the game, its options,
+// then (one at a time) its join once its game loaded; one that takes too long is removed.
+void PumpLate(double now)
+{
+  if (!S.host || S.phase != Phase::Playing || S.match != Match::Running)
+    return;
+  for (Peer& p : S.peers)
+  {
+    if (!p.present || p.in_match || !p.late || !p.admitted)
+      continue;
+    const bool has_game = p.game == LobbyGame::Same || p.game == LobbyGame::Different;
+    if (!p.late_started && p.rtt_ms >= 0.0 && has_game)
+    {
+      p.late_started = true;
+      SendControl(p, ControlKind::LateStart, nullptr, 0);
+      LogF("netplay: %s: the match under way told (it loads the game)", p.info.nick.c_str());
+    }
+    if (p.late_started && !p.late_options && S.variables_agreed)
+    {
+      p.late_options = true;
+      SendBulk(p, BulkKind::Options, OptionsBlock());
+    }
+    if (p.late_ready && S.join_member < 0 && S.reset_at == NO_FRAME)  // ((01.14) after the game's reset)
+    {
+      BeginJoin(p);
+      break;  // (one at a time; `p` may be gone)
+    }
+  }
+  if (S.join_member >= 0 && now - S.join_started > 20.0)
+  {
+    if (Peer* p = FindPeer(S.join_member))
+      RemoveMember(*p, NetProto::QUIT_REMOVED, p->info.nick + " took too long to join the match");
+    AbortJoin("too long");
+  }
+}
+
+// The newcomer: its frames from the host's stop - the players and ports it said, every member's inputs from there.
+void LateStartFrames()
+{
+  const int32_t J = S.late_frame;
+  S.frame = J;
+  S.delay = std::clamp(S.late_delay, 0, 12);
+  S.max_rollback = std::clamp(S.late_rollback, 0, 12);
+  S.rules.check_every = std::max(1, S.late_check_every);
+  S.total_ports = 0;
+  for (int m = 0; m < MAX_MEMBERS; m++)
+  {
+    S.inputs[m].latest = -1;
+    S.first_port[m] = S.late_first[m];
+    S.ports[m] = S.late_listed[m] ? std::clamp(S.late_ports[m], 0, MAX_PORTS) : 0;
+    if (m != S.my_id)
+      S.peers[m].in_match = S.peers[m].present && S.late_listed[m];
+    if (!S.late_listed[m])
+      continue;
+    for (int j = 0; j < MAX_PORTS; j++)
+      S.inputs[m].At(J - 1, j) = PortInput();
+    S.inputs[m].latest = J - 1;
+    S.total_ports = std::max(S.total_ports, S.first_port[m] + S.ports[m]);
+  }
+  std::fill(S.used.begin(), S.used.end(), PortInput());
+  S.local_next = J;
+  S.rollback_to = NO_FRAME;
+  S.floor = J;
+  S.check_floor = J;
+  S.next_check = (J + S.rules.check_every - 1) / S.rules.check_every * S.rules.check_every;
+  S.my_checks.clear();
+  S.last_check = {-1, 0};
+  S.skip_passes = 0;
+  S.last_sync_frame = J;
+  S.stalled_since = -1.0;
+  S.ring.clear();
+  if (S.max_rollback > 0)
+  {
+    S.ring.resize(static_cast<size_t>(S.max_rollback) + 2);
+    const size_t size = S.core ? S.core->serialize_size() : 0;
+    for (Saved& s : S.ring)
+      s.data.resize(size);
+  }
+  for (Peer& p : S.peers)
+  {
+    p.acked = J - 1;
+    p.remote_frame = J;
+    p.remote_adv = 0;
+    p.my_adv_avg = p.their_adv_avg = 0.0;
+    p.checks.clear();
+    p.margin_now = p.margin_last = INT32_MAX;
+  }
+  S.seconds.clear();
+  S.second = Session::Second();
+  S.second_start = Now();
+  S.seconds_logged = 0;
+  S.delay_lower = 0;
+  S.match = Match::Running;
+  S.phase = Phase::Playing;
+  S.stats.delay = S.delay;
+  S.stats.max_rollback = S.max_rollback;
+  S.stats.frame = J;
+  LogF("netplay: we join the match at frame %d: input delay %d, rollback up to %d, ports %d-%d of %d", J, S.delay,
+       S.max_rollback, S.first_port[S.my_id] + 1, S.first_port[S.my_id] + S.ports[S.my_id], S.total_ports);
+  uint8_t payload[1] = {static_cast<uint8_t>(std::clamp(S.local_count, 1, MAX_PORTS))};
+  if (Peer* host = FindPeer(0))
+    SendControl(*host, ControlKind::Ready, payload, 1);
+  ApplyVoice();
+}
+
+// The newcomer, each pass while it waits: its game loaded told once; its frames start once the host's ports and its
+// state of that frame are both in.
+void PumpLateJoin()
+{
+  if (!S.late_join || S.match != Match::Sync || !S.core)
+    return;
+  if (!S.late_ready_sent)
+  {
+    if (Peer* host = FindPeer(0))
+    {
+      S.late_ready_sent = true;
+      uint8_t payload[1] = {static_cast<uint8_t>(std::clamp(S.local_count, 1, MAX_PORTS))};
+      SendControl(*host, ControlKind::LateReady, payload, 1);
+      LogLine("netplay: our game loaded: the host is told (it stops the match for us)");
+    }
+  }
+  if (S.late_layout && S.late_state && S.late_go_frame == S.late_frame)
+    LateStartFrames();
+}
+
 // The voice chat on or off as the player wants it, while the match runs.
 void ApplyVoice()
 {
-  const bool want = S.voice_enabled && S.phase == Phase::Playing && !S.over;
+  const bool want = S.voice_enabled && S.phase == Phase::Playing && !S.over && !S.watching;  // ((01.05) none watching)
   if (want && !S.voice_running)
   {
 #ifdef __PS4__
@@ -2044,10 +2907,12 @@ void StartFrames()
 {
   S.frame = 0;
   S.total_ports = 0;
+  S.reset_at = NO_FRAME;  // ((01.14) no reset of the match before)
+  S.reset_done = -1;
   for (int m = 0; m < MAX_MEMBERS; m++)
   {
     S.inputs[m].latest = -1;
-    if (m != S.my_id && !S.peers[m].present)
+    if (m != S.my_id && !InMatch(S.peers[m]))
       continue;
     for (int32_t f = 0; f < S.delay; f++)
     {
@@ -2097,7 +2962,7 @@ void StartFrames()
   std::string ports;
   for (int m = 0; m < MAX_MEMBERS; m++)
   {
-    if ((m == S.my_id || S.peers[m].present) && S.ports[m] > 0)
+    if ((m == S.my_id || InMatch(S.peers[m])) && S.ports[m] > 0)
     {
       char part[96];
       std::snprintf(part, sizeof(part), "%s%s %d-%d", ports.empty() ? "" : ", ",
@@ -2153,7 +3018,7 @@ void AdaptDelay()
   bool waited = false;
   for (const Peer& p : S.peers)
   {
-    if (!p.present)
+    if (!InMatch(p))
       continue;
     if (p.rtt_ms > 0.0)
     {
@@ -2212,7 +3077,7 @@ void LogWindow()
        w.passes > 0 ? w.stalls * 100.0 / w.passes : 0.0, w.caught, w.waits, w.rollbacks, w.replayed, w.deepest);
   for (const Peer& p : S.peers)
   {
-    if (!p.present)
+    if (!InMatch(p))
       continue;
     const int m = p.info.id;
     std::string says = "-";
@@ -2266,7 +3131,7 @@ void TryGo()
   const double now = Now();
   for (const Peer& p : S.peers)
   {
-    if (!p.present)
+    if (!InMatch(p))
       continue;
     if (!p.ready || !p.bulk_out.Done() || !p.bulk_queue.empty())
       return;
@@ -2279,14 +3144,14 @@ void TryGo()
     fresh = std::min(fresh, static_cast<int>(p.fresh.size()));
     guests++;
   }
-  if (guests == 0)
+  if (guests == 0 && !S.started_alone)  // ((01.14) alone: at once, the delay of an unknown ping - it adapts)
     return;
   S.delay = ChooseDelay(rtt);
   // The ports: the host's players first, then each guest's, while there are ports.
   int next = 0;
   for (int m = 0; m < MAX_MEMBERS; m++)
   {
-    const bool member = m == S.my_id || S.peers[m].present;
+    const bool member = m == S.my_id || InMatch(S.peers[m]);
     const int want = m == S.my_id ? std::clamp(S.local_count, 1, MAX_PORTS) : S.peers[m].ready_locals;
     S.first_port[m] = next;
     S.ports[m] = member ? std::clamp(want, 0, MAX_PORTS - next) : 0;
@@ -2299,11 +3164,11 @@ void TryGo()
   w.U16(static_cast<uint16_t>(S.rules.check_every));
   int count = 0;
   for (int m = 0; m < MAX_MEMBERS; m++)
-    count += (m == S.my_id || S.peers[m].present) ? 1 : 0;
+    count += (m == S.my_id || InMatch(S.peers[m])) ? 1 : 0;
   w.U8(static_cast<uint8_t>(count));
   for (int m = 0; m < MAX_MEMBERS; m++)
   {
-    if (m != S.my_id && !S.peers[m].present)
+    if (m != S.my_id && !InMatch(S.peers[m]))
       continue;
     w.U8(static_cast<uint8_t>(m));
     w.U8(static_cast<uint8_t>(S.first_port[m]));
@@ -2322,6 +3187,7 @@ void OnGo(Reader& r)
   const int check_every = r.U16();
   const int count = r.U8();
   int first[MAX_MEMBERS] = {}, ports[MAX_MEMBERS] = {};
+  bool listed[MAX_MEMBERS] = {};
   for (int i = 0; i < count; i++)
   {
     const int m = r.U8();
@@ -2331,10 +3197,16 @@ void OnGo(Reader& r)
     {
       first[m] = f;
       ports[m] = n;
+      listed[m] = true;
     }
   }
-  if (!r.Ok() || S.host || S.match != Match::Sync)
+  if (!r.Ok() || S.host || S.match != Match::Sync || S.late_join)
     return;
+  for (int m = 0; m < MAX_MEMBERS; m++)
+  {
+    if (m != S.my_id)
+      S.peers[m].in_match = S.peers[m].present && listed[m];  // ((01.05) the match's players, as the host says)
+  }
   S.delay = std::clamp(delay, 0, 12);
   S.max_rollback = std::clamp(rollback, 0, 12);
   S.rules.check_every = std::max(1, check_every);
@@ -2347,10 +3219,30 @@ void OnGo(Reader& r)
 }
 
 // ---- The room ----
+// (01.05, the owner: "que se vea también la versión que tiene cada uno del juego") Our file of the room's game -
+// whether we have it (the host's: Same), its version as its name says it - to every player that hasn't got it as it is
+// now (a Control: sent until acknowledged). Not a spectator's, not a Choose Together room's (no game yet).
+void SendGameVersion()
+{
+  if (S.watching || S.together)
+    return;
+  uint8_t payload[2 + NetProto::MAX_GAME_VERSION];
+  Writer w(payload, sizeof(payload));
+  w.U8(static_cast<uint8_t>(S.host ? LobbyGame::Same : S.my_game));
+  w.Str(S.my_version, NetProto::MAX_GAME_VERSION);
+  for (Peer& p : S.peers)
+  {
+    if (!p.present || p.version_sent == S.version_serial)
+      continue;
+    p.version_sent = S.version_serial;
+    SendControl(p, ControlKind::GameVersion, payload, w.Size());
+  }
+}
+
 // A guest's lobby state to the host: its game and its pings to the relays.
 void SendLobbyState()
 {
-  if (S.host)
+  if (S.host || S.watching)  // ((01.05) a spectator has nothing to say)
     return;
   uint8_t payload[2 + NetProto::MAX_RELAYS * 3];
   Writer w(payload, sizeof(payload));
@@ -2371,6 +3263,7 @@ void SendLobbyState()
     if (p.present && p.info.id == 0)
       SendControl(p, ControlKind::Lobby, payload, w.Size());
   }
+  SendGameVersion();  // ((01.05) every player's card says it)
   // (00.95) A Game Boy link cable room: our game for Game Boy 2 and our battery save, once accepted (once).
   if (LinkRoom() && S.link_set && !S.link_sent && S.admitted)
   {
@@ -2477,6 +3370,7 @@ void ShareCommon()
   }
   S.common = common;
   S.common_ready = true;
+  SendRoomNote(NetProto::NOTE_COMMON, static_cast<uint16_t>(std::min<size_t>(common.size(), 65535)));  // (01.04)
   const std::vector<uint8_t> block = GamesBlock(common);
   for (Peer& p : S.peers)
   {
@@ -2516,11 +3410,48 @@ void SendGames()
 void UpdateStatus();
 
 // A Choose Together match over: back in the room (the socket, the room and the other player as they were), the
-// match's state forgotten, the room open to pick another game.
+// match's state forgotten, the room open to pick another game. (01.23) Any room's (Back to the Room): what a match of
+// one with a game has more forgotten too - a join under way or done, a reset, a start alone, a spectator's frames (the
+// host's spectators: the next match's start told them again).
 void BackToRoom()
 {
-  LogF("netplay: the match ended at frame %d (%lld rollbacks, %lld resyncs): back to the room", S.frame,
-       static_cast<long long>(S.stats.rollbacks), static_cast<long long>(S.stats.resyncs));
+  LogF("netplay: the match ended at frame %d (%lld rollbacks, %lld checksums, %lld differed, %lld resyncs): back to the "
+       "room", S.frame, static_cast<long long>(S.stats.rollbacks), static_cast<long long>(S.stats.checks),
+       static_cast<long long>(S.stats.mismatches), static_cast<long long>(S.stats.resyncs));
+  if (S.watching)
+    LogF("netplay: watching: %d state(s) taken, %d wait(s) for the host's inputs", S.watch_states, S.watch_waits);
+  if (S.late_joined > 0)
+    LogF("netplay: %d player(s) joined the match under way", S.late_joined);
+  S.started_alone = false;
+  S.reset_at = NO_FRAME;
+  S.reset_done = -1;
+  S.join_first = S.join_ports = 0;
+  S.join_state_sent = S.join_resync = S.join_resume_pending = false;
+  S.join_nick.clear();
+  S.join_done = NO_FRAME;
+  S.late_join = S.late_ready_sent = S.late_layout = S.late_state = false;
+  S.late_frame = 0;
+  S.late_go_frame = -1;
+  S.late_joined = 0;
+  S.watch_base = S.watch_latest = -1;
+  S.watch_host_frame = 0;
+  S.watch_host_at = 0.0;
+  S.watch_host_checks.clear();
+  S.watch_my_checks.clear();
+  S.watch_asked = -100.0;
+  S.watch_running = false;
+  S.watch_waits = S.watch_states = 0;
+  for (Peer& w : S.watchers)
+  {
+    if (!w.present)
+      continue;
+    w.watch_started = w.watch_options = w.watch_wants = false;
+    w.watch_from = NO_FRAME;
+    w.acked = -1;
+    w.remote_frame = 0;
+    w.bulk_out = BulkOut();
+    w.bulk_queue.clear();
+  }
   S.phase = Phase::Room;
   S.match = Match::None;
   S.over = false;
@@ -2548,6 +3479,12 @@ void BackToRoom()
   S.stats = Stats();
   for (InputLog& log : S.inputs)
     log.latest = -1;
+  for (Peer& p : S.peers)  // ((01.05) the next match's players: those in it when it starts)
+  {
+    p.in_match = p.late = p.late_started = p.late_options = p.late_ready = false;
+  }
+  S.join_member = -1;
+  S.join_at = NO_FRAME;
   for (Peer& p : S.peers)
   {
     p.ready = false;
@@ -2590,6 +3527,12 @@ void CloseAll(const std::string& why)
 #endif
   if (S.voice_running)
     Voice::Stop();
+  // (01.05) The chat's counts - never a line's text.
+  if (S.chat_sent + S.chat_in + S.chat_dropped > 0)
+    LogF("netplay: chat: %d line(s) sent, %d received, %d dropped (muted, blocked, too fast or text hidden)%s",
+         S.chat_sent, S.chat_in, S.chat_dropped,
+         S.chat_copies > 0 ? (", " + std::to_string(S.chat_copies) + " copied to the server (kept 30 days)").c_str() :
+                             "");
   CloseSocket();
   {
     std::lock_guard lock(s_lookup.mutex);
@@ -2605,21 +3548,52 @@ void PeerGone(Peer& p, const std::string& why)
 {
   if (!p.present)
     return;
+  if (IsWatcher(p))
+  {
+    WatcherGone(p, why);  // ((01.05) the match goes on)
+    return;
+  }
   Voice::ForgetPeer(p.info.id);
   // (00.95) The others still in the room, that one left out (the host among them for a guest).
   int others = 0;
   for (const Peer& q : S.peers)
     others += q.present && &q != &p && (S.host || q.admitted) ? 1 : 0;
+  if ((S.phase == Phase::Starting || S.phase == Phase::Playing) && !p.in_match && p.info.id != 0)
+  {
+    // (01.05) One that came during the match and isn't in it yet: the match goes on (the host: no one joins now).
+    LogF("netplay: %s (not in the match yet: it goes on)", why.c_str());
+    const int id = p.info.id;
+    p = Peer();
+    if (S.host && S.join_member == id)
+      AbortJoin("it left");
+    return;
+  }
   if (S.phase == Phase::Starting || S.phase == Phase::Playing)
   {
     // (00.95) A Choose Together match of three or four that a guest left: the others back in the room, without it.
-    if (S.together && p.info.id != 0 && others > 0 && (!S.over || S.to_room))
+    // (01.23) Any room's but a link cable's, and the host's even alone: a guest who leaves the match (Leave Room, its
+    // connection lost, removed) no longer closes the host's room - until 01.22 it ended for everyone.
+    // Every other console's app goes back too (CAP_ROOM; a Choose Together room's always): else, as before, we leave.
+    bool all_back = true;
+    for (const Peer& q : S.peers)
+    {
+      if (q.present && &q != &p && !S.together && !(q.info.caps_known && (q.info.caps & NetProto::CAP_ROOM)))
+        all_back = false;
+    }
+    if (!LinkRoom() && p.info.id != 0 && (S.host || others > 0) && (!S.over || S.to_room) && all_back)
     {
       if (!S.over)
       {
         S.to_room = true;
         S.over = true;
         S.notice = why;
+        // ((01.23) The others told too: one that still hears that player - a path lost between two consoles only -
+        // would wait for its inputs.)
+        for (Peer& q : S.peers)
+        {
+          if (q.present && &q != &p)
+            SendControl(q, ControlKind::EndMatch, nullptr, 0);
+        }
       }
       LogF("netplay: %s: the match ends, back to the room", why.c_str());
       if (S.host)
@@ -2662,12 +3636,28 @@ void PeerGone(Peer& p, const std::string& why)
 void RemoveMember(Peer& p, uint8_t reason, const std::string& why)
 {
   SendQuitNow(p, reason);
+  // (01.04: the room's history - why a request didn't get in. One not answered is told when it expired, above.)
+  if (reason == NetProto::QUIT_REFUSED)
+    SendRoomNote(NetProto::NOTE_REFUSED, reason);
   uint8_t buf[64];
   Writer w(buf, sizeof(buf));
   ServerAuth(w, Type::Kick);
   w.U8(p.info.id);
   SendRaw(S.server, buf, w.Size());
   PeerGone(p, why);
+}
+
+// (01.05) The host: a player that came during the match is in it - it loads the game, then joins it (PumpLateJoin).
+// (01.23) At once (free entry), or once the host accepts its request (Admit).
+void AdmitLate(Peer& p)
+{
+  p.late = true;
+  p.admitted = true;
+  uint8_t mask = 1;
+  for (const Peer& q : S.peers)
+    mask = static_cast<uint8_t>(mask | (q.present && q.admitted ? 1u << q.info.id : 0u));
+  SendControl(p, ControlKind::Admit, &mask, 1);
+  LogF("netplay: %s comes during the match: it loads the game, then joins it", p.info.nick.c_str());
 }
 
 void NewOrUpdatePeer(const NetProto::Member& m)
@@ -2694,12 +3684,101 @@ void NewOrUpdatePeer(const NetProto::Member& m)
          p.admitted                     ? "is in the room" :
                                           "asks the host to join the room",
          m.locals, m.locals == 1 ? "" : "s", (m.flags & NetProto::FLAG_HIDDEN) ? ", its address hidden" : "");
+    // (01.05) A player blocked on this PS4: muted at once, voice and chat.
+    if (std::find(S.config.blocked.begin(), S.config.blocked.end(), m.nick) != S.config.blocked.end())
+    {
+      p.blocked = p.muted = true;
+      Voice::SetPeerMuted(m.id, true);
+      LogF("netplay: %s is blocked on this PS4: muted", m.nick.c_str());
+    }
+    // (01.06) A console of another EmuSuNi version (it plays this console's matches alike: the server let it in) -
+    // without the room's chat (v00.23's), a note in ours; without late joining, none joins late while it's here.
+    if (m.caps_known && m.app_version != App::VERSION)
+    {
+      LogF("netplay: %s has EmuSuNi %s%s%s", m.nick.c_str(), m.app_version.c_str(),
+           (m.caps & NetProto::CAP_CHAT) ? "" : " (no room chat)",
+           (m.caps & NetProto::CAP_LATE) ? "" : " (no late joining: none while it is in the room)");
+      if (!(m.caps & NetProto::CAP_CHAT))
+        AddNotice(m.nick + " has EmuSuNi " + m.app_version + ": no chat with them");
+    }
+    // (01.05) The host, its match under way: one that came is in at once if a player may join it (else it is out).
+    // (01.23, the owner: "no está funcionando pedir permiso para entrar") Entry With Permission (free entry off): it
+    // asks, as in the room - the host answers in the in-game menu (Accept Player: it joins the match then), a request
+    // not answered expires. Until 01.22 one came in at once whatever the entry said.
+    if (S.host && (S.phase == Phase::Starting || S.phase == Phase::Playing))
+    {
+      if (!LateOpen() || !LateRoom() || p.blocked)
+      {
+        RemoveMember(p, NetProto::QUIT_REFUSED, m.nick + " can't join the match under way");
+        return;
+      }
+      if (!S.free_entry)
+      {
+        LogF("netplay: %s asks to join the match under way (entry with permission)", m.nick.c_str());
+        return;
+      }
+      AdmitLate(p);
+      return;
+    }
+    SendGameVersion();  // ((01.05) ours to it - the host's too)
     SendLobbyState();
+    // (01.14) Free entry: in the room at once, without asking the host (one blocked on this PS4 still asks).
+    if (S.host && S.free_entry && !p.blocked)
+    {
+      LogF("netplay: %s comes in without asking (free entry)", m.nick.c_str());
+      Admit(m.id);
+    }
     return;
   }
   if ((m.pub != p.info.pub || m.lan != p.info.lan) && !p.direct_ok)
     p.punch_start = now;  // (new addresses: punched again)
   p.info = m;
+}
+
+// (01.05) The host: a spectator the server lists (it came in: the host let them watch). One blocked on this PS4 is
+// removed at once.
+void NewOrUpdateWatcher(const NetProto::Member& m)
+{
+  if (!S.host || m.id < FIRST_WATCHER || m.id >= NetProto::MAX_SLOTS)
+    return;
+  Peer& p = S.watchers[m.id - FIRST_WATCHER];
+  const double now = Now();
+  if (p.present)
+  {
+    if ((m.pub != p.info.pub || m.lan != p.info.lan) && !p.direct_ok)
+      p.punch_start = now;
+    p.info = m;
+    return;
+  }
+  p = Peer();
+  p.present = true;
+  p.info = m;
+  p.admitted = true;
+  p.first_seen = p.last_heard = p.punch_start = now;
+  p.punch_nonce = static_cast<uint32_t>(RandomNumber());
+  S.watcher_count++;
+  LogF("netplay: %s (%s) watches the room (a spectator%s)", m.nick.c_str(), m.region.c_str(),
+       (m.flags & NetProto::FLAG_HIDDEN) ? ", its address hidden" : "");
+  if (std::find(S.config.blocked.begin(), S.config.blocked.end(), m.nick) != S.config.blocked.end())
+  {
+    LogF("netplay: %s is blocked on this PS4: removed", m.nick.c_str());
+    RemoveMember(p, NetProto::QUIT_REMOVED, m.nick + " is blocked on this PS4");
+  }
+}
+
+// (01.06) A console's name for the texts of online play between versions (NetProto::NET_CONSOLES').
+std::string NetConsoleName(const std::string& key)
+{
+  static const std::pair<const char*, const char*> NAMES[] = {
+      {"nes", "NES"},           {"snes", "SNES"},     {"md", "Mega Drive"},          {"sms", "Master System"},
+      {"gg", "Game Gear"},      {"sg1000", "SG-1000"}, {"pce", "PC Engine"},          {"atari2600", "Atari 2600"},
+      {"atari7800", "Atari 7800"}, {"arcade", "Arcade"}, {NetProto::GBLINK, "Game Boy"}, {NetProto::GBALINK, "GBA"}};
+  for (const auto& [k, name] : NAMES)
+  {
+    if (key == k)
+      return name;
+  }
+  return key;
 }
 
 std::string RefusalText(NetProto::Refusal reason, const std::string& detail)
@@ -2712,18 +3791,36 @@ std::string RefusalText(NetProto::Refusal reason, const std::string& detail)
   case Refusal::Full:
     return "That room already has its players";
   case Refusal::Version:
-    return detail.rfind("protocol", 0) == 0 ? std::string("The online server needs another version of EmuSuNi: "
-                                                          "update EmuSuNi") :
-                                              "The room's console has EmuSuNi " + detail +
-                                                  ": both need the same version (update EmuSuNi)";
+  {
+    if (detail.rfind("protocol", 0) == 0)
+      return "The online server needs another version of EmuSuNi: update EmuSuNi";
+    // (01.06) The room's version and console (a server before it: the version alone): who updates, for what.
+    std::string version, console;
+    NetProto::ReadVersionDetail(detail, &version, &console);
+    if (console.empty() || version.empty())
+      return "The room's console has EmuSuNi " + detail + ": both need the same version (update EmuSuNi)";
+    const bool older = RoomIsOlder(version);
+    if (console == NetProto::TOGETHER || console == NetProto::GBLINK || console == NetProto::GBALINK)
+    {
+      const bool together = console == NetProto::TOGETHER;
+      return "The room's console has EmuSuNi " + version + ": " +
+             (together ? "a Choose Together room" : "a link cable room") + " needs the same version in both (" +
+             (older ? "the host needs to update EmuSuNi)" : "update EmuSuNi)");
+    }
+    return "The room's console has EmuSuNi " + version + ", whose " + NetConsoleName(console) +
+           " matches differ from this version's: " + (older ? "the host needs to update EmuSuNi" : "update EmuSuNi");
+  }
   case Refusal::TooMany:
     return "Too many tries: wait a minute and try again";
   case Refusal::ServerFull:
     return "The online server is full: try again later";
   case Refusal::Started:
-    return "That room's game has already started";
+    return detail == NetProto::WATCH_DETAIL ? "That room's game has already started: you can watch it" :
+                                              "That room's game has already started";
   case Refusal::Kicked:
     return "The host removed you from that room";
+  case Refusal::NoWatch:  // (01.05)
+    return detail == "full" ? "That room has its spectators already" : "That room's host doesn't let anyone watch";
   default:
     return "The online server refused the request";
   }
@@ -2884,8 +3981,53 @@ void OnMembers(Reader& r)
     m.region = r.Str(NetProto::MAX_REGION);
     members.push_back(m);
   }
+  // (01.05) After them (a server before it: nothing): how many watch, each member's country - taken only whole.
+  int watchers = -1;
+  bool chat_stored = false;
+  if (r.Ok() && r.Left() > 0)
+  {
+    Reader x = r;
+    if (x.U8() >= NetProto::EXTRA_VERSION)
+    {
+      const int n = x.U8();
+      std::vector<std::string> countries;
+      for (size_t i = 0; i < members.size(); i++)
+        countries.push_back(NetProto::CleanCountry(x.Str(NetProto::COUNTRY_SIZE)));
+      if (x.Ok())
+      {
+        watchers = std::min(n, NetProto::MAX_WATCHERS);
+        for (size_t i = 0; i < members.size(); i++)
+          members[i].country = countries[i];
+        // (01.06) Then each member's app version and caps (a server before it: none) - taken only whole.
+        if (x.Left() > 0 && x.U8() >= NetProto::EXTRA2_VERSION)
+        {
+          std::vector<NetProto::Member> more = members;
+          for (NetProto::Member& m : more)
+          {
+            m.app_version = NetProto::CleanText(x.Str(NetProto::MAX_APP_VERSION), NetProto::MAX_APP_VERSION, "");
+            const uint8_t caps = x.U8();
+            m.caps = static_cast<uint8_t>(caps & ~NetProto::CAPS_KNOWN);
+            m.caps_known = (caps & NetProto::CAPS_KNOWN) != 0;
+          }
+          if (x.Ok())
+            members.swap(more);
+          // (01.07) Then whether the server keeps the room's chat (a server before it: no).
+          if (x.Ok() && x.Left() > 0 && x.U8() >= NetProto::EXTRA3_VERSION)
+          {
+            const uint8_t room_flags3 = x.U8();
+            if (x.Ok())
+              chat_stored = (room_flags3 & NetProto::ROOM_CHAT_STORED) != 0;
+          }
+        }
+      }
+    }
+  }
   if (!r.Ok() || S.phase == Phase::Connecting || S.phase == Phase::Browsing || code != S.code || you != S.my_id)
     return;
+  S.room_watchers = watchers;
+  if (chat_stored != S.chat_stored)
+    LogF("netplay: the server %s the room's chat", chat_stored ? "keeps (30 days, for moderation)" : "doesn't keep");
+  S.chat_stored = chat_stored;
   const double now = Now();
   S.last_server_heard = now;
   if (S.keepalive_sent > 0.0)
@@ -2906,14 +4048,32 @@ void OnMembers(Reader& r)
     S.voice_default_set = true;
     S.voice_enabled = S.config.voice && !S.is_public;
   }
-  bool listed[MAX_MEMBERS] = {};
+  bool listed[MAX_MEMBERS] = {}, listed_watcher[MAX_WATCHERS] = {};
   for (const NetProto::Member& m : members)
   {
+    // (01.05) A spectator: ourselves (watching), or the host's.
+    if (m.id >= FIRST_WATCHER && m.id < NetProto::MAX_SLOTS)
+    {
+      if (m.id == S.my_id)
+      {
+        S.my_public = m.pub;
+        S.my_country = m.country;  // ((01.05))
+      }
+      else if (S.host)
+      {
+        listed_watcher[m.id - FIRST_WATCHER] = true;
+        NewOrUpdateWatcher(m);
+      }
+      continue;
+    }
     if (m.id >= MAX_MEMBERS)
       continue;
     listed[m.id] = true;
     if (m.id == S.my_id)
+    {
       S.my_public = m.pub;
+      S.my_country = m.country;  // ((01.05) as the others see it)
+    }
     else
       NewOrUpdatePeer(m);
   }
@@ -2927,6 +4087,11 @@ void OnMembers(Reader& r)
                                  p.admitted     ? " left the room" :
                                                   " no longer asks to join"));  // (00.86)
   }
+  for (int i = 0; i < MAX_WATCHERS; i++)
+  {
+    if (S.watchers[i].present && !listed_watcher[i])
+      WatcherGone(S.watchers[i], S.watchers[i].info.nick + " stopped watching");
+  }
 }
 
 // A list of rooms is being asked for: the Online tab's (Browsing), or (00.86) the host's room's while it stays open.
@@ -2939,15 +4104,78 @@ bool Listing()
 // changes (the Online tab asks again every few seconds).
 void RoomsDone(int total)
 {
-  S.rooms = std::move(S.rooms_in);
+  std::vector<RoomView> fresh = std::move(S.rooms_in);
   S.rooms_in.clear();
+  // ((01.16) A room of the last list absent from this one stays ROOM_GRACE lists more, as it was - a room closed shows
+  // up to ~10 s longer (Join says it's gone), one that blinks out of a list stays. Not when its host has another room
+  // of the same game listed now (it made it again). Not with a server before ListAll: its rooms have no number.)
+  int kept = 0;
+  if (!S.list_old)
+  {
+    std::map<uint32_t, int> missed;
+    for (const RoomView& old : S.rooms)
+    {
+      const uint32_t id = old.room.id;
+      const bool there = id == 0 || std::any_of(fresh.begin(), fresh.end(), [&old](const RoomView& r) {
+        return r.room.id == old.room.id ||
+               (r.room.host == old.room.host && r.room.game.title == old.room.game.title);
+      });
+      const auto it = S.rooms_missed.find(id);
+      const int misses = (it == S.rooms_missed.end() ? 0 : it->second) + 1;
+      if (there || misses > ROOM_GRACE)
+        continue;
+      missed[id] = misses;
+      fresh.push_back(old);
+      kept++;
+    }
+    S.rooms_missed = std::move(missed);
+  }
+  S.rooms = std::move(fresh);
   S.rooms_total = std::max(total, static_cast<int>(S.rooms.size()));
   S.rooms_done = true;
-  if (S.rooms.size() == S.rooms_logged)
+  S.rooms_listed = true;
+  if (S.list_late > 0)
+    LogF("netplay: the server answered the list again (after %d refreshes unanswered)", S.list_late);
+  S.list_late = 0;
+  // ((01.06, the owner's 01.05 log said "1 rooms" only) how many of each EmuSuNi version, and how many this one can't
+  // play with - the line again when any of it changes.)
+  std::map<std::string, int> versions;
+  int closed = 0;
+  for (const RoomView& v : S.rooms)
+  {
+    versions[v.room.app_version.empty() ? "?" : v.room.app_version]++;
+    closed += CanJoinVersion(v.room) ? 0 : 1;
+  }
+  std::string by;
+  for (const auto& [version, n] : versions)
+    by += (by.empty() ? "" : ", ") + version + " " + std::to_string(n);
+  const std::string logged =
+      std::to_string(S.rooms.size()) + "|" + by + "|" + std::to_string(closed) + "|" + std::to_string(kept);
+  if (logged == S.rooms_logged)
     return;
-  S.rooms_logged = S.rooms.size();
-  LogF("netplay: the %s list: %zu rooms (%d on the server)%s", S.list_old ? "public" : "rooms'", S.rooms.size(),
-       S.rooms_total, S.browse_console.empty() ? "" : (" (" + S.browse_console + ")").c_str());
+  S.rooms_logged = logged;
+  LogF("netplay: the %s list: %zu rooms (%d on the server)%s%s%s%s", S.list_old ? "public" : "rooms'", S.rooms.size(),
+       total, S.browse_console.empty() ? "" : (" (" + S.browse_console + ")").c_str(),
+       by.empty() ? "" : ("; by EmuSuNi version: " + by).c_str(),
+       closed > 0 ? ("; " + std::to_string(closed) + " not playable with this version").c_str() : "",
+       kept > 0 ? ("; " + std::to_string(kept) + " of the last list not in this one, kept a moment").c_str() : "");
+}
+
+// (01.16) A refresh of the Online tab's list the server didn't answer (its Hello or its request, every try): the last
+// list stays, and the next refresh asks with a new cookie first. False - closed as before - for the session's first
+// list, or after LIST_LATE_MOST in a row.
+bool ListRefreshUnanswered()
+{
+  if (S.phase != Phase::Browsing || !S.rooms_listed || S.list_late + 1 >= LIST_LATE_MOST)
+    return false;
+  S.list_late++;
+  S.rooms_in.clear();
+  S.rooms_done = true;  // (the last list again: RefreshRooms asks once more)
+  S.step = Step::Hello;
+  S.hello_sent = 0.0;
+  S.tries = 0;
+  LogF("netplay: the server didn't answer the list's refresh (%d in a row): the last list stays", S.list_late);
+  return true;
 }
 
 void OnRooms(Reader& r)
@@ -2985,6 +4213,428 @@ void OnRooms(Reader& r)
     SendRequest();
 }
 
+// (01.05, the owner) The games most played online: the last answer and the asking, kept while the app runs (outside
+// the session: a list closed and opened again still has it). Asked again 10 minutes after the last answer, at once
+// when WantTopGames says so, again a few times when no answer came (a datagram lost).
+struct TopState
+{
+  TopList list;
+  double asked_at = -1e9;
+  uint32_t nonce = 0;
+  int tries = 0;
+  bool wanted = false;
+} s_top;
+
+void AskTopGames()
+{
+  const double now = Now();
+  const bool due = s_top.wanted || now - s_top.asked_at > 600.0 ||
+                   (!s_top.list.answered && s_top.tries < 3 && now - s_top.asked_at > 5.0);
+  if (!due || s_fd < 0)
+    return;
+  s_top.tries = s_top.wanted || s_top.list.answered ? 1 : s_top.tries + 1;
+  s_top.wanted = false;
+  s_top.asked_at = now;
+  s_top.nonce = static_cast<uint32_t>(RandomNumber());
+  uint8_t buf[64];
+  Writer w(buf, sizeof(buf));
+  w.Header(Type::TopGames);
+  w.Bytes(S.cookie, NetProto::COOKIE_SIZE);
+  w.U32(s_top.nonce);
+  w.U8(static_cast<uint8_t>(NetProto::TOP_DAYS));
+  if (w.Ok())
+    SendRaw(S.server, buf, w.Size());
+  s_top.list.asked = true;
+}
+
+void OnTopGamesList(Reader& r)
+{
+  const uint32_t nonce = r.U32();
+  const int days = r.U8();
+  const int count = r.U8();
+  std::vector<TopGame> games;
+  for (int i = 0; i < count && r.Ok(); i++)
+  {
+    TopGame g;
+    g.console = r.Str(NetProto::MAX_CONSOLE);
+    g.crc = r.U32();
+    g.matches = static_cast<int>(std::min<uint32_t>(r.U32(), INT_MAX));
+    g.title = NetProto::CleanText(r.Str(NetProto::MAX_TOP_TITLE), 40, "");
+    games.push_back(std::move(g));
+  }
+  if (!r.Ok() || nonce != s_top.nonce)
+    return;
+  s_top.list.games = std::move(games);
+  s_top.list.days = days;
+  s_top.list.answered = true;
+  s_top.list.serial++;
+  LogF("netplay: the games most played online: %zu (the last %d days)", s_top.list.games.size(), days);
+}
+
+// ---- (01.07, the owner: "un chat mundial") The world chat (Netplay.h): kept while the app runs, outside the session
+constexpr double WORLD_ASK_SHOWN = 2.0, WORLD_ASK_HIDDEN = 10.0, WORLD_SAY_AGAIN = 1.5;
+constexpr size_t WORLD_LINES_KEPT = 100;
+constexpr size_t WORLD_MUTED_MOST = 200;
+struct WorldState
+{
+  std::string data_dir;  // (netplay.ini's: its key, setting and muted read once for it)
+  uint8_t key[NetProto::WORLD_KEY_SIZE] = {};
+  bool on = true;
+  std::vector<std::string> muted;
+  std::deque<WorldChatLine> lines;
+  uint32_t newest = 0, seen = 0;
+  bool answered = false, stored = false, shown = false;
+  bool primed = false;  // (the first answer's lines aren't new: said before we came)
+  std::string my_country;  // ((01.07) ours as the server shows it in the lines: "I'm from ..." with one only)
+  bool notice_stored = false, notice_plain = false;  // (WorldNoticeShown)
+  double asked_at = -1e9;
+  uint32_t ask_nonce = 0;
+  bool ask_more = false;  // (the answer was full: asked again at once)
+  // The line on its way: its request (sent again with the same nonce: the server answers it once), its tries.
+  std::vector<uint8_t> say;
+  uint32_t say_nonce = 0;
+  double say_at = 0.0;
+  int say_tries = 0;
+  std::set<uint32_t> mine;
+  uint32_t said_serial = 0;
+  NetProto::WorldResult said = NetProto::WorldResult::Sent;
+  int said_seconds = 0;
+  uint32_t serial = 0;
+  int asks = 0, lines_in = 0, sent = 0, refused = 0;  // (the log's counts: never a line's text)
+  double logged_at = 0.0;
+} s_world;
+
+uint64_t MixBits(uint64_t x)
+{
+  x ^= x >> 33;
+  x *= 0xFF51AFD7ED558CCDull;
+  x ^= x >> 33;
+  x *= 0xC4CEB9FE1A85EC53ull;
+  return x ^ (x >> 33);
+}
+
+// A random chat key, made once (UsageStats' way: the cycle counter, the time, where memory is - nothing of the PS4's,
+// its users' or PSN's), then the session's own generator.
+std::string MakeWorldKey()
+{
+  timespec now{};
+  clock_gettime(CLOCK_REALTIME, &now);
+  uint64_t a = static_cast<uint64_t>(now.tv_nsec) ^ (static_cast<uint64_t>(now.tv_sec) << 30) ^ RandomNumber();
+  void* heap = std::malloc(48);
+  uint64_t b = static_cast<uint64_t>(Clock::now().time_since_epoch().count()) ^
+               static_cast<uint64_t>(reinterpret_cast<uintptr_t>(&now)) ^
+               (static_cast<uint64_t>(reinterpret_cast<uintptr_t>(heap)) << 9) ^ RandomNumber();
+  std::free(heap);
+  std::string hex;
+  for (int round = 0; round < 2; round++)
+  {
+#if defined(__x86_64__)
+    a = MixBits(a ^ __builtin_ia32_rdtsc() ^ b);
+#else
+    a = MixBits(a ^ b);
+#endif
+    b = MixBits(b ^ a);
+    char part[40];
+    std::snprintf(part, sizeof(part), "%016llx%016llx", static_cast<unsigned long long>(a),
+                  static_cast<unsigned long long>(b));
+    hex += round == 0 ? std::string(part, 16) : std::string(part + 16, 16);
+  }
+  return hex;
+}
+
+// netplay.ini's chat_key, world_chat and world_muted, read once for a data folder (a key made and kept when none).
+void LoadWorld(const std::string& data_dir)
+{
+  if (data_dir.empty() || s_world.data_dir == data_dir)
+    return;
+  s_world.data_dir = data_dir;
+  std::string key, muted;
+  for (const auto& [k, value] : KeyValues(ReadTextFile(data_dir + "/netplay.ini")))
+  {
+    if (k == "chat_key")
+      key = value;
+    else if (k == "world_chat")
+      s_world.on = value != "off" && value != "0" && value != "no";
+    else if (k == "world_muted")
+      muted = value;
+  }
+  bool hex = key.size() == NetProto::WORLD_KEY_SIZE * 2;
+  for (const char c : key)
+    hex = hex && std::isxdigit(static_cast<unsigned char>(c));
+  if (!hex)
+  {
+    key = MakeWorldKey();
+    SaveConfigKey(data_dir, "chat_key", key);
+    LogLine("netplay: a chat key made for the world chat (netplay.ini: random, this console's only)");
+  }
+  for (size_t i = 0; i < NetProto::WORLD_KEY_SIZE; i++)
+    s_world.key[i] = static_cast<uint8_t>(std::strtoul(key.substr(i * 2, 2).c_str(), nullptr, 16));
+  s_world.muted.clear();
+  for (size_t at = 0; at <= muted.size() && s_world.muted.size() < WORLD_MUTED_MOST;)
+  {
+    const size_t bar = std::min(muted.find('|', at), muted.size());
+    const std::string code = Trim(muted.substr(at, bar - at));
+    if (code.size() == NetProto::PLAYER_CODE_SIZE)
+      s_world.muted.push_back(code);
+    at = bar + 1;
+  }
+}
+
+bool WorldCookieFresh()
+{
+  return Now() - S.cookie_at < COOKIE_FRESH && S.cookie_at > 0.0;
+}
+
+// The Online tab's world chat, asked for and its line on its way sent again: while the Online tab lists (the main
+// server's cookie fresh), never in a match.
+void PumpWorld()
+{
+  const double now = Now();
+  const bool listing = S.phase == Phase::Browsing || (S.phase == Phase::Room && S.host && S.room_list);
+  if (s_fd < 0 || !s_world.on || !listing)
+    return;
+  if (!WorldCookieFresh())
+    return;  // (RefreshRooms gets a new one with the next list)
+  if (!s_world.say.empty() && now - s_world.say_at >= WORLD_SAY_AGAIN)
+  {
+    if (s_world.say_tries >= 3)
+    {
+      s_world.say.clear();  // (no answer: given up)
+      s_world.said = NetProto::WorldResult::Busy;
+      s_world.said_seconds = 0;
+      s_world.said_serial++;
+      s_world.serial++;
+      LogLine("netplay: world chat: a line got no answer from the server");
+    }
+    else
+    {
+      // (The same request: the server's answer to it, once, whatever the tries.)
+      std::memcpy(s_world.say.data() + NetProto::HEADER, S.cookie, NetProto::COOKIE_SIZE);
+      SendRaw(S.server, s_world.say.data(), s_world.say.size());
+      s_world.say_at = now;
+      s_world.say_tries++;
+    }
+  }
+  const double every = s_world.shown ? WORLD_ASK_SHOWN : WORLD_ASK_HIDDEN;
+  if (!s_world.ask_more && now - s_world.asked_at < every)
+    return;
+  s_world.ask_more = false;
+  s_world.asked_at = now;
+  s_world.ask_nonce = static_cast<uint32_t>(RandomNumber());
+  uint8_t buf[64];
+  Writer w(buf, sizeof(buf));
+  w.Header(Type::WorldChat);
+  w.Bytes(S.cookie, NetProto::COOKIE_SIZE);
+  w.U32(s_world.ask_nonce);
+  w.U32(s_world.newest);
+  if (w.Ok())
+    SendRaw(S.server, buf, w.Size());
+  s_world.asks++;
+  // (The log: its counts every 10 minutes while it runs - never a line's text.)
+  if (now - s_world.logged_at >= 600.0 && (s_world.lines_in > 0 || s_world.sent > 0 || s_world.refused > 0))
+  {
+    s_world.logged_at = now;
+    LogF("netplay: world chat: %d lines came, %d sent, %d refused, %d questions", s_world.lines_in, s_world.sent,
+         s_world.refused, s_world.asks);
+    s_world.lines_in = s_world.sent = s_world.refused = s_world.asks = 0;
+  }
+}
+
+bool WorldMuted(const std::string& code)
+{
+  return std::find(s_world.muted.begin(), s_world.muted.end(), code) != s_world.muted.end();
+}
+
+// ---- (01.07, the owner) The players' ranking: the last answer of each period (7 days, since ever), kept while the
+// app runs; asked when the tab's Players page wants it (again after 10 minutes, a few times when no answer came). ----
+struct TopPlayersState
+{
+  std::map<int, PlayersList> lists;  // by days (0: since ever)
+  int wanted = -1;                   // the days asked for (-1: none)
+  double asked_at = -1e9;
+  uint32_t nonce = 0;
+  int tries = 0;
+} s_players;
+
+void PumpTopPlayers()
+{
+  if (s_players.wanted < 0 || s_fd < 0 || !WorldCookieFresh())
+    return;
+  const double now = Now();
+  PlayersList& list = s_players.lists[s_players.wanted];
+  const bool due = (!list.answered && s_players.tries < 3 && now - s_players.asked_at > 4.0) ||
+                   (list.answered && now - list.answered_at > 600.0);
+  if (!due)
+    return;
+  s_players.tries = list.answered ? 1 : s_players.tries + 1;
+  s_players.asked_at = now;
+  s_players.nonce = static_cast<uint32_t>(RandomNumber());
+  uint8_t buf[64];
+  Writer w(buf, sizeof(buf));
+  w.Header(Type::TopPlayers);
+  w.Bytes(S.cookie, NetProto::COOKIE_SIZE);
+  w.U32(s_players.nonce);
+  w.U8(static_cast<uint8_t>(s_players.wanted));
+  if (w.Ok())
+    SendRaw(S.server, buf, w.Size());
+  list.asked = true;
+}
+
+void OnTopPlayersList(Reader& r)
+{
+  const uint32_t nonce = r.U32();
+  const int days = r.U8();
+  const int count = r.U8();
+  std::vector<TopPlayer> players;
+  for (int i = 0; i < count && r.Ok(); i++)
+  {
+    TopPlayer p;
+    p.nick = NetProto::CleanNick(r.Str(NetProto::MAX_NICK));
+    p.country = NetProto::CleanCountry(r.Str(NetProto::COUNTRY_SIZE));
+    p.seconds = r.U32();
+    p.console = r.Str(NetProto::MAX_CONSOLE);
+    players.push_back(std::move(p));
+  }
+  if (!r.Ok() || nonce != s_players.nonce)
+    return;
+  PlayersList& list = s_players.lists[days];
+  list.players = std::move(players);
+  list.days = days;
+  list.answered = true;
+  list.answered_at = Now();
+  list.serial++;
+  s_players.tries = 0;
+  LogF("netplay: the players' ranking: %zu players (%s)", list.players.size(),
+       days ? (std::to_string(days) + " days").c_str() : "since ever");
+}
+
+void OnWorldLines(Reader& r)
+{
+  const uint32_t nonce = r.U32();
+  const uint32_t newest = r.U32();
+  const uint8_t flags = r.U8();
+  const std::string my_country = NetProto::CleanCountry(r.Str(NetProto::COUNTRY_SIZE));  // ((01.07) "I'm from ...")
+  const int count = r.U8();
+  std::vector<NetProto::WorldLine> lines;
+  for (int i = 0; i < count && r.Ok(); i++)
+    lines.push_back(NetProto::ReadWorldLine(r));
+  if (!r.Ok() || nonce != s_world.ask_nonce)
+    return;
+  if (!s_world.answered)
+    LogF("netplay: the server has the world chat%s",
+         (flags & NetProto::WORLD_STORED) ? " (its lines kept 30 days)" : "");
+  const bool was_stored = s_world.stored;
+  s_world.answered = true;
+  s_world.stored = (flags & NetProto::WORLD_STORED) != 0;
+  if (s_world.stored != was_stored || s_world.my_country != my_country)
+    s_world.serial++;
+  s_world.my_country = my_country;
+  // (A server started again: its numbers from 1 - our lines kept, the newer ones asked from there.)
+  if (newest < s_world.newest)
+  {
+    s_world.newest = 0;
+    s_world.seen = 0;
+    s_world.lines.clear();
+    s_world.mine.clear();
+    s_world.serial++;
+  }
+  const double now = Now();
+  for (const NetProto::WorldLine& l : lines)
+  {
+    if (l.serial <= s_world.newest)
+      continue;
+    s_world.newest = l.serial;
+    if (l.phrase && *NetProto::ChatPhrase(l.phrase) == '\0')
+      continue;  // (a newer app's phrase)
+    WorldChatLine line;
+    line.serial = l.serial;
+    line.code = l.code;
+    line.nick = l.nick;
+    line.country = l.country;
+    line.phrase = l.phrase;
+    line.param = l.param;
+    line.text = l.text;
+    line.mine = s_world.mine.count(l.serial) != 0;
+    line.said_at = now - l.age;
+    s_world.lines.push_back(std::move(line));
+    s_world.lines_in++;
+  }
+  while (s_world.lines.size() > WORLD_LINES_KEPT)
+    s_world.lines.pop_front();
+  if (!s_world.primed || s_world.shown)
+    s_world.seen = s_world.newest;  // (the first lines aren't new: those said before we came)
+  s_world.primed = true;
+  if (!lines.empty())
+    s_world.serial++;
+  // (The answer was full - more after its last one -: asked again at once.)
+  s_world.ask_more = newest > s_world.newest && !lines.empty();
+}
+
+void OnWorldSaid(Reader& r)
+{
+  const uint32_t nonce = r.U32();
+  const auto result = static_cast<NetProto::WorldResult>(r.U8());
+  const uint32_t serial = r.U32();
+  const int seconds = r.U16();
+  if (!r.Ok() || s_world.say.empty() || nonce != s_world.say_nonce)
+    return;
+  s_world.say.clear();
+  s_world.said = result;
+  s_world.said_seconds = seconds;
+  s_world.said_serial++;
+  s_world.serial++;
+  if (result == NetProto::WorldResult::Sent)
+  {
+    s_world.sent++;
+    s_world.mine.insert(serial);
+    for (WorldChatLine& l : s_world.lines)
+      l.mine = l.mine || l.serial == serial;
+    s_world.ask_more = true;  // (our line at once)
+  }
+  else
+  {
+    s_world.refused++;
+    LogF("netplay: world chat: a line refused (%d, %d s)", static_cast<int>(result), seconds);
+  }
+}
+
+WorldSayResult WorldSay(int phrase, const std::string& param, const std::string& text)
+{
+  if (!s_world.on || !s_world.answered || s_fd < 0 || !WorldCookieFresh())
+    return WorldSayResult::Off;
+  if (!s_world.say.empty())
+    return WorldSayResult::Busy;
+  const bool notice = s_world.stored ? s_world.notice_stored : (s_world.notice_plain || s_world.notice_stored);
+  if (!notice)
+    return WorldSayResult::NoNotice;
+  const std::string clean = phrase ? std::string() : NetProto::CleanChat(text);
+  if ((phrase == 0 && clean.empty()) || (phrase && *NetProto::ChatPhrase(phrase) == '\0'))
+    return WorldSayResult::Empty;
+  // ((01.07) "I'm from ...": only with our country shown - the server fills it in.)
+  if (phrase == NetProto::PHRASE_FROM && (s_world.my_country.empty() || !S.config.show_country))
+    return WorldSayResult::Empty;
+  uint8_t buf[NetProto::MAX_PACKET];
+  Writer w(buf, sizeof(buf));
+  w.Header(Type::WorldSay);
+  w.Bytes(S.cookie, NetProto::COOKIE_SIZE);
+  s_world.say_nonce = static_cast<uint32_t>(RandomNumber());
+  w.U32(s_world.say_nonce);
+  w.Str(App::VERSION, NetProto::MAX_APP_VERSION);
+  w.Str(S.nick, NetProto::MAX_NICK);
+  w.U8(static_cast<uint8_t>((S.config.show_country ? 0 : NetProto::FLAG_NO_COUNTRY) | NetProto::WORLD_NOTICE_SEEN));
+  w.Bytes(s_world.key, NetProto::WORLD_KEY_SIZE);
+  w.U8(static_cast<uint8_t>(phrase));
+  w.Str(phrase ? param : clean, phrase ? NetProto::MAX_PHRASE_PARAM : NetProto::CHAT_BYTES);
+  if (!w.Ok())
+    return WorldSayResult::Empty;
+  s_world.say.assign(buf, buf + w.Size());
+  s_world.say_at = Now();
+  s_world.say_tries = 1;
+  SendRaw(S.server, buf, w.Size());
+  s_world.serial++;
+  return WorldSayResult::Sending;
+}
+
 // (00.85) A page of every room (ListAll's answer): the rooms from `first` on, each once (a room made or closed between
 // two pages moves the others by one: one seen twice is left out), then the next page until every room came or
 // BROWSE_PAGES did.
@@ -2997,11 +4647,40 @@ void OnAllRooms(Reader& r)
   std::vector<NetProto::RoomEntry> rooms;
   for (int i = 0; i < count && r.Ok(); i++)
     rooms.push_back(NetProto::ReadListedRoom(r));
+  // (01.05) After them (a server before it: nothing): each host's country and its game's version - taken only whole.
+  if (r.Ok() && r.Left() > 0)
+  {
+    Reader x = r;
+    if (x.U8() >= NetProto::EXTRA_VERSION)
+    {
+      std::vector<NetProto::RoomEntry> more = rooms;
+      for (NetProto::RoomEntry& e : more)
+        NetProto::ReadRoomExtra(x, &e);
+      if (x.Ok())
+      {
+        // (01.06) Then each host's level of its console and caps (a server before it: none) - taken only whole.
+        if (x.Left() > 0 && x.U8() >= NetProto::EXTRA2_VERSION)
+        {
+          std::vector<NetProto::RoomEntry> levels = more;
+          for (NetProto::RoomEntry& e : levels)
+          {
+            e.level = x.U8();
+            e.host_caps = x.U8();
+          }
+          if (x.Ok())
+            more.swap(levels);
+        }
+        rooms.swap(more);
+      }
+    }
+  }
   if (!r.Ok() || !Listing() || S.list_old || nonce != S.nonce || first != S.list_first)
     return;
   if (!S.list_all_ok)
     LogLine("netplay: the server lists every room (public and private)");
   S.list_all_ok = true;
+  if (first == 0)
+    AskTopGames();  // ((01.05) with the list's first page, when due: the cookie is fresh)
   if (first == 0)
   {
     S.rooms_in.clear();
@@ -3095,6 +4774,20 @@ void OnServerPacket(int index, Type type, Reader& r)
     LogF("netplay: %s room made for %s (%s); we are at %s, %s on the LAN", S.is_public ? "public" : "private",
          S.game.title.c_str(), S.game.console.c_str(), NetProto::AddressText(pub).c_str(),
          NetProto::AddressText(S.my_lan).c_str());
+    // (01.05) Spectators: a public room lets them watch at first, a private one not (the host changes it in the room).
+    if (WatchableRoom())
+    {
+      S.watch_allowed = S.is_public;
+      SendRoomNote(NetProto::NOTE_WATCH, S.watch_allowed ? 1 : 0);
+    }
+    // (01.05) A player may join the match under way at first (a room of 3 or 4: a friend late, a place left).
+    if (LateRoom())
+    {
+      S.late_allowed = true;
+      SendRoomNote(NetProto::NOTE_LATE, 1);
+    }
+    // (01.14) A public room lets in whoever comes at first, a private one asks the host (it changes it in the room).
+    S.free_entry = S.is_public;
     return;
   }
   case Type::Joined:
@@ -3113,6 +4806,16 @@ void OnServerPacket(int index, Type type, Reader& r)
     S.phase = Phase::Room;
     S.step_start = S.last_server_heard = S.last_keepalive = now;
     S.waiting_since = now;  // (00.86: until the host accepts us)
+    if (S.watching)
+    {
+      // (01.05) A spectator is in at once (the host let them in), with no voice.
+      S.admitted = true;
+      S.voice_enabled = false;
+      S.voice_default_set = true;
+      LogF("netplay: watching the room as spectator %d; we are at %s, %s on the LAN", id,
+           NetProto::AddressText(pub).c_str(), NetProto::AddressText(S.my_lan).c_str());
+      return;
+    }
     LogF("netplay: joined the room as member %d; we are at %s, %s on the LAN; waiting for the host to accept us", id,
          NetProto::AddressText(pub).c_str(), NetProto::AddressText(S.my_lan).c_str());
     return;
@@ -3136,7 +4839,15 @@ void OnServerPacket(int index, Type type, Reader& r)
     }
     if (room_list)
       return;
+    // (01.05) A match started that spectators may watch: the menu offers it.
+    const std::string code = S.code;
+    const bool offer = reason == NetProto::Refusal::Started && detail == NetProto::WATCH_DETAIL && !S.watching;
     CloseAll(RefusalText(reason, detail));
+    if (offer)
+    {
+      S.watch_offer = code;
+      LogF("netplay: room %s plays: it may be watched", code.c_str());
+    }
     return;
   }
   case Type::Members:
@@ -3147,9 +4858,25 @@ void OnServerPacket(int index, Type type, Reader& r)
     if (index == 0)
       OnRooms(r);
     return;
+  case Type::WorldLines:  // (01.07)
+    if (index == 0)
+      OnWorldLines(r);
+    return;
+  case Type::WorldSaid:
+    if (index == 0)
+      OnWorldSaid(r);
+    return;
+  case Type::TopPlayersList:
+    if (index == 0)
+      OnTopPlayersList(r);
+    return;
   case Type::AllRooms:
     if (index == 0)
       OnAllRooms(r);
+    return;
+  case Type::TopGamesList:  // (01.05)
+    if (index == 0)
+      OnTopGamesList(r);
     return;
   case Type::Closed:
   {
@@ -3230,6 +4957,95 @@ void OnServerPacket(int index, Type type, Reader& r)
 }
 
 // ---- Packets from the other consoles ----
+// ---- (01.05) The room's chat ----
+constexpr double CHAT_EVERY = 2.0;  // s: our lines one this often at most (the others': CHAT_BURST, then this rate)
+constexpr double CHAT_BURST = 3.0;
+constexpr size_t CHAT_KEPT = 40;
+
+void AddChatLine(int from, const std::string& nick, bool mine, int phrase, const std::string& text,
+                 const std::string& param = "")
+{
+  ChatLine line;
+  line.serial = ++S.chat_serial;
+  line.from = from;
+  line.nick = nick;
+  line.mine = mine;
+  line.phrase = phrase;
+  line.param = param;
+  line.text = text;
+  S.chat.push_back(std::move(line));
+  while (S.chat.size() > CHAT_KEPT)
+    S.chat.pop_front();
+  UpdateStatus();
+}
+
+// (01.06) A note of ours among the lines (ChatLine::notice): once a room - the same again is left out.
+void AddNotice(const std::string& text)
+{
+  if (std::any_of(S.chat.begin(), S.chat.end(), [&text](const ChatLine& l) { return l.notice && l.text == text; }))
+    return;
+  AddChatLine(-1, "", false, 0, text);
+  S.chat.back().notice = true;
+}
+
+// (01.14) The game reset at reset_at (every player there, FramesThisPass): the core's reset, a note each time; the
+// host's spectators get its state again (theirs ran on without it).
+void ResetCore()
+{
+  const int32_t at = S.reset_at;
+  S.reset_at = NO_FRAME;
+  S.reset_done = at;
+  if (S.core && S.core->reset)
+    S.core->reset();
+  LogF("netplay: the game reset at frame %d%s", S.frame,
+       S.frame == at ? "" : " (past the host's frame: a resync follows)");
+  AddChatLine(-1, "", false, 0, "The host reset the game");
+  S.chat.back().notice = true;
+  for (Peer& w : S.watchers)
+  {
+    if (S.host && w.present)
+      w.watch_wants = true;
+  }
+  UpdateStatus();
+}
+
+// A line that came: from a player in the room (the host accepted it), not muted or blocked, not faster than the
+// bucket lets; a quick phrase we know, or text cut again (CleanChat: (01.05, the owner) no words' filter) and shown
+// only with chat_text.
+void ReceiveChat(Peer& p, int phrase, const std::string& text)
+{
+  const double now = Now();
+  p.chat_tokens = std::min(CHAT_BURST, p.chat_tokens + (now - p.chat_at) / CHAT_EVERY);
+  p.chat_at = now;
+  const bool in_room = (S.host && p.admitted) || (!S.host && S.admitted && p.admitted);
+  if (!in_room || p.muted || p.blocked || p.chat_tokens < 1.0)
+  {
+    S.chat_dropped++;
+    return;
+  }
+  p.chat_tokens -= 1.0;
+  if (phrase > 0)
+  {
+    // ((01.07) "I'm from ...": the country the server shows of that player - never its own word; none, not shown.)
+    if (*NetProto::ChatPhrase(phrase) == '\0' || (phrase == NetProto::PHRASE_FROM && p.info.country.empty()))
+    {
+      S.chat_dropped++;  // (a newer app's phrase)
+      return;
+    }
+    S.chat_in++;
+    AddChatLine(p.info.id, p.info.nick, false, phrase, "", phrase == NetProto::PHRASE_FROM ? p.info.country : "");
+    return;
+  }
+  const std::string clean = NetProto::CleanChat(text);
+  if (clean.empty() || !S.config.chat_text)
+  {
+    S.chat_dropped++;
+    return;
+  }
+  S.chat_in++;
+  AddChatLine(p.info.id, p.info.nick, false, 0, clean);
+}
+
 void OnControl(Peer& p, Reader& r)
 {
   const uint16_t seq = r.U16();
@@ -3248,8 +5064,45 @@ void OnControl(Peer& p, Reader& r)
   p.ctl_seen.push_back(seq);
   while (p.ctl_seen.size() > 128)
     p.ctl_seen.pop_front();
+  // (01.05) A spectator (the host's view) asks only for the state, or leaves.
+  if (IsWatcher(p))
+  {
+    if (kind == ControlKind::WatchState && S.host)
+    {
+      p.watch_wants = true;
+      LogF("netplay: %s asks for the state to watch", p.info.nick.c_str());
+    }
+    else if (kind == ControlKind::Quit)
+    {
+      WatcherGone(p, p.info.nick + " stopped watching");
+    }
+    return;
+  }
   switch (kind)
   {
+  case ControlKind::GameVersion:
+  {
+    // (01.05) A player's file of the room's game: its card says it (the host's Start goes by Lobby's, as ever).
+    const uint8_t game = r.U8();
+    const std::string version =
+        NetProto::CleanText(r.Str(NetProto::MAX_GAME_VERSION), NetProto::GAME_VERSION_LETTERS, "");
+    if (!r.Ok() || game > static_cast<uint8_t>(LobbyGame::Asking))
+      return;
+    const LobbyGame said = p.info.id == 0 ? LobbyGame::Same : static_cast<LobbyGame>(game);
+    if (!p.version_in || said != p.said_game || version != p.version)
+      LogF("netplay: %s's file of the game: %s%s%s", p.info.nick.c_str(),
+           said == LobbyGame::Same      ? "the room's" :
+           said == LobbyGame::Different ? "another version, played anyway" :
+           said == LobbyGame::Missing   ? "none" :
+           said == LobbyGame::Asking    ? "another version, choosing" :
+                                          "looking for it",
+           version.empty() ? "" : ", ", version.c_str());
+    p.said_game = said;
+    p.version = version;
+    p.version_in = true;
+    UpdateStatus();
+    return;
+  }
   case ControlKind::Lobby:
   {
     const auto game = static_cast<LobbyGame>(r.U8());
@@ -3319,7 +5172,10 @@ void OnControl(Peer& p, Reader& r)
       S.notice.clear();
       S.admitted = true;  // (00.86: the host starts only with players it accepted - its Admit may still be on its way)
       for (Peer& q : S.peers)
+      {
         q.admitted = q.admitted || q.present;  // (00.95: the others too)
+        q.in_match = q.present;                // ((01.05) the match's players - Go says them again)
+      }
       LogF("netplay: %s started the game (%s)", p.info.nick.c_str(), S.game.title.c_str());
     }
     return;
@@ -3365,7 +5221,9 @@ void OnControl(Peer& p, Reader& r)
       g.crc = r.U32();
       g.size = r.U64();
       const std::string title = r.Str(NetProto::MAX_TITLE);
-      if (!r.Ok() || !LinkRoom() || !p.admitted || (g.console != "gb" && g.console != "gbc"))
+      // (01.04: a Game Boy Advance link room takes a GBA game, a Game Boy one a Game Boy or Game Boy Color game.)
+      const bool fits = S.game.console == NetProto::GBALINK ? g.console == "gba" : g.console == "gb" || g.console == "gbc";
+      if (!r.Ok() || !LinkRoom() || !p.admitted || !fits)
         return;
       p.link_game = g;
       p.link_title = title;
@@ -3399,13 +5257,179 @@ void OnControl(Peer& p, Reader& r)
     }
     return;
   }
-  case ControlKind::EndMatch:
-    if (S.together && (S.phase == Phase::Starting || S.phase == Phase::Playing))
+  // ---- (01.05) A player joining the match under way (see AbortJoin above) ----
+  case ControlKind::LateStart:
+    if (!S.host && p.info.id == 0 && S.phase == Phase::Room && !S.watching)
     {
-      // Back to the room for both (no error: the menu shows the room's games again).
+      S.phase = Phase::Starting;
+      S.start_pending = true;
+      S.late_join = true;
+      S.admitted = true;
+      S.notice.clear();
+      LogF("netplay: %s's match is under way: we join it (the game loads)", p.info.nick.c_str());
+    }
+    return;
+  case ControlKind::LateReady:
+  {
+    const int locals = r.U8();
+    if (r.Ok() && S.host && p.late && !p.in_match && !p.late_ready)
+    {
+      p.late_ready = true;
+      p.ready_locals = std::clamp(locals, 1, MAX_PORTS);
+      LogF("netplay: %s's game loaded (%d player%s)", p.info.nick.c_str(), p.ready_locals,
+           p.ready_locals == 1 ? "" : "s");
+    }
+    return;
+  }
+  case ControlKind::ResetAt:  // (01.14) the host resets the game at that frame (as JoinPause: we stop there)
+  {
+    const int32_t at = static_cast<int32_t>(r.U32());
+    if (!r.Ok() || S.host || S.watching || p.info.id != 0 || (S.match != Match::Running && S.match != Match::Resync) ||
+        at <= S.reset_done || at == S.reset_at)
+      return;  // (an old one, or again)
+    S.reset_at = at;
+    if (S.rollback_to < S.frame)
+      Rollback();
+    if (S.frame > at)
+    {
+      // Past it: back to it (its state is in the ring); else reset where we are, and a resync follows.
+      if (LoadRing(at))
+      {
+        LogF("netplay: the game's reset: back from frame %d to %d", S.frame, at);
+        S.frame = at;
+      }
+      else
+      {
+        LogF("netplay: the game's reset at frame %d, we are at %d: no state of it here", at, S.frame);
+      }
+    }
+    LogF("netplay: the host resets the game: we stop at frame %d", at);
+    return;
+  }
+  case ControlKind::JoinPause:
+  {
+    const int32_t at = static_cast<int32_t>(r.U32());
+    const int member = r.U8();
+    const std::string nick = r.Str(NetProto::MAX_NICK);
+    if (!r.Ok() || S.host || p.info.id != 0 || (S.match != Match::Running && S.match != Match::Resync) ||
+        at == S.join_done || (member < MAX_MEMBERS && S.peers[member].in_match))
+      return;  // (an old one: that join went on already)
+    S.join_at = at;
+    S.join_member = member;
+    S.join_nick = nick;
+    S.join_started = Now();
+    S.join_resume_pending = false;
+    if (S.rollback_to < S.frame)
+      Rollback();
+    if (S.frame > at)
+    {
+      // Past it: back to it (its state is in the ring - every input before it is final, or comes and rolls back).
+      if (LoadRing(at))
+      {
+        LogF("netplay: %s joins: back from frame %d to %d", nick.c_str(), S.frame, at);
+        S.frame = at;
+      }
+      else
+      {
+        LogF("netplay: %s joins at frame %d, we are at %d: no state of it here (a resync will follow)", nick.c_str(),
+             at, S.frame);
+      }
+    }
+    LogF("netplay: %s joins the match: we stop at frame %d", nick.c_str(), at);
+    return;
+  }
+  case ControlKind::LateGo:
+  {
+    const int32_t at = static_cast<int32_t>(r.U32());
+    const int delay = r.U8();
+    const int rollback = r.U8();
+    const int check_every = r.U16();
+    const int count = r.U8();
+    int first[MAX_MEMBERS] = {}, ports[MAX_MEMBERS] = {};
+    bool listed[MAX_MEMBERS] = {};
+    for (int i = 0; i < count; i++)
+    {
+      const int m = r.U8();
+      const int f = r.U8();
+      const int n = r.U8();
+      if (m < MAX_MEMBERS)
+      {
+        first[m] = f;
+        ports[m] = n;
+        listed[m] = true;
+      }
+    }
+    if (!r.Ok() || S.host || p.info.id != 0 || !S.late_join || S.late_layout)
+      return;
+    S.late_go_frame = at;
+    S.late_delay = delay;
+    S.late_rollback = rollback;
+    S.late_check_every = check_every;
+    std::copy(std::begin(first), std::end(first), std::begin(S.late_first));
+    std::copy(std::begin(ports), std::end(ports), std::begin(S.late_ports));
+    std::copy(std::begin(listed), std::end(listed), std::begin(S.late_listed));
+    S.late_layout = true;
+    return;
+  }
+  case ControlKind::JoinResume:
+  {
+    const int32_t at = static_cast<int32_t>(r.U32());
+    const int member = r.U8();
+    const int first = r.U8();
+    const int ports = r.U8();
+    if (!r.Ok() || S.host || p.info.id != 0)
+      return;
+    S.join_done = at;
+    if (member == NetProto::JOIN_NONE || member >= MAX_MEMBERS || member == S.my_id)
+    {
+      if (S.join_at == at)
+      {
+        LogF("netplay: %s doesn't join: the match goes on", S.join_nick.c_str());
+        S.join_at = NO_FRAME;
+        S.join_member = -1;
+      }
+      return;
+    }
+    Peer& q = S.peers[member];
+    if (q.in_match)
+      return;
+    if (!q.present)
+    {
+      // (Not known here yet: the server's list of members brings it - the match goes on then.)
+      S.join_at = at;
+      S.join_member = member;
+      S.join_first = first;
+      S.join_ports = ports;
+      S.join_resume_pending = true;
+      return;
+    }
+    AddLateMember(q, at, first, ports);
+    S.join_at = NO_FRAME;
+    S.join_member = -1;
+    return;
+  }
+  case ControlKind::Chat:  // (01.05)
+  {
+    const uint8_t what = r.U8();
+    const int phrase = what == NetProto::CHAT_PHRASE ? r.U8() : 0;
+    const std::string text = what == NetProto::CHAT_TEXT ? r.Str(NetProto::CHAT_BYTES) : std::string();
+    if (r.Ok())
+      ReceiveChat(p, phrase, text);
+    return;
+  }
+  case ControlKind::EndMatch:
+    // Back to the room for both (no error: the menu shows the room's games again). (01.23) Any room's but a link
+    // cable's: the room again (its chat, its players, the host's Start); a spectator's from the host.
+    if (!LinkRoom() && (S.phase == Phase::Starting || S.phase == Phase::Playing) && (!S.watching || p.info.id == 0) &&
+        (S.together || !S.over || S.to_room))  // ((01.23) a match already ended otherwise - an error - stays so)
+    {
+      // ((01.23) A spectator's: the host tells it, whoever ended it. Already back to the room - a player left -: its
+      // reason kept.)
+      if (!S.to_room)
+        S.notice = S.watching ? std::string("The match ended: you watch the next one here") :
+                                PeerName(p) + " ended the match";
       S.to_room = true;
       S.over = true;
-      S.notice = PeerName(p) + " ended the match";
       LogF("netplay: %s ended the match: back to the room", p.info.nick.c_str());
     }
     return;
@@ -3424,6 +5448,9 @@ void OnControl(Peer& p, Reader& r)
       p.ready_locals = std::clamp(locals, 1, MAX_PORTS);
       LogF("netplay: %s has loaded the state (%d player%s)", p.info.nick.c_str(), p.ready_locals,
            p.ready_locals == 1 ? "" : "s");
+      // ((01.05) A player joining the match under way: its frames started from our stop - everyone goes on.)
+      if (p.info.id == S.join_member && S.join_state_sent && !p.in_match)
+        FinishJoin(p);
     }
     return;
   }
@@ -3450,6 +5477,7 @@ void OnControl(Peer& p, Reader& r)
     PeerGone(p, from_host && reason == NetProto::QUIT_REMOVED   ? std::string("The host removed you from the room") :
                 from_host && reason == NetProto::QUIT_REFUSED   ? std::string("The host did not accept you") :
                 from_host && reason == NetProto::QUIT_NO_ANSWER ? std::string("The host didn't answer: try again later") :
+                from_host && reason == NetProto::QUIT_NO_PORT   ? std::string("The match has no controller port left for you") :
                 p.info.id == 0 && S.phase == Phase::Room        ? PeerName(p) + " closed the room" :
                 S.phase == Phase::Room                          ? PeerName(p) + " left the room" :  // (00.95)
                                                                   PeerName(p) + " left the game");
@@ -3600,12 +5628,23 @@ void OnPeerPacket(const uint8_t* data, size_t size, const Address& from, bool vi
   if (!found)
     return;
   Peer& p = *found;
+  // (01.05) A spectator's packets (the host's view): its path, pings, Controls, acknowledgments - no inputs, voice or
+  // blocks. Watching: the host's Watch, Controls, blocks - no inputs or voice.
+  if ((IsWatcher(p) && (type == Type::Input || type == Type::Voice || type == Type::Bulk || type == Type::Watch)) ||
+      (S.watching && (type == Type::Input || type == Type::Voice || type == Type::WatchAck)))
+    return;
   const double now = Now();
   p.last_heard = now;
   if (!via_relay && p.direct_ok && from == p.direct)
     p.last_direct = now;
   switch (type)
   {
+  case Type::Watch:  // (01.05)
+    OnWatch(p, r);
+    return;
+  case Type::WatchAck:
+    OnWatchAck(p, r);
+    return;
   case Type::Punch:
   {
     const uint32_t nonce = r.U32();
@@ -3776,6 +5815,18 @@ void Receive()
   }
 }
 
+// What this app says it plays online and how (NetProto::ThisNetCaps). (01.23) On the PC, EMUSUNI_NETCAPS_OFF=<mask>:
+// those caps not said - a console as an app before them (local/herramientas/prueba-netplay/sala.sh).
+NetProto::NetCaps MyNetCaps()
+{
+  NetProto::NetCaps caps = NetProto::ThisNetCaps();
+#ifndef __PS4__
+  if (const char* off = std::getenv("EMUSUNI_NETCAPS_OFF"))
+    caps.caps = static_cast<uint8_t>(caps.caps & ~std::strtoul(off, nullptr, 0));
+#endif
+  return caps;
+}
+
 // The request the connecting is for (Create, Join or List), with the cookie.
 void SendRequest()
 {
@@ -3784,7 +5835,8 @@ void SendRequest()
   uint8_t buf[NetProto::MAX_PACKET];
   Writer w(buf, sizeof(buf));
   const uint8_t flags = static_cast<uint8_t>((S.is_public ? NetProto::FLAG_PUBLIC : 0) |
-                                             (S.hidden ? NetProto::FLAG_HIDDEN : 0));
+                                             (S.hidden ? NetProto::FLAG_HIDDEN : 0) |
+                                             (S.config.show_country ? 0 : NetProto::FLAG_NO_COUNTRY));  // ((01.05))
   // (Hiding the address: no LAN address for the others either.)
   const Address lan = S.hidden ? Address() : S.my_lan;
   // (00.86: once in a room - the host's, open while the Online tab lists the rooms - the request is the list.)
@@ -3802,6 +5854,14 @@ void SendRequest()
     w.U8(static_cast<uint8_t>(S.max_members));  // (00.95: 2 to 4 consoles, the host's choice)
     w.U8(flags);
     w.Str(S.region, NetProto::MAX_REGION);
+    w.Str(S.my_version, NetProto::MAX_GAME_VERSION);  // ((01.05) the list shows it; a server before it reads none)
+    // ((01.06) What this app plays online and how, and its file's whole CRC32: the server gives it to the apps that
+    // know a game so - v00.23's.)
+    NetProto::WriteNetCaps(w, MyNetCaps());
+    w.U32(S.game.file_crc);
+    w.U64(S.game.file_size);
+    LoadWorld(S.data_dir);
+    NetProto::WritePlayer(w, S.config.ranked, s_world.key);  // ((01.07) the players' ranking)
     break;
   case Want::Join:
     w.Header(Type::Join);
@@ -3812,8 +5872,12 @@ void SendRequest()
     w.Str(S.nick, NetProto::MAX_NICK);
     NetProto::WriteAddress(w, lan);
     w.U8(static_cast<uint8_t>(S.lobby_locals));
-    w.U8(flags & NetProto::FLAG_HIDDEN);
+    w.U8(static_cast<uint8_t>((flags & (NetProto::FLAG_HIDDEN | NetProto::FLAG_NO_COUNTRY)) |
+                              (S.watching ? NetProto::FLAG_WATCH : 0)));  // ((01.05))
     w.Str(S.region, NetProto::MAX_REGION);
+    NetProto::WriteNetCaps(w, MyNetCaps());  // ((01.06) another version may play the room's match)
+    LoadWorld(S.data_dir);
+    NetProto::WritePlayer(w, S.config.ranked && !S.watching, s_world.key);  // ((01.07) a spectator plays no match)
     break;
   case Want::List:
     // (00.85) Every room, from the next one not come yet; a server before ListAll: its public list, page by page.
@@ -3824,7 +5888,10 @@ void SendRequest()
     if (S.list_old)
       w.U8(static_cast<uint8_t>(S.next_page));
     else
+    {
       w.U16(static_cast<uint16_t>(S.list_first));
+      NetProto::WriteNetCaps(w, MyNetCaps());  // ((01.06) the games by their content's CRC32)
+    }
     break;
   }
   if (w.Ok())
@@ -3923,6 +5990,8 @@ void ConnectStep(double now)
       return;
     if (S.tries >= HELLO_TRIES)
     {
+      if (ListRefreshUnanswered())
+        return;  // ((01.16) a refresh's: the last list stays)
       if (S.candidate + 1 < S.candidates.size())
       {
         LogF("netplay: %s didn't answer; the next server", S.server_name.c_str());
@@ -3954,6 +6023,8 @@ void ConnectStep(double now)
   }
   if (S.tries >= REQUEST_TRIES)
   {
+    if (ListRefreshUnanswered())
+      return;  // ((01.16) a refresh's: the last list stays)
     CloseAll("The online server didn't answer: try again later");
     return;
   }
@@ -4004,7 +6075,8 @@ void PumpRoomList(double now)
 // while after, the server removes it); a guest left waiting longer than that (the host's word lost) leaves by itself.
 void PumpRequests(double now)
 {
-  if (S.phase != Phase::Room)
+  // ((01.23) The host's during its match too: entry with permission.)
+  if (S.phase != Phase::Room && !(S.host && (S.phase == Phase::Starting || S.phase == Phase::Playing)))
     return;
   if (!S.host)
   {
@@ -4022,6 +6094,7 @@ void PumpRequests(double now)
       p.ask_expired = true;
       LogF("netplay: %s's request to join expired (no answer in %.0f s)", p.info.nick.c_str(), AskSeconds());
       SendQuitNow(p, NetProto::QUIT_NO_ANSWER);
+      SendRoomNote(NetProto::NOTE_REFUSED, NetProto::QUIT_NO_ANSWER);  // (01.04: once - the guest leaves on it)
     }
     else if (p.ask_expired && asked > AskSeconds() + ASK_GRACE)
     {
@@ -4153,6 +6226,8 @@ std::vector<PlayerView> Players()
         continue;
       v.nick = S.nick;
       v.region = S.region;
+      v.country = S.my_country;  // ((01.05) as the others see it)
+      v.version = S.my_version;
       v.me = true;
       v.linked = true;
       v.locals = S.lobby_locals;
@@ -4180,25 +6255,42 @@ std::vector<PlayerView> Players()
         continue;  // (00.95: a guest doesn't see one still asking the host to join)
       v.nick = p.info.nick;
       v.region = p.info.region;
+      v.country = p.info.country;  // (01.05)
+      v.version = p.version;
       v.ping_ms = p.rtt_ms < 0.0 ? -1 : static_cast<int>(std::lround(p.rtt_ms));
       v.linked = p.rtt_ms >= 0.0 && Now() - p.last_heard < 3.0;
       v.relay = !p.direct_ok;
       v.locals = p.info.locals;
       v.voice_on = p.voice_on;
       v.muted = p.muted;
+      v.blocked = p.blocked;  // (01.05)
       v.talking = S.voice_running && !p.muted && Voice::Talking(m);
-      v.game = m == 0 ? LobbyGame::Same : p.game;
+      // (The host knows each guest's from its Lobby; (01.05) a guest each other guest's from its GameVersion.)
+      v.game = m == 0 ? LobbyGame::Same : S.host ? p.game : p.version_in ? p.said_game : LobbyGame::Looking;
       v.asking = S.host && !p.admitted;  // (00.86)
       v.jitter_ms = p.jitter_ms < 0.0 ? -1 : static_cast<int>(std::lround(p.jitter_ms));
       v.lost_pm = LostPermille(p);
       v.waits_pm = counted ? last.waited_for[m] * 1000 / last.passes : 0;
     }
     v.quality = QualityOf(v.ping_ms, v.jitter_ms, v.lost_pm, v.waits_pm);
-    if (S.phase == Phase::Playing)
+    if (S.phase == Phase::Playing && !S.watching)
     {
       v.first_port = S.first_port[m];
       v.ports = S.ports[m];
     }
+    out.push_back(v);
+  }
+  // (01.05) Watching: ourselves after the host (no ports, no voice).
+  if (S.watching && S.phase != Phase::Off && S.phase != Phase::Connecting && S.phase != Phase::Browsing)
+  {
+    PlayerView v;
+    v.id = S.my_id;
+    v.nick = S.nick;
+    v.region = S.region;
+    v.country = S.my_country;  // ((01.05))
+    v.me = true;
+    v.linked = true;
+    v.locals = 0;
     out.push_back(v);
   }
   return out;
@@ -4212,8 +6304,14 @@ void UpdateStatus()
   st.voice_on = S.voice_running;
   st.together = S.together;
   st.players = Players();
+  // (01.05) The chat's newest lines, for the game's notices and the in-game menu.
+  for (size_t i = S.chat.size() > 8 ? S.chat.size() - 8 : 0; i < S.chat.size(); i++)
+    st.chat.push_back(S.chat[i]);
   st.delay = S.match == Match::Running ? S.delay : 0;
   st.max_rollback = RollbackReach();
+  st.can_reset = CanResetMatch(&st.reset_old);  // (01.14)
+  // ((01.23) Back to the Room: offered while possible, or said not to be with an older app.)
+  st.room_back = CanBackToRoom(&st.room_back_old) || st.room_back_old;
   st.latency_bar = S.config.latency_bar;
   std::string other;
   for (const PlayerView& v : st.players)
@@ -4233,7 +6331,7 @@ void UpdateStatus()
   {
     for (const Peer& p : S.peers)
     {
-      if (p.present && (S.host ? !p.ready : p.info.id == 0))
+      if (InMatch(p) && (S.host ? !p.ready : p.info.id == 0))
       {
         other = p.info.nick;
         break;
@@ -4245,7 +6343,7 @@ void UpdateStatus()
     int whose = -1;
     for (int m = 0; m < MAX_MEMBERS; m++)
     {
-      if (m != S.my_id && S.peers[m].present && (whose < 0 || S.inputs[m].latest < S.inputs[whose].latest))
+      if (m != S.my_id && InMatch(S.peers[m]) && (whose < 0 || S.inputs[m].latest < S.inputs[whose].latest))
         whose = m;
     }
     if (whose >= 0)
@@ -4270,11 +6368,64 @@ void UpdateStatus()
     }
     else if (S.match == Match::Resync)
       st.line = "Resyncing...";
+    else if (S.watching && S.match == Match::Running && !S.watch_running)
+      st.line = "Watching " + other + "'s match in a moment...";  // ((01.05) the buffer fills)
+    else if (S.join_at != NO_FRAME && S.match == Match::Running && S.frame >= S.join_at && !S.join_nick.empty())
+      st.line = S.join_nick + " is joining...";  // ((01.05) everyone stopped a moment for a player joining)
+    else if (S.reset_at != NO_FRAME && S.match == Match::Running && S.frame >= S.reset_at)
+      st.line = "Resetting the game...";  // ((01.14) everyone stopped a moment for it)
     else if (S.match == Match::Running && S.stalled_since >= 0.0 && Now() - S.stalled_since > 0.5)
       st.line = "Waiting for " + other + "...";
   }
+  // (01.05) Spectators.
+  st.watching = S.watching;
+  if (S.watching)
+  {
+    if (const Peer* host = FindPeer(0))
+      st.watched = host->info.nick;
+  }
+  for (const Peer& p : S.watchers)
+    st.watchers += p.present ? 1 : 0;
+  if (!S.host)
+    st.watchers = std::max(0, S.room_watchers);  // ((01.05) as the server says it)
   std::lock_guard lock(s_status_mutex);
   s_status = st;
+}
+
+// (01.05) The host's room may be watched: a light console's game (Rules::watch), not Choose Together or a link cable.
+bool WatchableRoom()
+{
+  return S.host && !S.together && !LinkRoom() && RulesFor(S.game.console).watch;
+}
+
+// (01.05) The host's spectators: the match's start told each once its path works (StartGame, the core options once
+// agreed), its state when it asks and the match runs, then its inputs (each pass, 60 a second at most).
+void PumpWatchers(double now)
+{
+  if (!S.host)
+    return;
+  const bool match = S.phase == Phase::Starting || S.phase == Phase::Playing;
+  for (Peer& p : S.watchers)
+  {
+    if (!p.present)
+      continue;
+    if (match && !p.watch_started && p.rtt_ms >= 0.0)
+    {
+      p.watch_started = true;
+      SendControl(p, ControlKind::StartGame, nullptr, 0);
+      LogF("netplay: %s watches: the match's start told", p.info.nick.c_str());
+    }
+    if (p.watch_started && !p.watch_options && S.variables_agreed)
+    {
+      p.watch_options = true;
+      SendBulk(p, BulkKind::Options, OptionsBlock());
+    }
+    if (p.watch_wants && p.watch_options && S.match == Match::Running && (!p.bulk_out.active || p.bulk_out.Done()) &&
+        p.bulk_queue.empty())
+      SendWatchState(p);
+    if (p.watch_from != NO_FRAME && S.match == Match::Running && now - p.last_input_sent >= 1.0 / 60.0)
+      SendWatch(p);
+  }
 }
 
 void Pump()
@@ -4306,6 +6457,12 @@ void Pump()
       ServerAuth(w, Type::Keepalive);
       w.U16(static_cast<uint16_t>(std::clamp(S.server_ms, 0, 65535)));
       SendRaw(S.server, buf, w.Size());
+      // ((01.05) Whether spectators may come, with each keepalive: the note has no answer. A server before it drops it.
+      // The same for a player joining the match under way.)
+      if (S.host && WatchableRoom())
+        SendRoomNote(NetProto::NOTE_WATCH, S.watch_allowed ? 1 : 0);
+      if (S.host && LateRoom())
+        SendRoomNote(NetProto::NOTE_LATE, LateOpen() ? 1 : 0);  // ((01.06) none with a player of v00.23 in)
     }
     if (S.phase == Phase::Room && now - S.last_server_heard > SERVER_TIMEOUT)
     {
@@ -4321,6 +6478,17 @@ void Pump()
     if (S.phase == Phase::Off)
       return;
   }
+  for (Peer& p : S.watchers)  // (01.05)
+  {
+    if (p.present)
+      PumpPeer(p, now);
+    if (S.phase == Phase::Off)
+      return;
+  }
+  PumpWatchers(now);
+  PumpLate(now);  // ((01.05) players joining the match under way)
+  if (S.phase == Phase::Off)
+    return;
   // (00.86) The requests to join; the host's room's list of rooms.
   PumpRequests(now);
   if (S.phase == Phase::Off)
@@ -4342,7 +6510,7 @@ void Pump()
   {
     for (Peer& p : S.peers)
     {
-      if (p.present && now - p.last_input_sent >= 0.015)
+      if (InMatch(p) && now - p.last_input_sent >= 0.015)
         SendInputs(p);
     }
   }
@@ -4359,6 +6527,34 @@ void TakeBlocks()
   for (size_t i = 0; i < S.blocks.size();)
   {
     const BulkKind kind = S.blocks[i].first;
+    if (kind == BulkKind::State && S.watching && S.match != Match::None && S.match != Match::Options)
+    {
+      // (01.05) Watching: the host's state, at the start or again.
+      std::vector<uint8_t> raw = std::move(S.blocks[i].second);
+      S.blocks.erase(S.blocks.begin() + static_cast<long>(i));
+      WatchTakeState(raw);
+      if (S.over)
+        return;
+      continue;
+    }
+    if (kind == BulkKind::State && S.late_join && S.match == Match::Sync && !S.host)
+    {
+      // (01.05) Joining the match under way: the host's state of its stop (the frames start once its ports are in).
+      std::vector<uint8_t> raw = std::move(S.blocks[i].second);
+      S.blocks.erase(S.blocks.begin() + static_cast<long>(i));
+      int32_t frame = 0;
+      uint32_t epoch = 0;
+      if (!TakeStatePacket(raw, &frame, &epoch, true))
+      {
+        EndMatch("The host's game state couldn't be loaded (is it the same game?)");
+        return;
+      }
+      S.epoch = epoch;
+      S.late_frame = frame;
+      S.late_state = true;
+      LogF("netplay: the host's state of frame %d loaded (%zu bytes)", frame, raw.size());
+      continue;
+    }
     if (kind == BulkKind::State && S.match == Match::Sync && !S.host)
     {
       std::vector<uint8_t> raw = std::move(S.blocks[i].second);
@@ -4413,6 +6609,7 @@ void Begin(Want want, const std::string& data_dir)
 {
   CloseAll("");
   S.error.clear();
+  S.watch_offer.clear();  // (01.05)
 #ifndef __PS4__
   LoadNetsim();
 #endif
@@ -4467,6 +6664,19 @@ Rules RulesFor(const std::string& key)
     // the same bytes on both consoles, the link cable's bits on their way included (scripts/build-gblink-core.sh).
     r.max_rollback = 4;
   }
+  else if (key == NetProto::GBALINK)
+  {
+    // (01.04) mGBA's two Game Boy Advances joined by its cable (scripts/gbalink/emusuni_gbalink.c): a frame of both 0.54
+    // ms on the PC (0.97 if a game never lets the CPU rest; this console's GBA drawn, the other never), its state (1.2
+    // MB) saved 0.09 ms and loaded 0.38 - with a load each frame about 3.5-5 ms on the PS4: four frames back fit
+    // (local/herramientas/prueba-gbalink: test programs of 1-8 transfers a frame; no free GBA game links). A loaded state
+    // goes on otherwise only in the sound (mGBA's PSG catches up lazily): every frame from its state loaded again, and
+    // the memory compared (each console's state also holds its own GBA's picture). Re-run frames aren't drawn.
+    r.max_rollback = 4;
+    r.reload_each_frame = true;
+    r.check_memory = true;
+    r.replay_video = false;
+  }
   else if (key == "nes" || key == "sg1000" || key == "sms" || key == "gg" || key == "md" || key == "pce")
   {
     r.max_rollback = 8;  // (the PS4: ~7 ms for 8 frames and the frame)
@@ -4512,45 +6722,36 @@ Rules RulesFor(const std::string& key)
   else
     return r;  // (not offered)
   r.online = true;
+  // (01.05) Spectators: the light consoles first (their states are small, their frames cheap: a spectator's PS4 runs
+  // a few more to catch up).
+  r.watch = key == "nes" || key == "sg1000" || key == "sms" || key == "gg" || key == "md" || key == "pce" ||
+            key == "snes" || key == "atari2600" || key == "atari7800";
   return r;
 }
 
-bool GameCrc(const std::string& path, uint32_t* crc, uint64_t* size)
+bool GameCrc(const std::string& path, uint32_t* crc, uint64_t* size, const std::string& console)
 {
-  FILE* f = std::fopen(path.c_str(), "rb");
-  if (!f)
-    return false;
-  std::fseek(f, 0, SEEK_END);
-  const long end = std::ftell(f);
-  if (end < 0)
-  {
-    std::fclose(f);
-    return false;
-  }
-  const uint64_t total = static_cast<uint64_t>(end);
-  constexpr uint64_t WHOLE = 64ull << 20, PART = 8ull << 20;
-  std::vector<uint8_t> buf(1 << 20);
-  uLong c = crc32(0L, Z_NULL, 0);
-  auto add = [&](uint64_t from, uint64_t n) {
-    std::fseek(f, static_cast<long>(from), SEEK_SET);
-    while (n > 0)
-    {
-      const size_t want = static_cast<size_t>(std::min<uint64_t>(n, buf.size()));
-      const size_t got = std::fread(buf.data(), 1, want, f);
-      if (got == 0)
-        return false;
-      c = crc32(c, buf.data(), static_cast<uInt>(got));
-      n -= got;
-    }
+  return NetplayLibrary::ContentId(path, console, crc, size);  // ((01.05) its content's: NetplayLibrary.h)
+}
+
+bool FileCrc(const std::string& path, uint32_t* crc, uint64_t* size)
+{
+  return NetplayLibrary::FileId(path, crc, size);  // ((01.06) v00.23's)
+}
+
+bool CanJoinVersion(const NetProto::RoomEntry& room)
+{
+  if (room.app_version.empty() || room.app_version == App::VERSION)
     return true;
-  };
-  const bool ok = total <= WHOLE ? add(0, total) : add(0, PART) && add(total - PART, PART);
-  std::fclose(f);
-  if (!ok)
+  const std::string& console = room.game.console;
+  if (console == NetProto::TOGETHER || console == NetProto::GBLINK || console == NetProto::GBALINK)
     return false;
-  *crc = static_cast<uint32_t>(c);
-  *size = total;
-  return true;
+  return room.level > 0 && room.level == NetProto::NetLevel(console);
+}
+
+bool RoomIsOlder(const std::string& room_version)
+{
+  return NetProto::VersionBefore(room_version, App::VERSION);
 }
 
 void Host(const NetProto::GameInfo& game, bool is_public, const std::string& data_dir, int max_players)
@@ -4559,8 +6760,8 @@ void Host(const NetProto::GameInfo& game, bool is_public, const std::string& dat
   S.host = true;
   S.is_public = is_public;
   S.max_members = std::clamp(max_players, 2, MAX_MEMBERS);
-  if (game.console == NetProto::GBLINK)
-    S.max_members = 2;  // (00.95: the link cable joins two Game Boys)
+  if (game.console == NetProto::GBLINK || game.console == NetProto::GBALINK)
+    S.max_members = 2;  // (00.95: the link cable joins two Game Boys; 01.04: or two GBAs)
   S.game = game;
   S.game.title = game.title.substr(0, NetProto::MAX_TITLE);
   S.phase = Phase::Connecting;
@@ -4575,7 +6776,8 @@ void Host(const NetProto::GameInfo& game, bool is_public, const std::string& dat
          S.hidden ? ", the address hidden" : "");
 }
 
-void Join(const std::string& typed, const std::string& data_dir)
+// A room joined by its code, as a player or ((01.05) watch) a spectator.
+static void JoinRoom(const std::string& typed, const std::string& data_dir, bool watch)
 {
   const std::string code = NetProto::NormalizeCode(typed);
   // From the public list: the server, its cookie and the socket already there.
@@ -4586,15 +6788,19 @@ void Join(const std::string& typed, const std::string& data_dir)
     S.phase = Phase::Connecting;
     S.code = code;
     S.host = false;
+    S.watching = watch;
+    S.watch_offer.clear();
     S.nonce = static_cast<uint32_t>(RandomNumber());
     S.tries = 0;
     S.rooms.clear();
-    LogF("netplay: joining room %s from the public list as %s", code.c_str(), S.nick.c_str());
+    LogF("netplay: %s room %s from the public list as %s", watch ? "watching" : "joining", code.c_str(),
+         S.nick.c_str());
     SendRequest();
     return;
   }
   Begin(Want::Join, data_dir);
   S.host = false;
+  S.watching = watch;
   S.code = code;
   if (!NetProto::ValidCode(S.code))
   {
@@ -4602,8 +6808,78 @@ void Join(const std::string& typed, const std::string& data_dir)
     return;
   }
   S.phase = Phase::Connecting;
-  LogF("netplay: joining room %s as %s (%s)%s", S.code.c_str(), S.nick.c_str(), S.region.c_str(),
-       S.hidden ? ", the address hidden" : "");
+  LogF("netplay: %s room %s as %s (%s)%s", watch ? "watching" : "joining", S.code.c_str(), S.nick.c_str(),
+       S.region.c_str(), S.hidden ? ", the address hidden" : "");
+}
+
+void Join(const std::string& typed, const std::string& data_dir)
+{
+  JoinRoom(typed, data_dir, false);
+}
+
+void Watch(const std::string& typed, const std::string& data_dir)
+{
+  JoinRoom(typed, data_dir, true);
+}
+
+void SetFreeEntry(bool on)
+{
+  if (!S.host || S.free_entry == on)
+    return;
+  S.free_entry = on;
+  LogF("netplay: free entry %s", on ? "on: whoever comes is in the room at once" : "off: each one asks to join");
+  // (One asking now gets in too - (01.23) into the match under way, too.)
+  for (Peer& p : S.peers)
+  {
+    if (on && p.present && !p.admitted && !p.blocked && !p.ask_expired)
+      Admit(p.info.id);
+  }
+}
+
+bool ResetMatch()
+{
+  bool old = false;
+  if (!CanResetMatch(&old))
+    return false;
+  // (Past every console's frame, as a join's stop: none runs more than the rollback past our inputs.)
+  S.reset_at = S.frame + S.delay + RollbackReach() + 8;
+  uint8_t payload[8];
+  Writer w(payload, sizeof(payload));
+  w.U32(static_cast<uint32_t>(S.reset_at));
+  for (Peer& q : S.peers)
+  {
+    if (InMatch(q))
+      SendControl(q, ControlKind::ResetAt, payload, w.Size());
+  }
+  LogF("netplay: the host resets the game: everyone stops at frame %d (we are at %d)", S.reset_at, S.frame);
+  UpdateStatus();
+  return true;
+}
+
+void SetLateAllowed(bool on)
+{
+  if (!S.host || !LateRoom() || S.late_allowed == on)
+    return;
+  S.late_allowed = on;
+  SendRoomNote(NetProto::NOTE_LATE, LateOpen() ? 1 : 0);
+  LogF("netplay: a player %s join the match under way%s", on ? "may" : "may not",
+       on && !LateOpen() ? " (not while a player of an older EmuSuNi is in the room)" : "");
+}
+
+void SetWatchAllowed(bool on)
+{
+  if (!S.host || !WatchableRoom() || S.watch_allowed == on)
+    return;
+  S.watch_allowed = on;
+  SendRoomNote(NetProto::NOTE_WATCH, on ? 1 : 0);
+  LogF("netplay: spectators %s", on ? "may watch the room" : "may not watch the room");
+  if (on)
+    return;
+  for (Peer& p : S.watchers)
+  {
+    if (p.present)
+      RemoveMember(p, NetProto::QUIT_REMOVED, p.info.nick + " no longer watches (spectators not let in)");
+  }
 }
 
 void Browse(const std::string& console_key, const std::string& data_dir)
@@ -4661,13 +6937,38 @@ void RefreshRooms()
   S.rooms_in.clear();
   S.tries = 0;
   S.nonce = static_cast<uint32_t>(RandomNumber());
+  // ((01.07) An old cookie: a new one first - its answer asks for the list -, as the host's room does: the world chat's
+  // questions go with it too, not only once the server refuses one.)
+  if (S.step == Step::Request && Now() - S.cookie_at > COOKIE_FRESH)
+  {
+    S.step = Step::Hello;
+    S.hello_sent = 0.0;
+    return;
+  }
   if (S.step == Step::Request)
     SendRequest();
+}
+
+TopList TopGames()
+{
+  return s_top.list;
+}
+
+void WantTopGames()
+{
+  s_top.wanted = true;
 }
 
 void Update()
 {
   Pump();
+  if (S.phase != Phase::Off)
+  {
+    LoadWorld(S.data_dir);
+    PumpWorld();  // ((01.07) the world chat: the Online tab's)
+    if (S.phase == Phase::Browsing || (S.phase == Phase::Room && S.host && S.room_list))
+      PumpTopPlayers();  // ((01.07) the players' ranking)
+  }
 }
 
 View GetView()
@@ -4682,9 +6983,14 @@ View GetView()
   v.game = S.game;
   v.players = Players();
   v.voice_on = S.voice_enabled;
+  v.chat.assign(S.chat.begin(), S.chat.end());  // (01.05)
+  v.chat_text = S.config.chat_text;
+  v.chat_stored = S.chat_stored;  // (01.07)
+  v.my_country = S.my_country;
   v.rooms = S.rooms;
   v.rooms_done = S.rooms_done;
   v.rooms_total = S.rooms_total;
+  v.list_late = S.list_late;  // (01.16)
   const int c = S.relay_choice;
   bool relayed = false;
   for (const Peer& p : S.peers)
@@ -4720,12 +7026,15 @@ View GetView()
     v.link_game = S.link_game;
     v.link_title = S.link_title;
   }
-  v.can_start = S.host && S.phase == Phase::Room && guests > 0 && ready;
+  // ((01.14, the owner) Or alone, when a player may join the match under way: whoever comes plays it then.)
+  v.can_start = S.host && S.phase == Phase::Room && (guests > 0 || (LateRoom() && LateOpen())) && ready;
+  v.free_entry = S.free_entry;
   // (00.86) A player asking to join (the host's), or waiting for the host's answer (a guest's).
   const JoinRequest ask = GetJoinRequest();
   v.asking = ask.member;
   v.asking_nick = ask.nick;
   v.asking_region = ask.region;
+  v.asking_country = ask.country;  // (01.05)
   v.asking_seconds = ask.seconds_left;
   v.asking_serial = ask.serial;
   v.waiting_host = !S.host && S.phase == Phase::Room && !S.admitted;
@@ -4740,6 +7049,30 @@ View GetView()
   v.has_suggestion = S.has_suggestion;
   v.suggested = S.suggested;
   v.notice = S.notice;
+  // (01.05) Spectators: watching, or the host's (each with its ping).
+  v.watching = S.watching;
+  v.watch_possible = WatchableRoom();
+  v.watch_allowed = S.watch_allowed;
+  v.late_possible = LateRoom();
+  v.late_allowed = S.late_allowed;
+  v.watch_offer = S.watch_offer;
+  for (const Peer& p : S.watchers)
+  {
+    if (!p.present)
+      continue;
+    PlayerView w;
+    w.id = p.info.id;
+    w.nick = p.info.nick;
+    w.region = p.info.region;
+    w.country = p.info.country;  // (01.05)
+    w.ping_ms = p.rtt_ms < 0.0 ? -1 : static_cast<int>(std::lround(p.rtt_ms));
+    w.linked = p.rtt_ms >= 0.0 && Now() - p.last_heard < 3.0;
+    w.relay = !p.direct_ok;
+    w.locals = 0;
+    v.watchers.push_back(w);
+  }
+  // (01.05) How many watch: the host counts its own, the others have the server's number.
+  v.watcher_count = S.host ? static_cast<int>(v.watchers.size()) : S.room_watchers;
   return v;
 }
 
@@ -4748,7 +7081,31 @@ void SetLobbyGame(NetProto::LobbyGame game)
   if (S.my_game == game)
     return;
   S.my_game = game;
+  S.version_serial++;  // ((01.05) the others' cards: GameVersion again, from SendLobbyState)
   SendLobbyState();
+}
+
+void SetGameVersion(const std::string& version)
+{
+  const std::string clean = NetProto::CleanText(version, NetProto::GAME_VERSION_LETTERS, "");
+  if (clean == S.my_version)
+    return;
+  S.my_version = clean;
+  S.version_serial++;
+  if (S.host || S.my_game != LobbyGame::Looking)  // (a guest's goes with its game found: SetLobbyGame)
+    SendGameVersion();
+}
+
+bool ShowCountry(const std::string& data_dir)
+{
+  return LoadConfig(data_dir).show_country;
+}
+
+void SetShowCountry(const std::string& data_dir, bool on)
+{
+  SaveConfigKey(data_dir, "country", on ? "on" : "off");
+  S.config.show_country = on;
+  LogF("netplay: our country %s to the others (from the next room)", on ? "shown" : "not shown");
 }
 
 bool StartMatch()
@@ -4761,12 +7118,27 @@ bool StartMatch()
   if (S.together)
     NetProto::WriteGame(w_game, S.game);
   SendControlAll(ControlKind::StartGame, payload, w_game.Size());
+  S.started_alone = true;
+  for (Peer& p : S.peers)
+  {
+    p.in_match = p.present;  // ((01.05) the match's players: every one in the room, accepted)
+    S.started_alone = S.started_alone && !p.present;
+  }
+  if (S.started_alone)
+    LogLine("netplay: the host starts the match alone: whoever comes joins it");  // (01.14)
   S.notice.clear();
   // The room leaves the public list and takes no one else.
   uint8_t buf[64];
   Writer w(buf, sizeof(buf));
   ServerAuth(w, Type::Lock);
   w.U8(1);
+  if (S.together)
+  {
+    // (01.04) The game picked, for the room's history: its console and CRC32 (never its title). A server before it
+    // reads the byte before only.
+    w.Str(S.game.console, NetProto::MAX_CONSOLE);
+    w.U32(S.game.crc);
+  }
   SendRaw(S.server, buf, w.Size());
   S.phase = Phase::Starting;
   S.start_pending = true;
@@ -4834,13 +7206,20 @@ bool PickGame(const NetProto::GameInfo& game)
   return false;
 }
 
-void EndMatchToRoom()
+bool EndMatchToRoom()
 {
-  if (!S.together || !Active() || S.over)
-    return;
+  bool old = false;
+  if (!CanBackToRoom(&old))
+  {
+    if (old)
+      LogLine("netplay: back to the room: not with a player of an EmuSuNi before it");
+    return false;
+  }
   S.to_room = true;
+  S.notice.clear();
   SendControlAll(ControlKind::EndMatch, nullptr, 0);
-  LogLine("netplay: the match ends here: back to the room for both");
+  LogLine("netplay: the match ends here: every player back to the room");
+  return true;
 }
 
 bool Together()
@@ -4851,7 +7230,17 @@ bool Together()
 // ---- (00.95) The Game Boy link cable online ----
 bool LinkRoom()
 {
-  return S.game.console == NetProto::GBLINK || S.room_game.console == NetProto::GBLINK;
+  return !LinkConsole().empty();
+}
+
+std::string LinkConsole()
+{
+  for (const std::string* console : {&S.game.console, &S.room_game.console})
+  {
+    if (*console == NetProto::GBLINK || *console == NetProto::GBALINK)
+      return *console;
+  }
+  return std::string();
 }
 
 void SetLinkGame(const NetProto::LibraryGame& game, const std::string& title, const std::vector<uint8_t>& packed_save)
@@ -4912,7 +7301,21 @@ bool Hosting()
 void Admit(int member)
 {
   Peer* p = FindPeer(member);
-  if (!S.host || S.phase != Phase::Room || !p || p->admitted || p->ask_expired)
+  if (!S.host || !p || p->admitted || p->ask_expired)
+    return;
+  // (01.23) A request during the match (entry with permission): it joins the match, if a player still may.
+  if (S.phase == Phase::Starting || S.phase == Phase::Playing)
+  {
+    if (!LateOpen() || !LateRoom())
+    {
+      RemoveMember(*p, NetProto::QUIT_REFUSED, p->info.nick + " can't join the match under way");
+      return;
+    }
+    LogF("netplay: %s accepted in the match (after %.0f s)", p->info.nick.c_str(), Now() - p->asked_at);
+    AdmitLate(*p);
+    return;
+  }
+  if (S.phase != Phase::Room)
     return;
   p->admitted = true;
   // (00.95) Every member accepted, a bit each (ours too), to each of them: the other guests know who is in the room.
@@ -4946,7 +7349,8 @@ void Refuse(int member)
 JoinRequest GetJoinRequest()
 {
   JoinRequest r;
-  if (!S.host || S.phase != Phase::Room)
+  // ((01.23) During the match too: entry with permission.)
+  if (!S.host || (S.phase != Phase::Room && S.phase != Phase::Starting && S.phase != Phase::Playing))
     return r;
   for (const Peer& p : S.peers)
   {
@@ -4955,6 +7359,7 @@ JoinRequest GetJoinRequest()
     r.member = p.info.id;
     r.nick = p.info.nick;
     r.region = p.info.region;
+    r.country = p.info.country;  // (01.05)
     r.seconds_left = std::max(0, static_cast<int>(std::ceil(AskSeconds() - (Now() - p.asked_at))));
     r.serial = p.ask_serial;
     break;
@@ -4970,6 +7375,11 @@ void Leave()
           S.host                     ? "netplay: closing the room" :
                                        "netplay: leaving the room");
   for (Peer& p : S.peers)
+  {
+    if (p.present)
+      SendQuitNow(p, 0);
+  }
+  for (Peer& p : S.watchers)  // (01.05)
   {
     if (p.present)
       SendQuitNow(p, 0);
@@ -5064,7 +7474,7 @@ Wait AgreeOptions(std::map<std::string, std::string>* variables)
     }
     for (Peer& p : S.peers)
     {
-      if (p.present)
+      if (InMatch(p))
         SendBulk(p, BulkKind::Options, raw);
     }
     S.match = Match::Sync;
@@ -5124,7 +7534,10 @@ void GameLoaded(const std::string& console_key, double fps, ApplyInputs apply)
 {
   if (!Active())
     return;
-  S.rules = RulesFor(console_key);
+  // (01.04) A link cable room: the link's rules (its console's: NetProto::GBLINK, GBALINK), not its game's console's -
+  // until 01.03 a Game Boy link match took the Game Boy's ("gb": none, so delay-based).
+  const std::string link = LinkConsole();
+  S.rules = RulesFor(link.empty() ? console_key : link);
   S.max_rollback = S.config.rollback >= 0 ? S.config.rollback : S.rules.max_rollback;
   S.fps = fps > 1.0 ? fps : 60.0;
   S.core_ms = 0.0;  // (00.92: this game's core measured anew - RollbackReach)
@@ -5134,6 +7547,8 @@ void GameLoaded(const std::string& console_key, double fps, ApplyInputs apply)
   {
     S.match = Match::Sync;
     LogLine("netplay: the game loaded: waiting for the host's state");
+    if (S.watching)
+      WatchAskState("the game loaded");  // (01.05)
     return;
   }
   size_t size = 0;
@@ -5146,7 +7561,7 @@ void GameLoaded(const std::string& console_key, double fps, ApplyInputs apply)
   MakeStatePacket(0, S.scratch.data(), size, true, &raw);
   for (Peer& p : S.peers)
   {
-    if (p.present)
+    if (InMatch(p))
       SendBulk(p, BulkKind::State, raw);
   }
   S.match = Match::Sync;
@@ -5165,8 +7580,42 @@ int FramesThisPass(int frames)
 {
   Pump();
   TakeBlocks();
+  if (S.watching)
+    return WatchFrames(frames);  // (01.05)
+  PumpLateJoin();                // (01.05: joining the match under way)
   if (S.over || S.match != Match::Running)
     return 0;
+  // (01.05) Stopped for a player joining (join_at): rollbacks settle meanwhile; the host sends its state once every
+  // input before it is in; a JoinResume come before the newcomer was known here goes on once it is.
+  if (S.join_at != NO_FRAME && S.frame >= S.join_at)
+  {
+    if (S.rollback_to < S.frame)
+      Rollback();
+    if (S.host && !S.join_state_sent && S.frame == S.join_at && RemoteLatest() >= S.join_at - 1)
+      SendJoinState();
+    if (!S.host && S.join_resume_pending && S.join_member >= 0 && S.join_member < MAX_MEMBERS &&
+        S.peers[S.join_member].present)
+    {
+      AddLateMember(S.peers[S.join_member], S.join_at, S.join_first, S.join_ports);
+      S.join_resume_pending = false;
+      S.join_at = NO_FRAME;
+      S.join_member = -1;
+    }
+    if (S.join_at != NO_FRAME)
+      return 0;
+  }
+  // (01.14) Stopped for the game's reset (reset_at): once every input before it is in - that frame's state the same on
+  // every console - the core is reset there and the match goes on. One that couldn't go back to it resets where it is:
+  // its checksums differ, and the host's state comes (a resync).
+  if (S.reset_at != NO_FRAME && S.frame >= S.reset_at)
+  {
+    if (S.rollback_to < S.frame)
+      Rollback();
+    if (S.frame > S.reset_at || RemoteLatest() >= S.reset_at - 1)
+      ResetCore();
+    if (S.reset_at != NO_FRAME)
+      return 0;
+  }
   TickSecond();
   if (frames > 0)
     S.second.passes++;
@@ -5175,7 +7624,7 @@ int FramesThisPass(int frames)
   bool any = false;
   for (Peer& p : S.peers)
   {
-    if (!p.present)
+    if (!InMatch(p))
       continue;
     p.my_adv_avg = p.my_adv_avg * 0.9 + Advantage(p) * 0.1;
     p.their_adv_avg = p.their_adv_avg * 0.9 + p.remote_adv * 0.1;
@@ -5233,6 +7682,10 @@ int FramesThisPass(int frames)
     }
     S.second.caught += can > 0 ? 1 : 0;
   }
+  if (S.join_at != NO_FRAME)
+    can = std::min(can, static_cast<int>(S.join_at - S.frame));  // ((01.05) not past a join's stop)
+  if (S.reset_at != NO_FRAME)
+    can = std::min(can, static_cast<int>(S.reset_at - S.frame));  // ((01.14) nor past the game's reset)
   const int run = std::clamp(std::min(frames, can), 0, 8);
   if (frames > 0 && run == 0)
   {
@@ -5244,7 +7697,7 @@ int FramesThisPass(int frames)
     int whose = -1;
     for (int m = 0; m < MAX_MEMBERS; m++)
     {
-      if (m != S.my_id && S.peers[m].present && (whose < 0 || S.inputs[m].latest < S.inputs[whose].latest))
+      if (m != S.my_id && InMatch(S.peers[m]) && (whose < 0 || S.inputs[m].latest < S.inputs[whose].latest))
         whose = m;
     }
     if (whose >= 0)
@@ -5259,12 +7712,17 @@ int FramesThisPass(int frames)
 
 void RunFrame()
 {
+  if (S.watching)
+  {
+    WatchRunFrame();  // (01.05)
+    return;
+  }
   if (S.match != Match::Running)
     return;
   S.second.frames++;
   for (int m = 0; m < MAX_MEMBERS; m++)
   {
-    if (m != S.my_id && S.peers[m].present)
+    if (m != S.my_id && InMatch(S.peers[m]))
       S.second.margin[m] = std::min(S.second.margin[m], S.inputs[m].latest - S.frame);
   }
   AddLocalInputs();
@@ -5293,7 +7751,8 @@ bool SkipVideo()
 
 bool Waiting()
 {
-  return Active() && S.match != Match::Running;
+  // ((01.05) Watching: also while the host's inputs fill the buffer.)
+  return Active() && (S.match != Match::Running || (S.watching && !S.watch_running));
 }
 
 bool Ended(std::string* why)
@@ -5309,11 +7768,26 @@ void GameEnded()
   if (S.phase == Phase::Off)
     return;
   // A Choose Together match ended so (End Match here or there), the other still in the room: back to the room.
+  // (01.23) Any room's but a link cable's (Back to the Room, a player who left): the host's even alone - its room
+  // stays open. Its spectators: back in the room too, the next match theirs to watch; one whose app is before it is
+  // told the match is over (it leaves, as before).
   bool other = false;
   for (const Peer& p : S.peers)
     other = other || p.present;
-  if (S.together && S.to_room && other && !S.peer_left)
+  if (S.to_room && (other || S.host) && !S.peer_left && !LinkRoom())
   {
+    for (Peer& w : S.watchers)
+    {
+      if (!S.host || !w.present)
+        continue;
+      if (w.info.caps_known && (w.info.caps & NetProto::CAP_ROOM))
+      {
+        SendControl(w, ControlKind::EndMatch, nullptr, 0);
+        continue;
+      }
+      SendQuitNow(w, 0);
+      WatcherGone(w, w.info.nick + " no longer watches (the match is over)");
+    }
     BackToRoom();
     return;
   }
@@ -5333,6 +7807,17 @@ void GameEnded()
         SendQuitNow(p, 0);
     }
   }
+  for (Peer& p : S.watchers)  // ((01.05) the spectators: the match is over, however it ended)
+  {
+    if (p.present)
+      SendQuitNow(p, 0);
+  }
+  if (S.watching)
+    LogF("netplay: watching: %d state(s) taken, %d wait(s) for the host's inputs", S.watch_states, S.watch_waits);
+  if (S.watcher_count > 0)
+    LogF("netplay: %d spectator(s) came", S.watcher_count);
+  if (S.late_joined > 0)
+    LogF("netplay: %d player(s) joined the match under way", S.late_joined);
   CloseAll("");
   S.error = error;
 }
@@ -5349,11 +7834,147 @@ void SetVoiceOn(bool on)
   UpdateStatus();
 }
 
+// ---- (01.05) The room's chat ----
+namespace
+{
+// Our line to every player in the room (the host accepted it, and us: a guest still asking sends nothing).
+ChatResult SendChat(int phrase, const std::string& text)
+{
+  if (S.phase != Phase::Room && S.phase != Phase::Starting && S.phase != Phase::Playing)
+    return ChatResult::NotInRoom;
+  if ((!S.host && !S.admitted) || S.watching)
+    return ChatResult::NotInRoom;  // ((01.05) a spectator doesn't chat)
+  const double now = Now();
+  if (now - S.chat_last_sent < CHAT_EVERY)
+    return ChatResult::TooSoon;
+  if (phrase == NetProto::PHRASE_FROM && S.my_country.empty())
+    return ChatResult::Empty;  // ((01.07) our country isn't shown: no "I'm from ...")
+  uint8_t payload[NetProto::CHAT_BYTES + 8];
+  Writer w(payload, sizeof(payload));
+  if (phrase > 0)
+  {
+    w.U8(NetProto::CHAT_PHRASE);
+    w.U8(static_cast<uint8_t>(phrase));
+  }
+  else
+  {
+    w.U8(NetProto::CHAT_TEXT);
+    w.Str(text, NetProto::CHAT_BYTES);
+  }
+  if (!w.Ok())
+    return ChatResult::Empty;
+  for (Peer& p : S.peers)
+  {
+    if (p.present && p.admitted)
+      SendControl(p, ControlKind::Chat, payload, w.Size());
+  }
+  S.chat_last_sent = now;
+  S.chat_sent++;
+  AddChatLine(S.my_id, S.nick, true, phrase, text, phrase == NetProto::PHRASE_FROM ? S.my_country : "");
+  // (01.07, the owner) Its copy to the server, kept 30 days for moderation - once the room's notice showed, and only a
+  // server that keeps them (Members says so).
+  if (S.chat_stored && S.chat_notice && s_fd >= 0)
+  {
+    LoadWorld(S.data_dir);
+    uint8_t buf[NetProto::MAX_PACKET];
+    Writer c(buf, sizeof(buf));
+    ServerAuth(c, Type::RoomChatCopy);
+    c.U8(NetProto::WORLD_NOTICE_SEEN);
+    c.Bytes(s_world.key, NetProto::WORLD_KEY_SIZE);
+    c.U8(static_cast<uint8_t>(phrase));
+    c.Str(phrase ? std::string() : text, phrase ? NetProto::MAX_PHRASE_PARAM : NetProto::CHAT_BYTES);
+    if (c.Ok())
+    {
+      SendRaw(S.server, buf, c.Size());
+      S.chat_copies++;
+    }
+  }
+  return ChatResult::Sent;
+}
+
+void ChatNoticeShown()
+{
+  if (!S.chat_notice && S.chat_stored)
+    LogLine("netplay: the room's notice shown: our lines are copied to the server (kept 30 days)");
+  S.chat_notice = S.chat_notice || S.chat_stored;
+}
+}  // namespace
+
+ChatResult SendChatPhrase(int phrase)
+{
+  if (*NetProto::ChatPhrase(phrase) == '\0')
+    return ChatResult::Empty;
+  return SendChat(phrase, "");
+}
+
+void RoomNoticeShown()
+{
+  ChatNoticeShown();
+}
+
+ChatResult SendChatText(const std::string& text)
+{
+  // (As every console shows it: cut, printable - (01.05, the owner) no words' filter.)
+  const std::string clean = NetProto::CleanChat(text);
+  if (clean.empty())
+    return ChatResult::Empty;
+  return SendChat(0, clean);
+}
+
+bool ChatText(const std::string& data_dir)
+{
+  return LoadConfig(data_dir).chat_text;
+}
+
+void SetChatText(const std::string& data_dir, bool on)
+{
+  SaveConfigKey(data_dir, "chat_text", on ? "on" : "off");
+  S.config.chat_text = on;
+  LogF("netplay: the others' chat text %s", on ? "shown" : "hidden (quick phrases only)");
+}
+
+void BlockPeer(int member)
+{
+  Peer* p = FindPeer(member);
+  if (!p || p->blocked)
+    return;
+  p->blocked = p->muted = true;
+  Voice::SetPeerMuted(member, true);
+  std::string nick = p->info.nick;
+  nick.erase(std::remove(nick.begin(), nick.end(), '|'), nick.end());
+  if (std::find(S.config.blocked.begin(), S.config.blocked.end(), nick) == S.config.blocked.end())
+  {
+    S.config.blocked.push_back(nick);
+    while (S.config.blocked.size() > 100)
+      S.config.blocked.erase(S.config.blocked.begin());
+    std::string list;
+    for (const std::string& b : S.config.blocked)
+      list += (list.empty() ? "" : "|") + b;
+    SaveConfigKey(S.data_dir, "blocked", list);
+  }
+  LogF("netplay: %s blocked on this PS4 (voice and chat muted)", p->info.nick.c_str());
+  UpdateStatus();
+}
+
+int BlockedCount(const std::string& data_dir)
+{
+  return static_cast<int>(LoadConfig(data_dir).blocked.size());
+}
+
+void UnblockAll(const std::string& data_dir)
+{
+  SaveConfigKey(data_dir, "blocked", "");
+  S.config.blocked.clear();
+  for (Peer& p : S.peers)
+    p.blocked = false;  // (still muted for this room: Cross un-mutes)
+  LogLine("netplay: every blocked player unblocked");
+}
+
 void SetPeerMuted(int member, bool muted)
 {
   Peer* p = FindPeer(member);
-  if (!p || p->muted == muted)
-    return;
+  if (!p || p->muted == muted || (!muted && p->blocked))
+    return;  // ((01.05) one blocked stays muted: Unblock All in Online Settings)
   p->muted = muted;
   Voice::SetPeerMuted(member, muted);
   LogF("netplay: %s %s", p->info.nick.c_str(), muted ? "muted" : "heard again");
@@ -5374,5 +7995,148 @@ Stats GetStats()
   for (const Peer& p : S.peers)
     st.relay = st.relay || (p.present && !p.direct_ok);
   return st;
+}
+
+// ---- (01.07) The world chat ----
+WorldChatView GetWorldChat()
+{
+  WorldChatView v;
+  v.on = s_world.on;
+  v.answered = s_world.answered;
+  v.stored = s_world.stored;
+  v.my_country = S.config.show_country ? s_world.my_country : std::string();
+  for (const WorldChatLine& l : s_world.lines)
+  {
+    if (WorldMuted(l.code))
+      continue;
+    v.lines.push_back(l);
+    v.unread += !l.mine && l.serial > s_world.seen ? 1 : 0;
+  }
+  v.serial = s_world.serial;
+  v.said_serial = s_world.said_serial;
+  v.said = s_world.said;
+  v.said_seconds = s_world.said_seconds;
+  v.sending = !s_world.say.empty();
+  return v;
+}
+
+void WorldChatShown(bool shown)
+{
+  if (shown && !s_world.shown)
+  {
+    s_world.ask_more = true;  // (at once: the newest lines)
+    s_world.serial++;
+  }
+  s_world.shown = shown;
+  if (shown && s_world.seen != s_world.newest)
+  {
+    s_world.seen = s_world.newest;
+    s_world.serial++;
+  }
+}
+
+void WorldNoticeShown(bool stored_text)
+{
+  if (stored_text)
+    s_world.notice_stored = true;
+  else
+    s_world.notice_plain = true;
+}
+
+WorldSayResult WorldSayPhrase(int phrase, const std::string& param)
+{
+  return phrase > 0 ? WorldSay(phrase, param, "") : WorldSayResult::Empty;
+}
+
+WorldSayResult WorldSayText(const std::string& text)
+{
+  return WorldSay(0, "", text);
+}
+
+void WorldReport(uint32_t serial)
+{
+  if (s_fd < 0 || !WorldCookieFresh() || serial == 0)
+    return;
+  uint8_t buf[64];
+  Writer w(buf, sizeof(buf));
+  w.Header(Type::WorldReport);
+  w.Bytes(S.cookie, NetProto::COOKIE_SIZE);
+  w.U32(static_cast<uint32_t>(RandomNumber()));
+  w.U32(serial);
+  if (w.Ok())
+    SendRaw(S.server, buf, w.Size());
+  LogF("netplay: world chat: line %u reported", serial);
+}
+
+void WorldMute(const std::string& code)
+{
+  if (code.size() != NetProto::PLAYER_CODE_SIZE || WorldMuted(code) || s_world.data_dir.empty())
+    return;
+  if (s_world.muted.size() >= WORLD_MUTED_MOST)
+    s_world.muted.erase(s_world.muted.begin());
+  s_world.muted.push_back(code);
+  std::string list;
+  for (const std::string& c : s_world.muted)
+    list += (list.empty() ? "" : "|") + c;
+  SaveConfigKey(s_world.data_dir, "world_muted", list);
+  s_world.serial++;
+  LogF("netplay: world chat: a player muted (%zu muted)", s_world.muted.size());
+}
+
+bool WorldChatOn(const std::string& data_dir)
+{
+  LoadWorld(data_dir);
+  return s_world.on;
+}
+
+void SetWorldChatOn(const std::string& data_dir, bool on)
+{
+  LoadWorld(data_dir);
+  s_world.on = on;
+  SaveConfigKey(data_dir, "world_chat", on ? "on" : "off");
+  s_world.serial++;
+  LogF("netplay: the world chat %s", on ? "visible" : "hidden (nothing asked of the server)");
+}
+
+int WorldMutedCount(const std::string& data_dir)
+{
+  LoadWorld(data_dir);
+  return static_cast<int>(s_world.muted.size());
+}
+
+void ClearWorldMuted(const std::string& data_dir)
+{
+  LoadWorld(data_dir);
+  s_world.muted.clear();
+  SaveConfigKey(data_dir, "world_muted", "");
+  s_world.serial++;
+  LogLine("netplay: world chat: every muted player heard again");
+}
+
+// ---- (01.07) The players' ranking ----
+PlayersList TopPlayers(int days)
+{
+  const auto it = s_players.lists.find(days);
+  return it == s_players.lists.end() ? PlayersList() : it->second;
+}
+
+void WantTopPlayers(int days)
+{
+  days = days == 0 ? 0 : NetProto::TOP_DAYS;
+  if (s_players.wanted != days)
+    s_players.tries = 0;
+  s_players.wanted = days;
+}
+
+bool Ranked(const std::string& data_dir)
+{
+  return LoadConfig(data_dir).ranked;
+}
+
+void SetRanked(const std::string& data_dir, bool on)
+{
+  SaveConfigKey(data_dir, "ranking", on ? "on" : "off");
+  S.config.ranked = on;
+  LogF("netplay: appear in the players' ranking: %s (from the next room)", on ? "yes" : "no");
 }
 }  // namespace Netplay

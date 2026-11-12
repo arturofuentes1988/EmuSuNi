@@ -2591,3 +2591,469 @@ Relay Brasileiro (Brazil) = Relay Brasileiro (Brasil)
 Any game; the nearest to South America. = Cualquier juego; el más cercano a Sudamérica.
 Sprawl Relay (Brazil) = Sprawl Relay (Brasil)
 The server ad hoc games meet through, with PSP Online on. Players who want to play together must choose the same one. = El servidor por el que se encuentran los juegos ad hoc, con el juego en línea de PSP activado. Los jugadores que quieran jugar juntos deben elegir el mismo.
+
+# --- EmuSuNi 01.04: Choose Together, no games in common (Menu.cpp: why, under it)
+No games in common = No tienen juegos en común
+You all need the same file of the game (the same version and region). = Todos necesitan el mismo archivo del juego (la misma versión y región).
+
+# --- EmuSuNi 01.04: N64, an emulation that stops by itself (scripts/build-n64-core.sh)
+The N64 emulation stopped: this game did something the emulator can't do. For this game, try N64 CPU: Cached Interpreter, or N64 RSP: ParaLLEl (recompiler). = La emulación del N64 se detuvo: este juego hizo algo que el emulador no puede hacer. En este juego, prueba CPU de N64: Intérprete con caché, o RSP de N64: ParaLLEl (recompilador).
+
+# --- EmuSuNi 01.04: the group on Telegram as a QR code (How to Help; Send Log, under its code)
+Tell us what happened on Telegram, with this code. = Cuéntanos qué pasó en Telegram, con este código.
+
+# --- EmuSuNi 01.05: the room in full screen and its chat (Menu.cpp DrawRoomScreen / DrawChatBox, IngameMenu.cpp, Netplay.cpp)
+Hello! = ¡Hola!
+Ready? = ¿Listos?
+Ready! = ¡Listo!
+Good game! = ¡Buena partida!
+One moment, please = Un momento, por favor
+Another game? = ¿Otra partida?
+You choose = Elige tú
+Thanks! = ¡Gracias!
+Nice! = ¡Genial!
+There's lag = Hay lag
+I have to go = Me tengo que ir
+See you! = ¡Nos vemos!
+Chat = Chat
+You = Tú
+Quick Phrase = Frase rápida
+Write a Message = Escribir un mensaje
+Write = Escribir
+Room code = Código de la sala
+Public room = Sala pública
+Private room = Sala privada
+Link cable = Cable link
+You choose a game together = Eligen un juego juntos
+No cover = Sin portada
+wants to join = quiere entrar
+blocked = bloqueado
+muted = silenciado
+talking = hablando
+voice off = sin voz
+No messages yet. = Aún no hay mensajes.
+No messages yet. L2: a quick phrase. R2: write one. = Aún no hay mensajes. L2: una frase rápida. R2: escribe uno.
+From console to console, not encrypted; EmuSuNi's server keeps nothing. = De consola a consola, sin cifrar; el servidor de EmuSuNi no guarda nada.
+The others' lines of text are hidden (Online Settings); their quick phrases show. = Las líneas escritas de los demás están ocultas (Ajustes online); sus frases rápidas sí se ven.
+Everyone in the room reads it. One line every 2 seconds. = Todos en la sala lo leen. Una línea cada 2 segundos.
+One message every 2 seconds = Un mensaje cada 2 segundos
+Not in the room yet = Aún no estás en la sala
+Nothing to send = No hay nada que enviar
+Mute (Voice and Chat) = Silenciar (voz y chat)
+Hear Again (Voice and Chat) = Volver a oír (voz y chat)
+Block on This PS4 = Bloquear en esta PS4
+Remove from the Room = Sacar de la sala
+Blocked on this PS4: you won't hear or read them again (Online Settings: Unblock All) = Bloqueado en esta PS4: no lo volverás a oír ni leer (Ajustes online: Desbloquear a todos)
+Every blocked player unblocked = Ya no hay jugadores bloqueados
+Mute this player (voice and chat), block them on this PS4, or remove them. = Silencia a este jugador (voz y chat), bloquéalo en esta PS4 o sácalo de la sala.
+Mute this player (voice and chat), or block them on this PS4. = Silencia a este jugador (voz y chat) o bloquéalo en esta PS4.
+A ready phrase for everyone in the room, each reads it in their language (L2 does the same). = Una frase hecha para todos en la sala: cada uno la lee en su idioma (L2 hace lo mismo).
+A line of up to 100 letters with the keyboard, for everyone in the room (R2 does the same). = Una línea de hasta 100 letras con el teclado, para todos en la sala (R2 hace lo mismo).
+Others' Typed Messages = Mensajes escritos de los demás
+Shown = Visibles
+Hidden = Ocultos
+In the rooms' chat: the other players' typed lines (filtered), or only their quick phrases. Messages go from console to console, not encrypted; EmuSuNi's server keeps none. = En el chat de las salas: las líneas escritas de los otros jugadores (filtradas), o solo sus frases rápidas. Los mensajes van de consola a consola, sin cifrar; el servidor de EmuSuNi no guarda ninguno.
+Unblock All = Desbloquear a todos
+The players you blocked (a player's actions in a room) are heard and read again in the next rooms. = Los jugadores que bloqueaste (las acciones de un jugador en una sala) se vuelven a oír y leer en las próximas salas.
+Left / Right choose a phrase, Cross sends it to everyone in the room (in their language). = Izquierda / Derecha eligen una frase, Cruz la manda a todos en la sala (en su idioma).
+Quick Phrase: in the menu. Typed lines: in the room, before or after the match. = Frase rápida: en el menú. Líneas escritas: en la sala, antes o después de la partida.
+
+# --- EmuSuNi 01.05: spectators, Watch (Netplay.cpp Watch / SetWatchAllowed; Menu.cpp, IngameMenu.cpp, NetplayUi.cpp)
+Watch = Mirar
+Watching = Mirando
+Watch the Match = Mirar la partida
+Stop Watching = Dejar de mirar
+Spectators: Yes = Espectadores: Sí
+Spectators: No = Espectadores: No
+Spectators: {} = Espectadores: {}
+Watching: {} = Mirando: {}
+Watching {}'s match = Mirando la partida de {}
+Watching {}'s match in a moment... = En un momento, la partida de {}...
+You watch this room's match: you play nothing. = Miras la partida de esta sala: no juegas.
+It shows here once the host starts it. = Se verá aquí cuando el anfitrión la empiece.
+Spectators watch without chat or voice. = Los espectadores miran sin chat ni voz.
+Spectators may watch the match = Los espectadores pueden mirar la partida
+No spectators: those watching left = Sin espectadores: los que miraban salieron
+That room's game has already started: you can watch it = La partida de esa sala ya empezó: puedes mirarla
+That room has its spectators already = Esa sala ya tiene todos sus espectadores
+That room's host doesn't let anyone watch = El anfitrión de esa sala no deja mirar
+Leaves the room: the match goes on without you. = Sale de la sala: la partida sigue sin ti.
+Up to 4 may watch the match from the Online tab, without voice or chat. Cross: no spectators. = Hasta 4 pueden mirar la partida desde la pestaña En línea, sin voz ni chat. Cruz: sin espectadores.
+No one watches the match. Cross: up to 4 may watch it from the Online tab. = Nadie mira la partida. Cruz: hasta 4 pueden mirarla desde la pestaña En línea.
+Watch it as a spectator, about a second behind the players: you play nothing. = Mírala como espectador, un segundo por detrás de los jugadores: no juegas.
+Your file of this game isn't the host's: it can't be watched = Tu archivo de este juego no es el del anfitrión: no se puede mirar
+
+# --- EmuSuNi 01.05: joining a match under way (Netplay.cpp SetLateAllowed, LateStart ... JoinResume; Menu.cpp)
+Late Joining: Yes = Entrar en la partida: Sí
+Late Joining: No = Entrar en la partida: No
+A player may join the match under way while a place is left: everyone stops a moment while it comes in. Cross: no one joins once it starts. = Un jugador puede entrar con la partida empezada si queda lugar: todos se detienen un momento mientras entra. Cruz: nadie entra una vez empezada.
+No one joins the match once it starts. Cross: a player may join it under way. = Nadie entra una vez empezada la partida. Cruz: un jugador puede entrar con la partida empezada.
+A player may join the match under way = Un jugador puede entrar con la partida empezada
+No one joins the match once it starts = Nadie entra una vez empezada la partida
+{} is joining... = {} se une...
+The match has no controller port left for you = La partida no tiene un puerto de mando libre para ti
+
+# --- EmuSuNi 01.05: each player's country and file of the game, how many watch, the chat unfiltered (Netplay.cpp SetGameVersion / ShowCountry; Menu.cpp DrawRoomScreen / DrawOnlineTable; NetplayUi.cpp)
+{} watching = {} mirando
+The room's game = El juego de la sala
+The room's game: {} = El juego de la sala: {}
+Same file = El mismo archivo
+Same file: {} = El mismo archivo: {}
+Another version: {} = Otra versión: {}
+Another version, choosing = Otra versión, eligiendo
+Another version, choosing: {} = Otra versión, eligiendo: {}
+Hasn't got the game = No tiene el juego
+Looking for the game... = Buscando el juego...
+In your games: {} = Está en tus juegos: {}
+Another version in your games: {} (the host's: {}) = Tienes otra versión: {} (la del anfitrión: {})
+Another version in your games (the host's: {}) = Tienes otra versión (la del anfitrión: {})
+Another version in your games: {} = Tienes otra versión: {}
+Not in your games (the host's: {}) = No está en tus juegos (el del anfitrión: {})
+A place left = Queda un lugar
+Can be watched = Se puede mirar
+Show My Country = Mostrar mi país
+The others see your country's two letters (CL, MX...) beside your nickname, from the next room. EmuSuNi's server looks it up from your connection; your address is never shown or kept. = Los demás ven las dos letras de tu país (CL, MX...) junto a tu apodo, desde la próxima sala. El servidor de EmuSuNi lo saca de tu conexión; tu dirección nunca se muestra ni se guarda.
+The others don't see your country, from the next room. = Los demás no ven tu país, desde la próxima sala.
+In the rooms' chat: the other players' typed lines as they wrote them, or only their quick phrases. Messages go from console to console, not encrypted; EmuSuNi's server keeps none. = En el chat de las salas: las líneas escritas de los otros jugadores tal como las escribieron, o solo sus frases rápidas. Los mensajes van de consola a consola, sin cifrar; el servidor de EmuSuNi no guarda ninguno.
+
+# --- EmuSuNi 01.05: Check My Games (the standard versions) and the games most played online (Menu.cpp OpenCheckGames / OpenTopGames; NetplayLibrary.cpp)
+Check My Games = Revisar mis juegos
+Which of your games are the standard versions (No-Intro's; FinalBurn Neo 1.0.0.03's for the Arcade), the files most players have: a room finds the same game only with the same version. Your files are read once, in the background. = Cuáles de tus juegos son las versiones estándar (las de No-Intro; las de FinalBurn Neo 1.0.0.03 en Arcade), los archivos que tiene la mayoría: una sala encuentra el mismo juego solo con la misma versión. Tus archivos se leen una vez, en segundo plano.
+Looking at Your Games = Revisando tus juegos
+{} of {} read = {} de {} leídos
+Each file is read once, in the background (its copy is kept): the menu goes on meanwhile. = Cada archivo se lee una vez, en segundo plano (se guarda una copia): mientras tanto el menú sigue funcionando.
+{} of {} standard = {} de {} estándar
+Still reading {} of them. Cross: each game. = Aún se leen {} de ellos. Cruz: cada juego.
+Every one is the standard version. Cross: each game. = Todos son la versión estándar. Cruz: cada juego.
+{} aren't the standard version: online they find only players with the same file. Cross: which. = {} no son la versión estándar: en línea solo encuentran jugadores con el mismo archivo. Cruz: cuáles.
+No games to check = No hay juegos que revisar
+The list has the cartridges of the consoles that play online (No-Intro) and the Arcade's sets (FinalBurn Neo 1.0.0.03); discs aren't in it. = La lista tiene los cartuchos de las consolas que juegan en línea (No-Intro) y los sets de Arcade (FinalBurn Neo 1.0.0.03); los discos no están.
+Standard = Estándar
+Not standard = No estándar
+Standard ({}): {} = Estándar ({}): {}
+Being read... = Leyéndose...
+Not the standard version ({}): {}, CRC32 {}. Online it finds only players with this same file. = No es la versión estándar ({}): {}, CRC32 {}. En línea solo encuentra jugadores con este mismo archivo.
+Standard version: {} = Versión estándar: {}
+Standard version: no ({}) = Versión estándar: no ({})
+Standard version: being checked (Online Settings: Check My Games) = Versión estándar: revisándose (Ajustes online: Revisar mis juegos)
+Most Played = Más jugados
+Asking the server... = Preguntando al servidor...
+No matches these days = No hubo partidas estos días
+EmuSuNi's server counts the matches of the last {} days by game: only the games and how many - nothing of anyone. = El servidor de EmuSuNi cuenta las partidas de los últimos {} días por juego: solo los juegos y cuántas, nada de nadie.
+Most played online in the last {} days = Los más jugados en línea de los últimos {} días
+Version = Versión
+Matches = Partidas
+In Your Games = En tus juegos
+Not in the standard list = No está en la lista estándar
+Same version = La misma versión
+Rooms = Salas
+No game selected = No hay ningún juego elegido
+
+# --- EmuSuNi 01.06: a Mega-CD BIOS opened as a game (Genesis Plus GX)
+This is the Mega-CD's BIOS, not a game = Es la BIOS del Mega-CD, no un juego
+EmuSuNi doesn't emulate the Mega-CD = EmuSuNi no emula el Mega-CD
+
+# --- EmuSuNi 01.06: online play between versions
+The room's console has EmuSuNi {}: a Choose Together room needs the same version in both (the host needs to update EmuSuNi) = La consola de la sala tiene EmuSuNi {}: una sala de Elegir juntos necesita la misma versión en las dos (el anfitrión tiene que actualizar EmuSuNi)
+The room's console has EmuSuNi {}: a Choose Together room needs the same version in both (update EmuSuNi) = La consola de la sala tiene EmuSuNi {}: una sala de Elegir juntos necesita la misma versión en las dos (actualiza EmuSuNi)
+The room's console has EmuSuNi {}: a link cable room needs the same version in both (the host needs to update EmuSuNi) = La consola de la sala tiene EmuSuNi {}: una sala de cable link necesita la misma versión en las dos (el anfitrión tiene que actualizar EmuSuNi)
+The room's console has EmuSuNi {}: a link cable room needs the same version in both (update EmuSuNi) = La consola de la sala tiene EmuSuNi {}: una sala de cable link necesita la misma versión en las dos (actualiza EmuSuNi)
+The room's console has EmuSuNi {}, whose {} matches differ from this version's: the host needs to update EmuSuNi = La consola de la sala tiene EmuSuNi {}, y sus partidas de {} no son como las de esta versión: el anfitrión tiene que actualizar EmuSuNi
+The room's console has EmuSuNi {}, whose {} matches differ from this version's: update EmuSuNi = La consola de la sala tiene EmuSuNi {}, y sus partidas de {} no son como las de esta versión: actualiza EmuSuNi
+{} has EmuSuNi {}: no chat with them = {1} tiene EmuSuNi {2}: sin chat con {1}
+This room is for EmuSuNi {}: its host needs to update = Esta sala es para EmuSuNi {}: su anfitrión tiene que actualizar
+EmuSuNi {}: its host needs to update = EmuSuNi {}: su anfitrión tiene que actualizar
+
+# --- EmuSuNi 01.07: the Online tab's pages and the world chat
+Page = Página
+The players' ranking isn't on EmuSuNi's server yet = El ranking de jugadores todavía no está en el servidor de EmuSuNi
+One message every 3 seconds: wait {} s = Un mensaje cada 3 segundos: espera {} s
+Too many messages: wait {} s = Demasiados mensajes: espera {} s
+The world chat is busy: try again in a moment = El chat mundial está ocupado: prueba de nuevo en un momento
+EmuSuNi's moderation blocked you from the world chat = La moderación de EmuSuNi te bloqueó en el chat mundial
+EmuSuNi's moderation blocked you from the world chat for {} min = La moderación de EmuSuNi te bloqueó en el chat mundial por {} min
+The world chat's notice must show first = Primero tiene que verse el aviso del chat mundial
+The message couldn't be sent = No se pudo enviar el mensaje
+Mute or Report = Silenciar o reportar
+The players muted in the world chat are read again = Se vuelve a leer a los jugadores silenciados en el chat mundial
+Muted in the world chat (Online Settings: Muted in the World Chat) = Silenciado en el chat mundial (Ajustes en línea: Silenciados en el chat mundial)
+Reported to EmuSuNi's moderation = Reportado a la moderación de EmuSuNi
+The rooms' chat and the world chat are kept 30 days for moderation; your IP address isn't kept. Voice isn't recorded. = El chat de las salas y el chat mundial se guardan 30 días para moderar; tu IP no se guarda. La voz no se graba.
+The world chat's messages go through EmuSuNi's server; it doesn't keep them. = Los mensajes del chat mundial pasan por el servidor de EmuSuNi; no los guarda.
+The world chat is hidden (Online Settings) = El chat mundial está oculto (Ajustes en línea)
+The world chat isn't on EmuSuNi's server yet = El chat mundial todavía no está en el servidor de EmuSuNi
+Connecting to the world chat... = Conectando con el chat mundial...
+Mute This Player = Silenciar a este jugador
+Report This Message = Reportar este mensaje
+That message is yours = Ese mensaje es tuyo
+Everyone on the Online tab reads it. One message every 3 seconds. = Lo lee todo el que esté en la pestaña En línea. Un mensaje cada 3 segundos.
+The last message is still on its way = El mensaje anterior todavía va en camino
+World Chat = Chat mundial
+Visible = Visible
+Not Shown = Oculto
+Visible: the Online tab's Chat page shows the messages of every player on the Online tab, through EmuSuNi's server. Not Shown: nothing is asked of the server, nothing is shown. =Visible: la página Chat de la pestaña En línea muestra los mensajes de todos los jugadores que están en ella, a través del servidor de EmuSuNi. Oculto: no se le pide nada al servidor y no se muestra nada.
+Muted in the World Chat = Silenciados en el chat mundial
+The players you muted in the world chat (a message's actions): Cross reads them again. = Los jugadores que silenciaste en el chat mundial (las acciones de un mensaje): Cruz los vuelve a mostrar.
+
+# --- EmuSuNi 01.07: the rooms' chat kept, the new quick phrases
+In the rooms' chat: the other players' typed lines as they wrote them, or only their quick phrases. Messages go from console to console, not encrypted; a server that keeps them (the room says so under its chat) keeps them 30 days for moderation, never your address. = En el chat de las salas: las líneas escritas de los otros jugadores tal como las escribieron, o solo sus frases rápidas. Los mensajes van de consola a consola, sin cifrar; un servidor que los guarda (la sala lo dice bajo su chat) los guarda 30 días para moderar, nunca tu dirección.
+I'm fine = Estoy bien
+How are you? = ¿Cómo estás?
+Where are you from? = ¿De qué país eres?
+I'm from {} = Soy de {}
+Good luck! = ¡Suerte!
+Let's play! = ¡A jugar!
+
+# --- EmuSuNi 01.07: the players' ranking, the games' unknown versions, PPSSPP stopping a game
+Last 7 days = Últimos 7 días
+Since ever = Desde siempre
+Last 7 Days = Últimos 7 días
+Since Ever = Desde siempre
+Player = Jugador
+Time Played = Tiempo jugado
+Console Played Most = Consola más jugada
+No one in the ranking yet: play a match online = Todavía no hay nadie en el ranking: juega una partida en línea
+Looking for the ranking... = Buscando el ranking...
+Appear in the Ranking = Aparecer en el ranking
+Yes: EmuSuNi's server counts your time in online matches for the players' ranking (your nickname, your country if you show it, the console you play most) - never your address. No: nothing of yours is counted, from the next room. = Sí: el servidor de EmuSuNi cuenta tu tiempo en partidas en línea para el ranking de jugadores (tu apodo, tu país si lo muestras, la consola que más juegas); nunca tu dirección. No: no se cuenta nada tuyo, desde la próxima sala.
+Unknown version = Versión desconocida
+The game stopped because of an emulation error: leave it with the menu = El juego se detuvo por un error de emulación: sal con el menú
+
+# --- EmuSuNi 01.08: L2 / R2 the Online tab's pages, the world chat's Square and Triangle
+No messages yet. Square: a quick phrase. Triangle: write one. = Aún no hay mensajes. Cuadrado: una frase rápida. Triángulo: escribe uno.
+
+# --- EmuSuNi 01.09: the 3DS's updates and DLC from CIAs, a game's mods
+3DS Updates and DLC = Actualizaciones y DLC de 3DS
+Installed from CIA files: Roms/3ds/cia = Se instalan desde archivos CIA: Roms/3ds/cia
+Updates, DLC and Mods = Actualizaciones, DLC y mods
+This version's 3DS emulator can't install CIAs yet. = El emulador de 3DS de esta versión todavía no instala CIAs.
+No CIA files found. = No se encontró ningún archivo CIA.
+Copy the decrypted CIAs of your games' updates and DLC to the folder cia in Roms/3ds: = Copia los CIAs descifrados de las actualizaciones y los DLC de tus juegos a la carpeta cia de Roms/3ds:
+Encrypted CIAs can't be installed, and games are started from their .3ds or .cci file. = Los CIAs cifrados no se pueden instalar, y los juegos se abren desde su archivo .3ds o .cci.
+CIA files: {} = Archivos CIA: {}
+Free: {} = Libre: {}
+Can't Be Read = No se puede leer
+Encrypted = Cifrado
+Not Installed Here = No se instala aquí
+DLC = DLC
+Update v{} = Actualización v{}
+Installed already: {} = Ya está instalada: {}
+This game has DLC installed: Cross installs this one too. = Este juego ya tiene DLC instalados: Cruz instala también este.
+Cross: install it. = Cruz: instalarlo.
+Install the Update = Instalar la actualización
+Install the DLC = Instalar el DLC
+Install = Instalar
+It takes: {} = Ocupa: {}
+Free space: {} = Espacio libre: {}
+not known = no se sabe
+Not enough free space: free some first (the PS4's storage, or the USB drive with Keep My Data on the USB Drive). = No hay espacio libre suficiente: libera primero (en el almacenamiento de la PS4, o en la unidad USB si usas Guardar mis datos en la unidad USB).
+An update can change the game's save: copy the save first if you may go back. = Una actualización puede cambiar la partida del juego: si quizá vuelvas atrás, copia antes la partida.
+The game finds its DLC from its next start. = El juego encuentra su DLC desde la próxima vez que lo abras.
+Cancelling... = Cancelando...
+Installing... = Instalando...
+Don't close EmuSuNi or turn off the PS4 until it ends. = No cierres EmuSuNi ni apagues la PS4 hasta que termine.
+The update is installed: {} = La actualización está instalada: {}
+The DLC is installed. = El DLC está instalado.
+The game uses it from its next start. = El juego la usa desde la próxima vez que lo abras.
+The CIA file isn't needed any more. Delete it from the drive? = El archivo CIA ya no hace falta. ¿Lo borras de la unidad?
+Delete the CIA = Borrar el CIA
+Keep the CIA = Conservar el CIA
+A homebrew game (.3dsx) has no title ID: no updates, DLC or mods. = Un juego homebrew (.3dsx) no tiene ID de título: no tiene actualizaciones, DLC ni mods.
+Install them from their CIA files: Settings -> 3DS Updates and DLC. = Instálalos desde sus archivos CIA: Ajustes -> Actualizaciones y DLC de 3DS.
+The game starts with this update. Another version: install its CIA (Settings -> 3DS Updates and DLC). = El juego se abre con esta actualización. Para otra versión, instala su CIA (Ajustes -> Actualizaciones y DLC de 3DS).
+Installed = Instalado
+Its DLC's contents installed: {} = Contenidos de DLC instalados: {}
+Removed for good. An update or DLC can change the game's save: copy the save first (its folder: saves/3ds/Azahar/sdmc, by FTP), or the game may not read it after. = Se quita para siempre. Una actualización o un DLC puede cambiar la partida: cópiala antes (su carpeta: saves/3ds/Azahar/sdmc, por FTP), o puede que el juego no la lea después.
+Remove the Update = Quitar la actualización
+Remove the DLC = Quitar el DLC
+Updates and DLC = Actualizaciones y DLC
+Not in This Version = No en esta versión
+Mods = Mods
+Its mods are loaded when it starts (Off: the game as it is - a mod for another version or region can hang it). Their folder: {} = Sus mods se cargan al abrirlo (Off: el juego tal cual; un mod de otra versión o región puede colgarlo). Su carpeta: {}
+No mods in its folder (LayeredFS: romfs, exefs, code.ips): {} = No hay mods en su carpeta (LayeredFS: romfs, exefs, code.ips): {}
+An update or DLC can change the game's save, and the game may not read it once removed. Copy the save first (by FTP: saves/3ds/Azahar/sdmc). = Una actualización o un DLC puede cambiar la partida, y al quitarlo puede que el juego no la lea. Copia antes la partida (por FTP: saves/3ds/Azahar/sdmc).
+Install them from Settings: 3DS Updates and DLC = Instálalos desde Ajustes: Actualizaciones y DLC de 3DS
+Remove = Quitar
+It is deleted from the drive for good: the PS4 has no recycle bin. What it installed stays. = Se borra de la unidad para siempre: la PS4 no tiene papelera. Lo que instaló se queda.
+CIA deleted = CIA borrado
+The CIA couldn't be deleted = No se pudo borrar el CIA
+DLC removed = DLC quitado
+Update removed = Actualización quitada
+This CIA is encrypted: only decrypted CIAs can be installed = Este CIA está cifrado: solo se pueden instalar CIAs descifrados
+This file isn't a CIA, or it is damaged = Este archivo no es un CIA, o está dañado
+It couldn't be read or written (the drive, or no room left) = No se pudo leer o escribir (la unidad, o no queda espacio)
+Cancelled: the game keeps what it had before = Cancelado: el juego conserva lo que tenía antes
+The installer failed with this file: the game keeps what it had before = El instalador falló con este archivo: el juego conserva lo que tenía antes
+Only updates and DLC are installed (not games nor the system's titles) = Solo se instalan actualizaciones y DLC (ni juegos ni títulos del sistema)
+This version's 3DS emulator can't install CIAs = El emulador de 3DS de esta versión no instala CIAs
+Not enough free space = No hay espacio libre suficiente
+Another CIA is being installed = Ya se está instalando otro CIA
+The install couldn't start (no thread) = La instalación no pudo empezar (no hay hilo)
+A 3DS game is running: close it first = Hay un juego de 3DS abierto: ciérralo primero
+The 3DS emulator is installing or removing something else = El emulador de 3DS está instalando o quitando otra cosa
+
+# --- EmuSuNi 01.14: online, free entry, a match started alone, the host's Reset for everyone
+Entry: Free = Entrada a la sala: Libre
+Entry: With Permission = Entrada a la sala: Con permiso
+Whoever comes is in the room at once, without asking you. Cross: each one asks first. = Quien llega entra en la sala enseguida, sin pedírtelo. Cruz: cada uno pide entrar primero.
+Each player asks to join and you accept them or not. Cross: whoever comes is in at once. = Cada jugador pide entrar y tú lo aceptas o no. Cruz: quien llega entra enseguida.
+Players come in without asking = Los jugadores entran sin pedirlo
+Players ask you to join first = Los jugadores te piden entrar primero
+Press Start to play now: whoever comes joins the match. = Pulsa Start para jugar ya: quien llegue se suma a la partida.
+Not with an older EmuSuNi = No con un EmuSuNi más antiguo
+Resets the game for every player at once: everyone stops a moment, then it starts again. = Reinicia el juego para todos los jugadores a la vez: todos se detienen un momento y vuelve a empezar.
+A player has an older EmuSuNi: it can't be reset online = Un jugador tiene un EmuSuNi más antiguo: no se puede reiniciar en línea
+Not now: try again in a moment = Ahora no: inténtalo de nuevo en un momento
+Resetting the game... = Reiniciando el juego...
+The host reset the game = El anfitrión reinició el juego
+
+# --- EmuSuNi 01.15: the chat - a quick phrase to laugh
+Hahaha! = ¡Jajaja!
+
+# --- EmuSuNi 01.15: the 3DS's right stick as the stylus
+3DS Right Stick = Stick derecho de 3DS
+The 3DS's C-stick: the New 3DS's, and the Circle Pad Pro's in the games that read it. = El stick C de la 3DS: el de la New 3DS, y el del Circle Pad Pro en los juegos que lo leen.
+Stylus = Lápiz
+Moves the stylus on the touch screen, as on the DS; the Tap button touches. The game gets no C-stick. = Mueve el lápiz por la pantalla táctil, como en la DS; el botón Tocar la pantalla toca. El juego no recibe el stick C.
+What the right stick is in 3DS games. Stylus is for playing on the touch screen without the touchpad; the Tap button is set in Controls (the touchpad's click by default). = Qué hace el stick derecho en los juegos de 3DS. Lápiz sirve para jugar en la pantalla táctil sin el panel táctil; el botón Tocar la pantalla se elige en Controles (por defecto, el clic del panel táctil).
+
+# --- EmuSuNi 01.16: the Online tab - a list the server did not answer stays
+The server isn't answering: the list may be out of date = El servidor no responde: puede que la lista no esté al día
+
+# --- EmuSuNi 01.18: 3DS Right Eye - Auto draws it in every game
+Drawn in every game: left out, Castlevania: Mirror of Fate and Donkey Kong Country Returns 3D opened with a black screen on the PS4. = Se dibuja en todos los juegos: sin él, Castlevania: Mirror of Fate y Donkey Kong Country Returns 3D abrían con la pantalla negra en la PS4.
+The PS4 shows no 3D, so the right eye's picture is left out: less work in the games that draw both eyes, but some games open with a black screen or lose a screen. = La PS4 no muestra 3D, así que la imagen del ojo derecho se omite: menos trabajo en los juegos que dibujan los dos ojos, pero algunos juegos abren con la pantalla negra o pierden una pantalla.
+
+# --- EmuSuNi 01.18: the Library's Order and Filters - genre, players, adult games
+Order and Filters = Orden y filtros
+Order = Orden
+Genre = Género
+Hide Adult Games = Ocultar juegos para adultos
+Every Genre = Todos los géneros
+Any Number = Cualquier número
+1 Player Only = Solo 1 jugador
+2 Players or More = 2 jugadores o más
+3 Players or More = 3 jugadores o más
+4 Players or More = 4 jugadores o más
+Cooperative = Cooperativo
+Genre: {} = Género: {}
+Options: change = OPTIONS: cambiar
+No games of that genre or players here = Aquí no hay juegos de ese género o número de jugadores
+The games' order: A-Z, Recently Played, Region, Console, or only those Without Cover (this session). = El orden de los juegos: A-Z, jugados hace poco, región, consola, o solo los que no tienen carátula (esta sesión).
+Left / Right: the genres of this list's games. = Izquierda / derecha: los géneros de los juegos de esta lista.
+{} games of this genre here. = {} juegos de este género aquí.
+{} of {} games here have a genre or players. = {} de {} juegos de aquí tienen género o número de jugadores.
+The star ratings' data is downloading: the others come with it. = Se están descargando los datos de las estrellas: los demás llegan con ellos.
+The others come with the star ratings' data (Settings: Star Ratings). = Los demás llegan con los datos de las estrellas (Ajustes: Estrellas de valoración).
+1 Player Only, 2, 3 or 4 Players or More (at once), or Cooperative play. = Solo 1 jugador, 2, 3 o 4 jugadores o más (a la vez), o juego cooperativo.
+Arcade games for adults (their category says so) left out of every list. = Los juegos de arcade para adultos (lo dice su categoría) no salen en ninguna lista.
+{} of them here. = {} de ellos aquí.
+Action = Acción
+Adventure = Aventura
+Beat 'em Up = Beat 'em up
+Board Game = Juego de mesa
+Casino = Casino
+Compilation = Recopilación
+Construction and Management Simulation = Construcción y gestión
+Education = Educativo
+Fighting = Lucha
+Flight Simulator = Simulador de vuelo
+Horror = Terror
+Life Simulation = Simulación de vida
+MMO = MMO
+Music = Música
+Party = Party
+Pinball = Pinball
+Puzzle = Puzles
+Quiz = Preguntas
+Racing = Carreras
+Role-Playing = Rol
+Sandbox = Sandbox
+Shooter = Disparos
+Sports = Deportes
+Stealth = Sigilo
+Strategy = Estrategia
+Vehicle Simulation = Simulación de vehículos
+Visual Novel = Novela visual
+
+# --- EmuSuNi 01.19: Order and Filters - the players not known yet said, the lists again when they come
+{} of {} games here have their genre known. = {} de {} juegos de aquí tienen su género.
+{} of {} games here have their players known. = {} de {} juegos de aquí tienen su número de jugadores.
+The players aren't known yet: they come with the star ratings' data, downloading now = Aún no se sabe el número de jugadores: llega con los datos de las estrellas, que se están descargando
+The players aren't known yet: they come with the star ratings' data (Settings: Star Ratings) = Aún no se sabe el número de jugadores: llega con los datos de las estrellas (Ajustes: Estrellas de valoración)
+
+# --- EmuSuNi 01.19: Delete Game deletes everything of the game (its saves only if chosen)
+Saves and States: Keep = Partidas y estados: conservar
+Saves and States: Delete Too = Partidas y estados: borrar también
+And its cover, name, own settings, controls, cheats and bezel. = Y también su carátula, su nombre, sus ajustes propios, sus controles, sus trucos y su bezel.
+Its saves and states are deleted too: they can't be brought back. = También se borran sus partidas y estados: no se pueden recuperar.
+Its saves and states stay (Saved Data). = Sus partidas y estados se conservan (Datos guardados).
+Deletes the game's files from the drive (a .cue's tracks and every disc too), and its cover, name, own settings, controls, cheats and bezel. Its saves stay unless you choose. = Borra de la unidad los archivos del juego (también las pistas de un .cue y todos los discos), y su carátula, su nombre, sus ajustes propios, sus controles, sus trucos y su bezel. Sus partidas se conservan si no eliges lo contrario.
+Its saves and states stay (Saved Data): put back, the game finds them. Cross: delete them too. = Sus partidas y estados se conservan (Datos guardados): si vuelves a poner el juego, los encuentra. Cruz: borrarlos también.
+Its battery saves and save states are deleted with it: they can't be brought back. Cross: keep them. = Sus partidas guardadas y sus estados se borran con él: no se pueden recuperar. Cruz: conservarlos.
+Some of their other files couldn't be deleted: = Algunos de sus otros archivos no se pudieron borrar:
+
+# --- EmuSuNi 01.22: updates, DLC and mods from the game (Triangle on its cover, the in-game menu), not Settings; the Arcade's patched romsets
+Patched Romset = Romset parcheado
+PATCHED ROMSET = ROMSET PARCHEADO
+UPDATES, DLC AND MODS = ACTUALIZACIONES, DLC Y MODS
+Start the Game = Abrir el juego
+The game starts again with what it has installed now. = El juego se vuelve a abrir con lo que tiene instalado ahora.
+Install them from their CIA files: copied to Roms/3ds/cia, they show here. = Instálalos desde sus archivos CIA: cuando los copies a Roms/3ds/cia, aparecen aquí.
+The game starts with this update. Another version: install its CIA (below, once in Roms/3ds/cia). = El juego se abre con esta actualización. Para otra versión, instala su CIA (abajo, cuando esté en Roms/3ds/cia).
+Install from CIA Files = Instalar desde archivos CIA
+No CIA Files for It = No hay archivos CIA suyos
+Copy its decrypted update or DLC CIAs to the folder cia in Roms/3ds: = Copia los CIAs descifrados de su actualización o de sus DLC a la carpeta cia de Roms/3ds:
+Copy its CIA files to Roms/3ds/cia: they show here = Copia sus archivos CIA a Roms/3ds/cia: aparecen aquí
+The file isn't there any more = El archivo ya no está
+The game starts from its own zip. A patched romset (a hack with no driver of its own, named as the set) takes its place: copied to Roms/arcade/patched, it shows below. = El juego se abre desde su propio zip. Un romset parcheado (un hack sin driver propio, con el nombre del set) ocupa su lugar: cuando lo copies a Roms/arcade/patched, aparece abajo.
+FinalBurn Neo starts the game from it instead of its own zip (never online, where both consoles need the set as the DAT knows it). = FinalBurn Neo abre el juego desde él en vez de su propio zip (nunca en línea, donde las dos consolas necesitan el set tal como lo conoce el DAT).
+Remove It = Quitarlo
+Deleted from the PS4: the game starts from its own zip again. = Se borra de la PS4: el juego vuelve a abrirse desde su propio zip.
+Install from Roms/arcade/patched = Instalar desde Roms/arcade/patched
+Cross: install it (in place of the one in use). = Cruz: instalarlo (en lugar del que está en uso).
+None Found = No se encontró ninguno
+Copy the patched romset, named as the game's set, to the folder patched in Roms/arcade: {} = Copia el romset parcheado, con el nombre del set del juego, a la carpeta patched de Roms/arcade: {}
+Copy it to Roms/arcade/patched, named as the game's set: it shows here = Cópialo a Roms/arcade/patched con el nombre del set del juego: aparece aquí
+Install the Patched Romset = Instalar el romset parcheado
+It takes the place of the one in use: {} = Ocupa el lugar del que está en uso: {}
+FinalBurn Neo starts the game from it from its next start (online: its own zip). = FinalBurn Neo abre el juego desde él la próxima vez que lo abras (en línea: su propio zip).
+Remove the Patched Romset = Quitar el romset parcheado
+It is deleted from the PS4 for good: the game starts from its own zip again. Its copy in Roms/arcade/patched, if any, stays. = Se borra de la PS4 para siempre: el juego vuelve a abrirse desde su propio zip. Su copia en Roms/arcade/patched, si la hay, se queda.
+Copying... = Copiando...
+The patched romset is installed. = El romset parcheado está instalado.
+The file couldn't be read = No se pudo leer el archivo
+The file couldn't be written = No se pudo escribir el archivo
+The file couldn't be written (no room left?) = No se pudo escribir el archivo (¿no queda espacio?)
+The copy couldn't start (no thread) = La copia no pudo empezar (no hay hilo)
+Another copy is going on = Ya hay otra copia en marcha
+Patched romset removed = Romset parcheado quitado
+It couldn't be deleted: {} = No se pudo borrar: {}
+Its update and DLC (installed from its CIA files in Roms/3ds/cia, or removed) and its mods on or off. Also in the in-game menu. = Su actualización y sus DLC (se instalan desde sus archivos CIA de Roms/3ds/cia, o se quitan) y sus mods encendidos o apagados. También en el menú del juego.
+A hack of this set with no driver of its own: the one FinalBurn Neo uses (removed), or one installed from Roms/arcade/patched. Also in the in-game menu. = Un hack de este set sin driver propio: el que usa FinalBurn Neo (se puede quitar), o uno que se instala desde Roms/arcade/patched. También en el menú del juego.
+What this game has installed, its mods on or off; its CIAs to install (the game closes first). = Lo que este juego tiene instalado y sus mods encendidos o apagados; sus CIAs para instalar (antes se cierra el juego).
+The patched romset this game uses, or one to install from Roms/arcade/patched (the game closes first). = El romset parcheado que usa este juego, o uno para instalar desde Roms/arcade/patched (antes se cierra el juego).
+The game closes first; then the menu asks. = Antes se cierra el juego; luego el menú te pregunta.
+The update the game started with (an update installed now: from its next start). = La actualización con la que se abrió el juego (una que instales ahora: desde la próxima vez que lo abras).
+Its mods on or off: from the game's next start (Quit Game, then start it again). Their folder: {} = Sus mods encendidos o apagados: desde la próxima vez que abras el juego (Salir del juego y abrirlo otra vez). Su carpeta: {}
+The game started from its own zip. = El juego se abrió desde su propio zip.
+FinalBurn Neo started the game from it instead of its own zip. = FinalBurn Neo abrió el juego desde él en vez de su propio zip.
+To do it the game closes: the patched romset is read when the game starts. = Para hacerlo se cierra el juego: el romset parcheado se lee al abrir el juego.
+To do it the game closes: the 3DS emulator installs and removes only with no game running. = Para hacerlo se cierra el juego: el emulador de 3DS solo instala y quita con ningún juego abierto.
+Save first (Save State, or in the game): what isn't saved is lost. Then the menu asks before anything is done, and offers to start the game again. = Guarda antes (Guardar estado, o en el juego): lo que no esté guardado se pierde. Después el menú te pregunta antes de hacer nada, y te ofrece abrir el juego otra vez.
+Close the Game = Cerrar el juego
+Mods on: from the game's next start = Mods encendidos: desde la próxima vez que abras el juego
+Mods off: from the game's next start = Mods apagados: desde la próxima vez que abras el juego
+
+# --- EmuSuNi 01.23: online, back to the room after a match (Back to the Room; a guest who leaves or is removed no longer closes the host's room), Entry With Permission during a match too; the library's Players filter without 3 and 4
+Back to the Room = Volver a la sala
+Ends this match for every player: all back in the room (its chat, its players), where the host can start again. You stay in the room. = Termina esta partida para todos los jugadores: todos vuelven a la sala (su chat, sus jugadores), donde el anfitrión puede empezar otra. Tú sigues en la sala.
+A player has an older EmuSuNi: the match can't go back to the room = Un jugador tiene un EmuSuNi más antiguo: la partida no puede volver a la sala
+The match ended: you watch the next one here = La partida terminó: aquí verás la siguiente
+Closes the room: the match ends for everyone. = Cierra la sala: la partida termina para todos.
+Leaves the room: the match ends, the others go back to the room. = Sale de la sala: la partida termina y los demás vuelven a la sala.
+1 Player Only, 2 Players or More (at once), or Cooperative play. = Solo 1 jugador, 2 jugadores o más (a la vez), o juego cooperativo.
+{} wants to join the match: open the menu to answer = {} quiere unirse a la partida: abre el menú para responder
+{} joins the match in a moment = {} se une a la partida en un momento
+Lets this player into your room: they join the match under way (everyone stops a moment). = Deja entrar a este jugador en tu sala: se une a la partida en curso (todos se detienen un momento).
+Removes this player from the room: they can't join it again. The match ends, the others back in the room (it stays open). = Saca a este jugador de la sala: no puede volver a unirse. La partida termina y los demás vuelven a la sala (sigue abierta).

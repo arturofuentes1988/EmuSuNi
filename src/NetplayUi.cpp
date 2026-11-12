@@ -58,6 +58,9 @@ float DrawLatencyBar(ImDrawList* dl, ImFont* regular, ImFont* bold, const std::v
               p.ping_ms >= 0 ? std::to_string(p.ping_ms) + " ms" : std::string("..."), &p};
     if (p.relay && !p.me)
       line.ping += " (" + std::string(PS4Lang::T("relay")) + ")";
+    // ((01.05, the owner) its country beside the ping: "CL  45 ms")
+    if (!p.country.empty())
+      line.ping = p.country + "  " + line.ping;
     name_w = std::max(name_w, bold->CalcTextSizeA(SIZE, FLT_MAX, 0, line.name.c_str()).x);
     ping_w = std::max(ping_w, regular->CalcTextSizeA(SIZE, FLT_MAX, 0, line.ping.c_str()).x);
     lines.push_back(std::move(line));
@@ -110,6 +113,20 @@ void DrawOverlay(ImDrawList* dl, ImFont* regular, ImFont* bold)
     dl->AddText(regular, 24, ImVec2(size.x - w - 38, ty), Rgba(255, 255, 255, 0.9f), p.nick.c_str());
     ty += 42;
   }
+  // (01.05) Watching: whose match, at the top left. The players: how many watch, in the corner.
+  if (status.watching || status.watchers > 0)
+  {
+    const std::string text = status.watching ?
+                                 PS4Lang::T("Watching " + (status.watched.empty() ? std::string("the host") : status.watched) +
+                                            "'s match") :
+                                 PS4Lang::T(std::to_string(status.watchers) + " watching");
+    const float w = regular->CalcTextSizeA(24, FLT_MAX, 0, text.c_str()).x;
+    const ImVec2 p0 = status.watching ? ImVec2(24, 26) : ImVec2(size.x - w - 52, ty);
+    dl->AddRectFilled(ImVec2(p0.x, p0.y - 6), ImVec2(p0.x + w + 28, p0.y + 32), Rgba(0, 0, 0, 0.45f), 10);
+    dl->AddText(regular, 24, ImVec2(p0.x + 14, p0.y), Rgba(255, 255, 255, 0.9f), text.c_str());
+    if (!status.watching)
+      ty += 42;
+  }
   // What the match waits for, in the middle of the screen's top.
   if (!status.line.empty())
   {
@@ -131,5 +148,104 @@ void DrawWaiting(ImDrawList* dl, ImFont* regular, ImFont* bold, const std::strin
   const char* text = PS4Lang::T(line.empty() ? std::string("Connecting...") : line).c_str();
   const float tw = regular->CalcTextSizeA(32, FLT_MAX, 0, text).x;
   dl->AddText(regular, 32, ImVec2((size.x - tw) * 0.5f, size.y * 0.42f + 70), IM_COL32(220, 220, 230, 255), text);
+}
+
+namespace
+{
+float WidthOf(ImFont* font, float size, const std::string& text)
+{
+  return font->CalcTextSizeA(size, FLT_MAX, 0.0f, text.c_str()).x;
+}
+
+// Line breaks: at the last space that fits, or between two characters in a line without one (Japanese, Chinese) - the
+// first line `first` wide (after the nickname), the others `width`. A first word too wide for the first line goes under
+// it.
+std::vector<std::string> Wrap(ImFont* font, float size, const std::string& text, float first, float width)
+{
+  std::vector<std::string> out;
+  std::string line;
+  size_t last_space = std::string::npos;
+  for (size_t i = 0; i < text.size();)
+  {
+    const unsigned char lead = static_cast<unsigned char>(text[i]);
+    const size_t length = lead < 0x80 ? 1 : (lead >> 5) == 6 ? 2 : (lead >> 4) == 14 ? 3 : 4;
+    const std::string ch = text.substr(i, length);
+    i += length;
+    if (ch == "\n")
+    {
+      out.push_back(line);
+      line.clear();
+      last_space = std::string::npos;
+      continue;
+    }
+    if (WidthOf(font, size, line + ch) > (out.empty() ? first : width))
+    {
+      if (ch == " ")
+      {
+        out.push_back(line);
+        line.clear();
+        last_space = std::string::npos;
+        continue;
+      }
+      if (last_space != std::string::npos)
+      {
+        out.push_back(line.substr(0, last_space));
+        line = line.substr(last_space + 1);
+      }
+      else if (out.empty() && first < width && length < 3)
+        out.push_back("");  // (the word under the nickname, whole - not Japanese or Chinese: broken anywhere)
+      else if (!line.empty())
+      {
+        out.push_back(line);
+        line.clear();
+      }
+      last_space = std::string::npos;
+    }
+    if (ch == " ")
+      last_space = line.size();
+    line += ch;
+  }
+  out.push_back(line);
+  return out;
+}
+}  // namespace
+
+ChatLine LayoutChatLine(ImFont* regular, ImFont* bold, float size, float line_h, const std::string& nick,
+                        const std::string& words, float width)
+{
+  ChatLine l;
+  l.who = nick + ":";
+  float who_w = WidthOf(bold, size, l.who);
+  if (who_w > width)
+  {
+    // (A nickname wider than the line: cut, a whole UTF-8 character at a time.)
+    std::string cut = nick;
+    while (cut.size() > 1 && WidthOf(bold, size, cut + "...:") > width)
+    {
+      cut.pop_back();
+      while (!cut.empty() && (static_cast<unsigned char>(cut.back()) & 0xC0) == 0x80)
+        cut.pop_back();
+    }
+    l.who = cut + "...:";
+    who_w = WidthOf(bold, size, l.who);
+  }
+  l.indent = who_w + WidthOf(regular, size, " ");
+  // (A nickname over half the line: the words under it.)
+  const float first = who_w > width * 0.5f ? 0.0f : std::max(0.0f, width - l.indent);
+  l.lines = Wrap(regular, size, words, first, width);
+  l.height = line_h * static_cast<float>(l.lines.size());
+  return l;
+}
+
+void DrawChatLine(ImDrawList* dl, ImFont* regular, ImFont* bold, float size, float line_h, const ChatLine& line,
+                  ImVec2 at, ImU32 who_colour, ImU32 colour)
+{
+  dl->AddText(bold, size, at, who_colour, line.who.c_str());
+  for (size_t i = 0; i < line.lines.size(); i++)
+  {
+    if (!line.lines[i].empty())
+      dl->AddText(regular, size, ImVec2(at.x + (i == 0 ? line.indent : 0.0f), at.y + line_h * static_cast<float>(i)),
+                  colour, line.lines[i].c_str());
+  }
 }
 }  // namespace NetplayUi

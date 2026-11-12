@@ -32,6 +32,10 @@
 #     wrote past its parent's list, over dlmalloc's bookkeeping); the scripts' numbered animation constants
 #     ("ANI_FOLLOW41") are checked against their list's size, -1 past it (upstream read past it), in both
 #     engines, and 6391's ANI_BLOCKPAIN / ANI_BACKBLOCKPAIN read the right lists, as 8025 does.
+#   - (01.06, from two v00.23 crash reports) A model's "defense normalN" / "offense normalN" past the attack types
+#     models.txt declares is ignored (both engines wrote it past the model's list, over the heap: Knights of the
+#     Round Revenge); 6391's hit check also checks the frame's own boxes, as 8025 does (Double Dragon Reloaded
+#     Alternate: a NULL read in checkhit).
 #   - The engines compiled with -fno-common (upstream: -fcommon): ld.lld -r leaves common symbols common,
 #     and made local they would have no storage. 6391's two tentative definitions in a header are defined
 #     once, in openbor.c.
@@ -400,6 +404,54 @@ patch(C8, '\tv.ullVal = (uint64_t)(y[atoi(constname+(sizeof(#x)-1))-1]);\\\n',
           '\tv.ullVal = (uint64_t)emusuni_anim_id(y, atoi(constname+(sizeof(#x)-1))-1);\\\n')
 patch(C8, '\tv.ullVal = (uint64_t)(y[atoi(constname+(sizeof(#x)-1))+STA_ATKS-1]);\\\n',
           '\tv.ullVal = (uint64_t)emusuni_anim_id(y, atoi(constname+(sizeof(#x)-1))+STA_ATKS-1);\\\n')
+# (01.06, two v00.23 crash reports) A model's "defense normalN" / "offense normalN" past the attack types models.txt
+# declares (maxattacktypes) is ignored, with a line in the engine's log: both engines (and 4153, the build such mods
+# were made for) wrote it past the end of the model's list (max_attack_types + 1 entries), over the heap's bookkeeping. AddressSanitizer, both engines, a copy of Ruvor with "defense normal40". Knights of the Round
+# Revenge (a 4153 mod, run by 6391) then crashed on the PS4 loading its models (a pointer half overwritten with 1.0f)
+# or freeing the sprites as the game ended (a chunk header that held 0.25f and 1.0f: a defense's factor and
+# knockdown). The script functions already check their attack type.
+patch('engines/6391/openbor.c',
+      'newchar->defense[tempInt + STA_ATKS - 1] = defense;',
+      'if(tempInt + STA_ATKS - 1 <= max_attack_types) newchar->defense[tempInt + STA_ATKS - 1] = defense; '
+      'else printf("EmuSuNi: \\"defense %s\\" ignored: past the attack types models.txt declares (maxattacktypes)\\n", '
+      'value);  /* EmuSuNi: upstream wrote past the list */')
+patch('engines/6391/openbor.c',
+      'newchar->offense_factors[tempInt + STA_ATKS - 1] = GET_FLOAT_ARG(2);',
+      'if(tempInt + STA_ATKS - 1 <= max_attack_types) newchar->offense_factors[tempInt + STA_ATKS - 1] = GET_FLOAT_ARG(2); '
+      'else printf("EmuSuNi: \\"offense %s\\" ignored: past the attack types models.txt declares (maxattacktypes)\\n", '
+      'value);  /* EmuSuNi: upstream wrote past the list */')
+patch('engines/8025/openbor.c',
+      '    if (starts_with(value, "normal"))\n'
+      '    {\n'
+      '        get_tail_number(tempInt, value, "normal");\n',
+      '    if (starts_with(value, "normal"))\n'
+      '    {\n'
+      '        get_tail_number(tempInt, value, "normal");\n'
+      '        /* EmuSuNi: past the list (max_attack_types + 1 entries) upstream wrote over the heap */\n'
+      '        if (tempInt + STA_ATKS - 1 > max_attack_types)\n'
+      '        {\n'
+      '            printf("EmuSuNi: \\"%s %s\\" ignored: past the attack types models.txt declares (maxattacktypes)\\n",\n'
+      '                   command, value);\n'
+      '            return;\n'
+      '        }\n', count=2)
+# (01.06, a v00.23 crash report: Double Dragon Reloaded Alternate) 6391's hit check reads the attacker's attack boxes
+# and the target's body boxes of their current frames, which are NULL in a frame without them: update_frame checks the
+# attacker's frame once before do_attack, but do_attack's loop over the targets runs scripts (ondoattack, didhit,
+# takedamage) that can move the attacker to another frame of the same animation. Checked here, as build 8025 does.
+patch('engines/6391/openbor.c',
+      '    if(attacker == target\n'
+      '       || !target->animation->collision_body\n'
+      '       || !attacker->animation->collision_attack\n'
+      '       || !target->animation->vulnerable[target->animpos]\n'
+      '       )\n',
+      '    if(attacker == target\n'
+      '       || !target->animation->collision_body\n'
+      '       || !attacker->animation->collision_attack\n'
+      '       || !target->animation->vulnerable[target->animpos]\n'
+      '       /* EmuSuNi: this frame\'s boxes, as build 8025 checks (NULL in a frame without them) */\n'
+      '       || !attacker->animation->collision_attack[attacker->animpos]\n'
+      '       || !target->animation->collision_body[target->animpos]\n'
+      '       )\n')
 
 written = 0
 for path, text in patched.items():

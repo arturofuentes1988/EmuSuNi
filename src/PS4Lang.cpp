@@ -12,6 +12,7 @@
 #include <unordered_set>
 
 #include "AssetPack.h"
+#include "NetplayProtocol.h"
 
 extern "C" void ps4_boot_trace(const char* line);  // port/ps4_crashlog.cpp
 
@@ -133,9 +134,17 @@ const Language& Current()
   return *s_current;
 }
 
+// (01.07) The countries' names (countries.tsv), read at the first one asked for: by code, a name in each of its
+// columns.
+static std::string s_assets_dir;
+static bool s_countries_read = false;
+static std::vector<std::string> s_country_columns;
+static std::unordered_map<std::string, std::vector<std::string>> s_countries;
+
 void Load(const std::string& assets_dir, const std::string& code)
 {
   std::lock_guard lock(s_mutex);
+  s_assets_dir = assets_dir;
   s_current = &LANGUAGES[0];
   for (const Language& language : LANGUAGES)
   {
@@ -277,5 +286,54 @@ std::vector<std::string> ExtraFonts(const std::string& assets_dir, bool bold)
       fonts.push_back(path);
   }
   return fonts;
+}
+
+std::string CountryName(const std::string& code)
+{
+  std::lock_guard lock(s_mutex);
+  if (!s_countries_read && !s_assets_dir.empty())
+  {
+    s_countries_read = true;
+    std::string text;
+    AssetPack::Read(s_assets_dir + "/xmb/netplay/countries.tsv", &text);
+    std::istringstream lines(text);
+    for (std::string line; std::getline(lines, line);)
+    {
+      if (line.empty() || line[0] == '#')
+        continue;
+      std::vector<std::string> cells;
+      std::istringstream row(line);
+      for (std::string cell; std::getline(row, cell, '\t');)
+        cells.push_back(cell);
+      if (cells.size() < 2)
+        continue;
+      if (cells[0] == "code")
+        s_country_columns.assign(cells.begin() + 1, cells.end());
+      else
+        s_countries[cells[0]].assign(cells.begin() + 1, cells.end());
+    }
+  }
+  const auto it = s_countries.find(code);
+  if (it == s_countries.end())
+    return code;
+  const std::string current = s_current->code;
+  for (size_t i = 0; i < s_country_columns.size() && i < it->second.size(); i++)
+  {
+    if (s_country_columns[i] == current && !it->second[i].empty())
+      return it->second[i];
+  }
+  return it->second.empty() ? code : it->second[0];  // (English: the first column)
+}
+
+std::string ChatPhraseText(int phrase, const std::string& param)
+{
+  const char* english = NetProto::ChatPhrase(phrase);
+  if (phrase == NetProto::PHRASE_FROM)
+  {
+    // ("I'm from {}": the English filled with the name in this language - the pattern keeps it as it is.)
+    const std::string filled = "I'm from " + CountryName(param);
+    return T(filled);
+  }
+  return T(english);
 }
 }  // namespace PS4Lang

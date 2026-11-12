@@ -191,6 +191,8 @@ struct LibraryInfo
 void SetLibrary(const std::vector<LibraryFile>& files);
 // While a game runs, the hashing waits (between files).
 void PauseLibrary(bool pause);
+// (01.19) Delete Game: the deleted files' hashes forgotten (data_dir/cache/ra/library-hashes.txt and the thread's).
+void ForgetLibraryFiles(const std::vector<std::string>& paths);
 // The states that may have changed since the menu last took them (once a second at most, when LibraryVersion changed;
 // one lock): each one's game by its index in SetLibrary's list, with its key. All of them (*all) after a new list, a
 // console's list from RetroAchievements, the account's progress or a game played; else only the files hashed since.

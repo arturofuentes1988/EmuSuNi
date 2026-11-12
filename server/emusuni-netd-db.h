@@ -16,6 +16,12 @@
 //                                        with a salt of this server's; deleted with "Delete My Profile"
 //   pub_day, pub_day_label, pub_day_update, pub_seen   (00.95) the same, counted only from the versions published on
 //                                        GitHub (meta "published", record-downloads): the public page's (public-json)
+//   room_log(created, closed, console, game, kind, ...)   (01.04) each online room's history, written when it closed:
+//                                        its console and game label, kind, players, matches and their seconds, the
+//                                        host's version, its members' countries - no address, nickname or code; 180 days;
+//                                        a public room's title, the guests who left or were dropped, the joins refused by
+//                                        why, the games every player has and the requests the host ended (RoomNote)
+//   refusal_day(date, request, why, n)   (01.04) the requests refused a day (join no-room, join full, hello version...)
 // A server of the text files before (day-*.txt, downloads.txt, today.bin, salt) moves them in at its first start
 // (StoreMigrateFiles) and keeps them in migrated-files/.
 
@@ -60,7 +66,32 @@ sqlite3* StoreOpen(const std::string& dir)
       "CREATE TABLE IF NOT EXISTS pub_day_update(date TEXT, from_version TEXT, to_version TEXT, installs INT,"
       " PRIMARY KEY(date, from_version, to_version)) WITHOUT ROWID;"
       "CREATE TABLE IF NOT EXISTS pub_seen(key INTEGER PRIMARY KEY, consoles INT, states INT, checks INT, updated INT,"
-      " games TEXT);";
+      " games TEXT);"
+      // (01.04) Each room's history, when it closed (emusuni-netd.cpp's RoomLog): no address, nickname or code.
+      "CREATE TABLE IF NOT EXISTS room_log(id INTEGER PRIMARY KEY, created INT, closed INT, console TEXT, game TEXT,"
+      " kind TEXT, max_members INT, peak INT, joins INT, matches INT, match_seconds INT, first_match INT,"
+      " relayed_kb INT, version TEXT, countries TEXT, reason TEXT);"
+      "CREATE INDEX IF NOT EXISTS room_log_created ON room_log(created);"
+      // (01.04) The requests refused a day, by request and why (numbers only).
+      "CREATE TABLE IF NOT EXISTS refusal_day(date TEXT, request TEXT, why TEXT, n INT,"
+      " PRIMARY KEY(date, request, why)) WITHOUT ROWID;"
+      // (01.06) A game's whole file's label and its content's, as a host said both (emusuni-netd.cpp's LearnFileId):
+      // the games most played count the older apps' rooms by their content.
+      "CREATE TABLE IF NOT EXISTS file_id(old TEXT PRIMARY KEY, label TEXT, seen INT) WITHOUT ROWID;"
+      // (01.07, the owner: "30 días, sin IP") The world chat's lines (and, next, the rooms'), 30 days for moderation
+      // (emusuni-netd-chat.h): never an address - its keyed hash, the salt's period -, read by the owner's panel.
+      "CREATE TABLE IF NOT EXISTS chat_log(id INTEGER PRIMARY KEY, at INT, place TEXT, nick TEXT, code TEXT,"
+      " country TEXT, version TEXT, phrase INT, param TEXT, text TEXT, ip_hash TEXT, salt INT, reported INT DEFAULT 0);"
+      "CREATE INDEX IF NOT EXISTS chat_log_at ON chat_log(at);"
+      "CREATE INDEX IF NOT EXISTS chat_log_code ON chat_log(code);"
+      // (01.07, the owner) The players' ranking (emusuni-netd-players.h): each ranked player's time in matches by its
+      // code (the chat's) - by day and console (30 days), by console since ever -, its last nickname and country.
+      "CREATE TABLE IF NOT EXISTS player_time(code TEXT, day TEXT, console TEXT, seconds INT,"
+      " PRIMARY KEY(code, day, console)) WITHOUT ROWID;"
+      "CREATE TABLE IF NOT EXISTS player_total(code TEXT, console TEXT, seconds INT, PRIMARY KEY(code, console))"
+      " WITHOUT ROWID;"
+      "CREATE TABLE IF NOT EXISTS players(code TEXT PRIMARY KEY, nick TEXT, country TEXT, last_seen INT)"
+      " WITHOUT ROWID;";
   char* error = nullptr;
   if (sqlite3_exec(db, schema, nullptr, nullptr, &error) != SQLITE_OK)
   {
@@ -86,6 +117,33 @@ sqlite3* StoreOpen(const std::string& dir)
   }
   if (!has_version)
     sqlite3_exec(db, "ALTER TABLE profile ADD COLUMN version TEXT DEFAULT ''", nullptr, nullptr, nullptr);
+  // (01.04) room_log's columns more (why nobody plays): added to a room_log of before - its rows read them empty.
+  std::set<std::string> room_columns;
+  {
+    sqlite3_stmt* q = nullptr;
+    if (sqlite3_prepare_v2(db, "PRAGMA table_info(room_log)", -1, &q, nullptr) == SQLITE_OK)
+    {
+      while (sqlite3_step(q) == SQLITE_ROW)
+      {
+        if (const unsigned char* name = sqlite3_column_text(q, 1))
+          room_columns.insert(reinterpret_cast<const char*>(name));
+      }
+    }
+    sqlite3_finalize(q);
+  }
+  const char* const more[][2] = {{"title", "TEXT DEFAULT ''"},  {"guests_left", "INT DEFAULT 0"},
+                                 {"dropped", "INT DEFAULT 0"},  {"refused_full", "INT DEFAULT 0"},
+                                 {"refused_version", "INT DEFAULT 0"}, {"refused_started", "INT DEFAULT 0"},
+                                 {"refused_kicked", "INT DEFAULT 0"}, {"common", "INT DEFAULT -1"},
+                                 {"host_refused", "INT DEFAULT 0"}, {"host_no_answer", "INT DEFAULT 0"},
+                                 {"watchers", "INT DEFAULT 0"},  // ((01.05) the spectators who came,
+                                 {"late_joins", "INT DEFAULT 0"}};  // the players who joined a match under way)
+  for (const auto& column : more)
+  {
+    if (!room_columns.count(column[0]))
+      sqlite3_exec(db, (std::string("ALTER TABLE room_log ADD COLUMN ") + column[0] + " " + column[1]).c_str(), nullptr,
+                   nullptr, nullptr);
+  }
   return db;
 }
 

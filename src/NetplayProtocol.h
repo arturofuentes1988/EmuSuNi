@@ -16,8 +16,13 @@
 //   Info(cookie) -> ServerInfo: the relay servers (the main one first), by region.
 //   Create(cookie: the game - console, title, CRC32 and size of its file -, the app's version, a nickname, the
 //              console's LAN address, its local players, public or private, hide my address, its time zone)
-//              -> Created (the code, the member's id, token and relay ticket)
+//              -> Created (the code, the member's id, token and relay ticket). (01.05) After them, the version of the
+//              host's file as its name says ("USA, Rev 1"), for the list: a server before it reads up to the time zone.
+//              (01.06) Then what the app plays online and how (WriteNetCaps) and its file's whole CRC32 and size (an
+//              app before 01.05 knows a game by them: GameInfo::file_crc).
 //   Join(cookie, code, ...) -> Joined, or Refused (no such room, full, another app version, removed, too many tries)
+//              (01.06) Then WriteNetCaps: two versions play a room's match together when its console's online level is
+//              the same in both (PlayTogether) - a server before it asks for the same version.
 //   List(cookie, console, page) -> Rooms: the public rooms waiting for players (the host's nickname, time zone, game,
 //              its ping to the server)
 //   ListAll(cookie, console, first) -> AllRooms (00.85: the Online tab's table): every room - public and private,
@@ -26,9 +31,17 @@
 //              its game, the host's nickname, time zone and ping to the server, its players and EmuSuNi version. A
 //              public room's code, never a private one's (its host tells it), never an address. (As List: the cookie
 //              proves the address, so the answer may be bigger than the request; the lists' rate limit counts it.)
-//              A server before it drops it: the app asks it for List then (the public rooms waiting).
+//              A server before it drops it: the app asks it for List then (the public rooms waiting). (01.05) After
+//              the rooms, each host's country and its game's version (EXTRA_VERSION). (01.06) The asker says
+//              WriteNetCaps after `first`: one that doesn't gets each game by its whole file's CRC32 (the rooms of a
+//              host of 01.06 on); after the rooms' extras, each host's level of its console and caps (EXTRA2_VERSION).
+//   (01.05) TopGames(cookie, days) -> TopGamesList: the games most played online those days (counts by game only).
 //   Members, whenever the room changes and in answer to every Keepalive (every 2 s): every member's nickname and
-//              addresses (public as the server sees it, LAN as the console sees itself; none for one that hides them)
+//              addresses (public as the server sees it, LAN as the console sees itself; none for one that hides them).
+//              (01.05) After them, how many watch and each member's country (EXTRA_VERSION): the country of the
+//              address, looked up by the server - never the address -, none for one that doesn't show it. (01.06)
+//              Then each member's app version and caps (EXTRA2_VERSION); the room's game by the CRC32 that member's
+//              app knows it by (an app before 01.05: its whole file's, when the host said it).
 //   Leave, Kick (the host removes a member), Lock (the host: the match started, the room leaves the list)
 //   Relay -> Relayed: a peer packet passed to another member of the same room (never an open relay)
 //   Stats(cookie: a random install id, the app's version, the PS4's language, menu / playing a console / online, the
@@ -59,6 +72,8 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace NetProto
 {
@@ -69,6 +84,12 @@ constexpr uint16_t DEFAULT_PORT = 7777;
 constexpr size_t MAX_PACKET = 1400;
 constexpr size_t HEADER = 4;
 constexpr int MAX_MEMBERS = 4;  // consoles in a room (00.95: the host chooses 2 to 4; before, rooms of 2)
+// (01.05) Spectators of a room ("Mirar": they watch its match, play nothing), their member ids from FIRST_WATCHER. The
+// server lists them only to the host and to themselves (the players never see one: an app before it skips the ids
+// past MAX_MEMBERS anyway); only a host that lets them (NOTE_WATCH) gets any.
+constexpr int MAX_WATCHERS = 4;
+constexpr int FIRST_WATCHER = MAX_MEMBERS;
+constexpr int MAX_SLOTS = MAX_MEMBERS + MAX_WATCHERS;
 constexpr int MAX_PORTS = 4;    // the console's controller ports a match fills, every console's players together
 constexpr int CODE_LENGTH = 6;
 // The room codes' letters: no 0/O, 1/I/L - read aloud or from a screen, never mistaken (31 letters, 6 of them:
@@ -76,6 +97,12 @@ constexpr int CODE_LENGTH = 6;
 constexpr char CODE_ALPHABET[] = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
 constexpr size_t MAX_NICK = 32, NICK_LETTERS = 16, MAX_TITLE = 120, MAX_CONSOLE = 16, MAX_APP_VERSION = 16;
 constexpr size_t MAX_REGION = 12, MAX_RELAY_NAME = 24;
+// (01.05) A country as the others see it: two capitals (ISO 3166-1, "CL"). A game's version as its file's name says it
+// ("USA, Rev 1"): at most MAX_GAME_VERSION bytes, GAME_VERSION_LETTERS letters.
+constexpr size_t COUNTRY_SIZE = 2, MAX_GAME_VERSION = 48, GAME_VERSION_LETTERS = 28;
+// (01.05) The games most played online (TopGamesList): how many, their titles' bytes at most, the days counted.
+constexpr int TOP_GAMES = 12, TOP_DAYS = 7;
+constexpr size_t MAX_TOP_TITLE = 48;
 constexpr size_t COOKIE_SIZE = 16;
 constexpr size_t MAC_SIZE = 16;
 constexpr size_t TICKET_SIZE = 8 + 1 + 4 + MAC_SIZE;  // room id, member, expiry, signature
@@ -105,6 +132,29 @@ enum class Type : uint8_t
   Lock = 10,
   Stats = 11,  // (the anonymous statistics' heartbeat)
   ListAll = 12,  // (00.85: every room, for the Online tab's table)
+  // (01.04) The host tells the server what only the consoles know, for the room's history (server/emusuni-netd.cpp's
+  // room_log; never shown to anyone): the server's auth (code, member, token), a NOTE_* and its number. No answer.
+  RoomNote = 13,
+  // (01.05, the owner) The games most played online (cookie, nonce, U8 days) -> TopGamesList: the main server's
+  // room_log of those days, by game - counts only (no nickname, no address, no code). A server before it drops it.
+  TopGames = 14,
+  // (01.07, the owner: "un chat mundial") The world chat (WORLD CHAT below): its lines since one, a line said, a line
+  // reported. A server before it drops them.
+  WorldChat = 15,
+  WorldSay = 16,
+  WorldReport = 17,
+  // (01.07, the owner: "no quiero que se hablen cosas sensibles o ilegales") A copy of a line of the room's chat, from
+  // the member that said it (the server's auth - code, member, token -, U8 flags - WORLD_NOTICE_SEEN -, the chat key,
+  // U8 the phrase's number then Str its parameter, or 0 then Str the text), kept as the world chat's lines are
+  // (WORLD CHAT): only a member's, only once the room's notice was shown. No answer. The line itself goes from console
+  // to console as ever.
+  RoomChatCopy = 18,
+  // (01.07, the owner) The players' ranking: TopPlayers(cookie, nonce, U8 days: TOP_DAYS, or 0 since ever) ->
+  // TopPlayersList(U32 nonce, U8 days, U8 count, each: Str nickname, Str country ("" not shown), U32 seconds in
+  // matches, Str the console played most) - TOP_PLAYERS at most, the most first. The server counts each ranked
+  // player's time in matches (WritePlayer at Create's and Join's end: PLAYER_RANKED), by its code (the chat's), never
+  // an address. A server before it drops it.
+  TopPlayers = 19,
   // main server -> console
   Cookie = 20,
   ServerInfo = 21,
@@ -124,6 +174,14 @@ enum class Type : uint8_t
   RelayData = 34,
   // main server -> console again (20-29 were taken)
   AllRooms = 35,  // (00.85: ListAll's answer)
+  // (01.05) TopGames' answer: U32 nonce, U8 days, U8 count, then each game - Str console (MAX_CONSOLE), U32 its
+  // content's CRC32 (the rooms' GameInfo::crc), U32 matches started, Str a public room's title of it (MAX_TOP_TITLE;
+  // "" none) - the most played first, TOP_GAMES at most.
+  TopGamesList = 36,
+  // (01.07) WorldChat's and WorldSay's answers, TopPlayers'.
+  WorldLines = 37,
+  WorldSaid = 38,
+  TopPlayersList = 39,
   // console <-> console (directly, or inside Relay / RelayData and Relayed)
   Punch = 40,
   PunchAck = 41,
@@ -135,6 +193,11 @@ enum class Type : uint8_t
   BulkAck = 47,
   Input = 48,
   Voice = 49,
+  // (01.05) A match watched (MAX_WATCHERS): the host's final inputs - every port's, frame by frame, with its newest
+  // checksum - to a spectator; the spectator's answer, the newest frame it has every input of. Only between a host and
+  // its spectators (an app before it never lets one in).
+  Watch = 50,
+  WatchAck = 51,
 };
 
 // Why the server refused a request.
@@ -149,6 +212,9 @@ enum class Refusal : uint8_t
   Started = 7,      // the room's game started already
   BadCookie = 8,    // the cookie is old: Hello again
   Kicked = 9,       // the host removed this console from that room
+  // (01.05) A spectator's Join (FLAG_WATCH): the host doesn't let spectators watch (detail "full": MAX_WATCHERS watch
+  // already). Only a spectator's Join is refused so.
+  NoWatch = 10,
 };
 
 // Why a room closed for a member (Closed).
@@ -163,6 +229,14 @@ enum class CloseReason : uint8_t
 // Create's and Join's flags.
 constexpr uint8_t FLAG_PUBLIC = 1;  // the room is in the public list (Create)
 constexpr uint8_t FLAG_HIDDEN = 2;  // this member's addresses aren't given to the others: always through a relay
+// (01.05) Join: as a spectator, in a room whose host lets them (also while its match plays). A server before it would
+// take it as a player: the app asks so only of a room listed as watchable (ROOM_WATCHABLE), or one a Started refusal
+// says is ("watch": WATCH_DETAIL).
+constexpr uint8_t FLAG_WATCH = 4;
+constexpr char WATCH_DETAIL[] = "watch";
+// (01.05) Create and Join: this member's country isn't shown to the others (Members and AllRooms say none for it).
+// A server before it reads only the first three.
+constexpr uint8_t FLAG_NO_COUNTRY = 8;
 
 // The Control messages.
 enum class ControlKind : uint8_t
@@ -176,7 +250,11 @@ enum class ControlKind : uint8_t
   RelayChoice = 7,    // the host: the relay server both consoles use (its index in ServerInfo)
   RelayReady = 8,     // a console opened on that relay: its packets may come through it
   Suggest = 9,        // a guest of a Choose Together room: the game it would like (the host sees it marked)
-  EndMatch = 10,      // a Choose Together room's match ends: back to the room's list of common games
+  // A Choose Together room's match ends: back to the room's list of common games. (01.23, the owner: "salir del juego
+  // sin salir de la sala") Any room's (not a link cable's), when every player's app has CAP_ROOM: the match ends for
+  // every player, all back in the room; the host's to its spectators (CAP_ROOM's: back in it too, the next match
+  // theirs to watch).
+  EndMatch = 10,
   // (00.86) The host lets a guest in. A console that joins asks to: until the host accepts it, it waits ("Waiting for
   // the host to accept you") and is in no match, list of games or voice chat. Rejected, it is told so by a Quit of
   // reason QUIT_REFUSED (and the server removes it: it can't ask again in that room); a request not answered in time,
@@ -188,19 +266,84 @@ enum class ControlKind : uint8_t
   // (console, CRC32, size, title), to the host once it is accepted; the host's answer, one byte - a LobbyGame: Same (it
   // has that file too), Missing (it hasn't).
   LinkGame = 12,
+  // (01.05) The room's chat, from a member the host accepted to every other one: a quick phrase (CHAT_PHRASE, U8 its
+  // number: ChatPhrase - each console shows it in its own language) or a line of text (CHAT_TEXT, Str of CHAT_BYTES
+  // at most: CleanChat again where it arrives). Nothing of it goes to the server (a relay passes it on, unread and
+  // unkept - but the packets between consoles aren't encrypted). An app before it acknowledges it and ignores it.
+  Chat = 13,
+  // (01.05) A spectator to the host: its game loaded (or its state found different), the host's state please - the
+  // host sends it (BulkKind::Resync) at a frame whose inputs are final, and its inputs from there (Type::Watch).
+  WatchState = 14,
+  // (01.05) A player joining the match under way (NOTE_LATE). The host to it: the match is on - start the game
+  // (LateStart; then the options); it to the host: its game loaded (LateReady, U8 its players). The host to the
+  // players: stop at a frame (JoinPause: U32 frame, U8 member, Str nickname) - a console past it goes back to it; to
+  // the newcomer, the ports and the match's rules from that frame (LateGo: U32 frame, U8 delay, U8 rollback, U16
+  // checksum frames, U8 count, then member, first port, ports each - itself too) and its state of it (BulkKind::State);
+  // the newcomer's Ready; then to the players: on from that frame with it (JoinResume: U32 frame, U8 member - JOIN_NONE
+  // none came in -, U8 first port, U8 ports).
+  LateStart = 15,
+  LateReady = 16,
+  JoinPause = 17,
+  LateGo = 18,
+  JoinResume = 19,
+  // (01.05) A player's file of the room's game, to every other player: U8 a LobbyGame (the host's: Same), Str its
+  // version as its name says ("USA, Rev 1": MAX_GAME_VERSION; "" none or not found) - each card of the room says it.
+  GameVersion = 20,
+  // (01.14, the owner: Gabriel's "reiniciar en partida online") The host to the players: the game is reset at a frame
+  // (U32), past every console's (as JoinPause's). Each player stops there (one past it goes back to it), and once every
+  // input before it is in - the state of that frame the same on every console - resets the core and goes on. Only when
+  // every player's app has CAP_RESET. The spectators get the host's state again after it.
+  ResetAt = 21,
 };
+constexpr uint8_t JOIN_NONE = 0xFF;
+
+constexpr uint8_t CHAT_PHRASE = 1, CHAT_TEXT = 2;
+constexpr size_t CHAT_LETTERS = 100, CHAT_BYTES = 250;
+// The quick phrases' English (PS4Lang translates them where they are shown); their numbers never change - a new one
+// goes at the end. "" for 0 and a number past the end (a newer app's: not shown).
+// (01.07, the owner) 13-20 more. PHRASE_FROM's "{}" is its sayer's country - never said by the sayer: the others fill
+// it with the country the server shows of it (Members' for the room's chat, the server's own for the world chat's);
+// none shown, the phrase isn't shown (nor said).
+// (01.15, the owner) 21, a laugh. An app before it (01.05-01.14) drops the number as a newer app's: its player sees
+// nothing of that line - the room's chat and the world chat alike (Netplay.cpp's ReceiveChat, the world's lines); the
+// server takes numbers up to 64 (MAX_WORLD_PHRASE).
+inline const char* ChatPhrase(int id)
+{
+  static const char* const PHRASES[] = {"",           "Hello!",       "Ready?",     "Ready!",  "Good game!",
+                                        "One moment, please",         "Another game?",       "You choose",
+                                        "Thanks!",    "Nice!",        "There's lag", "I have to go", "See you!",
+                                        "I'm fine",   "How are you?", "Where are you from?", "I'm from {}",
+                                        "Yes",        "No",           "Good luck!", "Let's play!", "Hahaha!"};
+  return id > 0 && id < static_cast<int>(sizeof(PHRASES) / sizeof(PHRASES[0])) ? PHRASES[id] : "";
+}
+constexpr int CHAT_PHRASES = 21;
+constexpr int PHRASE_FROM = 16;
 
 // A Quit's reason (its one byte).
 constexpr uint8_t QUIT_LEFT = 0;       // the player left
 constexpr uint8_t QUIT_REMOVED = 1;    // the host removed this console
 constexpr uint8_t QUIT_REFUSED = 2;    // (00.86) the host didn't accept this console's request to join
 constexpr uint8_t QUIT_NO_ANSWER = 3;  // (00.86) the host didn't answer it in time
+constexpr uint8_t QUIT_NO_PORT = 4;    // (01.05) the match under way has no controller port left for it
+
+// (01.04) RoomNote's kinds (the host's; numbers only - never a title or a nickname).
+constexpr uint8_t NOTE_COMMON = 1;   // a Choose Together room's games every player has: U16 how many (0: none)
+constexpr uint8_t NOTE_REFUSED = 2;  // a request to join ended by the host: U8 QUIT_REFUSED or QUIT_NO_ANSWER
+// (01.05) Spectators: U8 1 the host lets them watch (MAX_WATCHERS), 0 no more (those in stay till they leave). A server
+// before it ignores it.
+constexpr uint8_t NOTE_WATCH = 3;
+// (01.05) A player may join the match under way (a room with a place left: the host sends it its state, everyone
+// pauses a moment, it plays from there): U8 1 yes, 0 no. Never a link cable room's or a Choose Together one's. A server
+// before it ignores it (and refuses those joins as ever).
+constexpr uint8_t NOTE_LATE = 4;
 
 // A Choose Together room's "game" (Create's console): no game yet - the players choose one of the games they both have.
 constexpr char TOGETHER[] = "*";
 // (00.95) A Game Boy link cable room's console (src/GbLink.h): two Game Boys joined by the cable, the room's game Game
 // Boy 1's (the host's: a Game Boy or Game Boy Color game), the guest's own Game Boy 2's (LinkGame).
 constexpr char GBLINK[] = "gblink";
+// (01.04) A Game Boy Advance link cable room's: the same, two GBA games (GBA 1 the host's, GBA 2 the guest's).
+constexpr char GBALINK[] = "gbalink";
 
 // What a Lobby control says of the guest's game.
 enum class LobbyGame : uint8_t
@@ -435,8 +578,9 @@ inline std::string ReadCode(Reader& r)
 
 // ---- Texts strangers see in the public list: nicknames, game titles, time zones ----
 // Printable, at most `most` letters (UTF-8), the words of a short list (English and Spanish insults and slurs)
-// starred; nothing left: `empty`. The app (its own) and the server (everyone's) apply it.
-inline std::string CleanText(const std::string& in, size_t most, const char* empty)
+// starred (`words` false: not - the chat's); nothing left: `empty`. The app (its own) and the server (everyone's)
+// apply it.
+inline std::string CleanText(const std::string& in, size_t most, const char* empty, bool words = true)
 {
   std::string out;
   size_t letters = 0;
@@ -465,6 +609,8 @@ inline std::string CleanText(const std::string& in, size_t most, const char* emp
     c = (c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c;
   for (const char* word : WORDS)
   {
+    if (!words)
+      break;
     const size_t len = std::strlen(word);
     for (size_t at = lower.find(word); at != std::string::npos; at = lower.find(word, at + len))
     {
@@ -480,6 +626,17 @@ inline std::string CleanText(const std::string& in, size_t most, const char* emp
 inline std::string CleanNick(const std::string& in)
 {
   return CleanText(in, NICK_LETTERS, "Player");
+}
+// (01.05, the owner: "sin filtro de palabras") A line of the room's chat: printable, CHAT_LETTERS at most, its words as
+// they were typed. (The nicknames keep their filter.)
+inline std::string CleanChat(const std::string& in)
+{
+  return CleanText(in, CHAT_LETTERS, "", false);
+}
+// (01.05) A country as the packets carry it: two capitals, else "" (none shown).
+inline std::string CleanCountry(const std::string& in)
+{
+  return in.size() == COUNTRY_SIZE && in[0] >= 'A' && in[0] <= 'Z' && in[1] >= 'A' && in[1] <= 'Z' ? in : std::string();
 }
 
 // ---- An IPv4 address as the packets carry it: the address and the port in host order ----
@@ -521,6 +678,12 @@ struct Member
   uint8_t locals = 1;
   uint8_t flags = 0;  // FLAG_HIDDEN
   std::string region;
+  std::string country;  // (01.05) "CL" ("": not shown - FLAG_NO_COUNTRY, not known, a server before it)
+  // (01.06) Its EmuSuNi version and what it does online (CAP_*; caps_known false: a server before it, or an app it
+  // doesn't know).
+  std::string app_version;
+  uint8_t caps = 0;
+  bool caps_known = false;
 };
 
 // ---- The game a room plays ----
@@ -530,6 +693,11 @@ struct GameInfo
   std::string title;
   uint32_t crc = 0;     // CRC32 of the game's file (a file over 64 MiB: of its first and last 8 MiB)
   uint64_t size = 0;    // the file's size
+  // (01.06) The file's own CRC32 and size, as an app before 01.05 knew a game (its whole file as it is: a header, a
+  // zip and all - crc and size above are its content's, NetplayLibrary::ContentId): a host says them at Create's end,
+  // the server gives them to such an app. Never written by WriteGame. 0: not known.
+  uint32_t file_crc = 0;
+  uint64_t file_size = 0;
 };
 inline void WriteGame(Writer& w, const GameInfo& g)
 {
@@ -564,15 +732,323 @@ struct RoomEntry
   bool is_public = true;
   bool playing = false;
   std::string app_version;
+  // (01.05) Its host lets spectators watch it (FLAG_WATCH), and how many do now: a server before it says neither.
+  bool watchable = false;
+  uint8_t watchers = 0;
+  // (01.05) Its match under way takes a player more (NOTE_LATE, a place left).
+  bool late = false;
+  // (01.05, AllRooms' extra) Its host's country ("CL"; "" not shown) and its game's version as the host's file's name
+  // says it ("USA, Rev 1"; "" not said): a server before it says neither.
+  std::string country, version;
+  // (01.06, AllRooms' second extra) Its host's online level of its console (NetLevel; 0: not known) and caps
+  // (CAP_*, CAPS_KNOWN with them known): a server before it says neither - the room plays with its own version only.
+  uint8_t level = 0, host_caps = 0;
 };
 
-// AllRooms' rooms: their flags, then the code when it is public.
+// (01.05) What follows Members' members and AllRooms' rooms - an app before it reads neither (a datagram's end is never
+// checked): EXTRA_VERSION, then for Members how many watch (U8) and each member's country (Str, COUNTRY_SIZE) in the
+// list's order; for AllRooms each room's WriteRoomExtra, in the rooms' order. A server before it sends none.
+constexpr uint8_t EXTRA_VERSION = 1;
+inline void WriteRoomExtra(Writer& w, const RoomEntry& e)
+{
+  w.Str(e.country, COUNTRY_SIZE);
+  w.Str(e.version, MAX_GAME_VERSION);
+}
+inline void ReadRoomExtra(Reader& r, RoomEntry* e)
+{
+  e->country = CleanCountry(r.Str(COUNTRY_SIZE));
+  e->version = CleanText(r.Str(MAX_GAME_VERSION), GAME_VERSION_LETTERS, "");
+}
+
+// ---- (01.06, the owner: "jugar entre versiones") Online play between versions of EmuSuNi ----
+// What an app does online beside a match. An app before 01.06 says none of it: its version does (OldNetCaps).
+constexpr uint8_t CAP_CHAT = 1;         // the room's chat (ControlKind::Chat): an app without it never shows a line
+constexpr uint8_t CAP_WATCH = 2;        // spectators (FLAG_WATCH, Type::Watch)
+constexpr uint8_t CAP_LATE = 4;         // joining a match under way (NOTE_LATE: LateStart, JoinPause...)
+constexpr uint8_t CAP_COUNTRY = 8;      // "Show My Country" (FLAG_NO_COUNTRY): an app without it shows none
+constexpr uint8_t CAP_CONTENT_ID = 16;  // a game known by its content (GameInfo::crc), not by its whole file
+constexpr uint8_t CAP_RESET = 32;       // (01.14) the match's Reset (ControlKind::ResetAt): the host resets it when all have it
+constexpr uint8_t CAP_ROOM = 64;        // (01.23) back to the room after a match, any room's (ControlKind::EndMatch)
+constexpr uint8_t NET_CAPS = CAP_CHAT | CAP_WATCH | CAP_LATE | CAP_COUNTRY | CAP_CONTENT_ID | CAP_RESET | CAP_ROOM;
+constexpr uint8_t CAPS_KNOWN = 0x80;    // (a caps byte of EXTRA2's: what follows is known)
+
+// A console's online level: its match as online play has it - the rules (src/Netplay.cpp's RulesFor), its core's
+// build, its inputs' and states' form. Two apps play that console's matches together when their levels of it are the
+// same, whatever their versions (local/herramientas/prueba-netplay/cruce.sh: v00.23 against 01.06). RAISED BY ONE
+// whenever any of that changes for a console - a core built from other code or with other options, a rule -: a level
+// kept is a promise that both consoles' matches go on alike (the Atari's cores of another build went out of step from
+// the first frame). 0: not played online.
+//  - 1: v00.23's: NES, SNES, Mega Drive, Master System, Game Gear, SG-1000, PC Engine, Atari 7800, the Arcade; (01.04)
+//    the GBA link cable's first.
+//  - 2 (01.04): the Atari 2600 (Stella's paddles moved by the stick or the mouse); the Game Boy link cable (its own
+//    rules: rollback 4 - v00.23 played it with the Game Boy's).
+inline int NetLevel(const std::string& console)
+{
+  if (console == "atari2600" || console == GBLINK)
+    return 2;
+  if (console == "nes" || console == "snes" || console == "md" || console == "sms" || console == "gg" ||
+      console == "sg1000" || console == "pce" || console == "atari7800" || console == "arcade" || console == GBALINK)
+    return 1;
+  return 0;
+}
+// The consoles an app says its level of (NetLevel's).
+constexpr const char* NET_CONSOLES[] = {"nes",       "snes",      "md",     "sms",  "gg",   "sg1000",
+                                        "pce",       "atari2600", "atari7800", "arcade", GBLINK, GBALINK};
+constexpr size_t MAX_NET_CONSOLES = 32;
+
+// An app as online play knows it: its caps and its consoles' levels.
+struct NetCaps
+{
+  bool known = false;  // said by the app (01.06 on) or by OldNetCaps' table; not known: plays with its own version only
+  uint8_t caps = 0;
+  std::vector<std::pair<std::string, uint8_t>> levels;
+  int Level(const std::string& console) const
+  {
+    for (const auto& level : levels)
+    {
+      if (level.first == console)
+        return level.second;
+    }
+    return 0;
+  }
+};
+inline NetCaps ThisNetCaps()
+{
+  NetCaps c;
+  c.known = true;
+  c.caps = NET_CAPS;
+  for (const char* console : NET_CONSOLES)
+    c.levels.emplace_back(console, static_cast<uint8_t>(NetLevel(console)));
+  return c;
+}
+// The apps before 01.06, by their version (they say nothing more). "00.23" is the published one ("01.03" its test
+// builds'); 01.04 and 01.05 were test builds. Any other version not known (before 00.23: none played online).
+inline NetCaps OldNetCaps(const std::string& version)
+{
+  NetCaps c;
+  const bool v0023 = version == "00.23" || version == "01.03";
+  const bool v0105 = version == "01.05";
+  if (!v0023 && !v0105 && version != "01.04")
+    return c;
+  c.known = true;
+  c.caps = v0105 ? static_cast<uint8_t>(CAP_CHAT | CAP_WATCH | CAP_LATE | CAP_COUNTRY | CAP_CONTENT_ID) : 0;
+  for (const char* console : {"nes", "snes", "md", "sms", "gg", "sg1000", "pce", "atari7800", "arcade"})
+    c.levels.emplace_back(console, 1);
+  c.levels.emplace_back("atari2600", v0023 ? 1 : 2);
+  c.levels.emplace_back(GBLINK, v0023 ? 1 : 2);
+  if (!v0023)
+    c.levels.emplace_back(GBALINK, 1);
+  return c;
+}
+// The apps whose games are known by their whole file (OldNetCaps without CAP_CONTENT_ID): the server's room_log keeps
+// their rooms' games so (emusuni-netd.cpp's CountTopGames).
+constexpr const char* FILE_ID_VERSIONS[] = {"00.23", "01.03", "01.04"};
+
+// What an app says of itself at Create's, Join's and ListAll's end: NETCAPS_VERSION, its caps, its consoles' levels
+// (count, then each one's console and level). A server before it reads none of it.
+constexpr uint8_t NETCAPS_VERSION = 1;
+inline void WriteNetCaps(Writer& w, const NetCaps& c)
+{
+  w.U8(NETCAPS_VERSION);
+  w.U8(static_cast<uint8_t>(c.caps & ~CAPS_KNOWN));
+  const size_t n = std::min(c.levels.size(), MAX_NET_CONSOLES);
+  w.U8(static_cast<uint8_t>(n));
+  for (size_t i = 0; i < n; i++)
+  {
+    w.Str(c.levels[i].first, MAX_CONSOLE);
+    w.U8(c.levels[i].second);
+  }
+}
+// Read when there (false: none, or not whole - r as it was).
+inline bool ReadNetCaps(Reader& r, NetCaps* c)
+{
+  if (r.Left() == 0)
+    return false;
+  Reader x = r;
+  if (x.U8() < NETCAPS_VERSION)
+    return false;
+  NetCaps got;
+  got.caps = static_cast<uint8_t>(x.U8() & ~CAPS_KNOWN);
+  const size_t n = x.U8();
+  for (size_t i = 0; i < n && i < MAX_NET_CONSOLES && x.Ok(); i++)
+  {
+    std::string console = x.Str(MAX_CONSOLE);
+    const uint8_t level = x.U8();
+    got.levels.emplace_back(std::move(console), level);
+  }
+  if (!x.Ok() || n > MAX_NET_CONSOLES)
+    return false;
+  got.known = true;
+  *c = std::move(got);
+  r = x;
+  return true;
+}
+
+// Whether consoles of the app versions a and b play a room's match of that console together: the same version always;
+// else both known, and that console's level the same in both - never a Choose Together room (its players' libraries
+// are compared by their own CRC32s) nor a link cable's (its own messages, LinkGame and LinkSave).
+inline bool PlayTogether(const std::string& console, const std::string& a, const NetCaps& ca, const std::string& b,
+                         const NetCaps& cb)
+{
+  if (a == b)
+    return true;
+  if (console == TOGETHER || console == GBLINK || console == GBALINK || !ca.known || !cb.known)
+    return false;
+  const int level = ca.Level(console);
+  return level > 0 && level == cb.Level(console);
+}
+
+// "00.23" before "01.06", by their numbers (one that isn't "NN.NN": never before).
+inline bool VersionBefore(const std::string& a, const std::string& b)
+{
+  int am = 0, an = 0, bm = 0, bn = 0;
+  if (std::sscanf(a.c_str(), "%d.%d", &am, &an) != 2 || std::sscanf(b.c_str(), "%d.%d", &bm, &bn) != 2)
+    return false;
+  return am != bm ? am < bm : an < bn;
+}
+
+// A Version refusal's detail for an app that says its levels (01.06 on): the room's version and console ("00.23
+// atari2600"), so that it says who updates and for what; an app before it gets the room's version alone, as ever.
+inline std::string VersionDetail(const std::string& version, const std::string& console)
+{
+  return version + " " + console;
+}
+inline void ReadVersionDetail(const std::string& detail, std::string* version, std::string* console)
+{
+  const size_t space = detail.find(' ');
+  *version = detail.substr(0, space);
+  *console = space == std::string::npos ? std::string() : detail.substr(space + 1);
+}
+
+// (01.06) What follows EXTRA_VERSION's extra in Members and AllRooms (an app of 01.05 reads to that one's end, one
+// before it none): EXTRA2_VERSION, then for Members each listed member's app version (Str, MAX_APP_VERSION) and caps
+// (U8: CAPS_KNOWN with them known), in the list's order; for AllRooms each room's host's level of its console (U8; 0
+// not known) and caps (U8), in the rooms' order.
+constexpr uint8_t EXTRA2_VERSION = 2;
+// (01.07) And after Members' second extra: EXTRA3_VERSION, then U8 the server's ROOM_* flags (an app of 01.06 reads to
+// the second's end).
+constexpr uint8_t EXTRA3_VERSION = 3;
+constexpr uint8_t ROOM_CHAT_STORED = 1;  // the server keeps the room's chat (RoomChatCopy) 30 days: its notice shows
+
+// ---- WORLD CHAT (01.07, the owner: "un chat mundial (general)") ----
+// Every console on the Online tab, through the main server: no session - the console asks for the lines since the last
+// it has (every 2 s while the tab's Chat shows, every 10 s else: how many new), with its cookie.
+//   WorldChat(cookie, nonce, U32 since) -> WorldLines(U32 nonce, U32 the newest line's number, U8 WORLD_* flags, Str
+//              the asker's country as the lines show it ("" not known: no PHRASE_FROM), U8 count, each line
+//              WriteWorldLine - the oldest first, as many as fit: asked again from the last one). since 0: the last
+//              ones.
+//   WorldSay(cookie, nonce, Str app version, Str nickname, U8 flags - FLAG_NO_COUNTRY, WORLD_NOTICE_SEEN -, the chat
+//              key (WORLD_KEY_SIZE: random, made once by the app - netplay.ini's chat_key -, never the PS4's or a
+//              user's, nor the statistics' id), U8 the phrase's number (ChatPhrase; 0: text) then Str its parameter
+//              (MAX_PHRASE_PARAM; none so far: PHRASE_FROM's is the server's) or Str the text (CHAT_BYTES)) ->
+//              WorldSaid(U32 nonce, U8
+//              WorldResult, U32 the line's number, U16 seconds to wait / left blocked (0xFFFF: always)).
+//   WorldReport(cookie, nonce, U32 a line's number): the line marked for the server's owner. No answer.
+// The others see a player by its code (PLAYER_CODE_SIZE letters of CODE_ALPHABET: the server's HMAC of its chat key),
+// never by an address. The server shows each line's nickname filtered (CleanNick), its text as typed (CleanChat: the
+// owner's "sin filtro de palabras"), its country only as the rooms do; it keeps the last WORLD_KEPT in memory and -
+// WORLD_STORED - every line 30 days for moderation, with a keyed hash of the address (never the address). A line is
+// taken only from an app that showed the player that notice (WORLD_NOTICE_SEEN).
+constexpr size_t WORLD_KEY_SIZE = 16, PLAYER_CODE_SIZE = 8, MAX_PHRASE_PARAM = 8;
+constexpr int WORLD_KEPT = 50;
+constexpr uint8_t WORLD_NOTICE_SEEN = 32;  // (WorldSay's flags: the notice under the chat was shown)
+constexpr uint8_t WORLD_STORED = 1;        // (WorldLines' flags: the server keeps the lines 30 days)
+enum class WorldResult : uint8_t
+{
+  Sent = 0,
+  TooSoon = 1,   // one line every 3 seconds
+  TooMany = 2,   // 20 a minute
+  Busy = 3,      // the whole server's (10 lines a second)
+  Blocked = 4,   // the server's owner blocked this player (seconds: how long, 0xFFFF always)
+  NoNotice = 5,  // the notice wasn't shown
+  Bad = 6,       // nothing to send, or a packet the server couldn't read
+};
+struct WorldLine
+{
+  uint32_t serial = 0;  // its number: each line one more
+  uint16_t age = 0;     // seconds since it was said (the server's clock)
+  std::string code;     // its player's code
+  std::string nick, country;  // ("" no country shown)
+  uint8_t phrase = 0;   // a quick phrase (ChatPhrase), 0: text
+  std::string param, text;
+};
+inline void WriteWorldLine(Writer& w, const WorldLine& l)
+{
+  w.U32(l.serial);
+  w.U16(l.age);
+  w.Str(l.code, PLAYER_CODE_SIZE);
+  w.Str(l.nick, MAX_NICK);
+  w.Str(l.country, COUNTRY_SIZE);
+  w.U8(l.phrase);
+  w.Str(l.phrase ? l.param : l.text, l.phrase ? MAX_PHRASE_PARAM : CHAT_BYTES);
+}
+inline WorldLine ReadWorldLine(Reader& r)
+{
+  WorldLine l;
+  l.serial = r.U32();
+  l.age = r.U16();
+  l.code = r.Str(PLAYER_CODE_SIZE);
+  l.nick = CleanNick(r.Str(MAX_NICK));
+  l.country = CleanCountry(r.Str(COUNTRY_SIZE));
+  l.phrase = r.U8();
+  if (l.phrase)
+    l.param = CleanText(r.Str(MAX_PHRASE_PARAM), MAX_PHRASE_PARAM, "");
+  else
+    l.text = CleanChat(r.Str(CHAT_BYTES));
+  return l;
+}
+// (01.07, the owner) The players' ranking: after Create's and Join's NetCaps (and Create's file id) a player block -
+// PLAYER_VERSION, U8 flags (PLAYER_RANKED: "Appear in the Ranking: Yes"), the chat key (WORLD_KEY_SIZE: its code, the
+// chat's). A server before it reads none; without PLAYER_RANKED the server counts nothing of it.
+constexpr uint8_t PLAYER_VERSION = 1;
+constexpr uint8_t PLAYER_RANKED = 1;
+constexpr int TOP_PLAYERS = 20;
+inline void WritePlayer(Writer& w, bool ranked, const uint8_t key[WORLD_KEY_SIZE])
+{
+  w.U8(PLAYER_VERSION);
+  w.U8(ranked ? PLAYER_RANKED : 0);
+  w.Bytes(key, WORLD_KEY_SIZE);
+}
+// Read when there (false: none, or not whole - r as it was); key WORLD_KEY_SIZE bytes.
+inline bool ReadPlayer(Reader& r, bool* ranked, uint8_t* key)
+{
+  if (r.Left() == 0)
+    return false;
+  Reader x = r;
+  if (x.U8() < PLAYER_VERSION)
+    return false;
+  const uint8_t flags = x.U8();
+  const uint8_t* k = x.Bytes(WORLD_KEY_SIZE);
+  if (!x.Ok() || !k)
+    return false;
+  *ranked = (flags & PLAYER_RANKED) != 0;
+  std::memcpy(key, k, WORLD_KEY_SIZE);
+  r = x;
+  return true;
+}
+
+// A player's code from a keyed hash of its chat key (32 bytes).
+inline std::string PlayerCode(const uint8_t mac[32])
+{
+  std::string code;
+  for (size_t i = 0; i < PLAYER_CODE_SIZE; i++)
+    code += CODE_ALPHABET[mac[i] % (sizeof(CODE_ALPHABET) - 1)];
+  return code;
+}
+
+// AllRooms' rooms: their flags, then the code when it is public. (01.05) Watchable, and its spectators' count in the
+// bits above (an app before it reads only the first two).
 constexpr uint8_t ROOM_PUBLIC = 1;
 constexpr uint8_t ROOM_PLAYING = 2;
+constexpr uint8_t ROOM_WATCHABLE = 4;
+constexpr int ROOM_WATCHERS_SHIFT = 3;  // 3 bits: 0 to MAX_WATCHERS
+constexpr uint8_t ROOM_LATE = 64;       // (01.05) its match takes a player more
 inline void WriteListedRoom(Writer& w, const RoomEntry& e)
 {
   w.U32(e.id);
-  w.U8(static_cast<uint8_t>((e.is_public ? ROOM_PUBLIC : 0) | (e.playing ? ROOM_PLAYING : 0)));
+  w.U8(static_cast<uint8_t>((e.is_public ? ROOM_PUBLIC : 0) | (e.playing ? ROOM_PLAYING : 0) |
+                            (e.watchable ? ROOM_WATCHABLE : 0) |
+                            (std::min<int>(e.watchers, MAX_WATCHERS) << ROOM_WATCHERS_SHIFT) | (e.late ? ROOM_LATE : 0)));
   if (e.is_public)
     WriteCode(w, e.code);
   WriteGame(w, e.game);
@@ -590,6 +1066,9 @@ inline RoomEntry ReadListedRoom(Reader& r)
   const uint8_t flags = r.U8();
   e.is_public = (flags & ROOM_PUBLIC) != 0;
   e.playing = (flags & ROOM_PLAYING) != 0;
+  e.watchable = (flags & ROOM_WATCHABLE) != 0;
+  e.watchers = static_cast<uint8_t>((flags >> ROOM_WATCHERS_SHIFT) & 7);
+  e.late = (flags & ROOM_LATE) != 0;
   if (e.is_public)
     e.code = ReadCode(r);
   e.game = ReadGame(r);
@@ -722,8 +1201,13 @@ struct Heartbeat
   // count, and shows a title (from those lists, never from the app) only once 3 installs or more played it.
   std::string game;
   std::string nick;  // STATS_PUBLIC: the rankings' name (the online play nickname, cut and filtered again there)
+  // (01.04) The community online mode the game is connected to while it plays - "psp-adhoc", "psp-infra", "dcnet",
+  // "wfc-wiimmfi", "wfc-wiilink" (servers that aren't EmuSuNi's: src/UsageStats.cpp's CoreLine sees it in the cores'
+  // log lines) -, "" when none: only the mode's name, never an address. The server drops any other.
+  std::string community;
 };
 constexpr size_t MAX_GAME_ID = 24;
+constexpr size_t MAX_COMMUNITY = 16;
 inline void WriteHeartbeat(Writer& w, const Heartbeat& h)
 {
   w.Bytes(h.id, INSTALL_ID_SIZE);
@@ -736,6 +1220,7 @@ inline void WriteHeartbeat(Writer& w, const Heartbeat& h)
   w.Str(h.updated_from, MAX_APP_VERSION);
   w.Str(h.game, MAX_GAME_ID);
   w.Str(h.nick, MAX_NICK);
+  w.Str(h.community, MAX_COMMUNITY);  // (01.04)
 }
 inline Heartbeat ReadHeartbeat(Reader& r)
 {
@@ -754,6 +1239,8 @@ inline Heartbeat ReadHeartbeat(Reader& r)
     h.game = r.Str(MAX_GAME_ID);
   if (r.Left() > 0)
     h.nick = r.Str(MAX_NICK);
+  if (r.Left() > 0)
+    h.community = r.Str(MAX_COMMUNITY);  // ((01.04) an app before it: "")
   return h;
 }
 }  // namespace NetProto

@@ -90,6 +90,9 @@ DECLARE_CORE(prosystem)
 #ifdef EMUSUNI_GBLINK
 DECLARE_CORE(sameboy)
 #endif
+#ifdef EMUSUNI_GBALINK
+DECLARE_CORE(gbalink)
+#endif
 #ifdef EMUSUNI_JAGUAR
 DECLARE_CORE(vjaguar)
 #endif
@@ -142,6 +145,9 @@ const CoreApi PROSYSTEM = CORE_TABLE(prosystem, "ProSystem");
 #endif
 #ifdef EMUSUNI_GBLINK
 const CoreApi SAMEBOY = CORE_TABLE(sameboy, "SameBoy");
+#endif
+#ifdef EMUSUNI_GBALINK
+const CoreApi GBALINK = CORE_TABLE(gbalink, "mGBA (link)");
 #endif
 #ifdef EMUSUNI_JAGUAR
 const CoreApi VIRTUAL_JAGUAR = CORE_TABLE(vjaguar, "Virtual Jaguar");

@@ -35,7 +35,7 @@
 // The main server: /data/EmuSuNi/netplay.ini's `server=host:port` (a player's own), else the list in EmuSuNi's GitHub
 // repository (netplay/servers.txt, cached in data_dir/cache: servers can move without an update), else SERVER below.
 // netplay.ini may also set `nickname=`, `delay=` (frames; kept the whole match), `rollback=` (frames; 0: delay-based),
-// `voice=off`, `hide_address=on`, `latency_bar=off`.
+// `voice=off`, `hide_address=on`, `latency_bar=off`, (01.05) `country=off` (our country not shown to the others).
 // (00.92) Every 10 s of a match the log has a line of it: the speed, the delay, the waits for input and the rollbacks,
 // and each player's ping, jitter, pings lost, how late its inputs came and what its console says of ours.
 // (00.86) A room stays open while its host goes elsewhere in the menus or plays a game alone; a console that joins asks
@@ -86,12 +86,31 @@ struct Rules
   // it was saved from (Genesis Plus GX's Mega Drive: something of its timing isn't in the state) - the host runs on
   // from its state, the guest from it loaded, and a rollback from it loaded - stays in step only so.
   bool reload_each_frame = false;
+  // (01.05) Spectators may watch its match ("Mirar"): the light consoles' (a spectator's state comes in seconds and
+  // its frames cost little).
+  bool watch = false;
 };
 Rules RulesFor(const std::string& console_key);
 
 // The game's identity a room is made for: CRC32 and size of its file (a file over 64 MiB: CRC32 of its first and last
 // 8 MiB, with its size: a disc image is read in seconds, not minutes). False: the file can't be read.
-bool GameCrc(const std::string& path, uint32_t* crc, uint64_t* size);
+// (01.05, the owner) Of its content: NetplayLibrary::ContentId - unzipped, without a copier's or an emulator's header,
+// as No-Intro's DATs have it (an Arcade set's zip, `console` "arcade": its entries' CRC32s as one) - so a file of the
+// same dump with another header, or zipped otherwise, is the same game. Every console of a room is of one app version
+// (Join refuses another), so every one compares the same way: the packets don't change. The host's state still
+// decides: a game that loads it otherwise ends the match as ever ("is it the same game?").
+// (01.06) Versions play together now (NetProto::PlayTogether): a room of v00.23's gives its game by the whole file's
+// CRC32 (the server gives ours so to such an app, when we said it: GameInfo::file_crc), and the menu finds a game by
+// either - FileCrc is that one, as v00.23 counted it.
+bool GameCrc(const std::string& path, uint32_t* crc, uint64_t* size, const std::string& console = "");
+bool FileCrc(const std::string& path, uint32_t* crc, uint64_t* size);
+
+// (01.06) Whether this version plays a listed room's match: the same version, or the room's console's online level the
+// same in both (its host's, as the server says it: NetProto::RoomEntry::level) - never a Choose Together room or a link
+// cable's of another version. A room with no version said (an old public list's): as ever, yes.
+bool CanJoinVersion(const NetProto::RoomEntry& room);
+// Who updates for a room this version can't play with: true the room's host (its version is older), false this one.
+bool RoomIsOlder(const std::string& room_version);
 
 // ---- The lobby (the menu) ----
 enum class Phase
@@ -109,6 +128,10 @@ struct PlayerView
   int id = 0;            // member id (0: the host)
   std::string nick;
   std::string region;    // its time zone ("UTC-5")
+  // (01.05, the owner) Its country, as the server says it ("CL"; "" not shown), and the version of its file of the
+  // room's game as the file's name says it ("USA, Rev 1"; "" none said) - `game` whether it has it (every player knows
+  // every other's: GameVersion).
+  std::string country, version;
   bool me = false;
   int ping_ms = -1;      // -1: not known yet
   bool linked = false;   // packets come and go (directly or through a relay)
@@ -116,6 +139,7 @@ struct PlayerView
   bool voice_on = false;  // its voice chat is on (mine: on, theirs: as their pings say)
   bool talking = false;
   bool muted = false;    // muted by me
+  bool blocked = false;  // (01.05) blocked on this PS4 (muted, voice and chat, whenever it comes)
   bool asking = false;   // (00.86, the host's view) asked to join, not answered yet: not in the room's players
   int locals = 1;
   NetProto::LobbyGame game = NetProto::LobbyGame::Looking;  // a guest's game, as it said
@@ -127,6 +151,23 @@ struct PlayerView
   int lost_pm = 0;
   int waits_pm = 0;
   int quality = -1;
+};
+
+// (01.05) A line of the room's chat: a quick phrase (NetProto::ChatPhrase: shown in this console's language) or a line
+// of text (NetProto::CleanChat: as typed, no words' filter), from a member (its id, its nickname then), ours or
+// another's.
+struct ChatLine
+{
+  uint32_t serial = 0;  // a new number each line
+  int from = -1;
+  std::string nick;
+  bool mine = false;
+  int phrase = 0;  // 0: text
+  std::string param;  // (01.07) NetProto::PHRASE_FROM's: the sayer's country as the server shows it ("CL")
+  std::string text;
+  // (01.06) A note of this console's, no one's line: `text` in English (PS4Lang translates it where it is shown) - "Ana
+  // has EmuSuNi 00.23: no chat with them" (an app without the room's chat: NetProto::CAP_CHAT).
+  bool notice = false;
 };
 
 struct RoomView
@@ -146,6 +187,12 @@ struct View
   int max_players = 2;     // (00.95) the room's consoles at most (2 to NetProto::MAX_MEMBERS: the host's choice)
   bool can_start = false;  // the host: every guest is linked and has the game
   bool voice_on = false;
+  std::vector<ChatLine> chat;  // (01.05) the room's chat, the newest last
+  bool chat_text = true;       // the others' lines of text shown (else their quick phrases only)
+  // (01.07) The server keeps the room's chat 30 days (its notice shows: RoomNoticeShown), and our country as the others
+  // see it ("": none shown - no "I'm from ...").
+  bool chat_stored = false;
+  std::string my_country;
   std::string relay;       // the relay server in use ("" while none)
   // Browsing: the rooms (00.85: every room, public and private, waiting or playing - a server before that lists only
   // the public ones waiting), whether the list asked for came whole (asked again, the last one stays till then), and
@@ -153,6 +200,9 @@ struct View
   std::vector<RoomView> rooms;
   bool rooms_done = false;
   int rooms_total = 0;
+  // (01.16) The list's refreshes in a row the server didn't answer: the last list stays shown meanwhile (about a minute
+  // of them closes the session as before).
+  int list_late = 0;
   // A Choose Together room: the games both have (once both lists are in), whether the other's list came (the host),
   // the guest's suggestion (the host's view), what the other said as the last match ended. (00.95: of three or four
   // players, the games every one has, once every guest's list came; the last suggestion.)
@@ -165,7 +215,7 @@ struct View
   // (00.86) The host: the player asking to join (its member id, -1: none), the seconds left to answer, a number that
   // changes with every new request. A guest: waiting for the host to accept it, the seconds it still waits.
   int asking = -1;
-  std::string asking_nick, asking_region;
+  std::string asking_nick, asking_region, asking_country;  // ((01.05) its country: "" not shown)
   int asking_seconds = 0;
   uint32_t asking_serial = 0;
   bool waiting_host = false;
@@ -179,6 +229,22 @@ struct View
   NetProto::LobbyGame link_found = NetProto::LobbyGame::Looking;
   bool link_save_in = false;
   int waiting_seconds = 0;
+  // (01.05) Spectators ("Mirar"). This console watches the room's match (it plays nothing: the host its only peer). The
+  // host: its room may be watched (a light console's game, not Choose Together or a link cable), whether it lets them
+  // (watch_allowed: a public room's starts so, a private one's not), who watches (their ping). Browsing: a room code
+  // the server said is playing and may be watched (a Join refused so) - Watch() it, if the player wants.
+  bool watching = false;
+  bool watch_possible = false, watch_allowed = false;
+  std::vector<PlayerView> watchers;
+  std::string watch_offer;
+  // (01.05) How many watch the room, for every member (the server's Members say it; the host's: its own), -1 not
+  // known (a server before it).
+  int watcher_count = -1;
+  // (01.05) The host: a player may join its match under way (a room of 3 or 4, not Choose Together or a link cable),
+  // and whether it lets one (at first yes).
+  bool late_possible = false, late_allowed = false;
+  // (01.14) The host: whoever comes is in the room at once, without asking (SetFreeEntry).
+  bool free_entry = false;
 };
 
 // Make a room for the game / join one by its code / list the rooms (console_key "": every console's; 00.85: every
@@ -191,8 +257,55 @@ struct View
 // first - while the console has ports (NetProto::MAX_PORTS).
 void Host(const NetProto::GameInfo& game, bool is_public, const std::string& data_dir, int max_players = 2);
 void Join(const std::string& code, const std::string& data_dir);
+// (01.05) Watch a room's match as a spectator (a room listed as watchable - RoomEntry::watchable - or View::watch_offer):
+// in the room until its match starts, then the game runs the host's inputs about a second behind, with nothing to
+// play; no voice, no chat. The host may remove a spectator, or stop letting them watch (SetWatchAllowed).
+void Watch(const std::string& code, const std::string& data_dir);
+// The host: spectators let in or not (those watching are removed when it says no).
+void SetWatchAllowed(bool on);
+// (01.05) The host: a player may join its match under way, or not. One that joins (Join, as ever: the Online tab says
+// a match takes one more - RoomEntry::late) loads the game while the others play on; then everyone stops a moment
+// (Status::line "X is joining...") while it takes the host's state, and the match goes on with it in the next free
+// ports.
+void SetLateAllowed(bool on);
+// (01.14, the owner) The host: a player that comes is in the room at once, without asking (Admit by itself; one
+// blocked on this PS4 still asks) - a public room's at first - or asks first. And with Late Joining the host may start
+// the match alone (View::can_start): whoever comes then joins it under way.
+void SetFreeEntry(bool on);
+// (01.14) The host resets the game for every player at once (Status::can_reset): each one stops at a frame past every
+// console's, and resets there once every input before it is in. Not when a player's app is before it
+// (Status::reset_old).
+bool ResetMatch();
 void Browse(const std::string& console_key, const std::string& data_dir);
 void RefreshRooms();
+// (01.05, the owner: "juegos más jugados en línea") The games most played online the last NetProto::TOP_DAYS days, as
+// the main server counts them (NetProto::Type::TopGames: matches by game, nothing of anyone): asked for with the
+// Online tab's list, again every 10 minutes (WantTopGames: at its next list); a server before it never answers
+// (asked, never answered). Kept while the app runs.
+struct TopGame
+{
+  std::string console;  // its console's key ("snes"; "gblink" a link cable room's)
+  uint32_t crc = 0;     // its content's (GameCrc's)
+  int matches = 0;
+  std::string title;    // a public room's title of it ("" none)
+};
+struct TopList
+{
+  std::vector<TopGame> games;
+  int days = 0;
+  bool asked = false, answered = false;
+  uint32_t serial = 0;  // a new number with each answer
+};
+TopList TopGames();
+void WantTopGames();
+// (01.05, the owner) This console's file of the room's game: its version as its name says it ("USA, Rev 1"; "" none
+// or not found). The host's: after Host() (it goes with the room's Create: the list shows it); a guest's with
+// SetLobbyGame. Every other player gets it (GameVersion), with whether we have the game.
+void SetGameVersion(const std::string& version);
+// (01.05) Our country shown to the others (the server's, of our address; netplay.ini's country=off: not): the next
+// room's.
+bool ShowCountry(const std::string& data_dir);
+void SetShowCountry(const std::string& data_dir, bool on);
 // The network, every frame while in a room (the menu's; in a game FramesThisPass does it).
 void Update();
 View GetView();
@@ -222,7 +335,7 @@ void Refuse(int member);
 struct JoinRequest
 {
   int member = -1;
-  std::string nick, region;
+  std::string nick, region, country;  // ((01.05) country: "" not shown)
   int seconds_left = 0;
   uint32_t serial = 0;  // a new number for every request
 };
@@ -245,7 +358,13 @@ void Suggest(const NetProto::LibraryGame& game);
 // The host: the match starts with this game (one both have).
 bool PickGame(const NetProto::GameInfo& game);
 // In a Choose Together match: it ends for both, who are back in the room (Leave Room ends it and leaves).
-void EndMatchToRoom();
+// (01.23, the owner: "salir del juego sin salir de la sala") Any room's but a link cable's, a player's (not a
+// spectator's): the match ends for every player, all back in the room - its chat, its players, the host's Start for
+// the next match -; the host's spectators back in it too (one of an app before it leaves, as before). Only when every
+// console in the match has it (Status::room_back_old: false - nothing done). The game ends then (Ended's or the menu's
+// Quit), and GameEnded goes back to the room. And a guest who leaves a match (Leave Room, its connection lost,
+// removed) no longer closes the host's room: the host and the others are back in it, without that guest.
+bool EndMatchToRoom();
 bool Together();
 // "Hide my address" (netplay.ini's hide_address): everything through a relay. Kept for the next rooms.
 bool HideAddress(const std::string& data_dir);
@@ -267,6 +386,9 @@ void SetLatencyBar(const std::string& data_dir, bool on);
 // (SetLinkGameFound). Start waits for both and for the save; a room of two, one controller on each console (the host's
 // is Game Boy 1's, port 0; the guest's Game Boy 2's, port 1). Before Emulator::Run, the menu sets GbLink::Set.
 bool LinkRoom();
+// (01.04) The link room's console: NetProto::GBLINK (two Game Boys) or NetProto::GBALINK (two Game Boy Advances: GBA
+// games for both, mGBA's link core); "" not a link room. Its rules are the match's (GameLoaded).
+std::string LinkConsole();
 void SetLinkGame(const NetProto::LibraryGame& game, const std::string& title, const std::vector<uint8_t>& packed_save);
 void SetLinkGameFound(bool found);
 // The host: the guest's battery save as it came (GbLink::UnpackSave reads it; empty: none yet).
@@ -306,16 +428,119 @@ bool SkipVideo();
 // No frame runs now: the start, a resync, waiting for the other console's input.
 bool Waiting();
 // The match ended (the other left, the connection was lost): why. The game ends with it. (A Choose Together match the
-// other ended: *why empty - back to the room, no error.)
+// other ended: *why empty - back to the room, no error. (01.23) Any room's ended back to the room: EndMatchToRoom.)
 bool Ended(std::string* why);
-// The game's end: the room is left, the others told (a Choose Together match ended so: back to the room instead).
+// The game's end: the room is left, the others told (a Choose Together match ended so: back to the room instead;
+// (01.23) any room's ended so).
 void GameEnded();
 // A guest keeps its own saves untouched: its battery save and Continue's state aren't written in a match.
 bool KeepOwnSaves();
 
 // ---- The voice chat (src/Voice.h) ----
 void SetVoiceOn(bool on);       // this console's microphone and speaker
-void SetPeerMuted(int member, bool muted);
+void SetPeerMuted(int member, bool muted);  // (01.05: its chat too; one blocked stays muted)
+
+// ---- (01.05) The room's chat: every room, public and private, in the room and in the match ----
+// Quick phrases (NetProto::ChatPhrase: they go as their number, each console shows them in its language) and short
+// lines of text typed on the app's keyboard (NetProto::CleanChat: CHAT_LETTERS, printable - again where they arrive;
+// (01.05, the owner) no words' filter: the nicknames keep theirs). Shown at first in every room, public and private.
+// One line every 2 s from this console; a console faster has its lines past a few dropped. A muted
+// player's lines aren't shown; one blocked (BlockPeer) is muted - voice and chat - whenever it comes again (netplay.ini's
+// blocked=, Unblock All). The others' text can be hidden (chat_text=off: their quick phrases still shown). Nothing goes
+// to EmuSuNi's server (a relay passes the packets on, unread, unkept; they aren't encrypted); the log counts the lines,
+// never their text.
+enum class ChatResult
+{
+  Sent,
+  TooSoon,    // the last one less than 2 s ago
+  NotInRoom,  // no room, or the host hasn't accepted us yet
+  Empty,      // nothing left once filtered, or an unknown phrase
+};
+ChatResult SendChatPhrase(int phrase);
+ChatResult SendChatText(const std::string& text);
+// (01.07, the owner: "no quiero que se hablen cosas sensibles o ilegales") The room's notice was shown (the chat's
+// note, View::chat_stored): from then on each line of ours goes to the server too (RoomChatCopy), kept 30 days for
+// moderation - never the voice, never the address. Before it, or with a server that doesn't keep them: none.
+void RoomNoticeShown();
+bool ChatText(const std::string& data_dir);
+void SetChatText(const std::string& data_dir, bool on);
+void BlockPeer(int member);
+int BlockedCount(const std::string& data_dir);
+void UnblockAll(const std::string& data_dir);
+
+// ---- (01.07, the owner: "un chat mundial (general)") The world chat: the Online tab's Chat ----
+// Through EmuSuNi's main server (NetProto's WORLD CHAT): the lines since the last we have, asked every 2 s while the
+// tab's Chat shows (WorldChatShown), every 10 s else while the Online tab is open (how many are new), never while a
+// game runs or with World Chat Hidden (netplay.ini's world_chat=off). Quick phrases (their number: each console shows
+// them in its language) and lines typed (CHAT_LETTERS, no words' filter). Each player has a code (the server's: from
+// this console's random chat key, netplay.ini's chat_key - never the PS4's or a user's, nor the statistics' id): muting
+// is by it (world_muted=), this console's only. A line is sent only once the notice under the chat was shown
+// (WorldNoticeShown): the server keeps the lines 30 days for moderation (WorldChatView::stored), never the address.
+struct WorldChatLine
+{
+  uint32_t serial = 0;
+  std::string code, nick, country;  // (country "": not shown)
+  int phrase = 0;                   // 0: text
+  std::string param, text;
+  bool mine = false;
+  double said_at = 0.0;  // (Now()'s clock: when it was said, as the server's age says)
+};
+enum class WorldSayResult
+{
+  Sending,   // on its way: the answer comes in the view (said_*)
+  Busy,      // the last one is still on its way
+  Empty,     // nothing left once cleaned, or a phrase not known
+  Off,       // the world chat hidden, or no server answered yet
+  NoNotice,  // the notice isn't shown
+};
+struct WorldChatView
+{
+  bool on = true;         // World Chat: Visible
+  bool answered = false;  // the server answered (else: asking, or a server before it - it drops the question)
+  bool stored = false;    // the server keeps the lines 30 days (its notice says so)
+  std::string my_country; // (01.07) ours as the lines show it ("": none - "I'm from ..." not offered)
+  std::vector<WorldChatLine> lines;  // the oldest first; the muted players' left out
+  int unread = 0;         // the others' lines since the Chat last showed
+  uint32_t serial = 0;    // one more whenever any of it changes
+  // The last line's answer: said_serial one more each answer, said its NetProto::WorldResult, seconds to wait / left.
+  uint32_t said_serial = 0;
+  NetProto::WorldResult said = NetProto::WorldResult::Sent;
+  int said_seconds = 0;
+  bool sending = false;
+};
+WorldChatView GetWorldChat();
+void WorldChatShown(bool shown);
+void WorldNoticeShown(bool stored_text);  // the notice drawn: the one of a server that keeps the lines, or the other
+WorldSayResult WorldSayPhrase(int phrase, const std::string& param = "");
+WorldSayResult WorldSayText(const std::string& text);
+void WorldReport(uint32_t serial);
+void WorldMute(const std::string& code);
+bool WorldChatOn(const std::string& data_dir);
+void SetWorldChatOn(const std::string& data_dir, bool on);
+int WorldMutedCount(const std::string& data_dir);
+void ClearWorldMuted(const std::string& data_dir);
+
+// ---- (01.07, the owner) The players' ranking: the Online tab's Players page ----
+// Each ranked player's hours in matches (the server counts them by its code - the chat's -, never an address), its
+// country when it shows it, the console it played most; the last 7 days or since ever. "Appear in the Ranking: Yes"
+// (the default; netplay.ini's ranking=off: No - the server counts nothing of ours) goes with each room we make or join.
+struct TopPlayer
+{
+  std::string nick, country, console;
+  uint32_t seconds = 0;
+};
+struct PlayersList
+{
+  bool asked = false, answered = false;  // (answered false after asking: a server before it drops the question)
+  int days = 0;                          // NetProto::TOP_DAYS, or 0: since ever
+  std::vector<TopPlayer> players;        // the most first
+  double answered_at = 0.0;
+  uint32_t serial = 0;                   // one more each answer
+};
+PlayersList TopPlayers(int days);
+void WantTopPlayers(int days);  // asked while the Online tab lists the rooms (again every 10 minutes)
+bool Ranked(const std::string& data_dir);
+void SetRanked(const std::string& data_dir, bool on);
 
 // ---- What the screen shows (any thread) ----
 struct Status
@@ -328,8 +553,19 @@ struct Status
   std::vector<PlayerView> players;
   bool voice_on = false;
   bool together = false;  // (a Choose Together room: the in-game menu's End Match)
+  std::vector<ChatLine> chat;  // (01.05) the chat's newest lines (8 at most)
   int delay = 0, max_rollback = 0;  // (00.92) the match's input delay (this console's, it changes) and rollback
   bool latency_bar = true;          // (00.92) the latency bar shown
+  // (01.05) This console watches the match (whose: the host's nickname); how many watch it (the host's own count, the
+  // others' as the server says it).
+  bool watching = false;
+  std::string watched;
+  int watchers = 0;
+  // (01.14) The host may reset the game now (ResetMatch); not with a player of an EmuSuNi before it (reset_old).
+  bool can_reset = false, reset_old = false;
+  // (01.23) A player may end the match back to the room (EndMatchToRoom: the in-game menu's Back to the Room); not
+  // with a player of an EmuSuNi before it (room_back_old: the row says so).
+  bool room_back = false, room_back_old = false;
 };
 Status GetStatus();
 

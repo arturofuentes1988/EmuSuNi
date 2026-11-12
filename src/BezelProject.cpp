@@ -787,18 +787,16 @@ std::string RecordPath(const std::string& data_dir, const std::string& console)
   return data_dir + "/bezels/" + console + "/bezelproject.txt";
 }
 
+// (01.11) From the record alone: until 01.10 each file was looked at (its size), and Gabriel's 9 725 bezels on a USB
+// drive took the menu's start past the start-up watchdog's 20 s. The record is the app's: the download adds to it, Delete
+// Downloaded Bezels empties it (and still looks at each file: only those as they were written go).
 Downloaded Count(const std::string& data_dir, const std::string& console)
 {
   Downloaded count;
-  const std::string dir = data_dir + "/bezels/" + console + "/";
   for (const auto& [file, recorded] : ReadRecord(RecordPath(data_dir, console)))
   {
-    const int64_t size = FileSize(dir + file);
-    if (size >= 0 && size == recorded.size)
-    {
-      count.files++;
-      count.bytes += size;
-    }
+    count.files++;
+    count.bytes += recorded.size;
   }
   return count;
 }
@@ -860,6 +858,47 @@ Downloaded DeleteAll(const std::string& data_dir, const std::vector<std::string>
   }
   WritePending(data_dir, {});
   Log("deleted: " + std::to_string(deleted.files) + " bezels, " + Mb(deleted.bytes) + " MB");
+  return deleted;
+}
+
+std::vector<std::string> DeleteGameBezels(const std::string& data_dir, const std::string& console,
+                                          const std::vector<std::string>& game_ids)
+{
+  std::vector<std::string> deleted;
+  const std::string record = RecordPath(data_dir, console);
+  if (game_ids.empty() || !FileExists(record))
+    return deleted;
+  std::map<std::string, Recorded> recorded = ReadRecord(record);
+  bool changed = false;
+  for (const std::string& id : game_ids)
+  {
+    const std::string file = id + ".png";
+    const auto it = recorded.find(file);
+    if (id.empty() || file.find('/') != std::string::npos || it == recorded.end())
+      continue;  // (not downloaded: the player's own, or none)
+    const std::string path = data_dir + "/bezels/" + console + "/" + file;
+    const int64_t size = FileSize(path);
+    if (size >= 0 && size != it->second.size)
+    {
+      Log(console + "/" + file + ": changed since its download (the player's own): kept");
+      continue;
+    }
+    // (Its line goes when the file is gone - deleted now, or before by hand.)
+    if (size >= 0 && std::remove(path.c_str()) != 0)
+      continue;
+    if (size >= 0)
+      deleted.push_back(id);
+    recorded.erase(it);
+    changed = true;
+    Log(console + "/" + file + (size >= 0 ? ": the game's downloaded bezel deleted" : ": already gone"));
+  }
+  if (changed)
+  {
+    std::string text = RECORD_HEAD;
+    for (const auto& [name, entry] : recorded)
+      text += name + "\t" + entry.bezel + "\t" + std::to_string(entry.size) + "\t" + entry.sha + "\n";
+    WriteTextFile(record, text);
+  }
   return deleted;
 }
 

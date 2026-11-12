@@ -39,6 +39,17 @@ void SetGame(const char* console_key, const std::string& path, const std::vector
 // A PlayStation disc's code once the core read it ("SCUS-94426": SwanStation's log line).
 void SetDiscCode(const std::string& code);
 void SetRoom(bool in_room);
+// (01.04) The community online modes - servers that aren't EmuSuNi's - a game is connected to: a core's log line as it
+// reaches the app (src/Emulator.cpp's CoreLog, any thread) is looked at for their signs - DCNet's "EmuSuNi: DCNet:
+// connected ..." (off: "disconnected", "can't connect", "DCNet stopped"), the DS's "nds: Wi-Fi: GameSpy login" or its
+// "nds: Wi-Fi: network ... N packets out, M in" with 10 in or more, the PSP's ad hoc login and its "psp: online in 10.0 s: ..." traffic (ad hoc or the
+// games' own servers) -, and while one came in the last 5 minutes the heartbeat says the mode ("psp-adhoc",
+// "psp-infra", "dcnet", "wfc-wiimmfi", "wfc-wiilink": Heartbeat::community). Only the mode's name: nothing of the line
+// is kept or sent. A game's end (SetPlaying) forgets it.
+void CoreLine(const char* line);
+// The DS's Wi-Fi server for the game starting: "wiimmfi" or "wiilink" (DS Wi-Fi with its built-in DNS), "" none
+// counted (Off, or another DNS: /data/EmuSuNi/nds-dns.txt).
+void SetDsWifi(const std::string& server);
 // src/Update.cpp: a check of GitHub for a newer version started.
 void UpdateChecked();
 // A heartbeat soon (Online Play's screen: its players online now), a minute after the last one at the soonest.

@@ -28,6 +28,10 @@ public:
   bool DefaultGame(Library::Game* game);
   // A game of the lists by its file (the game the start watchdog restarted EmuSuNi for: src/StartGuard.h).
   bool FindGame(const std::string& path, Library::Game* game);
+  // (01.11) The start after one the start-up watchdog closed (main.cpp): this session without the menu's big inventories
+  // (the bezels counted when their page opens; no star ratings matched; no covers or bezels downloaded), so the player
+  // gets in and can send the log.
+  void SafeStart();
   ImFont* RegularFont() const;
   ImFont* BoldFont() const;
 

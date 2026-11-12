@@ -12,9 +12,10 @@
 # sound cores, its files through libretro's VFS (libretro-common's own stdio: the app answers no VFS
 # interface). The app hands it the games from memory (GET_GAME_INFO_EXT), .zip ones too. Not as its
 # unix build:
-#   - A 10 MiB cartridge buffer (MAX_ROM_SIZE, the core's own default; the unix build's 32 MiB): it
-#     holds every Mega Drive cartridge (Super Street Fighter II: 5 MiB) and the Master System and Game
-#     Gear BIOSes it puts at +4 MiB. It and the rest of the cartridge's or CD unit's memory (ext) are on
+#   - (01.04) A 32 MiB cartridge buffer (MAX_ROM_SIZE, as its unix build; the core's own default, 10 MiB, until
+#     v00.23): the big homebrew of today does not fit in 10 (Demons of Asteborg, a v00.23 player's log:
+#     "ROM size exceeds maximum permitted value"). It holds every Mega Drive cartridge and the Master
+#     System and Game Gear BIOSes it puts at +4 MiB. It and the rest of the cartridge's or CD unit's memory (ext) are on
 #     the heap while the core runs (upstream's USE_DYNAMIC_ALLOC, as its 3DS and Wii U builds), not in
 #     the app's static memory, which the PS4 charges in full from the app's start: 4 MB of it instead of
 #     14 (36.7 with the unix build's buffer).
@@ -41,6 +42,12 @@
 #     as 16-bit numbers of the ~2,000 distinct handlers, and expanded in m68k_init and s68k_init.
 #     (Musashi's own BUILD_TABLES builds them from a description table instead, but that path no
 #     longer compiles.)
+#   - (01.06, v00.23 players' crashes) The SVP's registers ($A15000-$A15005) only with Virtua Racing's chip
+#     there: a game that wrote to them without it (an illegal instruction's frame pushed at $A15006) ended
+#     the app through the chip's NULL pointer. A Mega-CD BIOS opened as a game is refused, the core's
+#     message says so (the app plays no Mega-CD), and the Mega-CD's backup RAM cartridge mask is shifted
+#     as the x86 does it (count & 31):
+#     "disabled" (0xff) gave 0xffffffff in the PS4's build, its backup RAM read 4 GB past it.
 # Its libretro API becomes gpgx_retro_* and everything else in it private, as for FCEUmm
 # (CMakeLists.txt). The object is checked at the end: only gpgx_retro_* defined globally, no weak
 # references left, no C++ operator new or delete, and every symbol it needs found in the PS4
@@ -136,6 +143,65 @@ patch('core/m68k/m68kcpu.c',
 patch('core/m68k/s68kcpu.c',
       b'void s68k_init(void)\n{\n',
       b'void s68k_init(void)\n{\n  m68ki_expand_instruction_table(); /* EmuSuNi: see m68ki_instruction_jump_table.h */\n')
+# (01.06) The SVP's registers ($A15000-$A15005, Virtua Racing's chip) only with the SVP: svp is NULL without it,
+# and upstream wrote through it. A v00.23 player's beta ROM and Game Boy files in the Mega Drive's folder ran into
+# an illegal instruction with their stack pointer at $A15006: its exception frame written there ended the app
+# (ctrl_io_write_word, a write to 0x4042e). Without the chip they are unused addresses, as the others there.
+patch('core/mem68k.c',
+      b'      if ((address & 0xFC) == 0x00)\r\n      {\r\n        unsigned int data = svp->ssp1601.gr[SSP_XST].byte.h;\r\n',
+      b'      if (svp && ((address & 0xFC) == 0x00)) /* EmuSuNi: only with the SVP (svp NULL without it) */\r\n'
+      b'      {\r\n        unsigned int data = svp->ssp1601.gr[SSP_XST].byte.h;\r\n')
+patch('core/mem68k.c',
+      b'      if ((address & 0xFE) == 0x04)\r\n      {\r\n        unsigned int data = svp->ssp1601.gr[SSP_PM0].byte.h;\r\n'
+      b'        svp->ssp1601.gr[SSP_PM0].byte.h &= ~1;\r\n        return (address & 1)',
+      b'      if (svp && ((address & 0xFE) == 0x04)) /* EmuSuNi: only with the SVP */\r\n'
+      b'      {\r\n        unsigned int data = svp->ssp1601.gr[SSP_PM0].byte.h;\r\n'
+      b'        svp->ssp1601.gr[SSP_PM0].byte.h &= ~1;\r\n        return (address & 1)')
+patch('core/mem68k.c',
+      b'      if ((address & 0xFC) == 0x00)\r\n      {\r\n        return svp->ssp1601.gr[SSP_XST].byte.h;\r\n',
+      b'      if (svp && ((address & 0xFC) == 0x00)) /* EmuSuNi: only with the SVP */\r\n'
+      b'      {\r\n        return svp->ssp1601.gr[SSP_XST].byte.h;\r\n')
+patch('core/mem68k.c',
+      b'      if ((address & 0xFE) == 0x04)\r\n      {\r\n        unsigned int data = svp->ssp1601.gr[SSP_PM0].byte.h;\r\n'
+      b'        svp->ssp1601.gr[SSP_PM0].byte.h &= ~1;\r\n        return data;\r\n',
+      b'      if (svp && ((address & 0xFE) == 0x04)) /* EmuSuNi: only with the SVP */\r\n'
+      b'      {\r\n        unsigned int data = svp->ssp1601.gr[SSP_PM0].byte.h;\r\n'
+      b'        svp->ssp1601.gr[SSP_PM0].byte.h &= ~1;\r\n        return data;\r\n')
+patch('core/mem68k.c',
+      b'      if (!(address & 0xFD))\r\n      {\r\n        svp->ssp1601.gr[SSP_XST].byte.h = data;\r\n',
+      b'      if (svp && !(address & 0xFD)) /* EmuSuNi: only with the SVP */\r\n'
+      b'      {\r\n        svp->ssp1601.gr[SSP_XST].byte.h = data;\r\n')
+# (01.06) A Mega-CD BIOS opened as a game (its header's ROM type "BR") is refused: the app plays no Mega-CD since
+# 00.83, and booted from it (from CD, Mode 2) the core ended the app in retro_load_game (a v00.23 player, C78958):
+# the backup RAM cartridge's mask, (1 << (id + 13)) - 1, with "disabled" (id 0xff, the app's cart_size) a shift
+# past 31 - the PS4's build made it 0x2000 << 255: 0xffffffff, its backup RAM read 4 GB past it; the PC's, 0xfff.
+# The shift is as the x86 does it now (its count & 31), the same on both. The refusal's reason is the core's
+# message (SET_MESSAGE, as its "ROM size exceeds..."): the app shows it a line each, translated
+# (assets/xmb/lang, "EmuSuNi 01.06").
+patch('core/loadrom.c',
+      b'    /* CD BOOTROM */\r\n    else if (strstr(rominfo.ROMType, "BR") != NULL)\r\n    {\r\n',
+      b'    /* CD BOOTROM */\r\n    else if (strstr(rominfo.ROMType, "BR") != NULL)\r\n    {\r\n'
+      b'      /* EmuSuNi: refused, with its reason (no Mega-CD in the app) */\r\n'
+      b'      extern void emusuni_cd_bios_refused(void);\r\n'
+      b'      emusuni_cd_bios_refused();\r\n'
+      b'      return (0);\r\n')
+patch('libretro/libretro.c',
+      b'      environ_cb(RETRO_ENVIRONMENT_SET_MESSAGE, &msg);\r\n   }\r\n}\r\n\r\nint load_archive(',
+      b'      environ_cb(RETRO_ENVIRONMENT_SET_MESSAGE, &msg);\r\n   }\r\n}\r\n\r\n'
+      b'/* EmuSuNi: why load_rom refuses a Mega-CD BIOS opened as a game (the app shows a line each) */\r\n'
+      b'void emusuni_cd_bios_refused(void)\r\n'
+      b'{\r\n'
+      b'   struct retro_message msg = {\r\n'
+      b'      "This is the Mega-CD\'s BIOS, not a game\\nEmuSuNi doesn\'t emulate the Mega-CD",\r\n'
+      b'      180\r\n'
+      b'   };\r\n'
+      b'   environ_cb(RETRO_ENVIRONMENT_SET_MESSAGE, &msg);\r\n'
+      b'}\r\n\r\n'
+      b'int load_archive(')
+patch('core/cd_hw/cd_cart.c',
+      b'    scd.cartridge.mask = (1 << (scd.cartridge.id + 13)) - 1;\n',
+      b'    /* EmuSuNi: the shift as the x86 does it (its count & 31): id 0xff ("disabled") went past 31 */\n'
+      b'    scd.cartridge.mask = (1u << ((scd.cartridge.id + 13) & 31)) - 1;\n')
 
 written = 0
 for path, text in patched.items():
@@ -214,7 +280,7 @@ target_compile_definitions(gpgx_libretro PRIVATE
   USE_LIBTREMOR USE_LIBCHDR _7ZIP_ST ZSTD_DISABLE_ASM ZSTD_TRACE=0
   USE_16BPP_RENDERING FRONTEND_SUPPORTS_RGB565 LSB_FIRST BYTE_ORDER=LITTLE_ENDIAN HAVE_ZLIB
   __LIBRETRO__ USE_LIBRETRO_VFS M68K_OVERCLOCK_SHIFT=20 Z80_OVERCLOCK_SHIFT=20 HAVE_YM3438_CORE
-  HAVE_OPLL_CORE MAXROMSIZE=10485760 HAVE_NO_LANGEXTRA USE_DYNAMIC_ALLOC "INLINE=static inline")
+  HAVE_OPLL_CORE MAXROMSIZE=33554432 HAVE_NO_LANGEXTRA USE_DYNAMIC_ALLOC "INLINE=static inline")
 target_compile_options(gpgx_libretro PRIVATE -w)
 CMAKE
 if cmp -s "$OUT/cmake/CMakeLists.txt.new" "$OUT/cmake/CMakeLists.txt"; then

@@ -19,6 +19,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/mman.h>
+#include <sys/stat.h>
 #include <time.h>
 
 int32_t sceKernelMprotect(const void* addr, size_t len, int32_t prot);
@@ -41,6 +42,7 @@ static const char* const METHODS[] = {"mprotect", "fixed mmap", "fixed flexible 
 
 // Into EmuSuNi's log (src/Log.cpp: one line at a time, whatever thread writes it).
 void emusuni_log_line(const char* text);
+int ps4_heap_thread_arena(const char* name);  /* (01.06) port/ps4_runtime.cpp: an arena of the heap for this thread */
 
 static void Trace(const char* format, const char* a, int b)
 {
@@ -506,6 +508,91 @@ void emusuni_jit_window_probe(void)
   emusuni_log_line(line);
 }
 
+/* ---- ParaLLEl-RSP's code memory (01.05) ----
+ * Where ParaLLEl-RSP (the N64's RSP recompiler: scripts/build-n64-core.sh, its jit_allocator.cpp) writes its code: `size`
+ * bytes of system flexible memory, mapped when an N64 game's RSP starts and given back at the game's end. Until v00.23 a
+ * static constructor reserved 1 GiB before main and made it executable with mprotect, which the PS4 refused now and then:
+ * abort() closed the app before its first line (reports CXNNDN, U7USF6, FMC33M, QEREZH). Now right past the program, where
+ * the memory probe maps and runs code (the code's calls into the core are then 32-bit ones; anywhere else works too),
+ * readable, writable and executable at once; else read/write and made executable the ways emusuni_make_executable knows.
+ * Each checked by running code there. NULL when no way works: CXD4 then runs the RSP (the core's log says so). */
+void* emusuni_n64_rsp_memory(size_t size)
+{
+  char line[256];
+  size = (size + PAGE - 1) & ~(size_t)(PAGE - 1);
+  /* A hint: the kernel takes the first free range from there. */
+  void* base = (void*)(((uintptr_t)s_jit_arena + JIT_ARENA_SIZE + WINDOW_ALIGN - 1) & ~(WINDOW_ALIGN - 1));
+  int32_t ret = sceKernelReserveVirtualRange(&base, size, 0, WINDOW_ALIGN);
+  if (ret != 0)
+  {
+    snprintf(line, sizeof(line), "n64: RSP code memory: %.1f MiB not reserved (%#x)", MiB(size), (unsigned)ret);
+    emusuni_log_line(line);
+    return NULL;
+  }
+  /* 1. Read, write and execute at once. */
+  void* at = base;
+  ret = sceKernelMapNamedSystemFlexibleMemory(&at, size, PROT_RWX, MAP_FIXED_FLAG, "n64 rsp");
+  if (ret == 0 && at == base && Runs((unsigned char*)base))
+  {
+    snprintf(line, sizeof(line),
+             "n64: RSP code memory: %.1f MiB of system flexible memory at %p (%+.1f MiB from the code's start), read/write/execute",
+             MiB(size), base, MiBFromCode(base));
+    emusuni_log_line(line);
+    return base;
+  }
+  snprintf(line, sizeof(line), "n64: RSP code memory: read/write/execute at once %s (%#x): read/write, then made executable",
+           ret != 0 ? "refused" : "mapped, but code there faults", (unsigned)ret);
+  emusuni_log_line(line);
+  if (ret == 0)
+  {
+    /* The first try's mapping out (with the reservation under it), the same range reserved again. */
+    sceKernelMunmap(at, size);
+    if (at != base)
+    {
+      sceKernelMunmap(base, size);
+      return NULL;
+    }
+    void* again = base;
+    ret = sceKernelReserveVirtualRange(&again, size, MAP_FIXED_FLAG, PAGE);
+    if (ret != 0 || again != base)
+    {
+      snprintf(line, sizeof(line), "n64: RSP code memory: the range at %p not reserved again (%#x, %p)", base, (unsigned)ret, again);
+      emusuni_log_line(line);
+      if (ret == 0)
+        sceKernelMunmap(again, size);
+      return NULL;
+    }
+  }
+  /* 2. Read/write from the same pool, then made executable (mprotect first). */
+  at = base;
+  ret = sceKernelMapNamedSystemFlexibleMemory(&at, size, PROT_READ | PROT_WRITE, MAP_FIXED_FLAG, "n64 rsp");
+  const int way = ret == 0 && at == base ? emusuni_make_executable(base, size) : -1;
+  if (way >= 0)
+  {
+    snprintf(line, sizeof(line), "n64: RSP code memory: %.1f MiB of system flexible memory at %p (%+.1f MiB from the code's start), "
+             "made executable by way %d (%s)", MiB(size), base, MiBFromCode(base), way, METHODS[way]);
+    emusuni_log_line(line);
+    return base;
+  }
+  snprintf(line, sizeof(line), "n64: RSP code memory: %.1f MiB at %p: read/write %s (%#x), not executable: no RSP recompiler",
+           MiB(size), base, ret == 0 && at == base ? "mapped" : "refused", (unsigned)ret);
+  emusuni_log_line(line);
+  if (ret == 0)
+    sceKernelMunmap(at, size);
+  if (ret != 0 || at != base)
+    sceKernelMunmap(base, size);
+  return NULL;
+}
+
+void emusuni_n64_rsp_memory_free(void* address, size_t size)
+{
+  char line[160];
+  size = (size + PAGE - 1) & ~(size_t)(PAGE - 1);
+  const int32_t ret = sceKernelMunmap(address, size);
+  snprintf(line, sizeof(line), "n64: RSP code memory: %.1f MiB at %p given back (%#x)", MiB(size), address, (unsigned)ret);
+  emusuni_log_line(line);
+}
+
 // ---- OpenGL, for GLideN64's code (never called) ----
 #define GL_STUB(name) \
   void name(void) {}
@@ -732,12 +819,22 @@ void emusuni_dc_thread(const char* name)
  * threads by fixed priorities, and workers of several priorities taking the
  * same locks froze the app once (the heap's spin lock, port/ps4_dlmalloc.c - a mutex now, but the
  * emulation waits for the Vulkan worker, so nothing else may run ahead of it on its core). Each name is
- * logged once (HleAsync would fill the log). */
+ * logged once (HleAsync would fill the log); (01.10) the GPU commands' and the DSP's threads once a game. */
 #ifdef EMUSUNI_3DS
+/* (01.10) Each 3DS game's load (src/Emulator.cpp, before the core's load_game): the GPU commands' and the DSP's threads,
+ * made again at each load, Reset and state load, are logged once a game. */
+static unsigned s_3ds_game = 1;
+void emusuni_3ds_game_starts(void)
+{
+  __atomic_add_fetch(&s_3ds_game, 1, __ATOMIC_RELAXED);
+}
+
 void emusuni_3ds_thread(const char* name)
 {
   uint64_t mask = (1ull << 0) | (1ull << 1) | (1ull << 3) | (1ull << 4) | (1ull << 5);
   int priority = 700;
+  int async_kind = -1;  /* (01.10) 0: the GPU commands' thread, 1: the DSP's */
+  int async_asked = -1; /* (01.10) the core its name asks for (its test file's number) */
   if (strcmp(name, "VulkanWorker") == 0)
   {
     mask = 1ull << 3;
@@ -746,6 +843,22 @@ void emusuni_3ds_thread(const char* name)
   else if (strcmp(name, "VulkanFence") == 0)
   {
     mask = (1ull << 4) | (1ull << 5);
+    priority = 480;
+  }
+  else if (strncmp(name, "PICA", 4) == 0 || strncmp(name, "DSP HLE", 7) == 0)
+  {
+    /* (01.10) The 3DS core's GPU commands ("PICA <n>", the file /data/EmuSuNi/3ds-async-pica) and its audio's mixing
+     * ("DSP HLE <n>", 3ds-async-dsp) on threads of their own: the emulation thread waits for them, so at its priority,
+     * each alone at it on the core its name ends with (the file's number, 0 to 6): by default core 0 for the GPU's (the
+     * emulation's CPU module: the lists and vertices the game just wrote are in the L2 they share; core 0's others are
+     * the app's sound above, at 400, and the workers below, at 700, which go to cores 1, 3, 4 and 5 meanwhile) and
+     * core 1 for the DSP's. Never core 2, the emulation's: the default instead. Without this, both took the workers'
+     * 700, below the emulation that waits for them (the 3DS specialist's 3ds-0110-app-hilos.txt). */
+    async_kind = name[0] == 'P' ? 0 : 1;
+    const char* digit = strpbrk(name, "0123456789");
+    async_asked = digit != NULL ? *digit - '0' : -1;
+    const int core = async_asked >= 0 && async_asked <= 6 && async_asked != 2 ? async_asked : async_kind;
+    mask = 1ull << core;
     priority = 480;
   }
   else if (strcmp(name, "citra:Log") == 0 || strncmp(name, "Disk Shader Cache", 17) == 0 ||
@@ -761,28 +874,59 @@ void emusuni_3ds_thread(const char* name)
   char thread_name[32];
   snprintf(thread_name, sizeof(thread_name), "3ds %s", name);
   emusuni_rename_thread(self, thread_name);
+  /* (01.06) The busy ones an arena of the heap each (port/ps4_runtime.cpp): Mesa's and ACO's millions of small blocks
+   * a pipeline, the Vulkan worker's - every 3DS thread took the heap's one lock (the 3DS specialist's PC test, Luigi's
+   * Mansion: Dark Moon: the frames 21% slower with it, the GPU commands 30%). /data/EmuSuNi/3ds-heap-arenas-off: one
+   * heap for all, as before. (01.10) The GPU commands' thread too: the rasterizer's allocations the emulation thread
+   * made are its now. */
+  const char* arena = "";
+  if (strcmp(name, "Pipeline workers") == 0 || strcmp(name, "Shader workers") == 0 ||
+      strcmp(name, "Pipeline optimizer") == 0 || strcmp(name, "VulkanWorker") == 0 || async_kind == 0)
+  {
+    struct stat st;
+    if (stat("/data/EmuSuNi/3ds-heap-arenas-off", &st) == 0)
+      arena = ", one heap (3ds-heap-arenas-off)";
+    else
+      arena = ps4_heap_thread_arena(name) ? ", an arena of the heap of its own" : ", no arena left: the heap";
+  }
   static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
   static char seen[24][40];
   static unsigned seen_count = 0;
+  static unsigned async_logged[2]; /* (01.10) the game each was last logged in */
   int first = 1;
   pthread_mutex_lock(&lock);
-  for (unsigned i = 0; i < seen_count; i++)
+  if (async_kind >= 0)
   {
-    if (strncmp(seen[i], name, sizeof(seen[i]) - 1) == 0)
-      first = 0;
+    const unsigned game = __atomic_load_n(&s_3ds_game, __ATOMIC_RELAXED);
+    first = async_logged[async_kind] != game;
+    async_logged[async_kind] = game;
   }
-  if (first && seen_count < sizeof(seen) / sizeof(seen[0]))
+  else
   {
-    snprintf(seen[seen_count], sizeof(seen[0]), "%s", name);
-    seen_count++;
+    for (unsigned i = 0; i < seen_count; i++)
+    {
+      if (strncmp(seen[i], name, sizeof(seen[i]) - 1) == 0)
+        first = 0;
+    }
+    if (first && seen_count < sizeof(seen) / sizeof(seen[0]))
+    {
+      snprintf(seen[seen_count], sizeof(seen[0]), "%s", name);
+      seen_count++;
+    }
   }
   pthread_mutex_unlock(&lock);
   if (!first)
     return;
-  char line[256];
-  snprintf(line, sizeof(line), "3ds: thread \"%s\": cores %#llx (%#x), priority %d (%#x), running on CPU %d, flexible %lu KiB free",
+  const char* role = "";
+  if (async_kind == 0)
+    role = "; the 3DS GPU commands' thread, its core from 3ds-async-pica (0 by default)";
+  else if (async_kind == 1)
+    role = "; the 3DS DSP mixing's thread, its core from 3ds-async-dsp (1 by default)";
+  const char* asked = async_asked == 2 ? "; core 2 asked, the emulation's: the default instead" : "";
+  char line[384];
+  snprintf(line, sizeof(line), "3ds: thread \"%s\": cores %#llx (%#x), priority %d (%#x), running on CPU %d, flexible %lu KiB free%s%s%s",
            name, (unsigned long long)mask, (unsigned)affinity, priority, (unsigned)prio, sceKernelGetCurrentCpu(),
-           FlexibleFreeKiB());
+           FlexibleFreeKiB(), arena, role, asked);
   emusuni_log_line(line);
 }
 

@@ -17,6 +17,13 @@
 //  - Alone, a Game Boy game stays mGBA's: its saves are mGBA's (<key>.srm, <key>.rtc: the clock's 48 bytes,
 //    VBA-M's/BGB's format, which SameBoy reads and writes too).
 //
+// (01.04) The Game Boy Advance's too (Pokemon Ruby, Sapphire, Emerald, FireRed, LeafGreen; Mario Kart Super Circuit,
+// Four Swords... two players): the same match and saves, two GBA games. Its core is mGBA's own link cable in mGBA's
+// object (scripts/gbalink/emusuni_gbalink.c: gbalink_retro_*), each PS4 running both GBAs as for the Game Boy; it draws
+// this console's GBA alone (a 240x160 picture: VisibleHalf leaves it whole). A GBA's battery save is its .srm alone
+// (no clock after it: a GBA cartridge's clock is the console's time - the host's at the match's start, the same on
+// both: gbalink_rtc). A link room's console says which: NetProto::GBLINK or NetProto::GBALINK.
+//
 // Netplay sets the match (Set) before Emulator::Run starts its game, and clears it after (Clear). Nothing here
 // throws; Set/Clear/Get from the menu's or the game's thread, never both at once.
 
@@ -56,6 +63,8 @@ void Set(const Match& match);
 void Clear();
 bool Active();
 const Match& Get();
+// (01.04) The match is two Game Boy Advances' (its games are GBA games), not two Game Boys'.
+bool Gba();
 
 // A game's battery save as this console keeps it, as one: <key>.srm, then <key>.rtc's 48 bytes (a cartridge with a
 // clock) with the clock brought to `now` (Unix time: what mGBA does as it loads it). Empty: no save yet.

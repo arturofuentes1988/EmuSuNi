@@ -63,6 +63,16 @@ install -m 644 "$REPO/server/reports_panel.py" /opt/emusuni-reports/reports_pane
 install -m 644 "$REPO/server/reports_acme.py" /opt/emusuni-reports/reports_acme.py
 rm -rf /opt/emusuni-reports/__pycache__
 install -d -m 750 -o emusuni-reports -g emusuni-reports /var/lib/emusuni-reports
+# (01.07) The world chat's blocks: written by the panel in chat/blocks.tsv (644), read by emusuni-netd (--chat-blocks),
+# which an ACL lets through /var/lib/emusuni-reports - not to list it nor read the reports (deploy.sh does it too, when
+# it comes second). Made empty once; the panel's own file is never touched again.
+install -d -m 755 -o emusuni-reports -g emusuni-reports /var/lib/emusuni-reports/chat
+[ -e /var/lib/emusuni-reports/chat/blocks.tsv ] ||
+  install -m 644 -o emusuni-reports -g emusuni-reports /dev/null /var/lib/emusuni-reports/chat/blocks.tsv
+if id emusuni-netd > /dev/null 2>&1; then
+  command -v setfacl > /dev/null || apt-get install -y -q acl
+  setfacl -m u:emusuni-netd:x /var/lib/emusuni-reports
+fi
 if [ "$MODE" = install ]; then
   install -d -m 750 -o root -g emusuni-reports /etc/emusuni-reports
   install -m 644 -o root -g root "$CERT" /etc/emusuni-reports/cert.pem

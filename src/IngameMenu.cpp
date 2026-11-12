@@ -16,14 +16,20 @@
 #include "AchievementsUi.h"
 #include "Controls.h"
 #include "Display.h"
+#include "GameExtras.h"  // ((01.22) a game's Updates, DLC and Mods / Patched Romset: asked of the menu after the game)
 #include "Image.h"
 #include "Log.h"
 #include "MenuNav.h"
 #include "Netplay.h"
+#include "NetplayUi.h"
 #include "PS4Glyphs.h"
 #include "PS4Lang.h"
+#include "Portable.h"
 #include "Saves.h"
 #include "Settings.h"
+#ifdef EMUSUNI_3DS
+#include "ThreeDsCia.h"
+#endif
 
 namespace
 {
@@ -75,6 +81,10 @@ void IngameMenu::SetGame(const std::string& data_dir, const std::string& game_id
   m_toast.clear();
   m_slot = 1;
   m_cheats.Load(data_dir, game_id);
+  m_extras_rows.clear();
+  m_extras_files.clear();
+  m_extras_ask.clear();
+  m_extras_title = 0;
   ForgetPictures();
 }
 
@@ -159,6 +169,19 @@ void IngameMenu::BuildRows()
     // (00.23) Online: the match's own rows (no states, disc, cheats, reset or achievements: the match is every
     // console's).
     OnlineRows(&rows);
+    // ((01.23) A request to join the match - entry with permission -: Accept and Reject under Resume Game; the rows
+    // below keep their selection, as for a game played alone.)
+    const bool join_rows = Netplay::GetJoinRequest().member >= 0;
+    if (join_rows != m_join_rows)
+    {
+      if (join_rows && m_main_selected >= 1)
+        m_main_selected += 2;
+      else if (!join_rows && m_main_selected >= 3)
+        m_main_selected -= 2;
+      else if (!join_rows)
+        m_main_selected = 0;
+      m_join_rows = join_rows;
+    }
     m_main_selected = std::clamp(m_main_selected, 0, static_cast<int>(rows.size()) - 1);
     m_selected = m_main_selected;
   }
@@ -228,10 +251,18 @@ void IngameMenu::BuildRows()
         rows.push_back({"Achievements", value, false, false, 0, "achievements"});
       }
     }
+    // (01.22) What the game has installed: the 3DS's update, DLC and mods; the Arcade's patched romset.
+    if (HasExtras())
+      rows.push_back({m_system == SystemId::ARCADE ? "Patched Romset" : "Updates, DLC and Mods", "", false, false, 0,
+                      "extras"});
     if (!openbor)
       rows.push_back({"Reset Game", "", false, false, 0, "reset"});
     rows.push_back({"Quit Game", "", false, false, 0, "quit"});
     m_selected = m_main_selected;
+  }
+  else if (m_page == Page::Extras)
+  {
+    ExtrasRows(&rows);
   }
   else if (m_page == Page::Cheats && m_system == SystemId::DC)
   {
@@ -530,6 +561,13 @@ void IngameMenu::Change(int direction)
   const std::string key = m_rows[m_selected].key;
   if (m_page == Page::Achievements)
     return;
+  if (m_page == Page::Extras)
+  {
+    // (01.22) Left / Right: the 3DS's Mods On / Off only (Cross does the rest: ExtrasActivate).
+    if (key == "x:mods")
+      ExtrasActivate(key);
+    return;
+  }
   if (m_page == Page::Cheats && key == "cheatfind")
   {
     if (direction <= 0)
@@ -745,20 +783,40 @@ std::string IngameMenu::RowHelp(const Row& row) const
       return T("Your microphone and the other players' voices. In a public room it starts off: turn it on to talk.");
     if (row.key == "np:me")
       return T("You: your controllers' players in this match.");
+    if (row.key == "np:phrase")
+      return T("Left / Right choose a phrase, Cross sends it to everyone in the room (in their language).");
     if (row.key.rfind("np:player:", 0) == 0)
       return T("Cross mutes or unmutes this player's voice. Their ping: the round trip to their console.");
     if (row.key.rfind("np:kick:", 0) == 0)
-      return T("Removes this player from the room: they can't join it again. The match ends.");
+      return T(Netplay::GetStatus().room_back && !Netplay::GetStatus().room_back_old ?
+                   "Removes this player from the room: they can't join it again. The match ends, the others back in "
+                   "the room (it stays open)." :
+                   "Removes this player from the room: they can't join it again. The match ends.");
     // (00.86) A player asking to join our room while this game is played alone.
     if (row.key.rfind("np:accept:", 0) == 0)
-      return T("Lets this player into your room: this game ends and your room opens - press Start there to play "
-               "together.");
+      return T(Netplay::Active() ? "Lets this player into your room: they join the match under way (everyone stops a "
+                                   "moment)." :
+                                   "Lets this player into your room: this game ends and your room opens - press Start "
+                                   "there to play together.");
     if (row.key.rfind("np:reject:", 0) == 0)
       return T("This player doesn't join your room, and can't ask again.");
     if (row.key == "quit" && Netplay::Active())
-      return T("Leaves the room: the match ends for everyone.");
+    {
+      // ((01.23) A guest who leaves no longer closes the host's room: the others go back to it.)
+      const Netplay::Status status = Netplay::GetStatus();
+      return T(status.watching                         ? "Leaves the room: the match goes on without you." :
+               status.host                             ? "Closes the room: the match ends for everyone." :
+               status.room_back && !status.room_back_old ? "Leaves the room: the match ends, the others go back to "
+                                                           "the room." :
+                                                           "Leaves the room: the match ends for everyone.");
+    }
     if (row.key == "np:end")
-      return T("Ends this match for both: back to the room's games, to pick another.");
+      return T(Netplay::GetStatus().together ?
+                   "Ends this match for both: back to the room's games, to pick another." :
+                   "Ends this match for every player: all back in the room (its chat, its players), where the host "
+                   "can start again. You stay in the room.");
+    if (row.key == "np:reset")
+      return T("Resets the game for every player at once: everyone stops a moment, then it starts again.");
     if (row.key == "disc")
     {
       return PS4Lang::T("Disc " + std::to_string(m_disc_in + 1) + " is in the console.") + " " +
@@ -777,6 +835,10 @@ std::string IngameMenu::RowHelp(const Row& row) const
         {"Controls", "Which DualShock 4 button does what, for this console's games or only this one: back in the "
                      "game they apply."},
         {"Cheats", "Turns this game's cheat codes on and off."},
+        {"Updates, DLC and Mods", "What this game has installed, its mods on or off; its CIAs to install (the game "
+                                  "closes first)."},
+        {"Patched Romset", "The patched romset this game uses, or one to install from Roms/arcade/patched (the game "
+                           "closes first)."},
         {"Reset Game", "Like the console's Reset button."},
         {"Quit Game", "Back to your games (the battery save is kept)."},
     };
@@ -903,12 +965,23 @@ std::string IngameMenu::RowHelp(const Row& row) const
 
 IngameMenu::Action IngameMenu::Activate()
 {
+  if (m_page == Page::Extras)
+    return m_selected >= 0 && m_selected < static_cast<int>(m_rows.size()) ? ExtrasActivate(m_rows[m_selected].key) :
+                                                                             Action::None;
   if (m_page != Page::Main)
   {
     Change(1);
     return Action::None;
   }
   const std::string key = MainKey();
+  if (key == "extras")
+  {
+    m_page = Page::Extras;  // ((01.22) read now: the CIAs' headers, what is installed)
+    m_selected = 0;
+    m_extras_ask.clear();
+    LoadExtras();
+    return Action::None;
+  }
   if (key == "resume")
   {
     Close();
@@ -916,8 +989,37 @@ IngameMenu::Action IngameMenu::Activate()
   }
   if (key == "np:end")
   {
-    Netplay::EndMatchToRoom();  // (00.23: both back to the Choose Together room)
+    // (00.23: both back to the Choose Together room. (01.23) Any room's: every player back in it.)
+    if (Netplay::GetStatus().room_back_old)
+    {
+      Toast("A player has an older EmuSuNi: the match can't go back to the room");
+      return Action::None;
+    }
+    if (!Netplay::EndMatchToRoom())
+    {
+      Toast("Not now: try again in a moment");
+      return Action::None;
+    }
+    LogLine("menu: the online match ends: back to the room");
     return Action::Quit;
+  }
+  if (key == "np:reset")
+  {
+    // (01.14) The host resets the game for every player at once (Netplay::ResetMatch): a moment's stop, then it resets.
+    const Netplay::Status status = Netplay::GetStatus();
+    if (status.reset_old)
+    {
+      Toast("A player has an older EmuSuNi: it can't be reset online");
+      return Action::None;
+    }
+    if (!Netplay::ResetMatch())
+    {
+      Toast("Not now: try again in a moment");
+      return Action::None;
+    }
+    LogLine("menu: the host resets the online match's game");
+    Close();
+    return Action::Closed;
   }
   if (key.rfind("np:accept:", 0) == 0 || key.rfind("np:reject:", 0) == 0)
   {
@@ -929,6 +1031,15 @@ IngameMenu::Action IngameMenu::Activate()
     if (ask.member != member)
     {
       Toast("The request to join is over");
+      BuildRows();
+      return Action::None;
+    }
+    if (key.rfind("np:accept:", 0) == 0 && Netplay::Active())
+    {
+      // ((01.23) Our match under way, entry with permission: it joins the match - no game ends.)
+      LogF("menu: %s accepted in our match", ask.nick.c_str());
+      Netplay::Admit(member);
+      Toast(ask.nick + " joins the match in a moment");
       BuildRows();
       return Action::None;
     }
@@ -991,12 +1102,282 @@ IngameMenu::Action IngameMenu::Activate()
   return Action::None;
 }
 
+// ---- (01.22, the owner: "en el menú L2 y R2 en un juego") What the game has installed ----
+
+bool IngameMenu::HasExtras() const
+{
+#ifdef EMUSUNI_3DS
+  if (m_system == SystemId::THREEDS)
+    return true;
+#endif
+  return m_system == SystemId::ARCADE;
+}
+
+// Read as the page opens: what is installed (the core's SD card, the patched romsets' folder), what can be installed
+// (the menu's folders: GameExtras::InstallFolders - the CIAs' headers read by the core, any thread).
+void IngameMenu::LoadExtras()
+{
+  std::vector<Row> rows;
+  m_extras_files.clear();
+  auto T = [](const std::string& text) { return std::string(PS4Lang::T(text)); };
+  // A row with its help (RowHelp says a row's own as it is: translated here).
+  auto add = [&rows](const std::string& label, const std::string& value, const std::string& key,
+                     const std::string& help) {
+    Row row{label, value, false, false, 0, key};
+    row.help = help;
+    rows.push_back(std::move(row));
+  };
+  const std::string closes = T("The game closes first; then the menu asks.");
+#ifdef EMUSUNI_3DS
+  if (m_system == SystemId::THREEDS)
+  {
+    m_extras_title = ThreeDsCia::RomTitleId(m_game_path);
+    if (m_extras_title == 0)
+    {
+      PushWrapped(&rows, "A homebrew game (.3dsx) has no title ID: no updates, DLC or mods.");
+      m_extras_rows = std::move(rows);
+      return;
+    }
+    const std::string save_dir = m_data_dir + "/saves/3ds";  // (the menu's ThreeDsSaveDir: the core's save folder)
+    Row id{ThreeDsCia::Hex(m_extras_title), "", true};
+    id.raw = true;
+    rows.push_back(id);
+    if (ThreeDsCia::Available())
+    {
+      const ThreeDsCia::Installed has = ThreeDsCia::InstalledFor(save_dir, m_extras_title);
+      add("Update", has.read && has.has_update ? ThreeDsCia::VersionText(has.update_version) : std::string("None"),
+          "x:update", T("The update the game started with (an update installed now: from its next start)."));
+      add("DLC", has.read && has.dlc_titles > 0 ? std::string("Installed") : std::string("None"), "x:dlc",
+          has.read && has.dlc_titles > 0 ? T("Its DLC's contents installed: " + std::to_string(has.dlc_contents)) :
+                                           T("Install them from their CIA files: copied to Roms/3ds/cia, they show "
+                                             "here."));
+      if (has.read && has.has_update)
+        add("Remove the Update", "", "x:remove_update", closes);
+      if (has.read && has.dlc_titles > 0)
+        add("Remove the DLC", "", "x:remove_dlc", closes);
+      rows.push_back({"Install from CIA Files", "", true});
+      for (const ThreeDsCia::File& file : ThreeDsCia::List(GameExtras::InstallFolders(SystemId::THREEDS)))
+      {
+        const ThreeDsCia::Info& info = file.info;
+        if (!info.read || ThreeDsCia::GameOf(info.title_id) != m_extras_title || info.kind == ThreeDsCia::Kind::Game)
+          continue;
+        const bool update = info.kind == ThreeDsCia::Kind::Update;
+        const std::string what = update ? "Update " + ThreeDsCia::VersionText(info.version) : std::string("DLC");
+        const std::string help = file.file_name + "  \xC2\xB7  " + ThreeDsCia::SizeText(file.size) + "\n";
+        if (info.encrypted)
+        {
+          add(what, "Encrypted", "x:encrypted", help + T(ThreeDsCia::CodeText(ThreeDsCia::ENCRYPTED)));
+          continue;
+        }
+        if (update && has.read && has.has_update && has.update_version >= info.version)
+        {
+          add(what, "Installed", "x:installed",
+              help + T("Installed already: " + ThreeDsCia::VersionText(has.update_version)));
+          continue;
+        }
+        add(what, ThreeDsCia::SizeText(info.install_bytes), "x:file:" + std::to_string(m_extras_files.size()),
+            help + closes);
+        m_extras_files.push_back(file.path);
+      }
+      if (m_extras_files.empty())
+        add("No CIA Files for It", "", "x:nocia",
+            T("Copy its decrypted update or DLC CIAs to the folder cia in Roms/3ds:") + "\nUSB: Roms/3ds/cia");
+    }
+    else
+    {
+      add("Updates and DLC", "Not in This Version", "x:none", T(ThreeDsCia::CodeText(ThreeDsCia::NO_CORE)));
+    }
+    Row mods{"Mods", "", false, true, ThreeDsCia::ModsOn(m_extras_title) ? 1 : -1, "x:mods"};
+    mods.help = T("Its mods on or off: from the game's next start (Quit Game, then start it again). Their folder: "
+                  "saves/3ds/Azahar/load/mods/" + ThreeDsCia::Hex(m_extras_title));
+    rows.push_back(std::move(mods));
+  }
+#endif
+  if (m_system == SystemId::ARCADE)
+  {
+    // (The Arcade's set: the game's id - its zip's name -, as Emulator.cpp's patched romset.)
+    const std::string dir = Portable::SystemDir(GetSystem(SystemId::ARCADE).key) + "/fbneo/patched";
+    const GameExtras::PatchedFile in_use = GameExtras::PatchedInUse(dir, m_game_id);
+    Row set{m_game_id, "", true};
+    set.raw = true;
+    rows.push_back(set);
+    add("In Use", in_use.path.empty() ? std::string("None") : in_use.name, "x:inuse",
+        in_use.path.empty() ? T("The game started from its own zip.") :
+                              T("FinalBurn Neo started the game from it instead of its own zip.") + "\n" + in_use.path);
+    if (!in_use.path.empty())
+      add("Remove It", "", "x:remove_patched", closes);
+    rows.push_back({"Install from Roms/arcade/patched", "", true});
+    for (const GameExtras::PatchedFile& file :
+         GameExtras::PatchedFound(GameExtras::InstallFolders(SystemId::ARCADE), m_game_id))
+    {
+      Row row{file.name, GameExtras::SizeText(file.size), false, false, 0,
+              "x:file:" + std::to_string(m_extras_files.size())};
+      row.raw = true;  // (its file's name as it is)
+      row.help = file.path + "\n" + closes;
+      rows.push_back(std::move(row));
+      m_extras_files.push_back(file.path);
+    }
+    if (m_extras_files.empty())
+      add("None Found", "", "x:nopatched",
+          T("Copy the patched romset, named as the game's set, to the folder patched in Roms/arcade: " + m_game_id +
+            ".zip"));
+  }
+  m_extras_rows = std::move(rows);
+}
+
+void IngameMenu::ExtrasRows(std::vector<Row>* rows)
+{
+  if (m_extras_ask.empty())
+  {
+    *rows = m_extras_rows;
+    return;
+  }
+  // The action asked: the game closes first - said, with Close the Game or Cancel.
+  rows->push_back({m_extras_what, "", true});
+  PushWrapped(rows, m_system == SystemId::ARCADE ?
+                        "To do it the game closes: the patched romset is read when the game starts." :
+                        "To do it the game closes: the 3DS emulator installs and removes only with no game running.");
+  PushWrapped(rows, "Save first (Save State, or in the game): what isn't saved is lost. Then the menu asks before "
+                    "anything is done, and offers to start the game again.");
+  rows->push_back({"", "", true});
+  rows->push_back({"Close the Game", "", false, false, 0, "x:go"});
+  rows->push_back({"Cancel", "", false, false, 0, "x:cancel"});
+}
+
+IngameMenu::Action IngameMenu::ExtrasActivate(const std::string& key)
+{
+  if (key == "x:go" && !m_extras_ask.empty())
+  {
+    // The menu does it after the game (its panel, its confirmation): the game ends here as Quit Game.
+    GameExtras::AskAfterGame(m_game_path, m_extras_ask);
+    m_extras_ask.clear();
+    return Action::Quit;
+  }
+  if (key == "x:cancel")
+  {
+    m_extras_ask.clear();
+    m_selected = 0;
+    BuildRows();
+    return Action::None;
+  }
+#ifdef EMUSUNI_3DS
+  if (key == "x:mods" && m_extras_title != 0)
+  {
+    const bool on = !ThreeDsCia::ModsOn(m_extras_title);
+    ThreeDsCia::SetModsOn(m_extras_title, on);
+    for (Row& row : m_extras_rows)
+    {
+      if (row.key == "x:mods")
+        row.tag = on ? 1 : -1;
+    }
+    LogF("menu: the game's mods %s (from its next start)", on ? "on" : "off");
+    Toast(on ? "Mods on: from the game's next start" : "Mods off: from the game's next start");
+    BuildRows();
+    return Action::None;
+  }
+#endif
+  std::string ask;
+  if (key.rfind("x:file:", 0) == 0)
+  {
+    const size_t index = static_cast<size_t>(std::atoi(key.c_str() + 7));
+    if (index < m_extras_files.size())
+      ask = (m_system == SystemId::ARCADE ? "arcade:install:" : "3ds:install:") + m_extras_files[index];
+  }
+  else if (key == "x:remove_update" || key == "x:remove_dlc")
+  {
+    ask = key == "x:remove_dlc" ? "3ds:remove_dlc" : "3ds:remove_update";
+  }
+  else if (key == "x:remove_patched")
+  {
+    ask = "arcade:remove";
+  }
+  if (ask.empty())
+  {
+    // An information row: where its files go.
+    if (key == "x:nocia" || key == "x:dlc" || key == "x:update")
+      Toast("Copy its CIA files to Roms/3ds/cia: they show here", 3.0f);
+    else if (key == "x:nopatched")
+      Toast("Copy it to Roms/arcade/patched, named as the game's set: it shows here", 3.0f);
+    return Action::None;
+  }
+  m_extras_ask = ask;
+  for (const Row& row : m_extras_rows)
+  {
+    if (row.key == key)
+      m_extras_what = PS4Lang::T(row.label) + (row.value.empty() ? "" : "  -  " + std::string(PS4Lang::T(row.value)));
+  }
+  BuildRows();
+  for (size_t i = 0; i < m_rows.size(); i++)
+  {
+    if (m_rows[i].key == "x:go")
+      m_selected = static_cast<int>(i);
+  }
+  return Action::None;
+}
+
 // (00.23) Online: the match's players (their nicknames as they are, their ping or "Muted", the players they are),
 // the voice chat, Remove Player (the host's), Settings, Controls, Leave Room.
+// (01.05) The match's chat at the right of the screen while the menu is open: its lines, the newest at the bottom (a
+// quick phrase in this console's language), and how to write.
+void IngameMenu::DrawChat(ImDrawList* dl, float a)
+{
+  const Netplay::Status st = Netplay::GetStatus();
+  constexpr float X0 = 940.0f, X1 = 1840.0f, Y0 = 110.0f, Y1 = 860.0f, PAD = 24.0f, SIZE = 28.0f;
+  dl->AddRectFilled(ImVec2(X0, Y0), ImVec2(X1, Y1), IM_COL32(8, 4, 18, static_cast<int>(200 * a)), 18.0f);
+  dl->AddRect(ImVec2(X0, Y0), ImVec2(X1, Y1), IM_COL32(176, 140, 255, static_cast<int>(160 * a)), 18.0f, 0, 2.0f);
+  dl->AddText(m_bold, 32, ImVec2(X0 + PAD, Y0 + 18), IM_COL32(196, 170, 255, static_cast<int>(255 * a)),
+              PS4Lang::T("Chat"));
+  static const ImU32 COLOURS[] = {IM_COL32(98, 230, 255, 255), IM_COL32(255, 200, 112, 255),
+                                  IM_COL32(70, 245, 174, 255), IM_COL32(255, 138, 200, 255)};
+  const float wrap = X1 - X0 - PAD * 2.0f, top = Y0 + 70.0f;
+  float y = Y1 - 70.0f;
+  dl->PushClipRect(ImVec2(X0, top), ImVec2(X1, Y1 - 60.0f), true);
+  for (auto it = st.chat.rbegin(); it != st.chat.rend() && y > top; ++it)
+  {
+    if (it->notice)
+    {
+      // (01.06) A note of ours (a player of an older EmuSuNi, without the chat): dim, no nickname.
+      const std::string note = PS4Lang::T(it->text);
+      y -= m_font->CalcTextSizeA(SIZE, FLT_MAX, wrap, note.c_str()).y + 8.0f;
+      dl->AddText(m_font, SIZE, ImVec2(X0 + PAD, y), IM_COL32(255, 255, 255, static_cast<int>(150 * a)), note.c_str(),
+                  nullptr, wrap);
+      continue;
+    }
+    const std::string nick = it->mine ? PS4Lang::T("You") : it->nick;
+    // ((01.15) The nickname in bold and its colour, the words after it: NetplayUi::LayoutChatLine. Until 01.14 the
+    // line in the regular font and the nickname again over it in bold - wider: over the words.)
+    const NetplayUi::ChatLine line = NetplayUi::LayoutChatLine(
+        m_font, m_bold, SIZE, SIZE + 6.0f, nick,
+        it->phrase ? PS4Lang::ChatPhraseText(it->phrase, it->param) : it->text, wrap);
+    y -= line.height + 8.0f;
+    const ImU32 who = it->mine ? IM_COL32(196, 170, 255, 255) : COLOURS[std::clamp(it->from, 0, 3)];
+    NetplayUi::DrawChatLine(dl, m_font, m_bold, SIZE, SIZE + 6.0f, line, ImVec2(X0 + PAD, y),
+                            (who & 0x00FFFFFF) | (static_cast<ImU32>(255 * a) << 24),
+                            IM_COL32(255, 255, 255, static_cast<int>(235 * a)));
+  }
+  dl->PopClipRect();
+  if (st.chat.empty())
+    dl->AddText(m_font, 26, ImVec2(X0 + PAD, top + 10), IM_COL32(255, 255, 255, static_cast<int>(150 * a)),
+                PS4Lang::T("No messages yet."));
+  dl->AddText(m_font, 22, ImVec2(X0 + PAD, Y1 - 48), IM_COL32(255, 255, 255, static_cast<int>(150 * a)),
+              PS4Lang::T("Quick Phrase: in the menu. Typed lines: in the room, before or after the match."), nullptr,
+              wrap);
+}
+
 void IngameMenu::OnlineRows(std::vector<Row>* rows)
 {
   const Netplay::Status status = Netplay::GetStatus();
   rows->push_back({"Resume Game", "", false, false, 0, "resume"});
+  // (01.23, the owner) Entry with permission, the host's match under way: a player asking to join it - Accept (it
+  // joins the match: everyone stops a moment) or Reject.
+  const Netplay::JoinRequest ask = Netplay::GetJoinRequest();
+  if (ask.member >= 0)
+  {
+    const std::string id = std::to_string(ask.member);
+    rows->push_back({"Accept Player", ask.nick + "  " + std::to_string(ask.seconds_left) + " s", false, false, 0,
+                     "np:accept:" + id});
+    rows->push_back({"Reject Player", ask.nick, false, false, 0, "np:reject:" + id});
+  }
   for (const Netplay::PlayerView& p : status.players)
   {
     std::string value;
@@ -1013,11 +1394,22 @@ void IngameMenu::OnlineRows(std::vector<Row>* rows)
     row.raw = true;  // (a nickname: not translated)
     rows->push_back(row);
   }
-  rows->push_back({"Voice Chat", status.voice_on ? "On" : "Off", false, false, 0, "np:voice"});
+  // (01.05) A quick phrase to everyone (Left / Right: which; Cross: sent) - in each console's language. (A spectator
+  // has neither chat nor voice.)
+  if (!status.watching)
+  {
+    // ((01.07) "I'm from ..." with our country's name.)
+    Row row{"Quick Phrase", PS4Lang::ChatPhraseText(m_chat_phrase, MyCountry()), false, false, 0, "np:phrase"};
+    rows->push_back(row);
+    rows->push_back({"Voice Chat", status.voice_on ? "On" : "Off", false, false, 0, "np:voice"});
+  }
   // (00.92) The players' ping and connection in the game's corner (Netplay::SetLatencyBar: kept for the next ones).
   rows->push_back({"Latency Bar", status.latency_bar ? "On" : "Off", false, false, 0, "np:bar"});
   if (status.host)
   {
+    // (01.14) The host resets the game for everyone (not a spectator's; not with a player of an older EmuSuNi).
+    if (status.can_reset || status.reset_old)
+      rows->push_back({"Reset Game", status.reset_old ? "Not with an older EmuSuNi" : "", false, false, 0, "np:reset"});
     for (const Netplay::PlayerView& p : status.players)
     {
       if (!p.me)
@@ -1026,15 +1418,38 @@ void IngameMenu::OnlineRows(std::vector<Row>* rows)
   }
   rows->push_back({"Settings", "", false, false, 0, "settings"});
   rows->push_back({"Controls", "", false, false, 0, "controls"});
-  // (A Choose Together room: the match ends for both, back to the room's games to pick another.)
-  if (status.together)
-    rows->push_back({"End Match", "", false, false, 0, "np:end"});
-  rows->push_back({"Leave Room", "", false, false, 0, "quit"});
+  // (A Choose Together room: the match ends for both, back to the room's games to pick another.) (01.23, the owner:
+  // "salir del juego sin salir de la sala") Any room's but a link cable's: the match ends for every player, all back in
+  // the room (its chat, its players, the host's Start) - not with a player of an older EmuSuNi.
+  if (status.room_back)
+    rows->push_back({"Back to the Room", status.room_back_old ? "Not with an older EmuSuNi" : "", false, false, 0,
+                     "np:end"});
+  rows->push_back({status.watching ? "Stop Watching" : "Leave Room", "", false, false, 0, "quit"});
+}
+
+std::string IngameMenu::MyCountry()
+{
+  for (const Netplay::PlayerView& p : Netplay::GetStatus().players)
+  {
+    if (p.me)
+      return p.country;
+  }
+  return {};
 }
 
 void IngameMenu::OnlineActivate(const std::string& key, int direction)
 {
   const Netplay::Status status = Netplay::GetStatus();
+  if (key == "np:phrase")
+  {
+    // (01.05) Sent to everyone in the match (one line every 2 s).
+    const Netplay::ChatResult r = Netplay::SendChatPhrase(m_chat_phrase);
+    if (r == Netplay::ChatResult::TooSoon)
+      Toast("One message every 2 seconds");
+    else if (r != Netplay::ChatResult::Sent)
+      Toast("Not in the room yet");
+    return;
+  }
   if (key == "np:voice")
   {
     Netplay::SetVoiceOn(!status.voice_on);
@@ -1213,6 +1628,14 @@ IngameMenu::Action IngameMenu::Poll(uint32_t pressed, uint32_t held, float dt)
         m_arcade_test = !m_arcade_test;
       else if (key == "np:voice" || key == "np:bar")
         OnlineActivate(key, direction);  // (00.23; 00.92: the latency bar)
+      else if (key == "np:phrase")
+      {
+        // (01.05) The next or the one before (round). ((01.07) "I'm from ..." only with our country shown.)
+        m_chat_phrase = (m_chat_phrase - 1 + direction + NetProto::CHAT_PHRASES) % NetProto::CHAT_PHRASES + 1;
+        if (m_chat_phrase == NetProto::PHRASE_FROM && MyCountry().empty())
+          m_chat_phrase = (m_chat_phrase - 1 + direction + NetProto::CHAT_PHRASES) % NetProto::CHAT_PHRASES + 1;
+        BuildRows();
+      }
     }
     else
     {
@@ -1246,6 +1669,12 @@ IngameMenu::Action IngameMenu::Poll(uint32_t pressed, uint32_t held, float dt)
     {
       m_finder.Stop();
       m_page = Page::Cheats;
+      m_selected = 0;
+      rebuild = true;
+    }
+    else if (m_page == Page::Extras && !m_extras_ask.empty())
+    {
+      m_extras_ask.clear();  // ((01.22) Close the Game not chosen: the page again)
       m_selected = 0;
       rebuild = true;
     }
@@ -1329,6 +1758,36 @@ void IngameMenu::Draw(ImDrawList* dl, float dt)
   if (m_toast_time > 0.0f)
     m_toast_time -= dt;
   UpdatePicture();
+  // (01.05) The others' new chat lines over the game while the menu is closed (not those from before the match).
+  if (Netplay::Active())
+  {
+    const Netplay::Status st = Netplay::GetStatus();
+    const uint32_t newest = st.chat.empty() ? 0 : st.chat.back().serial;
+    if (!m_chat_primed)
+    {
+      m_chat_seen = newest;
+      m_chat_primed = true;
+    }
+    else if (newest > m_chat_seen)
+    {
+      for (const Netplay::ChatLine& c : st.chat)
+      {
+        if (c.serial <= m_chat_seen || c.mine || m_open)
+          continue;
+        std::string line = c.notice ? PS4Lang::T(c.text) :  // ((01.06) a note of ours)
+                               c.nick + ": " + (c.phrase ? PS4Lang::ChatPhraseText(c.phrase, c.param) : c.text);
+        if (line.size() > 90)
+        {
+          size_t cut = 87;
+          while (cut > 0 && (static_cast<unsigned char>(line[cut]) & 0xC0) == 0x80)
+            cut--;
+          line = line.substr(0, cut) + "...";
+        }
+        Toast(line, 4.0f);  // (several at once: the newest)
+      }
+      m_chat_seen = newest;
+    }
+  }
   const ImVec2 size(static_cast<float>(Display::WIDTH), static_cast<float>(Display::HEIGHT));
   const float a = m_appear;
   ImFont* bold = m_bold;
@@ -1353,6 +1812,8 @@ void IngameMenu::Draw(ImDrawList* dl, float dt)
     const char* subtitle = m_page == Page::Main     ? "PAUSED" :
                            m_page == Page::Cheats   ? "CHEATS" :
                            m_page == Page::Achievements ? "ACHIEVEMENTS" :
+                           m_page == Page::Extras ? (m_system == SystemId::ARCADE ? "PATCHED ROMSET" :
+                                                                                     "UPDATES, DLC AND MODS") :
                            m_page == Page::CheatSearch ? "FIND CHEATS ONLINE" :
                            m_page == Page::CheatPick   ? "CHOOSE CHEATS" :
                            m_page == Page::Controls    ? (Controls::HasGameProfile(m_game_id) ? "CONTROLS - THIS GAME" :
@@ -1499,11 +1960,16 @@ void IngameMenu::Draw(ImDrawList* dl, float dt)
                     m_page == Page::CheatSearch ? "Select" :
                     m_page == Page::CheatPick   ? "Choose" :
                     m_page == Page::Achievements ? "Select" :
+                    m_page == Page::Extras       ? "Select" :
                                                   "Change");
       hint("D-Pad", "Move");
       hint("Circle", "Back");
     }
   }
+
+  // (01.05) An online match's chat at the right while the menu is open (the whole screen: the room's view).
+  if (a > 0.01f && m_page == Page::Main && Netplay::Active() && !Netplay::GetStatus().watching)
+    DrawChat(dl, a);  // ((01.05) a spectator has none)
 
   if (m_toast_time > 0.0f && !m_toast.empty())
   {

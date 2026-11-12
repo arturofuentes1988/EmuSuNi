@@ -24,6 +24,7 @@ Its door - the panel is on the internet:
 In Spanish; English with the link at the bottom.
 """
 import base64
+import calendar
 import getpass
 import gzip
 import hashlib
@@ -56,9 +57,15 @@ SCRYPT_N, SCRYPT_R, SCRYPT_P = 2 ** 15, 8, 1
 MAX_FORM = 64 * 1024
 PAGE_LINES = 1000
 LIST_PAGE = 50
+PAGE_SIZES = (25, 50, 100)  # (01.04) a long table's rows a page (Panel.pager)
 GITHUB_SECONDS = 3600
 SKETCH_ALL, SKETCH_LABEL, SKETCH_GAME = 14, 11, 8
-LABEL_KINDS = ("country", "version", "language", "state", "console", "game")
+LABEL_KINDS = ("country", "version", "language", "state", "console", "game", "community")  # ((01.04) community modes)
+# (01.07) The quick phrases' English (src/NetplayProtocol.h's ChatPhrase: their numbers never change - a new one at the
+# end), for the chat's page: a line stores its phrase's number.
+PHRASES = ("", "Hello!", "Ready?", "Ready!", "Good game!", "One moment, please", "Another game?", "You choose",
+           "Thanks!", "Nice!", "There's lag", "I have to go", "See you!")
+CHAT_BLOCK_DAYS = (1, 7, 0)  # (01.07) a block's days (0: always - an address's hash: as long as its salt, 30 days at most)
 ERROR = re.compile(r"\b(?:error|errors|failed|failure|crash(?:ed|es)?|signal \d+|abort(?:ed)?|exception|fatal|panic|"
                    r"desync|can't|couldn't|cannot|not found|refused|timed out)\b", re.I)
 # (The lines of numbers every 10 s say "0 errors" and the like: not errors.)
@@ -91,6 +98,20 @@ def stamp(t):
 
 def kb(n):
     return "%.0f KB" % (n / 1024.0) if n < 1024 * 1024 else "%.1f MB" % (n / 1048576.0)
+
+
+def flag(cc):
+    """(01.04) A country's flag (its two letters as Unicode's regional indicators: no picture) and its code; "??" and
+    the like: the code alone."""
+    cc = (cc or "").strip().upper()
+    if len(cc) == 2 and cc.isalpha() and cc.isascii():
+        return "%s%s %s" % (chr(0x1F1E6 + ord(cc[0]) - 65), chr(0x1F1E6 + ord(cc[1]) - 65), cc)
+    return cc or "??"
+
+
+def flags(countries):
+    """A list of countries ("AR,CL") with their flags."""
+    return " ".join(flag(c) for c in (countries or "").split(",") if c) or "-"
 
 
 # ---- TOTP (RFC 6238: HMAC-SHA1, 6 digits, 30 s) ----
@@ -561,6 +582,148 @@ class Stats:
         return out
 
 
+def room_title(titles, label):
+    """(01.04) A room's game title from titles.txt: its label ("snes.c-7655bb55"), a link cable room's under the Game
+    Boys' own consoles ("gblink.c-..." as gb., gbc.; "gbalink.c-..." as gba.); None when it isn't known."""
+    if not label:
+        return None
+    console, _, rest = label.partition(".")
+    tries = {"gblink": ("gb", "gbc"), "gbalink": ("gba",)}.get(console, (console,))
+    for c in tries:
+        if "%s.%s" % (c, rest) in titles:
+            return titles["%s.%s" % (c, rest)]
+    return None
+
+
+ROOM_ORDERS = {"created": "created", "played": "(matches > 0 AND match_seconds >= 30)", "match": "match_seconds",
+               "peak": "peak", "joins": "joins", "lasted": "(closed - created)"}
+GAME_ORDERS = {"minutes": "6", "matches": "5", "rooms": "4", "game": "2"}
+
+
+def rooms_report(stats, days, now=None, latest=100, page_of=None, orders=None):
+    """(01.04) emusuni-netd's room_log (stats.db, read only): the period's totals, each day's, the latest rooms and the
+    games most played online - in SQL (the micro VM: aggregates, and the lists a page at a time with LIMIT/OFFSET on the
+    index of created). page_of(name, total) -> (offset, limit): the page of a list ("r_": the rooms, "g_": the games;
+    none: the first `latest` rooms, the first 50 games). None: no stats.db, or one of before 01.04 (no room_log)."""
+    now = time.time() if now is None else now
+    if not os.path.exists(stats.path):
+        return None
+    days = max(1, min(days, 3660))
+    dates = [time.strftime("%Y-%m-%d", time.gmtime(now - i * 86400)) for i in range(days)]
+    since = calendar.timegm(time.strptime(dates[-1], "%Y-%m-%d"))  # (the period's first day, from 00:00 UTC)
+    page_of = page_of or (lambda name, total: (0, latest if name == "r_" else 50))
+    orders = orders or {}
+    r_key, r_desc = orders.get("r_", ("created", True))
+    g_key, g_desc = orders.get("g_", ("minutes", True))
+    r_order = "%s %s, created DESC" % (ROOM_ORDERS.get(r_key, "created"), "DESC" if r_desc else "ASC")
+    g_order = "%s %s, 6 DESC, console" % (GAME_ORDERS.get(g_key, "6"), "DESC" if g_desc else "ASC")
+    db = sqlite3.connect("file:%s?mode=ro" % urllib.parse.quote(stats.path), uri=True, timeout=5)
+    try:
+        columns = {row[1] for row in db.execute("PRAGMA table_info(room_log)")}
+        if not columns:
+            return None
+        # (A room_log of before the columns more: theirs read as 0, or -1 - not told - for the games in common.)
+        col = lambda name, missing="0": "COALESCE(%s, %s)" % (name, missing) if name in columns else missing
+        played = "(matches > 0 AND match_seconds >= 30)"
+        refused = " + ".join(col(c) for c in ("refused_full", "refused_version", "refused_started", "refused_kicked"))
+        common = col("common", "-1")
+        total = db.execute(
+            "SELECT COUNT(*), COALESCE(SUM(matches > 0), 0), COALESCE(SUM(%s), 0), COALESCE(SUM(match_seconds), 0),"
+            " COALESCE(SUM(joins), 0), COALESCE(SUM(%s), 0), COALESCE(SUM(%s), 0),"
+            " COALESCE(SUM(kind = 'together' AND %s >= 0), 0), COALESCE(SUM(kind = 'together' AND %s = 0), 0)"
+            " FROM room_log WHERE created >= ?" % (played, col("guests_left"), refused, common, common),
+            (since,)).fetchone()
+        daily = {d: {"date": d, "rooms": 0, "matched": 0, "played": 0, "minutes": 0.0, "public": 0, "private": 0,
+                     "together": 0, "link": 0} for d in dates}
+        for row in db.execute(
+                "SELECT date(created, 'unixepoch'), COUNT(*), SUM(matches > 0), SUM(%s), COALESCE(SUM(match_seconds), 0),"
+                " SUM(kind = 'public'), SUM(kind = 'private'), SUM(kind = 'together'), SUM(kind = 'link')"
+                " FROM room_log WHERE created >= ? GROUP BY 1" % played, (since,)):
+            if row[0] in daily:
+                daily[row[0]].update(rooms=row[1], matched=row[2], played=row[3], minutes=row[4] / 60.0, public=row[5],
+                                     private=row[6], together=row[7], link=row[8])
+        offset, limit = page_of("r_", total[0])
+        cursor = db.execute("SELECT * FROM room_log WHERE created >= ? ORDER BY %s LIMIT ? OFFSET ?" % r_order,
+                            (since, limit, offset))
+        names = [d[0] for d in cursor.description]
+        rows = cursor.fetchall()
+        games_total = db.execute("SELECT COUNT(*) FROM (SELECT 1 FROM room_log WHERE created >= ? AND matches > 0"
+                                 " GROUP BY console, game)", (since,)).fetchone()[0]
+        g_offset, g_limit = page_of("g_", games_total)
+        games = db.execute("SELECT console, game, MAX(%s), COUNT(*), SUM(matches), COALESCE(SUM(match_seconds), 0)"
+                           " FROM room_log WHERE created >= ? AND matches > 0 GROUP BY console, game"
+                           " ORDER BY %s LIMIT ? OFFSET ?" % (col("title", "''"), g_order),
+                           (since, g_limit, g_offset)).fetchall()
+        try:
+            refusals = db.execute("SELECT request, why, SUM(n) FROM refusal_day WHERE date >= ? AND date <= ? "
+                                  "GROUP BY request, why ORDER BY 3 DESC", (dates[-1], dates[0])).fetchall()
+        except sqlite3.OperationalError:
+            refusals = []
+    except sqlite3.OperationalError:
+        return None
+    finally:
+        db.close()
+    stats.load_titles()
+    rooms = []
+    for row in rows:
+        r = dict(zip(names, row))
+        for name in ("guests_left", "dropped", "refused_full", "refused_version", "refused_started", "refused_kicked",
+                     "host_refused", "host_no_answer", "matches", "match_seconds", "joins", "peak", "relayed_kb",
+                     "watchers", "late_joins"):
+            r[name] = r.get(name) or 0
+        r["common"] = r.get("common") if r.get("common") is not None else -1
+        r["refused"] = r["refused_full"] + r["refused_version"] + r["refused_started"] + r["refused_kicked"]
+        # (01.04) Played: a match the host started that went 30 s or more (a shorter one: maybe they didn't connect).
+        r["played"] = bool(r["matches"]) and r["match_seconds"] >= 30
+        r["title"] = room_title(stats.titles, r["game"]) or (r.get("title") or None)
+        rooms.append(r)
+    today = time.strftime("%Y-%m-%d", time.gmtime(now))
+    return {"latest": rooms, "count": total[0], "matched": total[1], "played": total[2], "today": daily.get(today),
+            "minutes": total[3] / 60.0, "joins": total[4], "left": total[5], "refused": total[6], "refusals": refusals,
+            "together_known": total[7], "together_none": total[8], "daily": [daily[d] for d in reversed(dates)],
+            "games_total": games_total,
+            "games": [{"console": c, "game": g, "title": room_title(stats.titles, g) or (t or None), "rooms": n,
+                       "matches": m, "minutes": s / 60.0} for c, g, t, n, m, s in games]}
+
+
+class VisitsRead:
+    """(01.04) emusuni.com's visits (emusuni-reports.py's Visits: <dir>/visits/visits.db), read only: by day, page and
+    country, and each day's unique visitors (counted that day: over several days they are a sum of days)."""
+
+    def __init__(self, path):
+        self.path = path
+
+    def report(self, days, now=None):
+        now = time.time() if now is None else now
+        if not os.path.exists(self.path):
+            return None
+        days = max(1, min(days, 3660))
+        dates = [time.strftime("%Y-%m-%d", time.gmtime(now - i * 86400)) for i in range(days)]
+        first, last = dates[-1], dates[0]
+        db = sqlite3.connect("file:%s?mode=ro" % urllib.parse.quote(self.path), uri=True, timeout=5)
+        try:
+            views = {d: 0 for d in dates}
+            visitors = {d: 0 for d in dates}
+            pages, countries = {}, {}
+            for date, page, country, n in db.execute(
+                    "SELECT date, page, country, views FROM visit_day WHERE date >= ? AND date <= ?", (first, last)):
+                views[date] = views.get(date, 0) + n
+                pages[page] = pages.get(page, 0) + n
+                countries.setdefault(country, [0, 0])[0] += n
+            for date, country, n in db.execute(
+                    "SELECT date, country, visitors FROM visit_unique WHERE date >= ? AND date <= ?", (first, last)):
+                visitors[date] = visitors.get(date, 0) + n
+                countries.setdefault(country, [0, 0])[1] += n
+            total = db.execute("SELECT COALESCE(SUM(views), 0) FROM visit_day").fetchone()[0]
+            since = db.execute("SELECT MIN(date) FROM visit_day").fetchone()[0]
+        finally:
+            db.close()
+        return {"views": sum(views[d] for d in dates), "visitors": sum(visitors[d] for d in dates), "total": total,
+                "since": since, "daily": [{"date": d, "active": views[d], "peak": visitors[d]} for d in reversed(dates)],
+                "pages": sorted(pages.items(), key=lambda kv: (-kv[1], kv[0])),
+                "countries": sorted(((c, v[0], v[1]) for c, v in countries.items()), key=lambda r: (-r[1], r[0]))}
+
+
 class GitHub:
     """Each release's downloads, from GitHub's public API (no token), kept an hour (and on disk across restarts)."""
 
@@ -605,9 +768,10 @@ class GitHub:
 # ---- The panel ----
 CSS = """
 :root{--bg:#0f1117;--card:#181b24;--line:#2a2f3d;--text:#e8eaf0;--dim:#9aa0b0;--accent:#b49cff;--good:#5bd38a;
---warn:#ffc870;--bad:#ff8a80;--mark:#5a4a00}
+--warn:#ffc870;--bad:#ff8a80;--mark:#5a4a00;--zebra:rgba(255,255,255,.035);--hover:rgba(180,156,255,.09)}
 @media (prefers-color-scheme:light){:root{--bg:#f4f5f8;--card:#fff;--line:#d9dce4;--text:#1c1f26;--dim:#5d6372;
---accent:#5b3fd1;--good:#1e7f46;--warn:#9a5c00;--bad:#b3261e;--mark:#ffe58a}}
+--accent:#5b3fd1;--good:#1e7f46;--warn:#9a5c00;--bad:#b3261e;--mark:#ffe58a;--zebra:rgba(0,0,0,.028);
+--hover:rgba(91,63,209,.07)}}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--text);font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
 a{color:var(--accent)}
@@ -633,9 +797,24 @@ button.danger{background:var(--bad)}
 form.filters{display:flex;flex-wrap:wrap;gap:8px;align-items:end;margin:0 0 12px}
 form.filters label{display:flex;flex-direction:column;font-size:13px;color:var(--dim)}
 table{width:100%;border-collapse:collapse}
-th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line);vertical-align:top}
-th{font-size:13px;color:var(--dim);font-weight:600}
+th,td{text-align:left;padding:8px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:12.5px;color:var(--dim);font-weight:600;text-transform:uppercase;letter-spacing:.03em;white-space:nowrap}
 td.r,th.r{text-align:right}
+td.r{font-variant-numeric:tabular-nums;white-space:nowrap}
+.nw{white-space:nowrap}
+.wide{min-width:14em}
+.tablewrap{overflow:auto;max-height:75vh;-webkit-overflow-scrolling:touch;margin:0 -14px;padding:0 14px}
+.tablewrap thead th{position:sticky;top:0;background:var(--card);z-index:1;box-shadow:0 1px 0 var(--line)}
+tbody tr:nth-child(even) td{background:var(--zebra)}
+tbody tr:hover td{background:var(--hover)}
+th a.sort{color:inherit;text-decoration:none}
+th a.sort:hover{color:var(--text)}
+th a.sort.on{color:var(--accent)}
+.badge{display:inline-block;padding:1px 9px;border-radius:999px;font-size:12.5px;font-weight:600;white-space:nowrap}
+.badge.yes{background:rgba(91,211,138,.16);color:var(--good)}
+.badge.no{background:rgba(154,160,176,.14);color:var(--dim)}
+.badge.short{background:rgba(255,200,112,.15);color:var(--warn)}
+.ago{display:block;color:var(--dim);font-size:12.5px}
 .tag{display:inline-block;padding:1px 8px;border-radius:10px;font-size:12px;border:1px solid var(--line)}
 .tag.new{color:var(--warn);border-color:var(--warn)}
 .tag.reviewed{color:var(--accent);border-color:var(--accent)}
@@ -655,6 +834,14 @@ mark{background:var(--mark);color:inherit}
 .pages{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
 .pages a,.pages span{padding:4px 10px;border:1px solid var(--line);border-radius:8px;text-decoration:none}
 .pages span{background:var(--accent);color:#fff;border-color:var(--accent)}
+.pager{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;margin:10px 0}
+.pager .sizes,.pager .pages{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.pager a,.pager b{padding:3px 9px;border:1px solid var(--line);border-radius:8px;text-decoration:none}
+.pager b{background:var(--accent);color:#fff;border-color:var(--accent)}
+.pager .gap{color:var(--dim)}
+details.sec{margin:0 0 14px}
+details.sec>summary{cursor:pointer;font-size:1.15em;font-weight:600;margin:18px 0 10px;list-style-position:outside}
+details.sec:not([open])>summary{color:var(--dim)}
 .login{max-width:380px;margin:8vh auto}
 .login label{display:block;margin:10px 0 4px}
 .login input{width:100%}
@@ -669,6 +856,9 @@ table.cards tr{display:block;border:1px solid var(--line);border-radius:10px;mar
 background:var(--card)}
 table.cards td{display:flex;justify-content:space-between;gap:10px;border:0;padding:4px 2px;text-align:right}
 table.cards td::before{content:attr(data-label);color:var(--dim);text-align:left}
+table.cards tbody tr:nth-child(even) td,table.cards tbody tr:hover td{background:transparent}
+.tablewrap{max-height:none}
+table:not(.cards){min-width:100%;width:max-content}
 header{padding:10px 12px}main{padding:12px}
 pre.log a.n{width:4em}
 }
@@ -692,7 +882,11 @@ class Panel:
         self.last_counter = -1
         self.throttle = Throttle()
         self.stats = Stats(stats_dir, titles)
+        self.visits = VisitsRead(os.path.join(data_dir, "visits", "visits.db"))  # (01.04)
         self.github = GitHub(repo, self.state_dir, say)
+        # (01.07) The world chat's blocks: a file emusuni-netd reads (--chat-blocks), outside the panel's own folder
+        # (its user's only): codes and addresses' hashes - nothing an address can be found from without netd's salt.
+        self.chat_blocks = os.environ.get("EMUSUNI_CHAT_BLOCKS") or os.path.join(data_dir, "chat", "blocks.tsv")
         self.form_key = secrets.token_bytes(32)
         self.hashing = threading.BoundedSemaphore(2)  # (scrypt takes 32 MB: two at once, the service has 256)
         self.css = CSS.encode("utf-8")
@@ -840,6 +1034,14 @@ class Panel:
             return self.reports(h, q)
         if path == "/stats":
             return self.stats_page(h, q)
+        if path == "/visits":
+            return self.visits_page(h, q)
+        if path == "/rooms":
+            return self.rooms_page(h, q)
+        if path == "/chat" and method == "GET":  # (01.07)
+            return self.chat_page(h, q)
+        if path in ("/chat/block", "/chat/unblock") and method == "POST":
+            return self.chat_block(h, form, path == "/chat/block")
         m = re.fullmatch(r"/r/([%s]{6})(?:/(f|raw)/([a-z0-9.-]+)|/(all\.tar\.gz|delete))?" % ALPHABET, path)
         if m and m.group(1) in self.store.codes():
             code = m.group(1)
@@ -857,6 +1059,102 @@ class Panel:
 
     def t(self, es, en):
         return en if self.lang == "en" else es
+
+    # ---- (01.04, the owner: "cuando son muchos datos las tablas son muy largas") Pages of a table, its section ----
+    def pager(self, h, q, total, name=""):
+        """A long table a page at a time: (offset, limit, its links). The page's address keeps every other parameter
+        (the filters, the period, the other tables' pages); name keeps several tables of one page apart ("r_": its
+        r_p, r_n). PAGE_SIZES rows a page, the first by default; no links while it all fits."""
+        try:
+            size = int(q(name + "n", str(PAGE_SIZES[0])))
+        except ValueError:
+            size = PAGE_SIZES[0]
+        size = size if size in PAGE_SIZES else PAGE_SIZES[0]
+        pages = max(1, (total + size - 1) // size)
+        try:
+            page = int(q(name + "p", "1"))
+        except ValueError:
+            page = 1
+        page = max(1, min(page, pages))
+        offset = (page - 1) * size
+        if total <= PAGE_SIZES[0]:
+            return offset, size, ""
+        url = urllib.parse.urlsplit(h.path)
+        args = [(k, v) for k, v in urllib.parse.parse_qsl(url.query, keep_blank_values=True)
+                if k not in (name + "p", name + "n")]
+        anchor = "t-" + (name.rstrip("_") or "list")
+
+        def link(p, n=size):
+            more = [(name + "p", str(p))] + ([(name + "n", str(n))] if n != PAGE_SIZES[0] else [])
+            return esc("%s?%s#%s" % (url.path, urllib.parse.urlencode(args + more), anchor))
+
+        out = '<div class="pager" id="%s"><span class="muted">%s</span><span class="sizes">' % (
+            anchor, self.t("Mostrando %d-%d de %d", "Showing %d-%d of %d") % (offset + 1, min(total, offset + size), total))
+        out += " ".join("<b>%d</b>" % n if n == size else '<a href="%s">%d</a>' % (link(1, n), n) for n in PAGE_SIZES)
+        out += '</span><span class="pages">'
+        out += '<a href="%s">&laquo; %s</a>' % (link(page - 1), self.t("Anterior", "Previous")) if page > 1 else ""
+        shown, last = sorted({1, pages} | set(range(max(1, page - 2), min(pages, page + 2) + 1))), 0
+        for p in shown:
+            if p - last > 1:
+                out += '<span class="gap">&hellip;</span>'
+            out += "<b>%d</b>" % p if p == page else '<a href="%s">%d</a>' % (link(p), p)
+            last = p
+        out += '<a href="%s">%s &raquo;</a>' % (link(page + 1), self.t("Siguiente", "Next")) if page < pages else ""
+        return offset, size, out + "</span></div>"
+
+    def section(self, title, inner, q, name="", open_default=False):
+        """A table in a section that opens and closes (no script: <details>) - open by default, or once it is paged."""
+        is_open = open_default or bool(name and (q(name + "p") or q(name + "n")))
+        return '<details class="sec"%s><summary>%s</summary>%s</details>' % (" open" if is_open else "", title, inner)
+
+    def ago(self, t, now=None):
+        """(01.04) How long ago, in words ("hace 5 min")."""
+        if not t:
+            return ""
+        seconds = max(0, int((time.time() if now is None else now) - t))
+        if seconds < 60:
+            return self.t("hace un momento", "just now")
+        if seconds < 3600:
+            return self.t("hace %d min", "%d min ago") % (seconds // 60)
+        if seconds < 86400:
+            return self.t("hace %d h", "%d h ago") % (seconds // 3600)
+        days = seconds // 86400
+        return self.t("hace %d día", "%d day ago") % days if days == 1 else self.t("hace %d días", "%d days ago") % days
+
+    def when(self, t):
+        """A time as UTC and how long ago, for a table's cell."""
+        return '<span class="nw">%s</span><span class="ago">%s</span>' % (esc(stamp(t)), esc(self.ago(t))) if t else "-"
+
+    def sorting(self, q, name, keys, default, default_desc=True):
+        """(01.04) A table's order from the page's address: (key, descending) - name's s (the key, one of keys) and d
+        ("a": up, "d": down)."""
+        key = q(name + "s", default)
+        key = key if key in keys else default
+        direction = q(name + "d", "")
+        desc = default_desc if direction not in ("a", "d") or key != q(name + "s", default) else direction == "d"
+        return key, desc
+
+    def th(self, h, q, name, label, key, current, cls=""):
+        """A sortable column's header: a link that orders by it (again: the other way), the page back to 1, every
+        other parameter kept."""
+        url = urllib.parse.urlsplit(h.path)
+        args = [(k, v) for k, v in urllib.parse.parse_qsl(url.query, keep_blank_values=True)
+                if k not in (name + "s", name + "d", name + "p")]
+        on = current[0] == key
+        desc = not current[1] if on else True
+        href = "%s?%s#t-%s" % (url.path, urllib.parse.urlencode(args + [(name + "s", key), (name + "d", "d" if desc
+                                                                                                 else "a")]),
+                               name.rstrip("_") or "list")
+        mark = (" &#9660;" if current[1] else " &#9650;") if on else ""
+        return '<th%s><a class="sort%s" href="%s">%s%s</a></th>' % (' class="%s"' % cls if cls else "",
+                                                                   " on" if on else "", esc(href), esc(label), mark)
+
+    def summary(self, cards):
+        """The page's key totals on top: (label, value) cards."""
+        out = '<div class="grid summary">'
+        for label, value in cards:
+            out += '<div class="card"><div class="muted">%s</div><div class="num">%s</div></div>' % (esc(label), esc(value))
+        return out + "</div>"
 
     # ---- The answer ----
     def send(self, h, status, body, content_type="text/html; charset=utf-8", headers=None, cookies=(), cache=False):
@@ -888,11 +1186,12 @@ class Panel:
     def page(self, title, body, nav=True):
         links = ""
         if nav:
-            links = ('<a href="/reports">%s</a><a href="/stats">%s</a>'
+            links = ('<a href="/reports">%s</a><a href="/stats">%s</a><a href="/rooms">%s</a><a href="/chat">%s</a>'
+                     '<a href="/visits">%s</a>'
                      '<form method="post" action="/logout"><input type="hidden" name="csrf" value="%s">'
                      '<button class="plain" type="submit">%s</button></form>' %
-                     (self.t("Reportes", "Reports"), self.t("Estadísticas", "Statistics"), esc(self.csrf),
-                      self.t("Salir", "Log out")))
+                     (self.t("Reportes", "Reports"), self.t("Estadísticas", "Statistics"), self.t("Salas", "Rooms"),
+                      "Chat", self.t("Visitas", "Visits"), esc(self.csrf), self.t("Salir", "Log out")))
         expiry, problem = self.cert_status(getattr(self.local, "host", None))
         problems = {"none": "aún no pedido", "expired": "vencido", "for another key": "de otra clave",
                     "not valid yet": "aún no válido", "not readable": "ilegible", "no certificate in it": "vacío"}
@@ -907,7 +1206,8 @@ class Panel:
                 '<link rel="stylesheet" href="/static/panel.css?%s"></head><body>'
                 '<header><span class="brand">EmuSuNi</span>%s</header><main>%s</main>'
                 '<footer>%s &middot; <a href="/lang?to=%s&amp;back=%s">%s</a></footer></body></html>' %
-                (self.lang, esc(title), self.css_tag, links, body, cert, other,
+                (self.lang, esc(title), self.css_tag, links,
+                 body.replace("<table", '<div class="tablewrap"><table').replace("</table>", "</table></div>"), cert, other,
                  esc(urllib.parse.quote(self.here)), "English" if other == "en" else "Español"))
 
     # ---- The door ----
@@ -1099,12 +1399,14 @@ class Panel:
                 if text.lower() not in hay:
                     continue
             shown.append(r)
-        try:
-            page = max(1, int(q("page", "1")))
-        except ValueError:
-            page = 1
-        pages = max(1, (len(shown) + LIST_PAGE - 1) // LIST_PAGE)
-        page = min(page, pages)
+        # (01.04) Its order (a column's header), then a page of it.
+        order = self.sorting(q, "", ("time", "version", "country", "console", "game", "size", "status"), "time")
+        keys = {"time": lambda r: r.get("time", 0), "version": lambda r: r.get("version") or "",
+                "country": lambda r: r.get("country") or "", "console": lambda r: r.get("console") or "",
+                "game": lambda r: (r.get("game") or "").lower(), "size": lambda r: r["size"],
+                "status": lambda r: STATUSES.index(r["panel"]["status"]) if r["panel"]["status"] in STATUSES else 9}
+        shown.sort(key=keys[order[0]], reverse=order[1])
+        offset, limit, pager = self.pager(h, q, len(shown))  # (01.04: 25/50/100 a page)
 
         def select(name, values, current, labels=None):
             out = '<select name="%s"><option value="">%s</option>' % (name, self.t("Todos", "All"))
@@ -1130,39 +1432,47 @@ class Panel:
                   self.t("Sin crash.log", "Without crash.log"), self.t("Filtrar", "Filter"),
                   self.t("Quitar filtros", "Clear")))
         new = sum(1 for r in rows if r["panel"]["status"] == "new")
+        # (01.04) The key totals of what the filters show, on top.
+
+        def top(key, n=3):
+            counts = {}
+            for r in shown:
+                counts[r.get(key) or "?"] = counts.get(r.get(key) or "?", 0) + 1
+            return " · ".join("%s %d" % (k, v) for k, v in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[:n])                 or "-"
+
+        body += self.summary([
+            (self.t("Reportes", "Reports"), "%d / %d" % (len(shown), len(rows)) if len(shown) != len(rows) else len(rows)),
+            (self.t("Nuevos", "New"), sum(1 for r in shown if r["panel"]["status"] == "new")),
+            (self.t("Con crash.log", "With crash.log"), sum(1 for r in shown if r["crash"])),
+            (self.t("Por versión", "By version"), top("version")),
+            (self.t("Por país", "By country"), top("country"))])
         body += '<p class="muted">%s</p>' % (self.t("%d de %d reportes; %d nuevos.", "%d of %d reports; %d new.") %
                                             (len(shown), len(rows), new))
+        body += pager
         if shown:
-            body += ('<table class="cards"><thead><tr><th>%s</th><th>%s</th><th>%s</th><th>%s</th><th>%s</th>'
-                     '<th>%s</th><th class="r">%s</th><th>%s</th></tr></thead><tbody>' %
-                     (self.t("Código", "Code"), self.t("Fecha (UTC)", "Date (UTC)"), self.t("Versión", "Version"),
-                      self.t("País", "Country"), self.t("Consola", "Console"), self.t("Juego", "Game"),
-                      self.t("Tamaño", "Size"), self.t("Estado", "Status")))
-            for r in shown[(page - 1) * LIST_PAGE:page * LIST_PAGE]:
+            body += '<div class="card"><table class="cards"><thead><tr><th>%s</th>%s</tr></thead><tbody>' % (
+                self.t("Código", "Code"), "".join(self.th(h, q, "", label, key, order, cls) for label, key, cls in (
+                    (self.t("Fecha (UTC)", "Date (UTC)"), "time", ""), (self.t("Versión", "Version"), "version", ""),
+                    (self.t("País", "Country"), "country", ""), (self.t("Consola", "Console"), "console", ""),
+                    (self.t("Juego", "Game"), "game", ""), (self.t("Tamaño", "Size"), "size", "r"),
+                    (self.t("Estado", "Status"), "status", ""))))
+            for r in shown[offset:offset + limit]:
                 st = r["panel"]["status"]
                 body += ('<tr><td data-label="%s"><a href="/r/%s">%s</a></td><td data-label="%s">%s</td>'
                          '<td data-label="%s">%s</td><td data-label="%s">%s</td><td data-label="%s">%s</td>'
                          '<td data-label="%s">%s</td><td class="r" data-label="%s">%s</td><td data-label="%s">'
                          '<span class="tag %s">%s</span>%s</td></tr>' %
-                         (self.t("Código", "Code"), r["code"], r["code"], self.t("Fecha", "Date"), stamp(r.get("time")),
-                          self.t("Versión", "Version"), esc(r.get("version", "?")), self.t("País", "Country"),
-                          esc(r.get("country", "??")), self.t("Consola", "Console"), esc(r.get("console") or "-"),
+                         (self.t("Código", "Code"), r["code"], r["code"], self.t("Fecha", "Date"),
+                          self.when(r.get("time")), self.t("Versión", "Version"), esc(r.get("version", "?")),
+                          self.t("País", "Country"), esc(flag(r.get("country", "??"))), self.t("Consola", "Console"),
+                          esc(r.get("console") or "-"),
                           self.t("Juego", "Game"), esc(r.get("game") or "-"), self.t("Tamaño", "Size"),
                           kb(r["size"]), self.t("Estado", "Status"), st, esc(self.status_name(st)),
                           ' <span class="tag crash">crash.log</span>' if r["crash"] else ""))
-            body += "</tbody></table>"
+            body += "</tbody></table></div>"
         else:
             body += '<p class="card">%s</p>' % self.t("Ningún reporte con estos filtros.", "No report with these filters.")
-        if pages > 1:
-            body += '<div class="pages">'
-            for p in range(1, pages + 1):
-                if p == page:
-                    body += "<span>%d</span>" % p
-                else:
-                    args = dict((k, v[0]) for k, v in urllib.parse.parse_qs(urllib.parse.urlsplit(h.path).query).items())
-                    args["page"] = str(p)
-                    body += '<a href="/reports?%s">%d</a>' % (esc(urllib.parse.urlencode(args)), p)
-            body += "</div>"
+        body += pager.replace('id="t-list"', "")  # (the links again under it; the anchor once)
         return self.send(h, 200, self.page(self.t("Reportes", "Reports"), body))
 
     # ---- One report ----
@@ -1376,39 +1686,60 @@ class Panel:
             names = {"country": self.t("Países", "Countries"), "version": self.t("Versiones", "Versions"),
                      "language": self.t("Idiomas de la PS4", "PS4 languages"),
                      "state": self.t("Qué hacen", "What they do"), "console": self.t("Consolas", "Consoles"),
-                     "game": self.t("Juegos (los 100 primeros)", "Games (the top 100)")}
-            for kind in ("version", "country", "console", "game", "state", "language"):
-                values = s["by"].get(kind, [])
-                if kind == "game":
-                    values = sorted(values, key=lambda v: -v["hours"])[:100]
-                hours = kind in ("console", "state", "game")
+                     "game": self.t("Juegos (por horas)", "Games (by hours)"),
+                     "community": self.t("Modos en línea de la comunidad (desde la 01.04)",
+                                         "Community online modes (since 01.04)")}
+            # (01.04) The period's most, on top; then each table a page at a time, in a section that opens (the
+            # versions open; another once it is paged).
+            by = {kind: s["by"].get(kind, []) for kind in names}
+            by["game"] = sorted(by["game"], key=lambda v: -v["hours"])
+            firsts = []
+            for kind in ("version", "country", "console", "game"):
+                if by[kind]:
+                    v = by[kind][0]
+                    firsts.append((self.t("Más: ", "Top: ") + names[kind].split(" (")[0].lower(),
+                                   (v["title"] or v["value"]) if kind == "game" else v["value"]))
+            if firsts:
+                body += self.summary(firsts)
+            for kind in ("version", "country", "console", "game", "state", "language", "community"):
+                hours = kind in ("console", "state", "game", "community")
+                name = kind + "_"
+                order = self.sorting(q, name, ("value", "installs", "hours") if hours else ("value", "installs"),
+                                     "hours" if kind == "game" else "installs", default_desc=True)
+                values = sorted(by[kind], key=lambda v: (v[order[0]] if order[0] != "value" else str(v["value"]).lower(),
+                                                         v["installs"]), reverse=order[1])
+                offset, limit, pager = self.pager(h, q, len(values), name)
                 # (On a phone only the games' table - 4 columns - becomes cards.)
-                body += '<h2>%s</h2><div class="card"><table%s><thead><tr><th>%s</th>%s<th class="r">' \
-                        '%s</th>%s</tr></thead><tbody>' % (
-                            names[kind], ' class="cards"' if kind == "game" else "", self.t("Valor", "Value"),
-                            "<th>%s</th>" % self.t("Título", "Title") if kind == "game" else "",
-                            self.t("Instalaciones", "Installs"),
-                            '<th class="r">%s</th>' % self.t("Horas", "Hours") if hours else "")
-                for v in values:
+                inner = pager + '<div class="card"><table%s><thead><tr>%s%s%s%s</tr></thead><tbody>' % (
+                    ' class="cards"' if kind == "game" else "", self.th(h, q, name, self.t("Valor", "Value"), "value", order),
+                    "<th>%s</th>" % self.t("Título", "Title") if kind == "game" else "",
+                    self.th(h, q, name, self.t("Instalaciones", "Installs"), "installs", order, "r"),
+                    self.th(h, q, name, self.t("Horas", "Hours"), "hours", order, "r") if hours else "")
+                for v in values[offset:offset + limit]:
                     # (00.95) A version not published on GitHub: a test one (not on the public page).
                     test = kind == "version" and v["value"] not in s.get("published", set())
-                    body += '<tr><td data-label="%s">%s</td>%s<td class="r" data-label="%s">%d</td>%s</tr>' % (
-                        names[kind], esc(v["value"]) + (' <span class="muted">(%s)</span>' %
+                    inner += '<tr><td data-label="%s">%s</td>%s<td class="r" data-label="%s">%d</td>%s</tr>' % (
+                        names[kind], esc(flag(v["value"]) if kind == "country" else v["value"]) + (
+                            ' <span class="muted">(%s)</span>' %
                                                         self.t("prueba", "test") if test else ""),
                         '<td data-label="%s">%s</td>' % (self.t("Título", "Title"), esc(v["title"] or "-"))
                         if kind == "game" else "", self.t("Instalaciones", "Installs"), v["installs"],
                         '<td class="r" data-label="%s">%.1f</td>' % (self.t("Horas", "Hours"), v["hours"])
                         if hours else "")
                 if not values:
-                    body += "<tr><td>-</td></tr>"
-                body += "</tbody></table></div>"
+                    inner += "<tr><td>-</td></tr>"
+                inner += "</tbody></table></div>"
+                body += self.section("%s (%d)" % (names[kind], len(values)), inner, q, kind + "_",
+                                     open_default=kind == "version")
             if s["updates"]:
-                body += '<h2>%s</h2><div class="card"><table><tbody>' % self.t("Actualizaciones instaladas",
-                                                                              "Updates installed")
-                for u in s["updates"]:
-                    body += '<tr><td>%s &rarr; %s</td><td class="r">%d</td></tr>' % (esc(u["from"]), esc(u["to"]),
-                                                                                   u["installs"])
-                body += "</tbody></table></div>"
+                offset, limit, pager = self.pager(h, q, len(s["updates"]), "update_")
+                inner = pager + '<div class="card"><table><tbody>'
+                for u in s["updates"][offset:offset + limit]:
+                    inner += '<tr><td>%s &rarr; %s</td><td class="r">%d</td></tr>' % (esc(u["from"]), esc(u["to"]),
+                                                                                    u["installs"])
+                inner += "</tbody></table></div>"
+                body += self.section("%s (%d)" % (self.t("Actualizaciones instaladas", "Updates installed"),
+                                                  len(s["updates"])), inner, q, "update_")
         gh = self.github.releases()
         body += "<h2>%s</h2>" % self.t("Descargas en GitHub", "GitHub downloads")
         if gh and gh.get("releases"):
@@ -1431,8 +1762,487 @@ class Panel:
             "Countries: IP Geolocation by DB-IP. Installs over several days are estimates (HyperLogLog).")
         return self.send(h, 200, self.page(self.t("Estadísticas", "Statistics"), body))
 
-    def chart(self, daily):
-        """Each day's active installs (bars) and its peak online (green), as an SVG - attributes, no style."""
+    def visits_page(self, h, q):
+        """(01.04) emusuni.com's visits: the period's views and visitors, by day, page and country."""
+        self.here = h.path
+        try:
+            days = int(q("days", "30"))
+        except ValueError:
+            days = 30
+        days = days if days in (1, 7, 30, 90, 365) else 30
+        try:
+            v = self.visits.report(days)
+        except sqlite3.Error as e:
+            v = None
+            self.say("panel: visits.db not read (%s)" % type(e).__name__)
+        body = "<h1>%s</h1>" % self.t("Visitas de emusuni.com", "emusuni.com's visits")
+        body += '<div class="pages">'
+        for d in (1, 7, 30, 90, 365):
+            label = self.t("Hoy", "Today") if d == 1 else self.t("%d días", "%d days") % d
+            body += "<span>%s</span>" % label if d == days else '<a href="/visits?days=%d">%s</a>' % (d, label)
+        body += "</div>"
+        if not v:
+            body += '<p class="card">%s</p>' % self.t("Todavía no hay visitas contadas.", "No visits counted yet.")
+            return self.send(h, 200, self.page(self.t("Visitas", "Visits"), body))
+        names = {"home": self.t("Portada", "Home"), "stats": self.t("Estadísticas", "Statistics"),
+                 "compat": self.t("Compatibilidad", "Compatibility")}
+        # (01.04) The key totals on top: the views, the visitors, the page and the country most seen.
+        body += self.summary([
+            (self.t("Vistas", "Page views"), v["views"]),
+            (self.t("Visitantes (suma de cada día)", "Visitors (each day's, added)"), v["visitors"]),
+            (self.t("Página más vista", "Top page"), names.get(v["pages"][0][0], v["pages"][0][0]) if v["pages"] else "-"),
+            (self.t("País con más vistas", "Top country"), flag(v["countries"][0][0]) if v["countries"] else "-"),
+            (self.t("Vistas desde el %s", "Views since %s") % (v["since"] or "-"), v["total"])])
+        body += "<h2>%s</h2><div class=\"card\">%s</div>" % (self.t("Por día", "By day"), self.chart(
+            v["daily"], self.t("Barras: vistas; verde: visitantes del día.", "Bars: page views; green: the day's visitors.")))
+        inner = '<div class="card"><table><thead><tr><th>%s</th><th class="r">%s</th></tr></thead><tbody>' % (
+            self.t("Página", "Page"), self.t("Vistas", "Views"))
+        for page, n in v["pages"]:
+            inner += '<tr><td>%s</td><td class="r">%d</td></tr>' % (esc(names.get(page, page)), n)
+        if not v["pages"]:
+            inner += "<tr><td>-</td></tr>"
+        body += self.section(self.t("Por página", "By page"), inner + "</tbody></table></div>", q, open_default=True)
+        order = self.sorting(q, "c_", ("country", "views", "visitors"), "views")
+        countries = sorted(v["countries"], key=lambda c: c[{"country": 0, "views": 1, "visitors": 2}[order[0]]],
+                           reverse=order[1])
+        offset, limit, pager = self.pager(h, q, len(countries), "c_")
+        inner = pager + '<div class="card"><table><thead><tr>%s%s%s</tr></thead><tbody>' % (
+            self.th(h, q, "c_", self.t("País", "Country"), "country", order),
+            self.th(h, q, "c_", self.t("Vistas", "Views"), "views", order, "r"),
+            self.th(h, q, "c_", self.t("Visitantes", "Visitors"), "visitors", order, "r"))
+        for country, n, people in countries[offset:offset + limit]:
+            inner += '<tr><td>%s</td><td class="r">%d</td><td class="r">%d</td></tr>' % (esc(flag(country)), n, people)
+        if not v["countries"]:
+            inner += "<tr><td>-</td></tr>"
+        body += self.section("%s (%d)" % (self.t("Por país", "By country"), len(v["countries"])),
+                             inner + "</tbody></table></div>", q, "c_", open_default=True)
+        body += '<p class="muted">%s</p>' % self.t(
+            "Solo el día, la página y el país (IP Geolocation by DB-IP); nunca la dirección. Un visitante es único en "
+            "su día (un hash con sal del día, en memoria); en varios días, los visitantes se suman.",
+            "Only the day, the page and the country (IP Geolocation by DB-IP); never the address. A visitor is unique "
+            "in its day (a hash with the day's salt, in memory); over several days the visitors are added up.")
+        return self.send(h, 200, self.page(self.t("Visitas", "Visits"), body))
+
+    # ---- (01.07, the owner: "30 días, sin IP") The world chat's (and, next, the rooms') lines ----
+    def read_chat_blocks(self):
+        """The blocks file's lines: (kind, value, salt, until, made) - kind "code" or "ip"."""
+        out = []
+        try:
+            with open(self.chat_blocks, encoding="utf-8") as f:
+                for line in f:
+                    words = line.split()
+                    if not words or words[0].startswith("#"):
+                        continue
+                    try:
+                        if words[0] == "code" and len(words) >= 3:
+                            out.append(("code", words[1], -1, int(words[2]), int(words[3]) if len(words) > 3 else 0))
+                        elif words[0] == "ip" and len(words) >= 4:
+                            out.append(("ip", words[1], int(words[2]), int(words[3]),
+                                        int(words[4]) if len(words) > 4 else 0))
+                    except ValueError:
+                        continue
+        except OSError:
+            pass
+        return out
+
+    def write_chat_blocks(self, blocks):
+        """Written whole (a new file renamed over the old one: netd never reads half of it), the expired left out."""
+        now = int(time.time())
+        folder = os.path.dirname(self.chat_blocks)
+        os.makedirs(folder, mode=0o755, exist_ok=True)
+        lines = ["# emusuni-netd --chat-blocks (the owner's panel): code CODE UNTIL MADE / ip HASH SALT UNTIL MADE"]
+        for kind, value, salt, until, made in blocks:
+            if until and until <= now:
+                continue
+            lines.append("code %s %d %d" % (value, until, made) if kind == "code" else
+                         "ip %s %d %d %d" % (value, salt, until, made))
+        tmp = self.chat_blocks + ".new"
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines) + "\n")
+        os.chmod(tmp, 0o644)
+        os.replace(tmp, self.chat_blocks)
+
+    def chat_block(self, h, form, block):
+        """Block (1 day, 7 days, always) or unblock a player's code or an address's hash; back to the page asked from."""
+        kind, value = form.get("kind", ""), form.get("value", "")
+        back = form.get("back", "/chat")
+        if not back.startswith("/chat") or "\\" in back or back.startswith("//"):
+            back = "/chat"
+        ok = (kind == "code" and re.fullmatch("[%s]{8}" % ALPHABET, value)) or \
+             (kind == "ip" and re.fullmatch("[0-9a-f]{16}", value))
+        try:
+            salt = int(form.get("salt", "-1")) if kind == "ip" else -1
+            days = int(form.get("days", "1"))
+        except ValueError:
+            ok = False
+        if not ok or (block and days not in CHAT_BLOCK_DAYS):
+            return self.send(h, 400, self.page(self.t("No se pudo", "Couldn't"), ""))
+        blocks = [b for b in self.read_chat_blocks() if not (b[0] == kind and b[1] == value and (kind == "code" or
+                                                                                               b[2] == salt))]
+        now = int(time.time())
+        if block:
+            blocks.append((kind, value, salt, now + days * 86400 if days else 0, now))
+        try:
+            self.write_chat_blocks(blocks)
+        except OSError as e:
+            self.say("panel: the chat's blocks not written (%s)" % type(e).__name__)
+            return self.send(h, 500, self.page(self.t("No se pudo escribir", "Couldn't write"), ""))
+        self.say("panel: the world chat: a %s %s (%s)" % ("code" if kind == "code" else "hash",
+                                                          "blocked" if block else "unblocked",
+                                                          ("%d days" % days if days else "always") if block else "-"))
+        return self.send(h, 303, b"", headers={"Location": back})
+
+    def chat_page(self, h, q):
+        """The chat's lines (stats.db's chat_log, read only - 30 days): searched by nickname, player's code, room (or
+        "world"), day; the reported ones first; a line's 20 around it (context); each player's code and address's hash
+        blocked from the world chat here (1 day, 7 days, always - a hash as long as its salt) - netd reads the blocks
+        file (--chat-blocks). No address anywhere: its keyed hash only."""
+        self.here = h.path
+        nick, code, place, day = q("nick").strip(), q("code").strip().upper(), q("place").strip(), q("day").strip()
+        reported = q("reported") == "1"
+        try:
+            around = int(q("around", "0"))
+        except ValueError:
+            around = 0
+        where, args = [], []
+        if nick:
+            where.append("nick LIKE ?")
+            args.append("%" + nick.replace("%", "") + "%")
+        if code:
+            where.append("code = ?")
+            args.append(code)
+        if place:
+            where.append("place = ?")
+            args.append(place if place == "world" else place.upper())
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", day):
+            start = calendar.timegm(time.strptime(day, "%Y-%m-%d"))
+            where.append("at >= ? AND at < ?")
+            args += [start, start + 86400]
+        if reported:
+            where.append("reported > 0")
+        body = "<h1>%s</h1>" % self.t("Chat (mundial y de salas)", "Chat (world and rooms)")
+        body += '<p class="muted">%s</p>' % self.t(
+            "Las líneas de los últimos 30 días, para moderar; después se borran solas. Nunca la IP: solo su hash con una "
+            "sal que el servidor cambia cada 30 días. La voz no se graba.",
+            "The last 30 days' lines, for moderation; then deleted by themselves. Never the address: only its hash with a "
+            "salt the server changes every 30 days. Voice isn't recorded.")
+        body += ('<form method="get" action="/chat" class="card filters">'
+                 '<input name="nick" placeholder="%s" value="%s"> <input name="code" placeholder="%s" value="%s" '
+                 'size="9"> <input name="place" placeholder="%s" value="%s" size="9"> '
+                 '<input name="day" placeholder="AAAA-MM-DD" value="%s" size="11"> '
+                 '<label><input type="checkbox" name="reported" value="1"%s> %s</label> '
+                 '<button type="submit">%s</button> <a href="/chat">%s</a></form>' % (
+                     self.t("Apodo", "Nickname"), esc(nick), self.t("Código", "Code"), esc(code),
+                     self.t("Sala o world", "Room or world"), esc(place), esc(day), " checked" if reported else "",
+                     self.t("Solo reportadas", "Reported only"), self.t("Buscar", "Search"), self.t("Todo", "All")))
+        try:
+            db = sqlite3.connect("file:%s?mode=ro" % urllib.parse.quote(self.stats.path), uri=True, timeout=5)
+        except sqlite3.Error:
+            db = None
+        rows, total = [], 0
+        try:
+            if db is None:
+                raise sqlite3.OperationalError("no stats.db")
+            columns = "id, at, place, nick, code, country, version, phrase, param, text, ip_hash, salt, reported"
+            if around > 0:
+                # (A reported line's context: the 10 before and after it in its place.)
+                center = db.execute("SELECT place FROM chat_log WHERE id = ?", (around,)).fetchone()
+                if center:
+                    before = db.execute("SELECT %s FROM chat_log WHERE place = ? AND id <= ? ORDER BY id DESC LIMIT 11"
+                                        % columns, (center[0], around)).fetchall()
+                    after = db.execute("SELECT %s FROM chat_log WHERE place = ? AND id > ? ORDER BY id LIMIT 10"
+                                       % columns, (center[0], around)).fetchall()
+                    rows = list(reversed(before)) + after
+                total = len(rows)
+            else:
+                clause = (" WHERE " + " AND ".join(where)) if where else ""
+                total = db.execute("SELECT COUNT(*) FROM chat_log" + clause, args).fetchone()[0]
+                offset, limit, pager = self.pager(h, q, total, "c_")
+                rows = db.execute("SELECT %s FROM chat_log%s ORDER BY reported > 0 DESC, id DESC LIMIT ? OFFSET ?" %
+                                  (columns, clause), args + [limit, offset]).fetchall()
+                body += pager
+        except sqlite3.Error as e:
+            body += '<p class="card">%s</p>' % self.t(
+                "Todavía no hay chat guardado (llega con el servidor de la 01.07).",
+                "No chat kept yet (it comes with 01.07's server).")
+            self.say("panel: chat_log not read (%s)" % type(e).__name__)
+            rows = None
+        finally:
+            if db is not None:
+                db.close()
+        blocks = self.read_chat_blocks()
+        blocked_codes = {b[1] for b in blocks if b[0] == "code"}
+        blocked_hashes = {(b[1], b[2]) for b in blocks if b[0] == "ip"}
+
+        def block_form(kind, value, salt):
+            out = ""
+            for days in CHAT_BLOCK_DAYS:
+                label = self.t("siempre", "always") if days == 0 else self.t("%d día(s)", "%d day(s)") % days
+                out += ('<form method="post" action="/chat/block" class="inline"><input type="hidden" name="csrf" '
+                        'value="%s"><input type="hidden" name="kind" value="%s"><input type="hidden" name="value" '
+                        'value="%s"><input type="hidden" name="salt" value="%d"><input type="hidden" name="days" '
+                        'value="%d"><input type="hidden" name="back" value="%s"><button class="plain" type="submit">'
+                        '%s</button></form>' % (esc(self.csrf), kind, esc(value), salt, days, esc(h.path), label))
+            return out
+
+        if rows is not None:
+            if around > 0:
+                body += '<p><a href="/chat">&laquo; %s</a> &middot; %s</p>' % (
+                    self.t("Volver", "Back"), self.t("Las 20 líneas alrededor de la reportada (marcada).",
+                                                     "The 20 lines around the reported one (marked)."))
+            body += '<div class="card"><table class="cards"><thead><tr>%s</tr></thead><tbody>' % "".join(
+                "<th>%s</th>" % esc(c) for c in (
+                    self.t("Hora (UTC)", "Time (UTC)"), self.t("Dónde", "Where"), self.t("Apodo", "Nickname"),
+                    self.t("Código", "Code"), self.t("País", "Country"), self.t("Versión", "Version"),
+                    self.t("Mensaje", "Message"), self.t("Reportes", "Reports"),
+                    self.t("Bloquear código", "Block the code"), self.t("Bloquear IP (hash)", "Block the address (hash)")))
+            for (rid, at, where_, nick_, code_, country, version, phrase, param, text, ip_hash, salt, rep) in rows:
+                message = text if not phrase else "[%s] %s%s" % (
+                    self.t("frase %d", "phrase %d") % phrase, PHRASES[phrase] if phrase < len(PHRASES) else "?",
+                    " (%s)" % param if param else "")
+                mark = ' class="hl"' if rid == around else ""
+                context = ' <a href="/chat?around=%d">%s</a>' % (rid, self.t("contexto", "context")) if rep else ""
+                code_cell = ('<a href="/chat?code=%s">%s</a>' % (esc(code_), esc(code_))) + (
+                    " &#x1F6AB;" if code_ in blocked_codes else "")
+                body += ("<tr%s><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td>"
+                         "<td>%s%s</td><td>%s</td><td>%s</td></tr>" % (
+                             mark, stamp(at), esc(where_), esc(nick_), code_cell, flag(country) if country else "-",
+                             esc(version), esc(message), rep or "", context, block_form("code", code_, -1),
+                             (block_form("ip", ip_hash, salt) + (" &#x1F6AB;" if (ip_hash, salt) in blocked_hashes
+                                                                 else "")) if ip_hash else "-"))
+            body += "</tbody></table></div>"
+            if not rows:
+                body += '<p class="muted">%s</p>' % self.t("Ninguna línea.", "No line.")
+        body += "<h2>%s</h2>" % self.t("Bloqueados del chat mundial", "Blocked from the world chat")
+        if not blocks:
+            body += '<p class="muted">%s</p>' % self.t("Nadie.", "No one.")
+        else:
+            body += '<div class="card"><table><thead><tr><th>%s</th><th>%s</th><th>%s</th><th></th></tr></thead><tbody>' % (
+                self.t("Qué", "What"), self.t("Hasta (UTC)", "Until (UTC)"), self.t("Desde (UTC)", "Since (UTC)"))
+            for kind, value, salt, until, made in blocks:
+                what = (self.t("código ", "code ") + esc(value)) if kind == "code" else (
+                    self.t("hash de IP ", "address hash ") + esc(value))
+                body += ('<tr><td>%s</td><td>%s</td><td>%s</td><td><form method="post" action="/chat/unblock" '
+                         'class="inline"><input type="hidden" name="csrf" value="%s"><input type="hidden" name="kind" '
+                         'value="%s"><input type="hidden" name="value" value="%s"><input type="hidden" name="salt" '
+                         'value="%d"><input type="hidden" name="back" value="%s"><button class="plain" type="submit">'
+                         '%s</button></form></td></tr>' % (
+                             what, stamp(until) if until else self.t("siempre", "always"), stamp(made),
+                             esc(self.csrf), kind, esc(value), salt, esc(h.path), self.t("Desbloquear", "Unblock")))
+            body += "</tbody></table></div>"
+        body += '<p class="muted">%s</p>' % (self.t("Archivo de bloqueos para netd (--chat-blocks): ",
+                                                   "The blocks file for netd (--chat-blocks): ") + esc(self.chat_blocks))
+        return self.send(h, 200, self.page("Chat", body))
+
+    def rooms_page(self, h, q):
+        """(01.04) Online play's rooms (emusuni-netd's room_log): did they play - each room's matches, how long, who came,
+        left or was refused and why, why it closed -, today's and the period's totals, the refusals, the games played.
+        (The owner, after the first real history: "no se entiende si alguien jugó, qué y cuánto".)"""
+        self.here = h.path
+        try:
+            days = int(q("days", "7"))
+        except ValueError:
+            days = 7
+        days = days if days in (1, 7, 30, 90, 365) else 7
+        pagers = {}
+
+        def page_of(name, total):  # (01.04: the latest rooms and the games, a page at a time in SQL)
+            offset, limit, pagers[name] = self.pager(h, q, total, name)
+            return offset, limit
+
+        orders = {"r_": self.sorting(q, "r_", tuple(ROOM_ORDERS), "created"),
+                  "g_": self.sorting(q, "g_", tuple(GAME_ORDERS), "minutes")}
+        try:
+            r = rooms_report(self.stats, days, page_of=page_of, orders=orders)
+        except sqlite3.Error as e:
+            r = None
+            self.say("panel: room_log not read (%s)" % type(e).__name__)
+        body = "<h1>%s</h1>" % self.t("Salas en línea", "Online rooms")
+        body += '<div class="pages">'
+        for d in (1, 7, 30, 90, 365):
+            label = self.t("Hoy", "Today") if d == 1 else self.t("%d días", "%d days") % d
+            body += "<span>%s</span>" % label if d == days else '<a href="/rooms?days=%d">%s</a>' % (d, label)
+        body += "</div>"
+        if r is None:
+            body += '<p class="card">%s</p>' % self.t("Todavía no hay historial de salas (llega con el servidor de la "
+                                                      "01.04).", "No room history yet (it comes with 01.04's server).")
+            return self.send(h, 200, self.page(self.t("Salas", "Rooms"), body))
+
+        def clock(seconds):
+            seconds = int(seconds or 0)
+            return "%d:%02d:%02d" % (seconds // 3600, seconds // 60 % 60, seconds % 60) if seconds >= 3600 else \
+                "%d:%02d" % (seconds // 60, seconds % 60)
+
+        def share(part, whole):
+            return "%d%%" % round(100.0 * part / whole) if whole else "-"
+
+        today = r["today"] or {"rooms": 0, "played": 0, "minutes": 0.0}
+        body += "<h2>%s</h2><div class=\"grid\">" % self.t("Hoy (UTC)", "Today (UTC)")
+        for label, value in ((self.t("Salas", "Rooms"), today["rooms"]),
+                             (self.t("Con partida", "With a match"), today["played"]),
+                             (self.t("Tiempo de partida", "Match time"), clock(today["minutes"] * 60)),
+                             (self.t("Con partida, %", "With a match, %"), share(today["played"], today["rooms"]))):
+            body += '<div class="card"><div class="muted">%s</div><div class="num">%s</div></div>' % (
+                esc(label), esc(value))
+        body += "</div><h2>%s</h2><div class=\"grid\">" % (self.t("Hoy", "Today") if days == 1 else
+                                                        self.t("Últimos %d días", "Last %d days") % days)
+        cards = [(self.t("Salas", "Rooms"), r["count"]), (self.t("Con partida", "With a match"), r["played"]),
+                 (self.t("Con partida, %", "With a match, %"), share(r["played"], r["count"])),
+                 (self.t("Tiempo de partida", "Match time"), clock(r["minutes"] * 60)),
+                 (self.t("Entraron / se fueron", "Joined / left"), "%d / %d" % (r["joins"], r["left"])),
+                 (self.t("Entradas rechazadas", "Joins refused"), r["refused"])]
+        if r["together_known"]:
+            cards.append((self.t("Elegir juntos sin juegos en común", "Choose Together, no game in common"),
+                          "%d / %d" % (r["together_none"], r["together_known"])))
+        for label, value in cards:
+            body += '<div class="card"><div class="muted">%s</div><div class="num">%s</div></div>' % (
+                esc(label), esc(value))
+        body += "</div>"
+        body += "<h2>%s</h2><div class=\"card\">%s</div>" % (self.t("Por día", "By day"), self.chart(
+            [{"date": d["date"], "active": d["rooms"], "peak": d["played"]} for d in r["daily"]],
+            self.t("Barras: salas creadas; verde: salas con partida.", "Bars: rooms made; green: rooms with a match.")))
+        kinds = {"public": self.t("pública", "public"), "private": self.t("privada", "private"),
+                 "together": self.t("elegir juntos", "choose together"), "link": self.t("cable link", "link cable")}
+        reasons = {"host-left": self.t("el anfitrión salió", "the host left"),
+                   "host-silent": self.t("se perdió la conexión del anfitrión", "the host's connection was lost"),
+                   "too-old": self.t("pasaron 12 horas", "12 hours went by"),
+                   "server-stopped": self.t("se reinició el servidor", "the server restarted")}
+        why_names = {"full": self.t("llena", "full"), "version": self.t("otra versión", "another version"),
+                     "started": self.t("ya empezada", "already started"), "kicked": self.t("expulsado", "removed"),
+                     "no-room": self.t("código que no existe", "no such code"),
+                     "too-many": self.t("demasiados intentos", "too many tries"),
+                     "server-full": self.t("servidor lleno", "server full"),
+                     "bad-request": self.t("paquete ilegible", "unreadable packet"),
+                     "bad-cookie": self.t("cookie vieja", "old cookie"),
+                     "no-watch": self.t("no deja mirar", "no spectators let in")}
+        columns = (self.t("Creada (UTC)", "Made (UTC)"), self.t("¿Jugaron?", "Played?"), self.t("Juego", "Game"),
+                   self.t("Tipo", "Kind"), self.t("Jugadores", "Players"), self.t("Partida", "Match"),
+                   self.t("Gente", "People"), self.t("Duró", "Lasted"), self.t("Cerró porque", "Closed because"),
+                   self.t("Versión", "Version"), self.t("Países", "Countries"))
+        sortable = {0: "created", 1: "played", 4: "peak", 5: "match", 7: "lasted"}
+        inner = pagers.get("r_", "") + '<div class="card"><table class="cards"><thead><tr>%s</tr></thead><tbody>' % (
+            "".join(self.th(h, q, "r_", c, sortable[i], orders["r_"], "r" if i == 4 else "") if i in sortable else
+                    "<th>%s</th>" % esc(c) for i, c in enumerate(columns)))
+        for room in r["latest"]:
+            if room["played"]:
+                played = '<span class="badge yes">%s</span>' % self.t("Sí", "Yes")
+            elif room["matches"]:
+                played = '<span class="badge short">%s</span>' % self.t("No: menos de 30 s", "No: under 30 s")
+            else:
+                played = '<span class="badge no">%s</span>' % self.t("No", "No")
+            match = self.t("%d partida(s), %s", "%d match(es), %s") % (room["matches"], clock(room["match_seconds"])) \
+                if room["matches"] else "-"
+            if room["relayed_kb"]:
+                match += ", relay %d KB" % room["relayed_kb"]
+            game = room["title"] or (room["game"].split(".", 1)[-1].replace("c-", "CRC ") if room["game"] else
+                                     self.t("(elegir juntos: sin juego elegido)", "(choose together: none chosen)")
+                                     if room["kind"] == "together" else "-")
+            if room["kind"] == "together" and room["common"] >= 0:
+                game += " · " + (self.t("sin juegos en común", "no game in common") if room["common"] == 0 else
+                                 self.t("%d en común", "%d in common") % room["common"])
+            people = self.t("%d/%d; entraron %d, se fueron %d", "%d/%d; %d joined, %d left") % (
+                room["peak"], room["max_members"], room["joins"], room["guests_left"])
+            if room["dropped"]:
+                people += self.t(", %d sin conexión", ", %d lost") % room["dropped"]
+            if room["late_joins"]:  # (01.05) players who joined the match under way
+                people += self.t(", %d entraron con la partida empezada", ", %d joined the match under way") % \
+                    room["late_joins"]
+            if room["watchers"]:  # (01.05) spectators
+                people += self.t(", %d miraron", ", %d watched") % room["watchers"]
+            refused = [(n, why_names[k]) for k, n in (("full", room["refused_full"]), ("version", room["refused_version"]),
+                                                      ("started", room["refused_started"]),
+                                                      ("kicked", room["refused_kicked"])) if n]
+            if room["host_refused"]:
+                refused.append((room["host_refused"], self.t("el anfitrión no aceptó", "the host said no")))
+            if room["host_no_answer"]:
+                refused.append((room["host_no_answer"], self.t("el anfitrión no contestó", "the host didn't answer")))
+            if refused:
+                people += "; " + self.t("rechazados: ", "refused: ") + ", ".join("%d %s" % (n, w) for n, w in refused)
+            lasted = max(0, (room["closed"] or 0) - (room["created"] or 0))
+            # (Each cell as HTML: the time and the badge are already; the rest escaped.)
+            cells = (self.when(room["created"]), played, esc(game), esc(kinds.get(room["kind"], room["kind"])),
+                     esc(people.split(";")[0]), esc(match), esc(people.split("; ", 1)[1] if "; " in people else "-"),
+                     esc(clock(lasted)), esc(reasons.get(room["reason"], room["reason"])), esc(room["version"]),
+                     esc(flags(room["countries"])))
+            classes = {2: ' class="wide"', 4: ' class="r"', 6: ' class="wide"', 7: ' class="r"'}
+            inner += '<tr class="%s">%s</tr>' % ("yes" if room["played"] else "no", "".join(
+                '<td data-label="%s"%s>%s</td>' % (esc(c), classes.get(i, ""), v)
+                for i, (c, v) in enumerate(zip(columns, cells))))
+        if not r["latest"]:
+            inner += "<tr><td>-</td></tr>"
+        body += self.section("%s (%d)" % (self.t("Las salas, de la más nueva", "The rooms, the newest first"), r["count"]),
+                             inner + "</tbody></table></div>", q, "r_", open_default=True)
+        if r["refusals"]:
+            requests = {"join": self.t("entrar", "join"), "create": self.t("crear", "create"),
+                        "hello": self.t("saludo", "hello"), "list": self.t("lista", "list"),
+                        "list-all": self.t("tabla", "table"), "info": "info", "other": self.t("otro", "other")}
+            order = self.sorting(q, "x_", ("request", "why", "n"), "n")
+            refusals = sorted(r["refusals"], key=lambda x: x[{"request": 0, "why": 1, "n": 2}[order[0]]],
+                              reverse=order[1])
+            offset, limit, pager = self.pager(h, q, len(refusals), "x_")
+            inner = pager + '<div class="card"><table><thead><tr>%s%s%s</tr></thead><tbody>' % (
+                self.th(h, q, "x_", self.t("Pedido", "Request"), "request", order),
+                self.th(h, q, "x_", self.t("Por qué", "Why"), "why", order),
+                self.th(h, q, "x_", self.t("Veces", "Times"), "n", order, "r"))
+            for request, why, n in refusals[offset:offset + limit]:
+                inner += '<tr><td>%s</td><td>%s</td><td class="r">%d</td></tr>' % (
+                    esc(requests.get(request, request)), esc(why_names.get(why, why)), n)
+            body += self.section("%s (%d)" % (self.t("Rechazos del servidor", "The server's refusals"),
+                                              sum(n for _, _, n in r["refusals"])),
+                                 inner + "</tbody></table></div>", q, "x_")
+        inner = pagers.get("g_", "") + '<div class="card"><table class="cards"><thead><tr><th>%s</th>%s%s%s%s</tr>' \
+                                        '</thead><tbody>' % (
+                                            self.t("Consola", "Console"),
+                                            self.th(h, q, "g_", self.t("Juego", "Game"), "game", orders["g_"]),
+                                            self.th(h, q, "g_", self.t("Salas", "Rooms"), "rooms", orders["g_"], "r"),
+                                            self.th(h, q, "g_", self.t("Partidas", "Matches"), "matches", orders["g_"],
+                                                    "r"),
+                                            self.th(h, q, "g_", self.t("Tiempo", "Time"), "minutes", orders["g_"], "r"))
+        for g in r["games"]:
+            title = g["title"] or (g["game"].split(".", 1)[-1].replace("c-", "CRC ") if g["game"] else
+                                   self.t("(elegido juntos)", "(chosen together)"))
+            inner += '<tr><td data-label="%s">%s</td><td data-label="%s">%s</td><td class="r" data-label="%s">%d</td>' \
+                     '<td class="r" data-label="%s">%d</td><td class="r" data-label="%s">%s</td></tr>' % (
+                        self.t("Consola", "Console"), esc(g["console"] if g["console"] != "*" else "-"),
+                        self.t("Juego", "Game"), esc(title), self.t("Salas", "Rooms"), g["rooms"],
+                        self.t("Partidas", "Matches"), g["matches"], self.t("Tiempo", "Time"), clock(g["minutes"] * 60))
+        if not r["games"]:
+            inner += "<tr><td>-</td></tr>"
+        body += self.section("%s (%d)" % (self.t("Los juegos más jugados en línea", "The games most played online"),
+                                          r["games_total"]), inner + "</tbody></table></div>", q, "g_")
+        order = self.sorting(q, "d_", ("date", "rooms", "played", "minutes"), "date")
+        days_with = sorted([d for d in r["daily"] if d["rooms"]], key=lambda d: (d[order[0]], d["date"]),
+                           reverse=order[1])
+        offset, limit, pager = self.pager(h, q, len(days_with), "d_")
+        inner = pager + '<div class="card"><table><thead><tr>%s%s%s%s<th class="r">%s</th></tr></thead><tbody>' % (
+            self.th(h, q, "d_", self.t("Día", "Day"), "date", order),
+            self.th(h, q, "d_", self.t("Salas", "Rooms"), "rooms", order, "r"),
+            self.th(h, q, "d_", self.t("Con partida", "With a match"), "played", order, "r"),
+            self.th(h, q, "d_", self.t("Tiempo", "Time"), "minutes", order, "r"),
+            self.t("Públ./priv./juntos/cable", "Publ./priv./together/link"))
+        for d in days_with[offset:offset + limit]:
+            inner += '<tr><td>%s</td><td class="r">%d</td><td class="r">%d (%s)</td><td class="r">%s</td>' \
+                     '<td class="r">%d/%d/%d/%d</td></tr>' % (esc(d["date"]), d["rooms"], d["played"],
+                                                             share(d["played"], d["rooms"]), clock(d["minutes"] * 60),
+                                                             d["public"], d["private"], d["together"], d["link"])
+        if not days_with:
+            inner += "<tr><td>-</td></tr>"
+        body += self.section("%s (%d)" % (self.t("Totales por día", "Totals by day"), len(days_with)),
+                             inner + "</tbody></table></div>", q, "d_")
+        body += '<p class="muted">%s</p>' % self.t(
+            "Una fila por sala al cerrarse: sin direcciones, apodos ni códigos. «¿Jugaron?»: Sí cuando el anfitrión "
+            "empezó una partida y duró 30 s o más. «Gente»: quiénes entraron, se fueron solos o perdieron la conexión, "
+            "y las entradas rechazadas con su motivo (las del anfitrión y los juegos en común llegan con la app 01.04). "
+            "Países: IP Geolocation by DB-IP.",
+            "A row a room when it closed: no addresses, nicknames or codes. \"Played?\": Yes when the host started a "
+            "match that went 30 s or more. \"People\": who joined, left by themselves or lost the connection, and the "
+            "joins refused and why (the host's and the games in common come with the 01.04 app). Countries: IP "
+            "Geolocation by DB-IP.")
+        return self.send(h, 200, self.page(self.t("Salas", "Rooms"), body))
+
+    def chart(self, daily, legend=None):
+        """Each day's active installs (bars) and its peak online (green), as an SVG - attributes, no style. (01.04)
+        Other numbers in the same two places ("active", "peak") with their own legend: the visits'."""
         if not daily:
             return "-"
         width, height, pad = 720, 200, 24
@@ -1453,5 +2263,5 @@ class Panel:
                 out += '<text class="axis" x="%.1f" y="%d"%s>%s</text>' % (
                     width if last else x, height + 19, ' text-anchor="end"' if last else "", esc(d["date"][5:]))
         out += '<text class="axis" x="0" y="16">%d</text></svg>' % most
-        return out + '<p class="muted">%s</p>' % self.t("Barras: instalaciones activas; verde: pico en línea.",
-                                                       "Bars: active installs; green: peak online.")
+        return out + '<p class="muted">%s</p>' % (legend or self.t("Barras: instalaciones activas; verde: pico en línea.",
+                                                                 "Bars: active installs; green: peak online."))

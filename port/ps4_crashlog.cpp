@@ -33,8 +33,58 @@ extern "C" __attribute__((weak)) int ps4rt_thread_stack(uintptr_t* low, uintptr_
 extern "C" __attribute__((weak)) void emusuni_start_crashed(int sig);
 // (The headers' stack_t is musl's, its fields in another order than the kernel's.)
 extern "C" int ps4_crash_sigaltstack(const void* stack, void* old) __asm__("sigaltstack");
+// libkernel: the mapping at an address (flags 0: the one that holds it, else an error).
+extern "C" int32_t sceKernelVirtualQuery(const void* addr, int flags, void* info, size_t info_size);
 
 namespace {
+
+// libkernel's SceKernelVirtualQueryInfo (as port/ps4_n64.c has it).
+struct VirtualQueryInfo {
+    uintptr_t start, end;
+    int64_t offset;
+    int32_t protection, memory_type;
+    uint32_t flags;
+    char name[32];
+};
+constexpr int32_t kProtCpuRead = 0x1;
+constexpr uintptr_t kCodeBytes = 16;  // the bytes written before and at the rip
+
+void writeAll(int fd, const char* text);
+__attribute__((format(printf, 2, 3))) void writeFormat(int fd, const char* fmt, ...);
+
+// (01.06) The code at a rip outside the eboot's (a core's JIT, mostly: v00.23's 396QXS and D7MUMY, PPSSPP's): the 16
+// bytes before it and the 16 at it, with the mapping that holds them - the instruction that failed can be disassembled
+// from crash.log. Only from a mapping the kernel says is there and readable (a fault in the handler ends the report):
+// a rip in nothing (a jump to a bad address) says so.
+void writeCodeAt(int fd, uint64_t rip) {
+    VirtualQueryInfo info;
+    memset(&info, 0, sizeof(info));
+    if (sceKernelVirtualQuery(reinterpret_cast<const void*>(rip), 0, &info, sizeof(info)) != 0 || rip < info.start ||
+        rip >= info.end) {
+        writeAll(fd, "code at rip: no mapping there\n");
+        return;
+    }
+    info.name[sizeof(info.name) - 1] = 0;
+    writeFormat(fd, "code at rip: mapping 0x%llx-0x%llx \"%s\", protection 0x%x, type %d\n",
+                static_cast<unsigned long long>(info.start), static_cast<unsigned long long>(info.end), info.name,
+                static_cast<unsigned>(info.protection), static_cast<int>(info.memory_type));
+    if (!(info.protection & kProtCpuRead))
+        return;  // (execute-only: not read)
+    const uintptr_t from = rip - info.start >= kCodeBytes ? rip - kCodeBytes : info.start;
+    const uintptr_t to = info.end - rip >= kCodeBytes ? rip + kCodeBytes : info.end;
+    auto bytes = [fd](const char* what, uintptr_t first, uintptr_t last) {
+        char line[128];
+        int length = snprintf(line, sizeof(line), "  %s (0x%llx):", what, static_cast<unsigned long long>(first));
+        for (uintptr_t at = first; at < last; at++)
+            length += snprintf(line + length, sizeof(line) - length, " %02x",
+                               static_cast<unsigned>(*reinterpret_cast<const unsigned char*>(at)));
+        snprintf(line + length, sizeof(line) - length, "\n");
+        writeAll(fd, line);
+    };
+    if (from < rip)
+        bytes("before rip", from, rip);
+    bytes("at rip", rip, to);
+}
 
 // FreeBSD values (the PS4 kernel's); the OpenOrbis musl headers may carry Linux ones.
 constexpr int kSigIll = 4, kSigAbrt = 6, kSigFpe = 8, kSigBus = 10, kSigSegv = 11;
@@ -136,6 +186,8 @@ void crashHandler(int sig, siginfo_t* info, void* context) {
             writeFormat(fd, "%s 0x%llx%s", kRegNames[i], static_cast<unsigned long long>(regs[1 + i]),
                         i % 4 == 3 ? "\n" : "  ");
         writeAll(fd, "\n");
+        if (!isCode(rip))
+            writeCodeAt(fd, rip);
         // The 16 KiB above the stack pointer, inside the thread's stack when it is known: below its bottom (an
         // overflow) or past its top there may be nothing to read, and a fault in here ends the app at once.
         uintptr_t from = rsp, to = rsp + 2048 * 8;

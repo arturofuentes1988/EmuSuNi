@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cerrno>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -668,6 +669,21 @@ public:
     if (m_progress)
       m_progress->games++;
   }
+  // (01.06) A file its folder lists that isn't there: the drive says "no such file" when asked about it. v00.23's
+  // DHJ99Y: a game deleted from the menu (the delete said it was done) came back at the next read, still in its
+  // folder's list - which can't be opened, nor deleted again ("not found") - for the rest of the session; most likely
+  // a file another program still had open (the PS4's FTP server, games being copied meanwhile) when it was deleted.
+  // Such a file is no game: left out (counted and named once for the log).
+  bool Missing(const std::string& path)
+  {
+    if (!StatOf(path).missing)
+      return false;
+    if (m_missing.insert(path).second && m_missing.size() == 1)
+      m_missing_first = path;
+    return true;
+  }
+  int MissingCount() const { return static_cast<int>(m_missing.size()); }
+  const std::string& MissingFirst() const { return m_missing_first; }
   // The end of a read: the earlier read's facts of the files this one didn't reach kept (it stopped before its end:
   // they are still the same files, as far as anyone knows), else dropped (files gone); only the files looked inside
   // are kept.
@@ -688,6 +704,7 @@ private:
   struct Stat
   {
     bool ok = false, regular = false;
+    bool missing = false;  // (01.06) the drive said no such file (ENOENT), not another error
     uint64_t size = 0;
     int64_t time = 0;
   };
@@ -704,6 +721,10 @@ private:
       stat.regular = S_ISREG(st.st_mode);
       stat.size = static_cast<uint64_t>(st.st_size);
       stat.time = static_cast<int64_t>(st.st_mtime);
+    }
+    else
+    {
+      stat.missing = errno == ENOENT;
     }
     return m_stats.emplace(path, stat).first->second;
   }
@@ -741,6 +762,8 @@ private:
   std::unordered_map<std::string, Stat> m_stats;
   std::unordered_map<std::string, bool> m_exists, m_dreamcast_lists;
   std::unordered_map<std::string, std::vector<std::string>> m_unkept_lists;
+  std::set<std::string> m_missing;  // (01.06: Missing's, each file once - a folder two consoles share)
+  std::string m_missing_first;
 };
 
 // The files the .cue files in a folder name (their tracks), in lower case: the .bin files that aren't games of their
@@ -977,6 +1000,10 @@ void ScanFolder(Reader& reader, const std::filesystem::path& folder, int depth, 
     const std::filesystem::path path = folder / name;
     if (entry.folder)
     {
+      // ((01.22, src/GameExtras.h) The Arcade's "patched" folder holds patched romsets to install from the game's
+      // Triangle - named as their sets, not games of their own: as the 3DS's "cia" folder, never listed.)
+      if (depth == 0 && system.id == SystemId::ARCADE && strcasecmp(name.c_str(), "patched") == 0)
+        continue;
       if (depth < 4)
         ScanFolder(reader, path, depth + 1, system, open_zips, games);
       continue;
@@ -1006,6 +1033,8 @@ void ScanFolder(Reader& reader, const std::filesystem::path& folder, int depth, 
     }
     if (!IsGameOf(reader, path, system, open_zips))
       continue;
+    if (reader.Missing(path.string()))
+      continue;  // (01.06: listed, but not there)
     Game game;
     game.path = path.string();
     game.id = path.stem().string();
@@ -1807,6 +1836,8 @@ Found ScanAll(const std::array<std::string, SYSTEM_COUNT>& chosen, const Places&
   }
   if (contents)
     reader.Finish(found.stopped);
+  found.missing = reader.MissingCount();
+  found.missing_first = reader.MissingFirst();
   return found;
 }
 

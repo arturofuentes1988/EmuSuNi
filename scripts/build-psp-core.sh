@@ -84,6 +84,14 @@
 #     time per kind of step and its heaviest steps (PPSSPP's timestamp profiler, 8 frames a line).
 #   - God of War at 30 FPS when the option ppsspp_emusuni_30fps says so (PPSSPP's FramerateHack30
 #     for weak hardware: its hook waits two vblanks a frame, half the work a second).
+#   - (01.05) Midnight Club: L.A. Remix at 30 FPS at most (compat.ini's own EmuSuNiMax30FPS: its controller reads, which
+#     pace its main loop, return every other vblank at most), the rate it was made for: its races drew a picture every
+#     vblank, twice the PSP's work.
+#   - (01.06) A game's stray access never closes the app (v00.23's reports with cheats and a damaged image):
+#     the JIT's accesses up to 32 KiB below the PSP's memory or past its 1 GiB are the game's too, skipped as on
+#     a PC (64 KiB reserved on each side); lv.q/sv.q are MOVUPS (MOVAPS faulted on a bad pointer off 16 bytes);
+#     any other fault of that kind (#GP) in the JIT's code stops the emulation instead. And every cheat code
+#     the app turns on applies, not only the last (upstream's retro_cheat_set wrote its "_S" line back as one).
 #   - The driver's pipeline cache (vkGetPipelineCacheData) saved with the shader cache when
 #     EMUSUNI_PSP_PIPELINE_CACHE=1 (off unless set; its files a cache version of their own): the
 #     pipelines of earlier sessions are cache hits instead of compiled again at each start; used only
@@ -106,7 +114,9 @@
 #     on a thread of its own ("DepthRaster", port/'s placement) instead of the emulation thread, its fixes and a
 #     row stopped once it has left the triangle. At low quality (every other row, as upstream on phones) unless
 #     EMUSUNI_PSP_DEPTH_RASTER says "full" or "off" (src/Emulator.cpp: the files psp-depth-raster-full and
-#     -off). Its time in the log's lines (the thread's, and the emulation's waits for it).
+#     -off). Its time in the log's lines (the thread's, and the emulation's waits for it). (01.04) Upstream's two
+#     later fixes: no wait for it on a RAM address (Midnight Club's CLUT loads waited at each), and its wait before
+#     a GE interrupt callback instead of at every list's end.
 #   - Online play (off unless src/Emulator.cpp turns the PSP's Wi-Fi on): the games' own servers (infrastructure: the
 #     revival servers, through PS Rewired's DNS or the game's in infra-dns.json) and ad hoc through a PRO ad hoc server
 #     and its relay. The PS4's socket values (FreeBSD's) where OpenOrbis' headers have Linux's (MSG_*, IP_*, TCP_KEEP*),
@@ -215,6 +225,80 @@ def apply_diff(diff_path):
         shift += len(new) - len(old)
 
 apply_diff(upstream_diff)
+
+# --- (01.04) Upstream's next two depth rasterizer fixes (hrydgard/ppsspp master, 2026-11-02/03, GPL-2.0-or-later), on
+# top of the diff above, for Midnight Club: L.A. Remix's races (GitHub issue #1, 40-45 FPS on the PS4 in 00.23):
+#   661e9a80f7 Depth raster: Don't wait for the worker on RAM addresses. WaitIfWriting masked any address to a VRAM
+#              offset, so the CLUTs Midnight Club loads from RAM landed on its depth buffer's range, and the emulation
+#              thread waited for the worker at each one: about a quarter of its time on a Galaxy A21. Upstream, 10
+#              emulated seconds: 39.6 s -> 24.0 s on the A21 (32.9 s in plain 1.20.4, the rasterizer inline), 2.67 s
+#              -> 2.32 s on an M1.
+#   e1deb5665c Depth raster: Wait for it before GE callbacks instead of at every list end (a37e1f3660's wait, in the
+#              diff): Syphon Filter, Wipeout Pure and Resistance read the depth buffer in the list's GE interrupt
+#              callback, when on hardware the drawing is done; sceGeDrawSync and sceGeListSync wait as before. L.A.
+#              Rush, which reads it only after sceGeDrawSync, skips the callback wait (compat.ini's new
+#              DepthRasterNoCallbackWait). Moto G54, 10 emulated seconds: Midnight Club 8.75 s -> 8.01 s, Wipeout
+#              Pure 7.24 -> 6.50, Resistance 17.98 -> 13.26, L.A. Rush 5.95 -> 4.76.
+patch('GPU/Common/DepthRaster.cpp',
+      'void DepthRasterWorker::WaitIfWriting(u32 addr, u32 size) {\n\tif (!busy_) {\n\t\treturn;\n\t}\n',
+      'void DepthRasterWorker::WaitIfWriting(u32 addr, u32 size) {\n'
+      '\t// The mask below would map a RAM address onto the VRAM offsets too. Midnight Club L.A. Remix loads CLUTs\n'
+      '\t// from RAM addresses that land on its depth buffer that way, and waited for the worker on each.\n'
+      '\tif (!busy_ || !Memory::IsVRAMAddress(addr)) {\n\t\treturn;\n\t}\n')
+patch('Core/Compatibility.h',
+      '\tbool SoftwareRasterDepth;\n',
+      '\tbool SoftwareRasterDepth;\n\tbool DepthRasterNoCallbackWait;\n')
+patch('Core/Compatibility.cpp',
+      '\tCheckSetting(iniFile, gameID, "SoftwareRasterDepth", &flags_.SoftwareRasterDepth);\n',
+      '\tCheckSetting(iniFile, gameID, "SoftwareRasterDepth", &flags_.SoftwareRasterDepth);\n'
+      '\tCheckSetting(iniFile, gameID, "DepthRasterNoCallbackWait", &flags_.DepthRasterNoCallbackWait);\n')
+patch('Core/HLE/sceGe.cpp',
+      '\t\tif (handler != NULL) {\n'
+      '\t\t\tDEBUG_LOG(Log::CPU, "Entering GE interrupt handler %08x", handler->handlerAddress);\n',
+      '\t\tif (handler != NULL) {\n'
+      '\t\t\t// The callback may read the depth buffer on the CPU (light flares in Syphon Filter, Wipeout Pure\n'
+      '\t\t\t// and Resistance: Retribution), and on hardware the drawing is done by now.\n'
+      '\t\t\tif (!PSP_CoreParameter().compat.flags().DepthRasterNoCallbackWait) {\n'
+      '\t\t\t\tgpu->WaitForSubmittedDepth();\n'
+      '\t\t\t}\n'
+      '\t\t\tDEBUG_LOG(Log::CPU, "Entering GE interrupt handler %08x", handler->handlerAddress);\n')
+patch('GPU/GPUCommon.cpp',
+      'DLResult GPUCommon::ProcessDLQueue() {\n'
+      '\tconst DLResult result = RunDLQueue();\n'
+      '\t// Games read the depth buffer back on the CPU once a list has ended, without waiting for the GE\n'
+      '\t// (Syphon Filter\'s light flares). So the depth rasterizer has to be done by then. Not at a stall,\n'
+      '\t// though, which some games hit hundreds of times a frame.\n'
+      '\tif (listEndedSinceDepthWait_) {\n'
+      '\t\tlistEndedSinceDepthWait_ = false;\n'
+      '\t\tdrawEngineCommon_->WaitForSubmittedDepth();\n'
+      '\t}\n'
+      '\treturn result;\n'
+      '}\n'
+      '\n'
+      'DLResult GPUCommon::RunDLQueue() {\n',
+      'DLResult GPUCommon::ProcessDLQueue() {\n')
+patch('GPU/GPUCommon.cpp',
+      '\t\tdrawEngineCommon_->SubmitQueuedDepth();\n\t\tlistEndedSinceDepthWait_ = true;\n',
+      '\t\tdrawEngineCommon_->SubmitQueuedDepth();\n')
+patch('GPU/GPUCommon.cpp',
+      '\nvoid GPUCommon::InterruptStart(int listid) {\n',
+      '\nvoid GPUCommon::WaitForSubmittedDepth() {\n\tdrawEngineCommon_->WaitForSubmittedDepth();\n}\n'
+      '\nvoid GPUCommon::InterruptStart(int listid) {\n')
+patch('GPU/GPUCommon.h', '\tDLResult RunDLQueue();\n', '')
+patch('GPU/GPUCommon.h', '\tbool listEndedSinceDepthWait_ = false;\n', '')
+patch('GPU/GPUCommon.h',
+      '\tvoid InterruptStart(int listid);\n',
+      '\tvoid InterruptStart(int listid);\n\tvoid WaitForSubmittedDepth();\n')
+patch('assets/compat.ini',
+      '# L.A. Rush (also known as just Rush) (sun lens flare)\nULES00554 = true\nULUS10174 = true\n\n[BlockTransferDepth]\n',
+      '# L.A. Rush (also known as just Rush) (sun lens flare)\nULES00554 = true\nULUS10174 = true\n\n'
+      '[DepthRasterNoCallbackWait]\n'
+      '# Without this, the CPU waits for the depth rasterizer before a GE interrupt callback runs, for games that\n'
+      '# read the depth buffer back there (the light flares in Syphon Filter, Wipeout Pure and Resistance:\n'
+      '# Retribution). These only read it after a sceGeDrawSync or sceGeListSync, which waits anyway.\n'
+      '\n'
+      '# L.A. Rush (sun lens flare)\nULES00554 = true\nULUS10174 = true\n\n'
+      '[BlockTransferDepth]\n')
 
 # --- The build: the EMUSUNI_PORT option, a static libretro core, Vulkan only, no system libraries.
 patch('CMakeLists.txt',
@@ -526,7 +610,12 @@ size_t sceKernelGetDirectMemorySize(void);
 namespace {
 constexpr size_t SPAN = 0x40000000;   // the masked map: 0x00000000-0x3FFFFFFF
 constexpr size_t GRANULE = 0x10000;   // where views start in the backing memory (64 KiB)
-uintptr_t g_base = 0;                 // the reserved range
+// (01.06) Reserved too, never mapped, on each side of the 1 GiB: the x86-64 JIT adds a load's or a store's MIPS
+// offset (-32768..32767) after masking the address (Core/MIPS/x86/JitSafeMem.cpp), so a game's stray access lands up
+// to 32 KiB below the base or past the 1 GiB (a null pointer and a negative offset, a pointer of -1). It faults here,
+// never in memory of the app's, and Core/MemFault.cpp takes it as the game's (EmuSuNiMemGuard).
+constexpr size_t GUARD = 0x10000;
+uintptr_t g_base = 0;                 // the PSP's address 0 (GUARD into the reserved range)
 size_t g_size = 0;                    // the backing memory
 struct Mapped {
 	s64 offset;                       // a part of the backing memory mapped once already
@@ -640,15 +729,20 @@ bool MemArena::GrabMemSpace(size_t size) {
 	return true;
 }
 
+// (01.06) Core/MemFault.cpp: the reserved bytes on each side of the 1 GiB (0 before it is reserved).
+uintptr_t EmuSuNiMemGuard() {
+	return g_base ? GUARD : 0;
+}
+
 void MemArena::ReleaseSpace() {
 #if defined(__ORBIS__)
 	if (g_base)
-		sceKernelMunmap((void *)g_base, SPAN);
+		sceKernelMunmap((void *)(g_base - GUARD), SPAN + 2 * GUARD);
 	if (g_size)
 		sceKernelReleaseDirectMemory(g_phys, g_size);
 #else
 	if (g_base)
-		munmap((void *)g_base, SPAN);
+		munmap((void *)(g_base - GUARD), SPAN + 2 * GUARD);
 	if (g_fd >= 0)
 		close(g_fd);
 	g_fd = -1;
@@ -738,27 +832,32 @@ void MemArena::ReleaseView(s64 offset, void *view, size_t size) {
 u8 *MemArena::Find4GBBase() {
 #if defined(__ORBIS__)
 	// Well above 0x200000000, where the PS4's kernel library puts its own objects (as the app's heap).
+	// (01.06: the 1 GiB with GUARD more on each side, the PSP's address 0 at the hint as before.)
 	static const uintptr_t hints[] = {0x3000000000ull, 0x2800000000ull, 0x2000000000ull, 0};
 	for (uintptr_t hint : hints) {
-		void *at = (void *)hint;
-		if (sceKernelReserveVirtualRange(&at, SPAN, 0, GRANULE) != 0)
+		void *at = hint ? (void *)(hint - GUARD) : nullptr;
+		if (sceKernelReserveVirtualRange(&at, SPAN + 2 * GUARD, 0, GRANULE) != 0)
 			continue;
 		if ((uintptr_t)at >= 0x400000000ull) {
-			g_base = (uintptr_t)at;
-			return (u8 *)at;
+			g_base = (uintptr_t)at + GUARD;
+			INFO_LOG(Log::MemMap, "EmuSuNi: the PSP's 1 GiB at %p, %d KiB reserved on each side for stray accesses",
+				(void *)g_base, (int)(GUARD / 1024));
+			return (u8 *)g_base;
 		}
-		sceKernelMunmap(at, SPAN);
+		sceKernelMunmap(at, SPAN + 2 * GUARD);
 	}
 	ERROR_LOG(Log::MemMap, "EmuSuNi: no 1 GiB of address space for the PSP's memory");
 	return nullptr;
 #else
-	void *at = mmap(nullptr, SPAN, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
+	void *at = mmap(nullptr, SPAN + 2 * GUARD, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
 	if (at == MAP_FAILED) {
 		ERROR_LOG(Log::MemMap, "EmuSuNi: no 1 GiB of address space for the PSP's memory: %s", strerror(errno));
 		return nullptr;
 	}
-	g_base = (uintptr_t)at;
-	return (u8 *)at;
+	g_base = (uintptr_t)at + GUARD;
+	INFO_LOG(Log::MemMap, "EmuSuNi: the PSP's 1 GiB at %p, %d KiB reserved on each side for stray accesses",
+		(void *)g_base, (int)(GUARD / 1024));
+	return (u8 *)g_base;
 #endif
 }
 
@@ -826,16 +925,23 @@ patch('Common/ExceptionHandlerSetup.cpp',
       '#if defined(EMUSUNI_PORT) && defined(__ORBIS__)\n'
       '// EmuSuNi (scripts/build-psp-core.sh): the PS4 kernel\'s (FreeBSD\'s) values, written out.\n'
       '#include <cstddef>\n'
-      'static constexpr int kFbsdSigBus = 10, kFbsdSigSegv = 11, kFbsdSaSiginfo = 0x40;\n'
-      'static constexpr size_t kFbsdSiAddr = 24, kFbsdMcontext = 0x40;\n'
+      'static constexpr int kFbsdSigBus = 10, kFbsdSigSegv = 11, kFbsdSaSiginfo = 0x40, kFbsdBusObjErr = 3;\n'
+      'static constexpr size_t kFbsdSiCode = 8, kFbsdSiAddr = 24, kFbsdMcontext = 0x40;\n'
       'static_assert(offsetof(struct sigaction, sa_flags) == 8 && sizeof(sigset_t) == 16,\n'
       '\t"struct sigaction isn\'t FreeBSD\'s: the PSChrome libc overlay\'s headers must come first");\n'
       'static_assert(offsetof(SContext, CTX_RIP) == 20 * 8, "SContext isn\'t FreeBSD\'s mcontext (rip: slot 20)");\n\n'
       'static void emusuni_ps4_fault_handler(int sig, siginfo_t *info, void *raw_context) {\n'
       '\tif (sig != kFbsdSigSegv && sig != kFbsdSigBus)\n'
       '\t\treturn;\n'
-      '\tconst uintptr_t bad_address = *(const uintptr_t *)((const char *)info + kFbsdSiAddr);\n'
+      '\tuintptr_t bad_address = *(const uintptr_t *)((const char *)info + kFbsdSiAddr);\n'
       '\tSContext *ctx = (SContext *)((char *)raw_context + kFbsdMcontext);\n'
+      '\t// (01.06) A general protection fault (#GP: an SSE access needing 16 bytes\' alignment off it, a non-canonical\n'
+      '\t// address) comes as SIGBUS, BUS_OBJERR, the instruction\'s own address in si_addr: all ones then, as Windows gives\n'
+      '\t// PPSSPP, so HandleFault stops the emulation when it was the JIT\'s code (a game\'s bad pointer: v00.23\'s\n'
+      '\t// 396QXS, 25892S) instead of the app closing. Anything else goes on to the crash log as before.\n'
+      '\tif (sig == kFbsdSigBus && *(const int *)((const char *)info + kFbsdSiCode) == kFbsdBusObjErr &&\n'
+      '\t\tbad_address == (uintptr_t)ctx->CTX_PC)\n'
+      '\t\tbad_address = ~(uintptr_t)0;\n'
       '\tif (g_badAccessHandler && g_badAccessHandler(bad_address, ctx))\n'
       '\t\treturn;  // the JIT\'s stray access, skipped (its rip moved on in ctx)\n'
       '\t// Not ours: the handler before (the app\'s crash log), as the kernel would have called it.\n'
@@ -881,6 +987,105 @@ patch('Common/ExceptionHandlerSetup.cpp',
       '\tsigaction(kFbsdSigBus, &old_sa_bus, nullptr);\n'
       '\tg_badAccessHandler = nullptr;\n'
       '\treturn;\n'
+      '#endif\n')
+
+# --- (01.06) A game's stray access never closes the app any more (v00.23's reports 396QXS, D7MUMY, 25892S and v00.22's
+# 2XSCW2: each in the JIT's code with a game's bad pointer, after cheats or with a damaged disc image):
+#   - the x86-64 JIT adds a load's or a store's MIPS offset after masking the address (JitSafeMem), so a null pointer with
+#     a negative offset faults up to 32 KiB below the PSP's memory (D7MUMY: 0x4d34 below) and a pointer of -1 past its
+#     1 GiB (2XSCW2: 0x2f past): Common/MemArenaEmuSuNi.cpp keeps 64 KiB reserved on each side, and HandleFault takes
+#     those as the game's too, as a PC's 4 GiB map does: the access is skipped ("Bad memory access detected and
+#     ignored", ignore_bad_memory_access being on);
+#   - lv.q/sv.q (the VFPU's 16-byte loads and stores) are MOVUPS with Fast Memory too: MOVAPS faults (#GP) on an address
+#     off 16 bytes, which a bad pointer can be (396QXS, 25892S); the same speed on aligned data;
+#   - any other #GP in the JIT's code stops the emulation ("Bad memory access detected! ... Stopping emulation": the game
+#     stays still, the app goes on): the PS4's handler above, and Linux's below for the PC build's tests.
+patch('Core/MemFault.cpp',
+      '#include "Common/MachineContext.h"\n',
+      '#include "Common/MachineContext.h"\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '// EmuSuNi (Common/MemArenaEmuSuNi.cpp): the bytes reserved on each side of the PSP\'s 1 GiB.\n'
+      'uintptr_t EmuSuNiMemGuard();\n'
+      '#endif\n')
+patch('Core/MemFault.cpp',
+      '\tif (hostAddress < baseAddress || hostAddress >= baseAddress + addressSpaceSize) {\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '\t// EmuSuNi: the bytes reserved on each side too (a MIPS offset added after the mask: build-psp-core.sh); the\n'
+      '\t// PSP\'s address below wraps (0xffffb2cc: 0x4d34 below 0).\n'
+      '\tif (hostAddress < baseAddress - EmuSuNiMemGuard() ||\n'
+      '\t\thostAddress >= baseAddress + addressSpaceSize + EmuSuNiMemGuard()) {\n'
+      '#else\n'
+      '\tif (hostAddress < baseAddress || hostAddress >= baseAddress + addressSpaceSize) {\n'
+      '#endif\n')
+patch('Core/MIPS/x86/CompVFPU.cpp',
+      '\t\t\t\t\tif (g_Config.bFastMemory) {\n\t\t\t\t\t\tMOVAPS(fpr.VSX(vregs), safe.NextFastAddress(0));\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\t\t\t\tif (false) {  // EmuSuNi: MOVUPS with Fast Memory too (a bad pointer off 16 bytes: no #GP)\n'
+      '#else\n'
+      '\t\t\t\t\tif (g_Config.bFastMemory) {\n'
+      '#endif\n'
+      '\t\t\t\t\t\tMOVAPS(fpr.VSX(vregs), safe.NextFastAddress(0));\n')
+patch('Core/MIPS/x86/CompVFPU.cpp',
+      '\t\t\t\t\tif (g_Config.bFastMemory) {\n\t\t\t\t\t\tMOVAPS(safe.NextFastAddress(0), fpr.VSX(vregs));\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\t\t\t\tif (false) {  // EmuSuNi: MOVUPS with Fast Memory too (a bad pointer off 16 bytes: no #GP)\n'
+      '#else\n'
+      '\t\t\t\t\tif (g_Config.bFastMemory) {\n'
+      '#endif\n'
+      '\t\t\t\t\t\tMOVAPS(safe.NextFastAddress(0), fpr.VSX(vregs));\n')
+patch('Common/ExceptionHandlerSetup.cpp',
+      '\tif (sicode != SEGV_MAPERR && sicode != SEGV_ACCERR) {\n\t\t// Huh? Return.\n\t\treturn;\n\t}\n'
+      '\tuintptr_t bad_address = (uintptr_t)info->si_addr;\n',
+      '#if defined(EMUSUNI_PORT) && !defined(__ORBIS__)\n'
+      '\t// EmuSuNi (the PC build): Linux gives a #GP as SIGSEGV, SI_KERNEL, at address 0: all ones to the handler, as\n'
+      '\t// the PS4\'s handler (SIGBUS, BUS_OBJERR) and Windows do.\n'
+      '\tconst bool emusuniGp = sig == SIGSEGV && sicode == SI_KERNEL;\n'
+      '#else\n'
+      '\tconst bool emusuniGp = false;\n'
+      '#endif\n'
+      '\tif (!emusuniGp && sicode != SEGV_MAPERR && sicode != SEGV_ACCERR) {\n\t\t// Huh? Return.\n\t\treturn;\n\t}\n'
+      '\tuintptr_t bad_address = emusuniGp ? ~(uintptr_t)0 : (uintptr_t)info->si_addr;\n')
+
+# --- (01.06) Every cheat code the app turns on, not only the last one. Upstream's retro_cheat_set (still so in its master
+# of 2026-10-30) writes the cheat file back from cheats[0], the "_S" line before the first "_C": each code added a line
+# "_C_S ULUS-10418" (the log's "CwCheat error: Error on line N: could not parse cheat name line", one line more each
+# time) and moved the indexes on by one, so each code took the place of the one before. Its CWCheatEngine is freed too
+# (one was left behind at each call, retro_cheat_reset's too).
+patch('libretro/libretro.cpp',
+      '#include <mutex>\n',
+      '#include <mutex>\n'
+      '#include <memory>\n')
+patch('libretro/libretro.cpp',
+      '   // Init Cheat Engine\n   CWCheatEngine *cheatEngine = new CWCheatEngine(g_paramSFO.GetDiscID());\n',
+      '   // Init Cheat Engine\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '   std::unique_ptr<CWCheatEngine> cheatEngine(new CWCheatEngine(g_paramSFO.GetDiscID()));  // (EmuSuNi: freed)\n'
+      '#else\n'
+      '   CWCheatEngine *cheatEngine = new CWCheatEngine(g_paramSFO.GetDiscID());\n'
+      '#endif\n')
+patch('libretro/libretro.cpp',
+      '   // Initialize Cheat Engine\n   CWCheatEngine *cheatEngine = new CWCheatEngine(g_paramSFO.GetDiscID());\n',
+      '   // Initialize Cheat Engine\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '   std::unique_ptr<CWCheatEngine> cheatEngine(new CWCheatEngine(g_paramSFO.GetDiscID()));  // (EmuSuNi: freed)\n'
+      '#else\n'
+      '   CWCheatEngine *cheatEngine = new CWCheatEngine(g_paramSFO.GetDiscID());\n'
+      '#endif\n')
+patch('libretro/libretro.cpp',
+      '      for (const std::string &cheat : cheats) {\n         fprintf(outFile, "_C%s\\n", cheat.c_str());\n      }\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '      // EmuSuNi: cheats[0] is the "_S" line, written just above; the line ends after each cheat taken off\n'
+      '      // (else one more empty line at each rewrite).\n'
+      '      for (size_t i = 1; i < cheats.size(); i++) {\n'
+      '         std::string cheat = cheats[i];\n'
+      '         while (!cheat.empty() && (cheat.back() == \'\\n\' || cheat.back() == \'\\r\'))\n'
+      '            cheat.pop_back();\n'
+      '         fprintf(outFile, "_C%s\\n", cheat.c_str());\n'
+      '      }\n'
+      '      INFO_LOG(Log::System, "EmuSuNi: cheat %u %s: %d in the cheat file", index, enabled ? "on" : "off",\n'
+      '         (int)cheats.size() - 1);\n'
+      '#else\n'
+      '      for (const std::string &cheat : cheats) {\n         fprintf(outFile, "_C%s\\n", cheat.c_str());\n      }\n'
       '#endif\n')
 patch('libretro/libretro.cpp',
       '         g_Config.bCacheFullIsoInRam = true;\n   }\n',
@@ -3250,7 +3455,8 @@ static void EmuSuNiLog(uint64_t frames, double seconds, double msPerTick, const 
       PSP_CoreParameter().renderWidth, PSP_CoreParameter().renderHeight, g_Config.iInternalResolution,
       1 << g_Config.iMultiSampleLevel, thread ? "on" : "off", g_Config.bFastMemory ? "on" : "off",
       g_Config.bSoftwareSkinning ? "software" : "hardware",
-      PSP_CoreParameter().compat.flags().FramerateHack30 ? ", the 30 FPS hack" : "");
+      PSP_CoreParameter().compat.flags().FramerateHack30 ? ", the 30 FPS hack" :
+      PSP_CoreParameter().compat.flags().EmuSuNiMax30FPS ? ", at most 30 FPS (compat.ini's EmuSuNiMax30FPS)" : "");
    if (s_emusuniGpuFrames > 0) {
       const double g = (double)s_emusuniGpuFrames;
       const double work = s_emusuniGpuKind[0] + s_emusuniGpuKind[1] + s_emusuniGpuKind[2] + s_emusuniGpuKind[3] + s_emusuniGpuKind[4];
@@ -3398,6 +3604,99 @@ patch('libretro/libretro.cpp',
       '   PSP_CoreParameter().compat.EmuSuNiSetFramerateHack30(g_emusuni30fps);\n'
       '#endif\n'
       '   retro_input();\n\n   if (useEmuThread)\n')
+
+# --- (01.05) Midnight Club: L.A. Remix at 30 FPS at most: compat.ini's own flag EmuSuNiMax30FPS. The game was made for 30
+# (upstream #12313); in PPSSPP its races draw a picture every vblank, twice the PSP's work (the PS4's log of 2026-11-06:
+# 30 ms a frame, the game at 55% of its speed), and its replays run unevenly above 30 (#18933). It never waits for a
+# vblank through sceDisplay (one sceDisplaySetFrameBuf at its start; each frame drawn and copied into that framebuffer,
+# PC trace): its main loop's pace is sceCtrlReadBufferPositive, once a frame, which waits for the next sample (each
+# vblank). With the flag, a blocking read returns only once two samples were taken since the last one returned (the
+# newest given, as a read of one buffer does): at most 30 frames a second, each shown twice; a frame longer than two
+# vblanks isn't held further. The game's clock is sceKernelGetSystemTime's, so it runs at its speed. EMUSUNI_PSP_MAX30=0
+# turns it off (the PC tests' A/B).
+patch('Core/Compatibility.h',
+      '\tbool ForceMax60FPS;\n',
+      '\tbool ForceMax60FPS;\n\tbool EmuSuNiMax30FPS;  // EmuSuNi: the controller reads every other sample at most\n')
+patch('Core/Compatibility.cpp',
+      '\tCheckSetting(iniFile, gameID, "ForceMax60FPS", &flags_.ForceMax60FPS);\n',
+      '\tCheckSetting(iniFile, gameID, "ForceMax60FPS", &flags_.ForceMax60FPS);\n'
+      '\tCheckSetting(iniFile, gameID, "EmuSuNiMax30FPS", &flags_.EmuSuNiMax30FPS);\n')
+patch('Core/Compatibility.cpp',
+      '#ifdef EMUSUNI_PORT\n\temusuniLoaded30_ = flags_.FramerateHack30;\n#endif\n',
+      '#ifdef EMUSUNI_PORT\n\temusuniLoaded30_ = flags_.FramerateHack30;\n'
+      '\t{\n'
+      '\t\t// EmuSuNi: EMUSUNI_PSP_MAX30=0 turns EmuSuNiMax30FPS off (an A/B).\n'
+      '\t\tconst char *max30 = getenv("EMUSUNI_PSP_MAX30");\n'
+      '\t\tif (flags_.EmuSuNiMax30FPS && max30 && !strcmp(max30, "0")) {\n'
+      '\t\t\tflags_.EmuSuNiMax30FPS = false;\n'
+      '\t\t\tINFO_LOG(Log::System, "EmuSuNi: EmuSuNiMax30FPS off (EMUSUNI_PSP_MAX30=0)");\n'
+      '\t\t}\n'
+      '\t}\n'
+      '#endif\n')
+patch('Core/Compatibility.cpp',
+      '#include "Core/Compatibility.h"\n',
+      '#include "Core/Compatibility.h"\n#ifdef EMUSUNI_PORT\n#include <cstdlib>\n#include <cstring>\n#endif\n')
+patch('Core/HLE/sceCtrl.cpp',
+      'static void __CtrlDoSample()\n{\n\t// This samples the ctrl data into the buffers and updates the latch.\n\t__CtrlUpdateLatch();\n\n'
+      '\t// Wake up a single thread that was waiting for the buffer.\nretry:\n'
+      '\tif (!waitingThreads.empty() && ctrlBuf != ctrlBufRead)\n\t{\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '// EmuSuNi: compat.ini\'s EmuSuNiMax30FPS (Midnight Club: L.A. Remix, paced by its controller reads): a blocking read\n'
+      '// returns once two samples were taken since the last one returned (not kept in a state: both counts are ours).\n'
+      'static u64 emusuniSamples = 0;\n'
+      'static u64 emusuniLastRead = 0;\n'
+      'static bool EmuSuNiHoldRead() {\n'
+      '\treturn PSP_CoreParameter().compat.flags().EmuSuNiMax30FPS && emusuniSamples - emusuniLastRead < 2;\n'
+      '}\n'
+      '#endif\n\n'
+      'static void __CtrlDoSample()\n{\n\t// This samples the ctrl data into the buffers and updates the latch.\n\t__CtrlUpdateLatch();\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\temusuniSamples++;\n'
+      '#endif\n\n'
+      '\t// Wake up a single thread that was waiting for the buffer.\nretry:\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\tif (!waitingThreads.empty() && ctrlBuf != ctrlBufRead && !EmuSuNiHoldRead())\n\t{\n'
+      '\t\tif (PSP_CoreParameter().compat.flags().EmuSuNiMax30FPS) {\n'
+      '\t\t\t// The newest sample, as a read of one buffer gets (the one before it is a vblank old).\n'
+      '\t\t\tctrlBufRead = (ctrlBuf + NUM_CTRL_BUFFERS - 1) % NUM_CTRL_BUFFERS;\n'
+      '\t\t\temusuniLastRead = emusuniSamples;\n'
+      '\t\t}\n'
+      '#else\n'
+      '\tif (!waitingThreads.empty() && ctrlBuf != ctrlBufRead)\n\t{\n'
+      '#endif\n')
+patch('Core/HLE/sceCtrl.cpp',
+      'static int sceCtrlReadBufferPositive(u32 ctrlDataPtr, u32 nBufs)\n{\n'
+      '\tint done = __CtrlReadBuffer(ctrlDataPtr, nBufs, false, false);\n'
+      '\thleEatCycles(330);\n'
+      '\tif (done != 0) {\n',
+      'static int sceCtrlReadBufferPositive(u32 ctrlDataPtr, u32 nBufs)\n{\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t// EmuSuNi: EmuSuNiMax30FPS: the read waits for the next sample while it came less than two samples after the\n'
+      '\t// last one (where the read may wait at all).\n'
+      '\tif (EmuSuNiHoldRead() && nBufs > 0 && nBufs <= NUM_CTRL_BUFFERS && __KernelIsDispatchEnabled() && !__IsInInterrupt()) {\n'
+      '\t\thleEatCycles(330);\n'
+      '\t\twaitingThreads.push_back(__KernelGetCurThread());\n'
+      '\t\t__KernelWaitCurThread(WAITTYPE_CTRL, CTRL_WAIT_POSITIVE, ctrlDataPtr, 0, false, "ctrl buffer waited (30 FPS)");\n'
+      '\t\treturn hleLogDebug(Log::sceCtrl, 0, "waiting (30 FPS)");\n'
+      '\t}\n'
+      '#endif\n'
+      '\tint done = __CtrlReadBuffer(ctrlDataPtr, nBufs, false, false);\n'
+      '\thleEatCycles(330);\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\tif (done > 0)\n'
+      '\t\temusuniLastRead = emusuniSamples;\n'
+      '#endif\n'
+      '\tif (done != 0) {\n')
+patch('assets/compat.ini',
+      '[ForceMax60FPS]\n# Some games are very heavy and render as fast as they can.',
+      '[EmuSuNiMax30FPS]\n'
+      '# EmuSuNi: a blocking controller read returns at most every other sample (vblank). Midnight Club: L.A. Remix,\n'
+      '# paced by its reads, was made for 30 (#12313); its races draw a picture every vblank here, twice the PSP\'s work,\n'
+      '# and its replays run unevenly above 30 (#18933).\n'
+      '# Midnight Club: L.A. Remix\n'
+      'ULUS10383 = true\nULES01144 = true\nULJS00180 = true\nULJS00267 = true\nULJM05904 = true\nNPJH50440 = true\n'
+      '\n'
+      '[ForceMax60FPS]\n# Some games are very heavy and render as fast as they can.')
 
 # --- The driver's pipeline cache kept with the shader cache, when EMUSUNI_PSP_PIPELINE_CACHE=1 (off
 # unless set): PPSSPP saves only its pipelines' keys and compiles them all again at each start (on the

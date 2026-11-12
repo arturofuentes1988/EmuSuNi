@@ -70,24 +70,55 @@
 | **Genesis** / Mega Drive | Genesis Plus GX | `.md` `.gen` `.smd` `.bin` `.mdx` `.68k` `.sgd` | Not needed |
 | **Saturn** — *experimental* | YabaSanshiro 3.4.2 | `.cue` `.chd` `.iso` `.ccd` `.mds` | **Yours**: a 512 KB `.bin` ([BIOS](#bios-files)) |
 | **PC Engine** / TurboGrafx-16 | Beetle PCE Fast | `.pce` (HuCards) | Not needed |
-| **Atari 2600** — *new* | Stella | `.a26` `.bin` | Not needed |
-| **Atari 7800** — *new* | ProSystem | `.a78` | Not needed |
-| **Atari Jaguar** — *experimental, new* | Virtual Jaguar 3.11 | `.j64` `.jag` `.abs` `.cof` | Not needed |
+| **Atari 2600** | Stella | `.a26` `.bin` | Not needed |
+| **Atari 7800** | ProSystem | `.a78` | Not needed |
+| **Atari Jaguar** — *experimental* | Virtual Jaguar 3.11 | `.j64` `.jag` `.abs` `.cof` | Not needed |
 | **Arcade**: Neo Geo, Capcom CPS1/CPS2/CPS3, Sega, Konami, Taito... | FinalBurn Neo 1.0.0.03 | One `.zip` / `.7z` per game, not unpacked | Neo Geo: **yours**, `neogeo.zip` |
-| **OpenBOR**: the beat 'em ups fans make — *new* | OpenBOR v3.0 (Build 6391) and v4.0 (Build 8025) | `.pak` | Not needed |
+| **OpenBOR**: the beat 'em ups fans make | OpenBOR v3.0 (Build 6391) and v4.0 (Build 8025) | `.pak` | Not needed |
 
 No BIOS files or games are included. Only the Arcade's Neo Geo games, NAOMI, Atomiswave and the Saturn
 need a BIOS of yours ([BIOS](#bios-files)).
 
 The **Saturn** is experimental: it draws in software, on threads of its own, and its games can run slower
-than on the console. The **Nintendo 3DS** is still experimental: decrypted games only; if a game doesn't
-load the first time, **L3 + R3 → Reset Game** until it does. The PC Engine plays HuCards (no CD games).
+than on the console. The **Nintendo 3DS** is still experimental: decrypted games only; if the screen stays black as
+a game starts, wait a few seconds: the picture comes by itself. The PC Engine plays HuCards (no CD games).
 The **Atari Jaguar** is experimental too: most of the games tried play well, a few (Iron Soldier's 3D) still run
 slower.
 **OpenBOR** plays the free beat 'em ups its fans make, each a `.pak` file: none come with EmuSuNi, put yours in
 `Roms/openbor` ([Where the games go](#where-the-games-go)). They have no save states, cheats or covers.
 
-## What's new in v00.23
+## What's new in v00.24
+
+- **A much faster 3DS**: the GPU's commands and the sound on threads of their own, the CPU without extra waits, the
+  games' idle loops skipped, the game's code prepared ahead and each game that needs it with its GPU's own time. On
+  the PS4 at 4x, Donkey Kong Country Returns 3D, Captain Toad and Super Mario 3D Land run at full speed.
+- **3DS games open the first time**: no more black screen at the start. **Castlevania: Mirror of Fate** shows its
+  intro and its lightning, things no longer come and go, and it no longer freezes.
+- **3DS updates, DLC and mods**: copy the decrypted CIA files to `Roms/3ds/cia` and install them with **Triangle →
+  Updates, DLC and Mods**, or from the in-game menu ([how](#where-the-games-go)).
+- **More 3DS**: the game in the app's language; **3DS Right Stick → Stylus** moves the stylus; the touchpad's
+  phantom touch fixed (the DS's too); resetting or loading a state no longer closes the app.
+- **A world chat and a chat in every room**, with quick phrases each player reads in their own language. The
+  **Online** tab has pages (**L2 / R2**): Rooms, Chat, Most Played and Players, the ranking of who plays most. Each
+  player's country shows beside their nickname ([Online play](#online-play)).
+- **Watch** a match without playing, **join a match under way**, **Entry: Free or With Permission**, start alone and
+  the host's **Reset Game** for everyone. **Back to the Room** ends the match without leaving the room, and the room
+  stays open when a guest leaves.
+- **Play with v00.23** on the consoles whose online play didn't change, and **Check My Games** tells which of your
+  games are the version most players have.
+- **The Game Boy Advance's link cable online**, and **the Atari 2600's Warlords for 4** online.
+- **Order and Filters** in the Library (**Options**): by genre, by number of players and **Hide Adult Games**.
+- **Delete Game** deletes everything of the game: files, cover, name, settings, controls, cheats and bezel (its
+  saves only if you choose).
+- **Patched romsets** on the Arcade: copy the hack to `Roms/arcade/patched` and install it with **Triangle → Patched
+  Romset**.
+- **Fixes**: the app no longer closes now and then as it starts (the N64's fault) and starts faster with thousands
+  of bezels; Midnight Club L.A. at a steady 30 FPS and fewer crashes on the PSP; Genesis games of up to 32 MiB; Saturn
+  and OpenBOR fixes; a lighter DS Wi-Fi; the Telegram group's QR code in **How to Help**.
+
+All the details: the [release notes](https://github.com/arturofuentes1988/EmuSuNi/releases/latest) and the [changelog](CHANGELOG.md).
+
+## What was new in 00.23
 
 - **Online play with your friends**: play one game with a friend anywhere in the world, as if both controllers
   were on one console. Open the **Online** tab, make a room (a 6-letter code for a friend, or a public room, for
@@ -129,41 +160,7 @@ slower.
   closes the app and Sega Rally 2 starts; PSP saves on a PS5; saving a state on the Saturn no longer closes the
   app; a 3DS game that goes wrong ends the game, not EmuSuNi.
 
-All the details: the [release notes](https://github.com/arturofuentes1988/EmuSuNi/releases/latest) and the [changelog](CHANGELOG.md).
-
-## What was new in 00.22
-
-- **Two new consoles**: the **Sega Saturn** (experimental) and the **PC Engine / TurboGrafx-16**.
-- **RetroAchievements** (Casual) on every console but the 3DS: log in at **Settings → RetroAchievements**;
-  **Triangle → Achievements** shows a game's achievements; an "RA" mark on the covers of the games that
-  have them, and the **touchpad** shows only those; **My Achievements**; their texts translated into the
-  app's language.
-- **Updates from the app**: **Settings → Check for Updates** says when a new version is out, downloads it
-  and hands it to the PS4's installer. Coming from v00.21, install v00.22 by hand this once.
-- **Star ratings** under the covers (the players of the LaunchBox Games Database), and **a bezel for each
-  game** from The Bezel Project (**Settings → Game Bezels** downloads the ones of your games).
-- **DS and 3DS screens with the same settings**: Screen Layout (one above the other, side by side, large
-  screen + small, one screen), Swap Screens, the small screen's size and position, the gap between them.
-- **Quality levels** on the Dreamcast, NAOMI and Atomiswave (up to 3x) and on the 3DS (up to 4x); on every
-  console each level is now clearly sharper than the one below.
-- **Faster**: the Dreamcast, NAOMI and Atomiswave, the Saturn, the 3DS (fewer stops to compile its shaders
-  and code) and the N64. The sound keeps its pitch when a game runs below full speed.
-- **Fixes**: the PSP no longer runs too fast with Frame Skip (God of War); PlayStation `.bin` files without
-  their `.cue`, 2048-byte-sector ISOs and LibCrypt discs start; the N64's Cruis'n USA, Resident Evil 2 and
-  World Driver Championship no longer stay black, and Ultra draws no more lines over its 2D; automatic
-  settings for the 3DS graphics errors of Pokémon X and Y, Majora's Mask 3D, Metroid: Samus Returns and
-  Castlevania: Mirror of Fate.
-- **Covers**: the Super Nintendo's in `covers/snes`, JPEG and any size; numbered file names (`01 Comix
-  Zone`) get theirs; **Games Without Cover** says why a picture isn't used.
-- **The emulators' own lists of special settings for some games** are applied (the log says which).
-- **A game that doesn't open the first time is started again by itself.**
-- **One keyboard for every text** (rename, search, login) with the menu's buttons; every menu goes round;
-  **L1 / R1 held** go through the consoles; the in-game menu can also open with R3 or the touchpad held,
-  Options + touchpad, or L1 + R1 or L2 + R2 held (**Settings → Controls → In-Game Menu**); PSP stick dead
-  zone and sensitivity.
-- Every console starts at Quality Low, Aspect Ratio Auto and its own bezel (since 00.23: Ultra, the 3DS Medium).
-
-All the details: the [release notes](https://github.com/arturofuentes1988/EmuSuNi/releases/latest) and the [changelog](CHANGELOG.md).
+All the details: the [v00.23 release notes](https://github.com/arturofuentes1988/EmuSuNi/releases/tag/v00.23) and the [changelog](CHANGELOG.md).
 
 ## Screenshots
 
@@ -304,11 +301,14 @@ Earlier versions:
   disc, settings, cheats, achievements, reset, quit.
 - Up to 5 DualShock 4 controllers, rumble, fast forward.
 - A game that doesn't open the first time is started again by itself.
+- **3DS updates, DLC and mods** from their CIA files, and **patched romsets** on the Arcade
+  ([how](#where-the-games-go)).
 
 **Together**
-- **[Online play](#online-play)** over the internet, with rollback (the way fighting games do it) and voice
-  chat, for the NES, Super Nintendo, Genesis, Master System, Game Gear, SG-1000, PC Engine, Arcade, Atari 2600
-  and Atari 7800, and the Game Boy's link cable; the PSP, Dreamcast and DS online through the community's servers.
+- **[Online play](#online-play)** over the internet, with rollback (the way fighting games do it), voice and text
+  chat, spectators and a ranking, for the NES, Super Nintendo, Genesis, Master System, Game Gear, SG-1000, PC Engine,
+  Arcade, Atari 2600 and Atari 7800, and the link cable of the Game Boy and the Game Boy Advance; the PSP, Dreamcast
+  and DS online through the community's servers.
 - **[Up to 4 players](#playing-together-up-to-4-players)** on one PS4, with the right multitap for each console.
 - **[Portable mode](#portable-mode)**: your data on a USB drive, to play on a friend's PS4.
 
@@ -321,9 +321,9 @@ Earlier versions:
   downloads it and hands it to the PS4's installer.
 - **Console Order**: the consoles in the order you like, or By Company, By Power, By Year or
   Alphabetical.
-- Favorites, search, sorting (A–Z, recently played, region, console), a default game, a folder
-  browser, *Clean Up Games* and **13 languages** (complete in English and Spanish, partial in the
-  other 11).
+- Favorites, search, sorting (A–Z, recently played, region, console), **filters** by genre, by number of players
+  and to hide adult games, a default game, a folder browser, *Clean Up Games*, **Delete Game** (with everything of
+  it) and **13 languages** (complete in English and Spanish, partial in the other 11).
 - **Every setting for all games, for a console or for one game**, with a short explanation of each
   option, and **button remapping**.
 
@@ -342,7 +342,7 @@ Earlier versions:
   | Game Boy Advance | `.gba` `.agb` |
   | PlayStation | `.cue` (with its `.bin` tracks) or a `.bin` alone, `.chd` `.pbp` `.m3u` `.iso` `.img` `.ecm` `.mds` |
   | Nintendo DS | `.nds` `.ids` |
-  | Nintendo 3DS (experimental) | Decrypted `.3ds` `.cci` `.cxi` `.3dsx` (no `.cia`) |
+  | Nintendo 3DS (experimental) | Decrypted `.3ds` `.cci` `.cxi` `.3dsx` (a `.cia` doesn't open as a game: the updates' and DLC's are installed, [how](#where-the-games-go)) |
   | PSP | `.iso` `.cso` `.chd` `.pbp` `.elf` |
   | Dreamcast | `.gdi` (with its tracks) `.chd` `.cdi` `.cue` `.m3u` |
   | NAOMI / NAOMI 2 | MAME sets `.zip` `.7z`, not unpacked, or `.dat` `.bin` images |
@@ -400,11 +400,25 @@ The folders: `snes`, `nes`, `n64`, `gb`, `gbc`, `gba`, `ps1`, `nds`, `3ds`, `psp
 `/data/EmuSuNi/Roms/openbor` on the PS4. Copy each game's `.pak` there as it is (not zipped); the app picks the
 OpenBOR version it was made for. EmuSuNi includes none: they are free games made by OpenBOR's fans.
 
+**3DS updates, DLC and mods**: copy the **decrypted** CIA files of your games' updates and DLC to the folder `cia` of
+the 3DS games (`Roms/3ds/cia`). In the Library, **Triangle → Updates, DLC and Mods** on the game (or the same in the
+in-game menu, which closes the game first) shows what it has installed, installs its CIA files and removes an update
+or a DLC; the CIA file isn't needed after. Encrypted CIA files aren't installed, and the games still start from their
+`.3ds` or `.cci`. The game's mods are turned on or off there too (LayeredFS, in
+`/data/EmuSuNi/saves/3ds/Azahar/load/mods/<title ID>`). An update can change the game's save: copy it first.
+
+**The Arcade's patched romsets**: a hack with no driver of its own, named as its set, goes in the folder `patched` of
+the Arcade games (`Roms/arcade/patched`). **Triangle → Patched Romset** installs it on the PS4, and FinalBurn Neo
+starts the game from it instead of its zip (which stays in `Roms/arcade`). Online play always uses the plain set.
+
 - Copy your games there (by FTP or with the USB drive on a PC): they show up by themselves. Press
   **Square** in the Library to look again right away.
 - **Any folder works** too: **Settings → Game Folders** sets another one for a console.
 - On the PS4's own storage letters' case matters: an arcade, NAOMI or Atomiswave zip must keep its
   set's name in small letters (`mslug.zip`, `mvsc2.zip`).
+- **Triangle → Delete Game** deletes the game from the drive (a `.cue`'s tracks and every disc too) and everything
+  of it: cover, name, own settings, controls, cheats and bezel. Its saves and states stay unless you choose
+  **Saves and States: Delete Too**.
 - Deleting or updating the app doesn't delete `/data/EmuSuNi`: your games, saves, covers and settings stay.
 
 **Games on several discs** (PlayStation, Dreamcast) become one game by themselves when:
@@ -509,11 +523,11 @@ game of that console).
 | D-Pad Left / Right | Previous / next game (Up / Down: 10 at a time) |
 | L1 / R1 | Tabs: All, each console, Favorites, Settings (held: through them) |
 | Cross | Play |
-| Triangle | Game options: game settings, play online, cheats, controls, rename, find cover, achievements, information, default game, delete |
+| Triangle | Game options: game settings, play online, link cable online, cheats, controls, rename, find cover, achievements, updates, DLC and mods (3DS), patched romset (Arcade), information, default game, delete |
 | L2 / R2 | Favorite / search |
 | Square | Look for the games again |
 | Touchpad | RetroAchievements filter: every game, the games with achievements, the ones in progress |
-| Options | Sort |
+| Options | Order and Filters: the order, the genre, the number of players, hiding adult games |
 | Circle | Back |
 
 Hold **L1** while EmuSuNi starts to open the menu instead of the default game.
@@ -551,27 +565,55 @@ online system (not RetroArch's) with **rollback**, the technique fighting games 
 without waiting, and fixes itself if the other player's button arrives late.
 
 - **Consoles**: NES, Super Nintendo, Genesis, Master System, Game Gear, SG-1000, PC Engine, Arcade, Atari 2600
-  and Atari 7800 (the lighter ones). They show a small globe in the menu.
-- **The Online tab** lists every room with its game, console, host, players, type and ping. **Cross** joins,
-  **Square** creates a room, **Triangle** joins with a code, **L2 / R2** filter.
+  and Atari 7800 (the lighter ones), and the link cable of the Game Boy, Game Boy Color and Game Boy Advance. They
+  show a small globe in the menu.
+- **The Online tab** has four pages, which **L2 / R2** change (**Options**: Online Settings):
+  - **Rooms**: every room with its game, console, host, players, type and ping. **Cross** joins, **Square** creates
+    a room, **Triangle** joins with a code, the **Touchpad** watches the match.
+  - **Chat**: the world chat, for everyone on the Online tab (**Square**: a quick phrase; **Triangle**: write).
+  - **Most Played**: the games played most online these days, with their version (**Cross** makes a room with
+    yours).
+  - **Players**: the ranking of who plays online the longest, over the last 7 days or since ever.
 - **Rooms**: a game's **Triangle → Play Online** makes a **private room** (a 6-letter code to tell a
   friend) or a **public room** (in everyone's list), for **2, 3 or 4 players** (**Players**, on the consoles that
   have them). **Choose Together** makes a room without a game: when your friend comes in, you both see, console by
-  console, the games you both have.
-- **The Game Boy's link cable**: on a Game Boy or Game Boy Color game, **Triangle → Link Cable Online** makes a
-  room for two; your friend picks their own game (**Choose Your Game**), and you trade or battle as with a real
-  cable. Each PS4 shows its own Game Boy and keeps its own save.
-- **Both PS4s need the same EmuSuNi version and the same game file** (the app compares them and tells you if you
-  have another version).
-- **Your room stays open** while you use the menus (**Circle** goes back to the menu; **Close Room** closes it).
-  When someone asks to join, a notice lets you **accept** or **reject** them.
+  console, the games you both have. **Entry**: **Free** (whoever comes is in at once; public rooms start so) or
+  **With Permission** (each player asks to join and you accept or reject them, during a match too, from the in-game
+  menu).
+- **The link cable**: on a Game Boy, Game Boy Color or Game Boy Advance game, **Triangle → Link Cable Online** makes
+  a room for two; your friend picks their own game (**Choose Your Game**), and you trade or battle as with a real
+  cable. Each PS4 shows its own console and keeps its own save.
+- **The match**: the host can **start alone** (Start) and the others join as they come. While a place is left, a
+  player can **join the match under way** (everyone stops a moment), and up to 4 can **watch** it without playing,
+  without voice or chat (not on the Arcade or a link cable); the host chooses in the room (**Late Joining**,
+  **Spectators**). The host's **Reset Game** resets the match for everyone at once, and **Back to the Room**, in the
+  in-game menu, ends it and takes everyone back to the room to pick another game.
+- **Your room stays open** while you use the menus (**Circle** goes back to the menu; **Close Room** closes it), and
+  also when a guest leaves or you remove one.
+- **Versions**: two EmuSuNi versions play together when that console's online play didn't change between them.
+  v00.24 plays with v00.23 on the NES, Super Nintendo, Genesis, Master System, Game Gear, SG-1000, PC Engine, Atari
+  7800 and Arcade; the Atari 2600, the link cables and Choose Together need the same version, and what is new (the
+  chat, Watch, joining a match under way, Reset Game, Back to the Room) works only when everyone has it. When an
+  update is needed, the app says who needs it.
+- **The same game file**: the rooms compare the game's contents (without its header), and each player sees the
+  others' version of the game. **Check My Games** (Online Settings) tells which of your games are the standard
+  version (No-Intro's; FinalBurn Neo 1.0.0.03's on the Arcade), the one most players have, with a mark under the
+  stars.
+- **Chat**: every room has its chat, on the room's right, and the Chat page has the world chat. **Quick phrases**,
+  which each player reads in their own language, or a message of up to 100 letters with the keyboard. You can mute
+  or block a player (**Online Settings → Unblock All**), remove them from your room, or report a world chat message;
+  **World Chat: Not Shown** turns it off. The chats are kept 30 days for moderation, without your IP address
+  ([what is kept](#my-stats-and-the-online-profile)); voice isn't recorded.
 - **Voice chat** (**Settings → Voice Chat**): the microphone of the user playing (a headset on the
   DualShock 4, a USB microphone or the PlayStation Camera). Open microphone or push to talk, volumes and a
   **Test Microphone**. It starts **off in public rooms** (each player turns theirs on), and you can mute any player.
 - **The connection** is direct between the two PS4s when it can be, and goes through a relay server when it
   can't. **Hide My Address** always uses the relay, so the other player never learns your address.
-- **Nickname and profile**: your nickname is the PS4 user's unless you type one (Online tab → Online
-  Settings). The **Online Profile** is optional and off by default ([details](#my-stats-and-the-online-profile)).
+- **Nickname, country and profile**: your nickname is the PS4 user's unless you type one (Online tab → Online
+  Settings). **Show My Country** (Yes by default) puts your country's two letters beside your nickname: the server
+  looks it up from your connection and never shows or keeps your address. **Appear in the Ranking** (Yes by default)
+  counts your time in matches for the Players page. The **Online Profile** is optional and off by default
+  ([details](#my-stats-and-the-online-profile)).
 - **Latency Bar**: each player's ping on the screen (green, amber, red); it can be turned off in the Online
   settings or the in-game menu.
 - While you play online there is no saving or loading states, rewind, cheats or pause: the match goes on. The
@@ -616,13 +658,16 @@ thumbnails: the PS4 needs internet, and the file should be named as the game is 
 `covers/<console>`, or use **Triangle → Find Cover**. **Settings → Games Without Cover** says why a picture
 isn't used. See [Box art](#box-art).
 
-**Which 3DS games work?** Only **decrypted** ones (`.3ds`, `.cci`, `.cxi`, `.3dsx`): encrypted games and
-`.cia` files don't load. The 3DS is experimental and the heaviest console: a PS4 Pro runs it better.
+**Which 3DS games work?** Only **decrypted** ones (`.3ds`, `.cci`, `.cxi`, `.3dsx`): encrypted games don't load,
+and a game in a `.cia` doesn't open (decrypted `.cia` files of updates and DLC are installed: see
+[Where the games go](#where-the-games-go)). The 3DS is experimental and the heaviest console: a PS4 Pro runs it
+better. If a game runs slow, lower its **3DS Resolution**.
 
 **My Arcade game doesn't start.** EmuSuNi uses **FinalBurn Neo 1.0.0.03** sets: one `.zip` per game, not
 unpacked, with the set's name in small letters (`mslug.zip`). A set from another MAME or FinalBurn version may
 have different files and won't start. Neo Geo games also need your `neogeo.zip` next to them. NAOMI and
-Atomiswave need `naomi.zip` / `awbios.zip`. See [BIOS files](#bios-files).
+Atomiswave need `naomi.zip` / `awbios.zip`. See [BIOS files](#bios-files). A hack of a set goes in as a
+**patched romset** ([how](#where-the-games-go)).
 
 **How do I play the Saturn?** Put your Saturn BIOS (a 512 KB `.bin`) in `/data/EmuSuNi/system/saturn` and the
 games (`.cue` with its `.bin` tracks, or `.chd`) in `Roms/saturn`. It is experimental: it draws in software and
@@ -640,8 +685,9 @@ through backward compatibility, but that is not tested or supported.
 **Package Installer** ([Installation](#installation)). Then put your games in `Roms/<console>` on the drive.
 
 **Does it send anything about me?** Only the [anonymous statistics](#anonymous-statistics), which you can turn off
-in **Settings → Anonymous Statistics**, and your log when you choose **Settings → Send Log**. Nothing is ever sent
-about your files, names or PS4.
+in **Settings → Anonymous Statistics**, your log when you choose **Settings → Send Log** and, if you play online,
+what you write in the chat and your time for the ranking ([details](#my-stats-and-the-online-profile)). Nothing is
+ever sent about your files, names or PS4.
 
 ## Settings
 
@@ -660,7 +706,7 @@ in the in-game menu. Each one can apply to **all games**, to **a console** or to
 | **Video** | **Quality** (Low, Medium, High, Ultra) · Resolution · N64, PS1, PSP, Dreamcast and 3DS Resolution · Aspect Ratio · the DS's and the 3DS's Screen Layout, Swap Screens, Small Screen Size, Small Screen Position and Gap Between Screens · PS1 Widescreen · Picture Size · Letterbox Zoom · **Bezel** · Crop Overscan · Frame Rate Limit · V-Sync · FPS Counter |
 | **Graphics** | Upscaling Filter · **GPU Upscaler** · Texture Filtering · the N64's anti-aliasing, dither filter, 2D, distant textures and screen effects · the PlayStation's geometry (PGXP), texture filtering, colours and anti-aliasing · the PSP's texture sharpness, texture upscaling and anti-aliasing · the Dreamcast's texture sharpness and transparency · the 2600's Phosphor · NTSC Filter · Scanlines · **Tube TV (CRT)** · Hi-Res Blending · Reduce Sprite Flicker · Transparency Effects · **Game Boy Colours** · Screen Colours · LCD Ghosting |
 | **Performance** | PSP Frame Rate (God of War) · 3DS CPU Clock · Dreamcast CPU Clock · Dreamcast Sound DSP · **Jaguar Recompiler** and Jaguar GPU/DSP Speed · Emulated CPU Clock · SuperFX Clock · the N64's graphics sync, CPU cores, picture timing, CPU timing and frame pacing · PS1 Disc Speed · Emulation Speed · Fast Forward · Frame Skip · Performance Graphs |
-| **Emulation** | Region · NES Palette · Turbo Buttons · the N64's CPU, RSP and Controller Pak · Boot Logo (BIOS) · Sunlight (Boktai) · Tilt Sensor · PS1 Controller · PS1 Boot Logo · PSP Stick Dead Zone and Sensitivity · DS and 3DS Touch Screen · New 3DS Mode · the 3DS's Accurate Shader Multiplication and Right Eye · PC Engine Pad · Dreamcast Language · Jaguar BIOS · **PSP Online**, PSP Ad Hoc Server, **Dreamcast Online** and **DS Wi-Fi** ([online](#online-with-the-communitys-servers-psp-dreamcast-ds)) · Allow Opposing Directions · Randomize Memory and more |
+| **Emulation** | Region · NES Palette · Turbo Buttons · the N64's CPU, RSP and Controller Pak · Boot Logo (BIOS) · Sunlight (Boktai) · Tilt Sensor · PS1 Controller · PS1 Boot Logo · PSP Stick Dead Zone and Sensitivity · DS and 3DS Touch Screen · **3DS Right Stick** (C-stick or stylus) · New 3DS Mode · the 3DS's Accurate Shader Multiplication and Right Eye · PC Engine Pad · Dreamcast Language · Jaguar BIOS · **PSP Online**, PSP Ad Hoc Server, **Dreamcast Online** and **DS Wi-Fi** ([online](#online-with-the-communitys-servers-psp-dreamcast-ds)) · Allow Opposing Directions · Randomize Memory and more |
 | **System** | Game Volume · Audio Interpolation · Sound Filter · Audio Buffer · **Multiplayer Adapter** · Resume Where You Left Off |
 
 The Dreamcast's, NAOMI's and Atomiswave's games show only the settings that apply to them, Quality's
@@ -675,7 +721,8 @@ It is **on by default**: **Settings → Anonymous Statistics → Off** turns it 
 
 - **What is sent**: a random number this app makes once (`stats.ini` — not the PS4's, a user's or
   PSN's id), the app's version, the PS4's language, what the app is doing (the menus, a game of which
-  console, online play), **the game being played** — only as a checksum of its cartridge, an arcade
+  console, online play, the community's servers too: PSP, DCNet or the DS's Wi-Fi), **the game being played** —
+  only as a checksum of its cartridge, an arcade
   set's short name or a disc's code, never its file's name —, how many update checks since the last
   heartbeat, and, once after an update, the version before it.
 - **What is not sent**: no names, no file names or game list, no files or saves, no PS4, user or PSN id.
@@ -700,7 +747,17 @@ It is **on by default**: **Settings → Anonymous Statistics → Off** turns it 
   **Statistics → My profile**. Without the code nobody can find or read it. **Public Profile** (off
   unless you turn it on) also puts your nickname, country and hours in the page's rankings. **Delete
   My Profile** deletes it all on the server (even with the statistics off); a profile unused for 400
-  days is deleted by itself. Without the online profile, nothing is kept per PS4.
+  days is deleted by itself. Without the online profile, nothing is kept per PS4 but the chat and the ranking
+  (below).
+- **The chat** (the world's and the rooms'): EmuSuNi's server keeps each message **30 days**, for moderation, with
+  the time, your nickname, your player code (8 letters from a random key of this console, in `netplay.ini`), your
+  country, the app's version and the text. **Your IP address isn't kept**: only a keyed hash of it, whose secret
+  changes every 30 days, so that someone who misbehaves can be blocked. The app shows its notice before anything is
+  sent, and voice isn't recorded.
+- **The ranking** (the **Players** page): with **Appear in the Ranking** on Yes (the default), the server counts your
+  time in online matches by console under your player code, and the page shows it to everyone with your nickname,
+  your country if you show it and the console you play most; never your address. On No, from the next room nothing of
+  yours is counted.
 
 ## Files on the PS4
 
@@ -710,7 +767,7 @@ Everything lives in `/data/EmuSuNi` (reachable by FTP with GoldHEN):
 |---|---|
 | `games/`, `nes/` | The Super Nintendo's and the NES's default game folders |
 | `covers/` | Box art: a folder per console, named as the games' folders (`covers/snes`, `covers/nes`, `covers/md`...); PNG or JPEG |
-| `saves/` | Battery saves and the cartridges' clocks (`.rtc`), the PlayStation's memory cards, the PSP's memory stick (`saves/psp`), the Dreamcast's VMUs (`saves/dc`), the Saturn's backup memory (`saves/saturn`), OpenBOR's games' saves and high scores (`saves/openbor`) |
+| `saves/` | Battery saves and the cartridges' clocks (`.rtc`), the PlayStation's memory cards, the PSP's memory stick (`saves/psp`), the Dreamcast's VMUs (`saves/dc`), the Saturn's backup memory (`saves/saturn`), OpenBOR's games' saves and high scores (`saves/openbor`), the 3DS's storage with its updates, DLC and mods (`saves/3ds/Azahar`) |
 | `states/` | Save states |
 | `cheats/` | Cheats: `<game file name>.cht` (RetroArch format), in its console's subfolder (`cheats/nes`, `cheats/ps1`...; the Super Nintendo's right in `cheats/`). If a game has no cheats yet, **Triangle → Cheats** shows the exact folder and name |
 | `system/` | BIOS files (see [BIOS](#bios-files)) |
@@ -721,7 +778,7 @@ Everything lives in `/data/EmuSuNi` (reachable by FTP with GoldHEN):
 | `retroachievements.ini` | Your RetroAchievements login (its token, never the password) |
 | `stats.ini` | The [anonymous statistics](#anonymous-statistics): on or off, this app's random number, the online profile (on or off, public or not, its code) |
 | `mystats.ini` | [My Stats](#my-stats-and-the-online-profile): your time played, sessions and online matches by game (never sent) |
-| `netplay.ini` | [Online play](#online-play): your nickname, the latency bar and, if you want, another server |
+| `netplay.ini` | [Online play](#online-play): your nickname, the latency bar, the players you blocked or muted, the world chat shown or not, the random key of your player code and, if you want, another server |
 | `psp-mac.txt` | The PSP's own network address for [PSP Online](#online-with-the-communitys-servers-psp-dreamcast-ds), made at random once |
 | `portable-drives.ini`, `portable-fallback/` | [Portable mode](#portable-mode): the drives this PS4 answered about; what was saved while the drive was away |
 | `emusuni.log` | The log, for bug reports (`emusuni-1.log` to `emusuni-4.log`: the sessions before) |
@@ -738,8 +795,8 @@ sudo -i bash /path/to/EmuSuNi/scripts/setup.sh
 # then, as root too (setup.sh puts the sources and the PS4 runtime in root's home)
 sudo -i
 cd /path/to/EmuSuNi
-EMUSUNI_VERSION=00.23 bash scripts/build.sh with-saturn with-gblink with-openbor   # builds ~/emusuni-build/emusuni_eboot/eboot.bin
-bash scripts/package.sh 00.23                                                     # makes the .pkg in ~/emusuni-build/out
+EMUSUNI_VERSION=00.24 bash scripts/build.sh with-saturn with-gblink with-openbor   # builds ~/emusuni-build/emusuni_eboot/eboot.bin
+bash scripts/package.sh 00.24                                                     # makes the .pkg in ~/emusuni-build/out
 ```
 
 `scripts/build.sh` builds each core first (`scripts/build-*-core.sh`, again only what changed);
@@ -759,8 +816,9 @@ regenerates the icon, the start-up pictures, the logo and the 8-bit sounds (Pyth
 - **3D on the PS4's GPU**: the Nintendo 64 (ParaLLEl-RDP), the PlayStation, the PSP, the
   Dreamcast (with NAOMI and Atomiswave) and the 3DS draw with their own Vulkan renderers on the app's
   Vulkan device. The Saturn draws in software.
-- **Threads**: the N64's RDP, the DS's 3D (on two threads), the PSP's and DS's drawing and the
-  Saturn's VDP1 and VDP2 run beside the emulation, on cores of their own.
+- **Threads**: the N64's RDP, the DS's 3D (on two threads), the PSP's and DS's drawing, the
+  Saturn's VDP1 and VDP2, and the 3DS's GPU commands and sound mixing run beside the emulation, on cores of
+  their own.
 - **GPU filters**: xBRZ, MMPX, SMAA, Anime4K and AMD FSR/RCAS run as Vulkan fragment-shader passes
   before the menu is drawn; their pipelines are compiled in the background and cached.
 - **Memory**: the PS4's system C library serves allocations from a ~12 MiB pool shared with the

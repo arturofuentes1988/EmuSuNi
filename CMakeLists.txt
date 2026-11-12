@@ -256,6 +256,11 @@ target_sources(emusuni PRIVATE src/Portable.cpp)
 target_sources(emusuni PRIVATE src/CoverFiles.cpp)
 # The cores' game lists (00.81): src/GameDb.h (each game's settings from them in the log, the app's corrections).
 target_sources(emusuni PRIVATE src/GameDb.cpp)
+# Delete Game's work on the drive (01.19): src/GameDelete.h (the game's files, its empty folder, its recents' lines).
+target_sources(emusuni PRIVATE src/GameDelete.cpp)
+# What a game has installed, from the game (01.22): src/GameExtras.h (the Arcade's patched romsets, the in-game menu's
+# asks for after the game).
+target_sources(emusuni PRIVATE src/GameExtras.cpp)
 # Local multiplayer (00.23): src/Multiplayer.h (each console's adapter for 3 or more players, the games that use it).
 target_sources(emusuni PRIVATE src/Multiplayer.cpp)
 # Updates from inside the app (00.73): src/Update.h; the hand-over to the PS4's package installer: src/UpdateInstall.h.
@@ -279,7 +284,8 @@ target_link_libraries(emusuni PRIVATE ${OPUS_DIR}/lib/libopus.a SceAudioIn)
 # relays, rollback; the voice chat's packets on its socket), its marks on the game's screen (src/NetplayUi.h), and the
 # anonymous statistics' heartbeat to its main server (src/UsageStats.h).
 target_sources(emusuni PRIVATE src/Netplay.cpp src/NetplayLibrary.cpp src/NetplayUi.cpp src/UsageStats.cpp src/MyStats.cpp)
-# The Game Boy link cable online's match (00.95: src/GbLink.h; its core only with GBLINK_CORE_OBJECT, below).
+# The Game Boy link cable online's match (00.95: src/GbLink.h; its core only with GBLINK_CORE_OBJECT, below) and the
+# Game Boy Advance's (01.04: its core in GBA_CORE_OBJECT's).
 target_sources(emusuni PRIVATE src/GbLink.cpp)
 target_include_directories(emusuni PRIVATE src ${CMAKE_BINARY_DIR}/shaders ${OPENORBIS}/usr/include
   ${OPENORBIS}/usr/include/libpng16)
@@ -298,6 +304,8 @@ if(GBA_CORE_OBJECT)
     message(FATAL_ERROR "GBA_CORE_OBJECT ${GBA_CORE_OBJECT} doesn't exist (scripts/build-gba-core.sh)")
   endif()
   target_link_libraries(emusuni PRIVATE ${GBA_CORE_OBJECT})
+  # (01.04) The Game Boy Advance link cable online's core is in the same object (gbalink_retro_*; src/GbLink.h).
+  target_compile_definitions(emusuni PRIVATE EMUSUNI_GBALINK=1)
 else()
   message(WARNING "No GBA_CORE_OBJECT: the link needs mgba_retro_* (scripts/build.sh builds it with "
                   "scripts/build-gba-core.sh)")
@@ -376,6 +384,9 @@ if(THREEDS_CORE_OBJECT)
     target_sources(emusuni PRIVATE port/ps4_n64.c)
   endif()
   target_compile_definitions(emusuni PRIVATE EMUSUNI_3DS=1)
+  # (01.09) The updates' and DLC's installer from the player's CIAs (src/ThreeDsCia.h): its calls into the core,
+  # defined weakly there until the core's object brings its own.
+  target_sources(emusuni PRIVATE src/ThreeDsCia.cpp)
   target_link_libraries(emusuni PRIVATE ${THREEDS_CORE_OBJECT})
 endif()
 if(SATURN_CORE_OBJECT)

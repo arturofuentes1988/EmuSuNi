@@ -49,6 +49,9 @@
 #     (LQV/SQV, LDV/SDV, LPV/LUV, SPV/SUV): bit-exact against HEAD on every address and element (00.72).
 #   - For the log: the dynarec's compiling timed, and each new picture the game shows (00.72); ParaLLEl-RDP's
 #     pipelines compiled while the game plays (00.89).
+#   - An emulation that stops by itself ("error in ERET") ends the game with a message instead of a crash (01.04).
+#   - ParaLLEl-RSP made when an N64 game's RSP starts, not by a static constructor before main, its code in memory of its
+#     own from the app (port/ps4_n64.c); without that memory CXD4 runs the RSP, with no abort() (01.05).
 #   - PGO: scripts/n64-core.profdata.xz (00.72; N64_CORE_PGO=off without it).
 # Everything is compiled again when the flags or this script change (make tracks neither flags nor
 # headers: in the N64 test 00.02, Granite's objects saw two Vulkan header versions and disagreed on
@@ -1888,6 +1891,388 @@ patch('mupen64plus-video-paraLLEl/rdp.cpp',
       "\t\t\t       \"(the longest %.0f ms); the N64 doesn't wait for them.\\n\", compiled, compile_ms, compile_max_ms);\n"
       "\t\temusuni_timing_frames = 0;\n"
       "\t\temusuni_scanout_ms = emusuni_wait_ms = 0.0;\n")
+# EmuSuNi 01.04: an emulation that stops by itself ends the game with a message, not the app. mupen64plus stops the N64's
+# processor where it can't go on - "error in ERET", an ERET with Status.ERL set (report SKU5EH: the ROM hack Super Mario 64:
+# Last Impact, right at its start) - and main_run then went back to the frontend once; the next retro_run resumed it, it
+# returned, and so did EmuThreadFunction: a libco cothread that returns jumps to nowhere (signal 11, rip = the fault
+# address; the start watchdog started the game twice more). Now main_run tells the app (RETRO_ENVIRONMENT_SET_MESSAGE and
+# SHUTDOWN: the menu says why) and waits there, the plugins still open (the last picture's image stays valid), every
+# retro_run coming straight back, until retro_deinit's own stop: then the rest of main_run as before.
+patch('mupen64plus-core/src/main/main.c',
+      "    run_device(&g_dev);\n\n    /* release gb_carts */\n",
+      "    run_device(&g_dev);\n\n"
+      "#ifdef __PS4__\n"
+      "    /* EmuSuNi: stopped by itself (libretro.c's emusuni_emulation_stopped): wait for the frontend's stop. */\n"
+      "    {\n"
+      "        extern int emusuni_frontend_stop;\n"
+      "        extern void emusuni_emulation_stopped(void);\n"
+      "        extern cothread_t retro_thread;\n"
+      "        while (!emusuni_frontend_stop)\n"
+      "        {\n"
+      "            emusuni_emulation_stopped();\n"
+      "            co_switch(retro_thread);\n"
+      "        }\n"
+      "    }\n"
+      "#endif\n\n"
+      "    /* release gb_carts */\n")
+patch('libretro/libretro.c',
+      "        retro_thread = co_active();\n"
+      "        game_thread = co_create(65536 * sizeof(void*) * 16, (void (*)(void))EmuThreadFunction);\n",
+      "        retro_thread = co_active();\n"
+      "        game_thread = co_create(65536 * sizeof(void*) * 16, (void (*)(void))EmuThreadFunction);\n"
+      "#ifdef __PS4__\n"
+      "        emusuni_frontend_stop = 0;\n"
+      "#endif\n")
+patch('libretro/libretro.c',
+      "           CoreDoCommand(M64CMD_STOP, 0, NULL);\n"
+      "           co_switch(game_thread); /* Let the core thread finish */\n",
+      "#ifdef __PS4__\n"
+      "           emusuni_frontend_stop = 1;  /* EmuSuNi: main_run may wait for it (emusuni_emulation_stopped) */\n"
+      "#endif\n"
+      "           CoreDoCommand(M64CMD_STOP, 0, NULL);\n"
+      "           co_switch(game_thread); /* Let the core thread finish */\n")
+patch('libretro/libretro.c',
+      "static bool     emu_initialized     = false;\n",
+      "static bool     emu_initialized     = false;\n"
+      "#ifdef __PS4__\n"
+      "/* EmuSuNi: set by retro_deinit before its stop; main_run waits for it when the emulation stopped by itself. */\n"
+      "int emusuni_frontend_stop = 0;\n"
+      "#endif\n")
+patch('libretro/libretro.c',
+      "void retro_return(void)\n{\n",
+      "#ifdef __PS4__\n"
+      "/* EmuSuNi: the emulation stopped without the frontend asking (mupen64plus's \"error in ERET\": the game's code reached\n"
+      "   what it can't run): the app ends the game and the menu says why. Called again at every retro_run until retro_deinit. */\n"
+      "void emusuni_emulation_stopped(void)\n"
+      "{\n"
+      "    static struct retro_message message = {\n"
+      "        \"The N64 emulation stopped: this game did something the emulator can't do. For this game, try N64 CPU: \"\n"
+      "        \"Cached Interpreter, or N64 RSP: ParaLLEl (recompiler).\", 600 };\n"
+      "    if (log_cb)\n"
+      "        log_cb(RETRO_LOG_ERROR, \"EmuSuNi: the N64 emulation stopped by itself: the game ends (no crash).\\n\");\n"
+      "    environ_cb(RETRO_ENVIRONMENT_SET_MESSAGE, &message);\n"
+      "    environ_cb(RETRO_ENVIRONMENT_SHUTDOWN, NULL);\n"
+      "}\n"
+      "#endif\n"
+      "\n"
+      "void retro_return(void)\n{\n")
+# EmuSuNi 01.05: ParaLLEl-RSP made when an N64 game's RSP starts, not before main. Its CPU was a global object whose
+# constructor, before main, reserved 1 GiB and made the thunks' page executable with mprotect(PROT_EXEC), and abort()ed
+# when the PS4 refused that: now and then, on any console, with no N64 game chosen (v00.23's reports CXNNDN, U7USF6,
+# FMC33M, QEREZH: _GLOBAL__sub_I_parallel.cpp -> CPU::CPU -> init_jit_thunks -> commit_code false -> abort; v00.23's
+# code at 0xf9bfca). Now the CPU is made in storage of its own when the game's options pick ParaLLEl-RSP (libretro.c;
+# InitiateRSP too) and destroyed at RomClosed. Its code goes into one block of the app's memory, read/write/execute
+# already (port/ps4_n64.c's emusuni_n64_rsp_memory: right past the program, checked by running code there), packed (each
+# block where the last one's code ended, not a page each); when the block is nearly full every compiled block is
+# forgotten and compiled again as it comes. Without that memory CXD4 runs the RSP (slower, but the game runs): no abort()
+# is left on the way. At the game's end the log says how much code it held ("n64: ParaLLEl-RSP's code: ...").
+def patch_every(path, old, new, count):
+    # As patch(), for text that is there `count` times: every one replaced.
+    if path not in patched:
+        blob = subprocess.run(['git', '-C', root, 'show', 'HEAD:' + path], check=True,
+                              capture_output=True).stdout
+        patched[path] = blob.decode('utf-8').replace('\r\n', '\n')
+    assert patched[path].count(old) == count, (path, patched[path].count(old))
+    patched[path] = patched[path].replace(old, new)
+patch('mupen64plus-rsp-paraLLEl/jit_allocator.cpp',
+      "static constexpr size_t block_size = huge_va ? (1024 * 1024 * 1024) : (2 * 1024 * 1024);\n",
+      "static constexpr size_t block_size = huge_va ? (1024 * 1024 * 1024) : (2 * 1024 * 1024);\n"
+      "#ifdef __PS4__\n"
+      "// EmuSuNi (01.05): one block of 8 MiB from the app, read/write/execute already (port/ps4_n64.c), made with the first\n"
+      "// code (CPU::init_jit_thunks) and given back with the CPU; the code packed in it, and no mprotect.\n"
+      "extern \"C\" void *emusuni_n64_rsp_memory(size_t size);\n"
+      "extern \"C\" void emusuni_n64_rsp_memory_free(void *address, size_t size);\n"
+      "static constexpr size_t emusuni_block_size = 8 * 1024 * 1024;\n"
+      "static constexpr size_t emusuni_align = 64;\n"
+      "#endif\n")
+patch('mupen64plus-rsp-paraLLEl/jit_allocator.cpp',
+      "#else\n\tfor (auto &block : blocks)\n\t\tmunmap(block.code, block.size);\n#endif\n}\n",
+      "#elif defined(__PS4__)\n"
+      "\tfor (auto &block : blocks)\n"
+      "\t\tif (block.code)\n"
+      "\t\t\temusuni_n64_rsp_memory_free(block.code, block.size);\n"
+      "#else\n\tfor (auto &block : blocks)\n\t\tmunmap(block.code, block.size);\n#endif\n}\n")
+patch('mupen64plus-rsp-paraLLEl/jit_allocator.cpp',
+      "static bool commit_execute(void *ptr, size_t size)\n{\n#ifdef _WIN32\n",
+      "static bool commit_execute(void *ptr, size_t size)\n{\n"
+      "#if defined(__PS4__)\n"
+      "\t(void)ptr;\n"
+      "\t(void)size;\n"
+      "\treturn true; // EmuSuNi: executable already\n"
+      "#elif defined(_WIN32)\n")
+patch('mupen64plus-rsp-paraLLEl/jit_allocator.cpp',
+      "void *Allocator::allocate_code(size_t size)\n{\n\tsize = align_page(size);\n",
+      "#ifdef __PS4__\n"
+      "void *Allocator::allocate_code(size_t size)\n"
+      "{\n"
+      "\tsize = (size + emusuni_align - 1) & ~(emusuni_align - 1);\n"
+      "\tif (!emusuni_reserve())\n"
+      "\t\treturn nullptr;\n"
+      "\tauto &block = blocks.back();\n"
+      "\tif (block.offset + size > block.size)\n"
+      "\t\treturn nullptr;\n"
+      "\tvoid *ret = block.code + block.offset;\n"
+      "\tblock.offset += size;\n"
+      "\treturn ret;\n"
+      "}\n"
+      "\n"
+      "bool Allocator::emusuni_reserve()\n"
+      "{\n"
+      "\tif (blocks.empty())\n"
+      "\t\tblocks.push_back(reserve_block(emusuni_block_size));\n"
+      "\treturn blocks.back().code != nullptr;\n"
+      "}\n"
+      "\n"
+      "size_t Allocator::emusuni_used() const\n"
+      "{\n"
+      "\treturn blocks.empty() ? 0 : blocks.back().offset;\n"
+      "}\n"
+      "\n"
+      "size_t Allocator::emusuni_room() const\n"
+      "{\n"
+      "\treturn blocks.empty() ? 0 : blocks.back().size - blocks.back().offset;\n"
+      "}\n"
+      "\n"
+      "const void *Allocator::emusuni_end() const\n"
+      "{\n"
+      "\treturn blocks.empty() || !blocks.back().code ? nullptr : blocks.back().code + blocks.back().offset;\n"
+      "}\n"
+      "\n"
+      "void Allocator::emusuni_rewind(const void *end)\n"
+      "{\n"
+      "\tif (blocks.empty() || !blocks.back().code || !end)\n"
+      "\t\treturn;\n"
+      "\tauto &block = blocks.back();\n"
+      "\tsize_t offset = size_t(static_cast<const uint8_t *>(end) - block.code);\n"
+      "\toffset = (offset + emusuni_align - 1) & ~(emusuni_align - 1);\n"
+      "\tif (offset <= block.offset)\n"
+      "\t\tblock.offset = offset;\n"
+      "}\n"
+      "#else\n"
+      "void *Allocator::allocate_code(size_t size)\n{\n\tsize = align_page(size);\n")
+patch('mupen64plus-rsp-paraLLEl/jit_allocator.cpp',
+      "\tif (!commit_read_write(ret, size))\n\t\treturn nullptr;\n\treturn ret;\n}\n",
+      "\tif (!commit_read_write(ret, size))\n\t\treturn nullptr;\n\treturn ret;\n}\n#endif\n")
+patch('mupen64plus-rsp-paraLLEl/jit_allocator.cpp',
+      "\treturn block;\n#else\n\tblock.code = static_cast<uint8_t *>(mmap(nullptr, size, PROT_NONE, MAP_ANONYMOUS | MAP_PRIVATE,\n",
+      "\treturn block;\n"
+      "#elif defined(__PS4__)\n"
+      "\tblock.code = static_cast<uint8_t *>(emusuni_n64_rsp_memory(size));\n"
+      "\tblock.size = block.code ? size : 0;\n"
+      "\treturn block;\n"
+      "#else\n\tblock.code = static_cast<uint8_t *>(mmap(nullptr, size, PROT_NONE, MAP_ANONYMOUS | MAP_PRIVATE,\n")
+patch('mupen64plus-rsp-paraLLEl/jit_allocator.hpp',
+      "\tstatic bool commit_code(void *code, size_t size);\n",
+      "\tstatic bool commit_code(void *code, size_t size);\n"
+      "#ifdef __PS4__\n"
+      "\t// EmuSuNi (jit_allocator.cpp): the block made now (false: no memory for code), how much of it is used, its room,\n"
+      "\t// where its use ends, and back to an earlier end (what was written past it given up).\n"
+      "\tbool emusuni_reserve();\n"
+      "\tsize_t emusuni_used() const;\n"
+      "\tsize_t emusuni_room() const;\n"
+      "\tconst void *emusuni_end() const;\n"
+      "\tvoid emusuni_rewind(const void *end);\n"
+      "#endif\n")
+patch('mupen64plus-rsp-paraLLEl/rsp_jit.hpp',
+      "\tFunc get_jit_block(uint32_t pc);\n\nprivate:\n",
+      "\tFunc get_jit_block(uint32_t pc);\n"
+      "\n"
+      "#ifdef __PS4__\n"
+      "\t// EmuSuNi (01.05): the thunks made (false: no memory for code; CXD4 runs the RSP), and what the code memory held.\n"
+      "\tbool emusuni_ready() const\n"
+      "\t{\n"
+      "\t\treturn thunks.enter_frame != nullptr;\n"
+      "\t}\n"
+      "\tsize_t emusuni_code_most() const\n"
+      "\t{\n"
+      "\t\treturn allocator.emusuni_used() > emusuni_most ? allocator.emusuni_used() : emusuni_most;\n"
+      "\t}\n"
+      "\tsize_t emusuni_code_size() const\n"
+      "\t{\n"
+      "\t\treturn allocator.emusuni_used() + allocator.emusuni_room();\n"
+      "\t}\n"
+      "\tunsigned emusuni_code_forgotten() const\n"
+      "\t{\n"
+      "\t\treturn emusuni_forgotten;\n"
+      "\t}\n"
+      "#endif\n"
+      "\n"
+      "private:\n")
+patch('mupen64plus-rsp-paraLLEl/rsp_jit.hpp',
+      "\tRegisterCache regs;\n\tAllocator allocator;\n};\n",
+      "\tRegisterCache regs;\n\tAllocator allocator;\n"
+      "#ifdef __PS4__\n"
+      "\t// EmuSuNi (01.05), after state (the thunks find it at the object's start): where the thunks' code ends, the most\n"
+      "\t// code held before it was forgotten, and how many times it was.\n"
+      "\tconst void *emusuni_thunks_end = nullptr;\n"
+      "\tsize_t emusuni_most = 0;\n"
+      "\tunsigned emusuni_forgotten = 0;\n"
+      "\tvoid emusuni_forget_code();\n"
+      "#endif\n"
+      "};\n")
+patch('mupen64plus-rsp-paraLLEl/rsp_jit.cpp',
+      "void CPU::init_jit_thunks()\n{\n\tjit_state_t *_jit = jit_new_state();\n",
+      "void CPU::init_jit_thunks()\n{\n"
+      "#ifdef __PS4__\n"
+      "\t// EmuSuNi: no memory for code, no thunks (emusuni_ready() false): CXD4 runs the RSP instead.\n"
+      "\tif (!allocator.emusuni_reserve())\n"
+      "\t\treturn;\n"
+      "#endif\n"
+      "\tjit_state_t *_jit = jit_new_state();\n")
+patch('mupen64plus-rsp-paraLLEl/rsp_jit.cpp',
+      "\tthunks.enter_frame = reinterpret_cast<int (*)(void *)>(jit_emit());\n",
+      "\tthunks.enter_frame = reinterpret_cast<int (*)(void *)>(jit_emit());\n"
+      "#ifdef __PS4__\n"
+      "\t{\n"
+      "\t\t// EmuSuNi: the memory past the code written (code_size was lightning's upper bound) for the blocks.\n"
+      "\t\tjit_word_t written = 0;\n"
+      "\t\tjit_get_code(&written);\n"
+      "\t\tallocator.emusuni_rewind(static_cast<uint8_t *>(thunk_code) + written);\n"
+      "\t\temusuni_thunks_end = allocator.emusuni_end();\n"
+      "\t}\n"
+      "#endif\n")
+patch('mupen64plus-rsp-paraLLEl/rsp_jit.cpp',
+      "\tauto ret = reinterpret_cast<Func>(jit_emit());\n",
+      "\tauto ret = reinterpret_cast<Func>(jit_emit());\n"
+      "#ifdef __PS4__\n"
+      "\tif (ret)\n"
+      "\t{\n"
+      "\t\t// EmuSuNi: the memory past the code written (code_size was lightning's upper bound) for the next block.\n"
+      "\t\tjit_word_t written = 0;\n"
+      "\t\tjit_get_code(&written);\n"
+      "\t\tallocator.emusuni_rewind(static_cast<uint8_t *>(block_code) + written);\n"
+      "\t}\n"
+      "#endif\n")
+patch('mupen64plus-rsp-paraLLEl/rsp_jit.cpp',
+      "\t\tuint64_t hash = hash_imem(word_pc, end - word_pc);\n\t\tauto &ptr = cached_blocks[word_pc][hash];\n",
+      "\t\tuint64_t hash = hash_imem(word_pc, end - word_pc);\n"
+      "#ifdef __PS4__\n"
+      "\t\t// EmuSuNi: the code memory nearly full: all compiled code forgotten first (none of it runs now: this is called\n"
+      "\t\t// from the enter thunk, and blocks[] and cached_blocks hold every pointer into it), then this block compiled.\n"
+      "\t\tif (allocator.emusuni_room() < 256 * 1024)\n"
+      "\t\t\temusuni_forget_code();\n"
+      "#endif\n"
+      "\t\tauto &ptr = cached_blocks[word_pc][hash];\n")
+patch('mupen64plus-rsp-paraLLEl/rsp_jit.cpp',
+      "ReturnMode CPU::run()\n{\n",
+      "#ifdef __PS4__\n"
+      "void CPU::emusuni_forget_code()\n"
+      "{\n"
+      "\tif (allocator.emusuni_used() > emusuni_most)\n"
+      "\t\temusuni_most = allocator.emusuni_used();\n"
+      "\tfor (auto &map : cached_blocks)\n"
+      "\t\tmap.clear();\n"
+      "\tmemset(blocks, 0, sizeof(blocks));\n"
+      "\tallocator.emusuni_rewind(emusuni_thunks_end);\n"
+      "\temusuni_forgotten++;\n"
+      "}\n"
+      "#endif\n"
+      "\n"
+      "ReturnMode CPU::run()\n{\n")
+patch_every('mupen64plus-rsp-paraLLEl/parallel.cpp', "RSP::cpu.", "EMUSUNI_RSP_CPU.", 15)
+patch('mupen64plus-rsp-paraLLEl/parallel.cpp',
+      "#ifdef __PS4__\n"
+      "extern \"C\" unsigned emusuni_n64_rsp_waits;  // EmuSuNi (port/ps4_n64.c): tasks that waited for the CPU, for the log\n"
+      "#endif\n",
+      "#ifdef __PS4__\n"
+      "#include <new>\n"
+      "#include <stdio.h>\n"
+      "extern \"C\" unsigned emusuni_n64_rsp_waits;  // EmuSuNi (port/ps4_n64.c): tasks that waited for the CPU, for the log\n"
+      "extern \"C\" void emusuni_log_line(const char *text);  // EmuSuNi: the app's log\n"
+      "#endif\n")
+patch('mupen64plus-rsp-paraLLEl/parallel.cpp',
+      "#ifdef DEBUG_JIT\nRSP::CPU cpu;\n#else\nRSP::JIT::CPU cpu;\n#endif\n",
+      "#ifdef DEBUG_JIT\nRSP::CPU cpu;\n"
+      "#elif defined(__PS4__)\n"
+      "// EmuSuNi (01.05): made when an N64 game's RSP starts (emusuni_parallel_rsp_start) and gone at its end (RomClosed), in\n"
+      "// this storage: no global object, whose constructor took its code memory before main.\n"
+      "alignas(RSP::JIT::CPU) static unsigned char emusuni_cpu_storage[sizeof(RSP::JIT::CPU)];\n"
+      "RSP::JIT::CPU *emusuni_cpu = nullptr;\n"
+      "#else\nRSP::JIT::CPU cpu;\n#endif\n")
+patch('mupen64plus-rsp-paraLLEl/parallel.cpp',
+      "bool emusuni_timeout_halt = false;\n} // namespace RSP\n",
+      "bool emusuni_timeout_halt = false;\n} // namespace RSP\n"
+      "\n"
+      "#ifdef __PS4__\n"
+      "#define EMUSUNI_RSP_CPU (*RSP::emusuni_cpu)\n"
+      "// EmuSuNi (01.05): the CPU made, with its code memory and thunks, if it isn't yet: 0 without memory for code (the core\n"
+      "// then runs the RSP with CXD4: libretro.c). When the game's options pick ParaLLEl-RSP, and in InitiateRSP.\n"
+      "extern \"C\" int emusuni_parallel_rsp_start(void)\n"
+      "{\n"
+      "\tif (RSP::emusuni_cpu)\n"
+      "\t\treturn 1;\n"
+      "\tauto *cpu = new (RSP::emusuni_cpu_storage) RSP::JIT::CPU();\n"
+      "\tif (!cpu->emusuni_ready())\n"
+      "\t{\n"
+      "\t\tcpu->~CPU();\n"
+      "\t\temusuni_log_line(\"n64: ParaLLEl-RSP: no memory for its code\");\n"
+      "\t\treturn 0;\n"
+      "\t}\n"
+      "\tRSP::emusuni_cpu = cpu;\n"
+      "\treturn 1;\n"
+      "}\n"
+      "\n"
+      "// At the game's end (RomClosed): how much code it held, then the CPU and its memory gone.\n"
+      "static void emusuni_parallel_rsp_end(void)\n"
+      "{\n"
+      "\tauto *cpu = RSP::emusuni_cpu;\n"
+      "\tif (!cpu)\n"
+      "\t\treturn;\n"
+      "\tchar line[200];\n"
+      "\tsnprintf(line, sizeof(line), \"n64: ParaLLEl-RSP's code: at most %u KiB of %u KiB, forgotten when full %u times\",\n"
+      "\t         unsigned(cpu->emusuni_code_most() / 1024), unsigned(cpu->emusuni_code_size() / 1024),\n"
+      "\t         cpu->emusuni_code_forgotten());\n"
+      "\temusuni_log_line(line);\n"
+      "\tRSP::emusuni_cpu = nullptr;\n"
+      "\tcpu->~CPU();\n"
+      "}\n"
+      "#else\n"
+      "#define EMUSUNI_RSP_CPU RSP::cpu\n"
+      "#endif\n")
+patch('mupen64plus-rsp-paraLLEl/parallel.cpp',
+      "\tvoid rsp_clear_registers()\n\t{\n",
+      "\tvoid rsp_clear_registers()\n\t{\n"
+      "#ifdef __PS4__\n"
+      "\t\tif (!RSP::emusuni_cpu)\n"
+      "\t\t\treturn;\n"
+      "#endif\n")
+patch('mupen64plus-rsp-paraLLEl/parallel.cpp',
+      "\tEXPORT unsigned int CALL parallelRSPDoRspCycles(unsigned int cycles)\n\t{\n",
+      "\tEXPORT unsigned int CALL parallelRSPDoRspCycles(unsigned int cycles)\n\t{\n"
+      "#ifdef __PS4__\n"
+      "\t\tif (!RSP::emusuni_cpu)\n"
+      "\t\t\treturn 0; // EmuSuNi: not here (without its CPU, CXD4 runs the RSP)\n"
+      "#endif\n")
+patch('mupen64plus-rsp-paraLLEl/parallel.cpp',
+      "\t\tRSP::rsp = Rsp_Info;\n",
+      "#ifdef __PS4__\n"
+      "\t\tif (!emusuni_parallel_rsp_start())\n"
+      "\t\t\treturn;\n"
+      "#endif\n"
+      "\t\tRSP::rsp = Rsp_Info;\n")
+patch('mupen64plus-rsp-paraLLEl/parallel.cpp',
+      "\t\t*RSP::rsp.SP_PC_REG = 0x00000000;\n",
+      "\t\t*RSP::rsp.SP_PC_REG = 0x00000000;\n"
+      "#ifdef __PS4__\n"
+      "\t\temusuni_parallel_rsp_end();\n"
+      "#endif\n")
+patch('libretro/libretro.c',
+      "#ifdef IOS\n       bool can_jit = false;\n",
+      "#if defined(__PS4__) && defined(HAVE_PARALLEL_RSP)\n"
+      "       {\n"
+      "          /* EmuSuNi (01.05): ParaLLEl-RSP made now, with its code memory; without that memory CXD4 runs the RSP. */\n"
+      "          extern int emusuni_hle_forward;\n"
+      "          extern int emusuni_parallel_rsp_start(void);\n"
+      "          if ((current_rsp_type == RSP_PLUGIN_PARALLEL || emusuni_hle_forward) && !emusuni_parallel_rsp_start())\n"
+      "          {\n"
+      "             emusuni_hle_forward = 0;\n"
+      "             plugin_connect_rsp_api(RSP_PLUGIN_CXD4);\n"
+      "             log_cb(RETRO_LOG_WARN, \"EmuSuNi: ParaLLEl-RSP has no memory for its code: CXD4 (an interpreter, slower) \"\n"
+      "                    \"runs the RSP.\\n\");\n"
+      "          }\n"
+      "       }\n"
+      "#endif\n"
+      "#ifdef IOS\n       bool can_jit = false;\n")
 for path, text in patched.items():
     full = root + '/' + path
     with open(full, encoding='utf-8') as f:

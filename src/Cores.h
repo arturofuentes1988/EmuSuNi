@@ -92,6 +92,10 @@ extern const CoreApi VIRTUAL_JAGUAR;  // Atari Jaguar (Virtual Jaguar; builds wi
 // Two Game Boys joined by the link cable, online (SameBoy; builds with EMUSUNI_GBLINK, 00.95: src/GbLink.h).
 extern const CoreApi SAMEBOY;
 #endif
+#ifdef EMUSUNI_GBALINK
+// Two Game Boy Advances joined by the link cable, online (mGBA, in its object: gbalink_retro_*; 01.04, src/GbLink.h).
+extern const CoreApi GBALINK;
+#endif
 #ifdef EMUSUNI_OPENBOR
 // OpenBOR: the beat 'em up engine's games, .pak files (zanac's multi-engine core; builds with EMUSUNI_OPENBOR,
 // with-openbor).

@@ -3,6 +3,7 @@
 #include "UsageStats.h"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -173,6 +174,46 @@ double Now()
 {
   static const auto start = std::chrono::steady_clock::now();
   return std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+}
+
+// ---- (01.04) The community online modes (CoreLine): atomics only - a core's thread writes, the heartbeat reads ----
+enum Community
+{
+  PSP_ADHOC,
+  PSP_INFRA,
+  DCNET,
+  WFC_WIIMMFI,
+  WFC_WIILINK,
+};
+const char* const COMMUNITY[] = {"psp-adhoc", "psp-infra", "dcnet", "wfc-wiimmfi", "wfc-wiilink"};
+constexpr double COMMUNITY_RECENT = 300.0;  // s: a sign this recent says the mode is connected
+std::atomic<int> s_community{-1};           // the mode connected (Community), -1: none
+std::atomic<int64_t> s_community_ms{0};     // its last sign (Now(), in ms)
+std::atomic<int> s_ds_server{-1};           // SetDsWifi: the DS's mode, -1: none counted (off, another DNS)
+constexpr unsigned long DS_PACKETS_IN = 10;  // packets in a DS's Wi-Fi line (~10 s) that say it is online (the DS
+                                             // specialist: 1-4 stray ones - DHCP, ARP - with the Wi-Fi on, connected or
+                                             // not; a connection test, a login, a match: tens)
+constexpr double PSP_INFRA_KIB_IN = 1.0;     // a UDP-only game's servers: more than a DNS answer (under 0.5 KiB)
+
+void CommunityOff(int mode)
+{
+  int was = mode;
+  s_community.compare_exchange_strong(was, -1);
+}
+
+void CommunitySign(int mode)
+{
+  s_community_ms = static_cast<int64_t>(Now() * 1000.0);
+  s_community = mode;
+}
+
+std::string CommunityNow()
+{
+  const int mode = s_community;
+  if (mode < 0 || mode >= static_cast<int>(sizeof(COMMUNITY) / sizeof(COMMUNITY[0])) ||
+      Now() * 1000.0 - static_cast<double>(s_community_ms.load()) > COMMUNITY_RECENT * 1000.0)
+    return {};
+  return COMMUNITY[mode];
 }
 
 #ifndef __PS4__
@@ -514,6 +555,7 @@ void* Thread(void*)
                                StatsState::Menu;
       beat.console = s.playing ? s.console : std::string();
       beat.game = s.playing ? s.game : std::string();
+      beat.community = s.playing ? CommunityNow() : std::string();  // (01.04)
       beat.update_checks = static_cast<uint8_t>(std::min(s.update_checks, 255));
       beat.updated_from = s.updated_from;
       s.refresh = false;
@@ -679,6 +721,7 @@ void SetPlaying(const char* console_key, bool online)
   s.console = console_key ? console_key : "";
   s.game.clear();  // (SetGame tells the new one)
   s.psp_path.clear();
+  s_community = -1;  // (01.04: a new game, or none, connected to nothing yet)
 }
 
 void SetGame(const char* console_key, const std::string& path, const std::vector<uint8_t>& rom)
@@ -729,6 +772,93 @@ void SetDiscCode(const std::string& code)
   std::lock_guard lock(s.mutex);
   if (s.playing && s.console == "ps1" && !clean.empty())
     s.game = "d:" + clean;
+}
+
+void CoreLine(const char* line)
+{
+  if (!line)
+    return;
+  // Dreamcast: Flycast's DCNet lines (scripts/build-dc-core.sh): "connected with the modem in 80 ms", "connected for
+  // 60 s: ..." (every minute while connected); "disconnected (...)", "can't connect: ...", "DCNet stopped: ...".
+  if (const char* dcnet = std::strstr(line, "EmuSuNi: DCNet"))
+  {
+    if (std::strncmp(dcnet, "EmuSuNi: DCNet: connected", 25) == 0)
+      CommunitySign(DCNET);
+    else if (std::strncmp(dcnet, "EmuSuNi: DCNet: disconnected (", 30) == 0 ||
+             std::strncmp(dcnet, "EmuSuNi: DCNet: can't connect", 29) == 0 ||
+             std::strncmp(dcnet, "EmuSuNi: DCNet stopped: ", 24) == 0)  // (the DCNet thread's rescue: no "disconnected")
+      CommunityOff(DCNET);
+    return;
+  }
+  // The DS: melonDS DS's line every ~10 s while the game has the Wi-Fi on, traffic or not (scripts/build-nds-core.sh):
+  // "nds: Wi-Fi: network 0.042 ms per frame (6882 calls, 6877 polls); 5 packets out, 3 in; ..." (01.04: more after
+  // it). DS_PACKETS_IN or more in: online. The server: SetDsWifi's (none: another DNS, nds-dns.txt - not counted).
+  // (01.04) Its login to the game's online service (GameSpy: once a minute at most, after Nintendo's login - a
+  // connection test alone doesn't reach it): online at once.
+  if (std::strstr(line, "nds: Wi-Fi: GameSpy login"))
+  {
+    if (const int server = s_ds_server; server >= 0)
+      CommunitySign(server);
+    return;
+  }
+  if (const char* wifi = std::strstr(line, "nds: Wi-Fi: network "))
+  {
+    const int server = s_ds_server;
+    if (const char* counts = std::strstr(wifi, "); "); counts && server >= 0)
+    {
+      unsigned long out = 0, in = 0;
+      if (std::sscanf(counts, "); %lu packets out, %lu in", &out, &in) == 2 && in >= DS_PACKETS_IN)
+        CommunitySign(server);
+    }
+    return;
+  }
+  // The PSP: PPSSPP's lines (scripts/build-psp-core.sh; a category tag like "[SCENET] " may come before them).
+  // Ad hoc: "EmuSuNi: logged in to the ad hoc server <server> as <nickname>" once a login; lost: "FriendFinder: Socket
+  // Error (<n>) when sending OPCODE_PING"; failed: "DNS Error Resolving ...", "Socket error (<n>) when connecting to
+  // AdhocServer". Every ~10 s while something went out or came in: "psp: online in 10.0 s: the games' own servers N
+  // connections made, N failed, X KiB out, X KiB in; ad hoc (its server and relay) N made, N failed, X KiB out, X KiB
+  // in" - ad hoc while its KiB out is above 0 (its server is pinged every 2 s), infrastructure with a connection made or
+  // more than PSP_INFRA_KIB_IN in. "psp: online play off": neither. (Nothing of a line is kept: the server's name, the
+  // nickname go nowhere.)
+  if (std::strstr(line, "EmuSuNi: logged in to the ad hoc server "))
+  {
+    CommunitySign(PSP_ADHOC);
+    return;
+  }
+  if ((std::strstr(line, "FriendFinder: Socket Error (") && std::strstr(line, "OPCODE_PING")) ||
+      std::strstr(line, "DNS Error Resolving ") ||
+      (std::strstr(line, "Socket error (") && std::strstr(line, "when connecting to AdhocServer")))
+  {
+    CommunityOff(PSP_ADHOC);
+    return;
+  }
+  if (std::strstr(line, "psp: online play off"))
+  {
+    CommunityOff(PSP_ADHOC);
+    CommunityOff(PSP_INFRA);
+    return;
+  }
+  if (const char* online = std::strstr(line, "psp: online in "))
+  {
+    unsigned long made = 0, failed = 0, adhoc_made = 0, adhoc_failed = 0;
+    double out = 0.0, in = 0.0, adhoc_out = 0.0, adhoc_in = 0.0;
+    const char* games = std::strstr(online, "the games' own servers ");
+    const char* adhoc = std::strstr(online, "ad hoc (its server and relay) ");
+    const bool has_games = games && std::sscanf(games, "the games' own servers %lu connections made, %lu failed, %lf KiB "
+                                                       "out, %lf KiB in", &made, &failed, &out, &in) == 4;
+    const bool has_adhoc = adhoc && std::sscanf(adhoc, "ad hoc (its server and relay) %lu made, %lu failed, %lf KiB "
+                                                       "out, %lf KiB in", &adhoc_made, &adhoc_failed, &adhoc_out,
+                                                &adhoc_in) == 4;
+    if (has_adhoc && adhoc_out > 0.0)
+      CommunitySign(PSP_ADHOC);  // (both at once - rare -: ad hoc, the PSP's own way to play together)
+    else if (has_games && (made > 0 || in > PSP_INFRA_KIB_IN))
+      CommunitySign(PSP_INFRA);
+  }
+}
+
+void SetDsWifi(const std::string& server)
+{
+  s_ds_server = server == "wiilink" ? WFC_WIILINK : server == "wiimmfi" ? WFC_WIIMMFI : -1;
 }
 
 void SetRoom(bool in_room)

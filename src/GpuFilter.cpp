@@ -1622,6 +1622,14 @@ bool Ready(Mode mode)
   return false;
 }
 
+bool Pending(Mode mode)
+{
+  if (!s_ok || mode == Mode::Off)
+    return false;
+  const int m = static_cast<int>(mode);
+  return !s_ready[m].load(std::memory_order_acquire) && !s_failed[m].load(std::memory_order_acquire);
+}
+
 bool Draw(ImDrawList* dl, Mode mode, const Source& source, ImVec2 min, ImVec2 max)
 {
   const auto cpu_start = Clock::now();

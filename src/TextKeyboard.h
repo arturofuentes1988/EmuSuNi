@@ -28,6 +28,8 @@ enum class Mode
   Search,    // the games' search: the lists follow it as it is typed; the letters as capitals (the search doesn't tell
              // them apart), Done
   Text,      // a name (Rename, Look For): a capital by itself at each word's start; accents, signs; OK / Cancel
+  Chat,      // a chat message (01.15): the same, but a capital by itself only at its start and a sentence's (after
+             // ". ", "! ", "? ") - the owner saw every word with a capital
   Plain,     // a user name: no capital by itself
   Password,  // the same, shown as dots (Show shows it)
 };
@@ -427,7 +429,7 @@ public:
     {
     case Action::Space:
       // (No space first or after another in a search or a name; a password may have them anywhere.)
-      if (Length() >= m_max || ((search || m_mode == Mode::Text) && (m_text.empty() || m_text.back() == ' ')))
+      if (Length() >= m_max || ((search || Written()) && (m_text.empty() || m_text.back() == ' ')))
         return Result::Refused;
       m_text += ' ';
       AutoCaps();
@@ -450,9 +452,9 @@ public:
       if (search)
         return Result::None;
       // (A user name, a password: OK only with something typed. A name may be left empty: Rename's own name again.)
-      if (m_mode != Mode::Text && m_text.empty())
+      if (!Written() && m_text.empty())
         return Result::Refused;
-      while (m_mode == Mode::Text && !m_text.empty() && m_text.back() == ' ')
+      while (Written() && !m_text.empty() && m_text.back() == ' ')
         m_text.pop_back();
       return Result::Ok;
     case Action::Cancel:
@@ -513,11 +515,26 @@ private:
     }
     return false;
   }
-  // A name's capitals by themselves: at its start and after a space (unless Shift is on for every letter).
+  // A name or a message (their spaces and OK alike).
+  bool Written() const { return m_mode == Mode::Text || m_mode == Mode::Chat; }
+  // The capitals by themselves (unless Shift is on for every letter): a name's at its start and after a space; a
+  // message's at its start and after ". ", "! " or "? ".
   void AutoCaps()
   {
-    if (m_mode == Mode::Text && m_caps != Caps::Lock)
-      m_caps = m_text.empty() || m_text.back() == ' ' ? Caps::Once : Caps::Off;
+    if (!Written() || m_caps == Caps::Lock)
+      return;
+    bool start = m_text.empty();
+    if (!start && m_text.back() == ' ')
+    {
+      if (m_mode == Mode::Text)
+        start = true;
+      else
+      {
+        const size_t end = m_text.find_last_not_of(' ');
+        start = end == std::string::npos || m_text[end] == '.' || m_text[end] == '!' || m_text[end] == '?';
+      }
+    }
+    m_caps = start ? Caps::Once : Caps::Off;
   }
   void Wipe()
   {

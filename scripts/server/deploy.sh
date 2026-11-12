@@ -39,6 +39,12 @@
 # arturofuentes1988/emusuni-stats with a deploy key made here - add its public key, printed at the end, to that
 # repository with write access). The report:
 #   sudo emusuni-stats [--days 30] [--json]      (/usr/local/bin/emusuni-stats: emusuni-netd report)
+#
+# (01.07) The world chat's lines and the rooms' chat, kept 30 days in stats.db for the owner's moderation (never an
+# address: a keyed hash of it, with a salt only this server reads): the salt in /var/lib/emusuni-netd/chat-salt (700,
+# --chat-salt-dir - the unit's ProtectSystem=strict leaves /etc read only), the panel's blocks read from
+# /var/lib/emusuni-reports/chat/blocks.tsv (--chat-blocks; that folder's ACL lets emusuni-netd through, made here
+# and by deploy-reports.sh, whichever comes second).
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/../.." && pwd)"
@@ -101,6 +107,24 @@ systemctl daemon-reload
 # The main server's statistics: their timers (the country database and the game titles monthly, GitHub's download
 # counts daily, the public page's numbers every 5 minutes) and the deploy key that publishes those numbers.
 STATE=/var/lib/emusuni-netd
+CHAT_ARGS="--chat-salt-dir $STATE/chat-salt --chat-blocks /var/lib/emusuni-reports/chat/blocks.tsv"
+# (01.07) The world chat's salt folder (the server's user only), and the reports' folder's ACL for the panel's blocks
+# once emusuni-reports is there (deploy-reports.sh): emusuni-netd may go through it, not list it nor read the reports.
+chat_extras() {
+  install -d -m 700 -o emusuni-netd -g emusuni-netd "$STATE/chat-salt"
+  if [ -d /var/lib/emusuni-reports ]; then
+    if ! command -v setfacl > /dev/null; then
+      if command -v apt-get > /dev/null; then
+        apt-get install -y -q acl
+      elif command -v dnf > /dev/null; then
+        dnf install -y -q acl
+      else
+        yum install -y -q acl
+      fi
+    fi
+    setfacl -m u:emusuni-netd:x /var/lib/emusuni-reports
+  fi
+}
 stats_extras() {
   if ! command -v git > /dev/null; then
     if command -v apt-get > /dev/null; then
@@ -146,8 +170,13 @@ if [ "$MODE" = update ]; then
     sed -i 's|--name main|--name main --stats-dir /var/lib/emusuni-netd/stats --geoip /var/lib/emusuni-netd/dbip-country-lite.csv|' \
       /etc/emusuni-netd/env
   fi
+  # ((01.07) A main server made before the world chat: its env gets its options.)
+  if grep -q -- "--name main" /etc/emusuni-netd/env 2>/dev/null && ! grep -q -- "--chat-salt-dir" /etc/emusuni-netd/env; then
+    sed -i "/^EMUSUNI_NETD_ARGS=/ s|\"\$| $CHAT_ARGS\"|" /etc/emusuni-netd/env
+  fi
   if grep -q -- "--name main" /etc/emusuni-netd/env 2>/dev/null; then
     stats_extras
+    chat_extras
   fi
   systemctl restart emusuni-netd
   systemctl --no-pager status emusuni-netd | head -5
@@ -175,8 +204,8 @@ if [ "$MODE" = main ]; then
 # sa-saopaulo SA relay-sa.example.com:7777
 TXT
   fi
-  printf 'EMUSUNI_NETD_PORT=%s\nEMUSUNI_NETD_ARGS="--relays /etc/emusuni-netd/relays.txt --name main --region %s --stats-dir /var/lib/emusuni-netd/stats --geoip /var/lib/emusuni-netd/dbip-country-lite.csv"\n' \
-    "$PORT" "${REGION:-?}" > /etc/emusuni-netd/env
+  printf 'EMUSUNI_NETD_PORT=%s\nEMUSUNI_NETD_ARGS="--relays /etc/emusuni-netd/relays.txt --name main --region %s --stats-dir /var/lib/emusuni-netd/stats --geoip /var/lib/emusuni-netd/dbip-country-lite.csv %s"\n' \
+    "$PORT" "${REGION:-?}" "$CHAT_ARGS" > /etc/emusuni-netd/env
 else
   printf 'EMUSUNI_NETD_PORT=%s\nEMUSUNI_NETD_ARGS="--relay-only --name %s --region %s"\n' "$PORT" "$NAME" "$REGION" \
     > /etc/emusuni-netd/env
@@ -185,6 +214,7 @@ chmod 644 /etc/emusuni-netd/env
 [ -f /etc/emusuni-netd/relays.txt ] && chmod 644 /etc/emusuni-netd/relays.txt
 if [ "$MODE" = main ]; then
   stats_extras
+  chat_extras
 fi
 systemctl enable --now emusuni-netd
 systemctl restart emusuni-netd

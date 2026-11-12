@@ -6,6 +6,7 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <ctime>
 #include <fcntl.h>
 #include <filesystem>
@@ -52,20 +53,50 @@ namespace
 {
 // A start that never shows a picture (the GPU set-up stuck) would leave the console's screen
 // frozen on the start-up logo with the PS button dead: after 20 s without three frames shown the
-// app closes itself instead.
-void StartWatchdog()
+// app closes itself instead. (01.11) Its line says the start's step then (g_start_step), and start-closed.txt keeps it
+// for the next start: a safe one (SafeStartStep).
+void StartWatchdog(const std::string& data_dir)
 {
-  std::thread([] {
+  const std::string closed = data_dir + "/start-closed.txt";
+  std::thread([closed] {
     for (int i = 0; i < 200; i++)
     {
       if (g_display_frames.load(std::memory_order_relaxed) >= 3)
         return;
       sceKernelUsleep(100000);
     }
-    LogLine("watchdog: no picture 20 s after the start - closing the app");
+    const char* step = g_start_step.load(std::memory_order_relaxed);
+    LogF("watchdog: no picture 20 s after the start - closing the app (the start's step: %s)", step);
+    const int fd = open(closed.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0666);
+    if (fd >= 0)
+    {
+      const ssize_t wrote = write(fd, step, strlen(step));
+      (void)wrote;
+      fsync(fd);
+      close(fd);
+    }
     sceSystemServiceLoadExec("exit", nullptr);
     _exit(1);
   }).detach();
+}
+
+// (01.11) Gabriel's PS4 (9 725 bezels on a USB drive): the menu's first frame came after the watchdog's 20 s, every
+// start, and the app never opened - not even to send its log. The start after a start the watchdog closed: its step
+// (start-closed.txt, read and deleted), and a safe start - the menu's big inventories left out (src/Menu.h: SafeStart).
+std::string SafeStartStep(const std::string& data_dir)
+{
+  const std::string closed = data_dir + "/start-closed.txt";
+  FILE* file = std::fopen(closed.c_str(), "rb");
+  if (!file)
+    return "";
+  char text[128] = {};
+  const size_t got = std::fread(text, 1, sizeof(text) - 1, file);
+  std::fclose(file);
+  std::remove(closed.c_str());
+  const std::string step = got > 0 ? std::string(text, got) : std::string("unknown");
+  LogLine("start: the last start showed no picture in 20 s (its step: " + step +
+          "): a safe start, without the bezels' count, the star ratings' match or the covers' and bezels' downloads");
+  return step;
 }
 
 void LoadSystemModules()
@@ -231,6 +262,7 @@ int main()
   // to start again at once (it restarted EmuSuNi for it), a failure to show - and its thread.
   std::string again_path, again_message;
   StartGuard::AppStarted(data_dir, &again_path, &again_message);
+  const std::string safe_step = SafeStartStep(data_dir);  // (01.11)
 #ifdef EMUSUNI_N64
   // How the PS4 lets code made at run time run (the N64 core's recompilers), once at start: every
   // executable mapping after this is made that way (port/ps4_runtime.cpp's mmap wrapper).
@@ -275,7 +307,8 @@ int main()
   io.IniFilename = nullptr;
   io.LogFilename = nullptr;
   io.DisplaySize = ImVec2(static_cast<float>(Display::WIDTH), static_cast<float>(Display::HEIGHT));
-  StartWatchdog();
+  StartWatchdog(data_dir);
+  g_start_step = "the display's set-up";
   Display display;
   if (!display.Initialize())
   {
@@ -286,12 +319,16 @@ int main()
   sceSystemServiceHideSplashScreen();
   LogMemory("display ready");
 
+  g_start_step = "the menu's set-up";
   Menu menu(display, data_dir, App::ASSETS_DIR);
+  if (!safe_step.empty())
+    menu.SafeStart();
   ImFont* regular = menu.RegularFont();
   ImFont* bold = menu.BoldFont();
 
   Library::Game game;
   bool start_now = false;
+  g_start_step = "the games' list (a game to start at once?)";
   if (!again_path.empty())
   {
     // The game the start watchdog restarted EmuSuNi for: started again at once (L1 held: the menu instead).

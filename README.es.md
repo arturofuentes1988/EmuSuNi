@@ -69,24 +69,57 @@
 | **Genesis** / Mega Drive | Genesis Plus GX | `.md` `.gen` `.smd` `.bin` `.mdx` `.68k` `.sgd` | No hace falta |
 | **Saturn** — *experimental* | YabaSanshiro 3.4.2 | `.cue` `.chd` `.iso` `.ccd` `.mds` | **La tuya**: un `.bin` de 512 KB ([BIOS](#bios)) |
 | **PC Engine** / TurboGrafx-16 | Beetle PCE Fast | `.pce` (HuCards) | No hace falta |
-| **Atari 2600** — *nueva* | Stella | `.a26` `.bin` | No hace falta |
-| **Atari 7800** — *nueva* | ProSystem | `.a78` | No hace falta |
-| **Atari Jaguar** — *experimental, nueva* | Virtual Jaguar 3.11 | `.j64` `.jag` `.abs` `.cof` | No hace falta |
+| **Atari 2600** | Stella | `.a26` `.bin` | No hace falta |
+| **Atari 7800** | ProSystem | `.a78` | No hace falta |
+| **Atari Jaguar** — *experimental* | Virtual Jaguar 3.11 | `.j64` `.jag` `.abs` `.cof` | No hace falta |
 | **Arcade**: Neo Geo, Capcom CPS1/CPS2/CPS3, Sega, Konami, Taito... | FinalBurn Neo 1.0.0.03 | Un `.zip` / `.7z` por juego, sin descomprimir | Neo Geo: **la tuya**, `neogeo.zip` |
-| **OpenBOR**: los beat 'em up que hacen sus fans — *nuevo* | OpenBOR v3.0 (Build 6391) y v4.0 (Build 8025) | `.pak` | No hace falta |
+| **OpenBOR**: los beat 'em up que hacen sus fans | OpenBOR v3.0 (Build 6391) y v4.0 (Build 8025) | `.pak` | No hace falta |
 
 No se incluyen BIOS ni juegos. Solo los juegos de Neo Geo del Arcade, NAOMI, Atomiswave y la Saturn
 necesitan una BIOS tuya ([BIOS](#bios)).
 
 La **Saturn** es experimental: dibuja por software, en hilos propios, y sus juegos pueden ir más lentos que
-en la consola. La **Nintendo 3DS** sigue siendo experimental: solo juegos descifrados; si un juego no carga a
-la primera, **L3 + R3 → Reiniciar juego** hasta que cargue. La PC Engine juega HuCards (no juegos en CD).
+en la consola. La **Nintendo 3DS** sigue siendo experimental: solo juegos descifrados; si al empezar un juego la
+pantalla queda negra, espera unos segundos: la imagen sale sola. La PC Engine juega HuCards (no juegos en CD).
 La **Atari Jaguar** también es experimental: la mayoría de los juegos probados van bien, algunos (el 3D de Iron Soldier)
 todavía van más lentos. **OpenBOR** juega los beat 'em up gratis que hacen sus fans, cada uno un archivo `.pak`: EmuSuNi no
 trae ninguno, pon los tuyos en `Roms/openbor` ([Dónde poner los juegos](#dónde-poner-los-juegos)). No tienen estados
 guardados, trucos ni carátulas.
 
-## Novedades de la v00.23
+## Novedades de la v00.24
+
+- **La 3DS, mucho más rápida**: los comandos de la GPU y el sonido van en hilos propios, la CPU no espera de más, se
+  saltan los bucles en los que el juego solo espera, el código del juego se prepara antes y cada juego que lo necesita
+  lleva el tiempo de su GPU. En la PS4, a 4x, Donkey Kong Country Returns 3D, Captain Toad y Super Mario 3D Land van a
+  velocidad completa.
+- **Los juegos de 3DS abren a la primera**: ya no se quedan en negro al empezar. **Castlevania: Mirror of Fate**
+  muestra su intro y sus rayos, las cosas ya no aparecen y desaparecen, y ya no se congela.
+- **Actualizaciones, DLC y mods de 3DS**: copia los CIA descifrados a `Roms/3ds/cia` e instálalos con **Triángulo →
+  Actualizaciones, DLC y mods**, o desde el menú del juego ([cómo](#dónde-poner-los-juegos)).
+- **Más 3DS**: el juego sale en el idioma de la app; **Stick derecho de 3DS → Lápiz** mueve el lápiz; el toque
+  fantasma del panel táctil, arreglado (también en la DS); reiniciar o cargar un estado ya no cierra la app.
+- **Chat mundial y chat en cada sala**, con frases rápidas que cada uno lee en su idioma. La pestaña **En línea** tiene
+  páginas (**L2 / R2**): Salas, Chat, Más jugados y Jugadores, el ranking de quienes más juegan. El país de cada
+  jugador sale junto a su apodo ([Juego online](#juego-online)).
+- **Mirar** una partida sin jugar, **entrar a una partida ya empezada**, **Entrada a la sala: Libre o Con permiso**,
+  empezar solo y el **Reiniciar juego** del anfitrión para todos. **Volver a la sala** termina la partida sin salir de la
+  sala, y la sala sigue abierta cuando sale un invitado.
+- **Juega con quien tiene la v00.23** en las consolas cuyo juego en línea no cambió, y **Revisar mis juegos** dice
+  cuáles de tus juegos son la versión que tiene la mayoría.
+- **Game Boy Advance con cable link en línea**, y **Warlords de la Atari 2600 para 4** en línea.
+- **Orden y filtros** en la Biblioteca (**Options**): por género, por número de jugadores y **Ocultar juegos para
+  adultos**.
+- **Borrar juego** borra todo lo del juego: archivos, carátula, nombre, ajustes, controles, trucos y marco (sus
+  partidas, solo si lo eliges).
+- **Romsets parcheados** en Arcade: copia el hack a `Roms/arcade/patched` e instálalo con **Triángulo → Romset
+  parcheado**.
+- **Arreglos**: la app ya no se cierra a veces al abrirla (era la N64) y abre más rápido con miles de marcos; Midnight
+  Club L.A. a 30 FPS estables y menos cierres en la PSP; juegos de Genesis de hasta 32 MiB; arreglos en la Saturn y en
+  OpenBOR; la Wi-Fi de la DS más ligera; el QR del grupo de Telegram en **Cómo ayudar**.
+
+Todos los detalles: las [notas de la versión](https://github.com/arturofuentes1988/EmuSuNi/releases/latest) y el [historial de cambios](CHANGELOG.md).
+
+## Novedades de la 00.23
 
 - **Juego online con tus amigos**: juega un mismo juego con un amigo desde cualquier lugar del mundo, como si los
   dos mandos estuvieran en una consola. Abre la pestaña **En línea**, crea una sala (un código de 6 letras para tu
@@ -128,45 +161,7 @@ guardados, trucos ni carátulas.
   app y Sega Rally 2 arranca; la PSP guarda en una PS5; guardar un estado en la Saturn ya no cierra la app; un juego
   de 3DS que falla termina el juego, no EmuSuNi.
 
-Todos los detalles: las [notas de la versión](https://github.com/arturofuentes1988/EmuSuNi/releases/latest) y el [historial de cambios](CHANGELOG.md).
-
-## Novedades de la 00.22
-
-- **Dos consolas nuevas**: la **Sega Saturn** (experimental) y la **PC Engine / TurboGrafx-16**.
-- **RetroAchievements** (Casual) en todas las consolas menos la 3DS: inicia sesión en **Ajustes →
-  RetroAchievements**; **Triángulo → Logros** muestra los logros de un juego; una marca "RA" en las
-  carátulas de los juegos que los tienen, y el **panel táctil** muestra solo esos; **Mis logros**; sus
-  textos traducidos al idioma de la app.
-- **Actualizaciones desde la app**: **Ajustes → Buscar actualizaciones** avisa cuando sale una versión
-  nueva, la descarga y se la pasa al instalador de la PS4. Desde la v00.21, instala la v00.22 a mano esta
-  única vez.
-- **Estrellas de valoración** bajo las carátulas (los jugadores de la LaunchBox Games Database) y **un marco
-  para cada juego** de The Bezel Project (**Ajustes → Marcos de los juegos** descarga los de tus juegos).
-- **Las pantallas de la DS y la 3DS con los mismos ajustes**: Disposición de pantallas (una sobre otra, lado
-  a lado, pantalla grande + pequeña, una sola pantalla), Cambiar pantallas, el tamaño y la posición de la
-  pantalla pequeña, la separación entre ellas.
-- **Calidades** en la Dreamcast, NAOMI y Atomiswave (hasta 3x) y en la 3DS (hasta 4x); en todas las consolas
-  cada calidad es ahora claramente más nítida que la anterior.
-- **Más rápidas**: la Dreamcast, NAOMI y Atomiswave, la Saturn, la 3DS (menos paradas para compilar sus
-  shaders y su código) y la N64. El sonido mantiene su tono cuando un juego va por debajo de su velocidad.
-- **Arreglos**: la PSP ya no va demasiado rápida con el salto de fotogramas (God of War); arrancan los `.bin`
-  de PlayStation sin su `.cue`, las ISO de sectores de 2048 bytes y los discos con LibCrypt; Cruis'n USA,
-  Resident Evil 2 y World Driver Championship de N64 ya no se quedan en negro, y Ultra ya no dibuja líneas
-  sobre su 2D; ajustes automáticos para los errores gráficos de Pokémon X e Y, Majora's Mask 3D, Metroid:
-  Samus Returns y Castlevania: Mirror of Fate en la 3DS.
-- **Carátulas**: las de Super Nintendo en `covers/snes`, JPEG y de cualquier tamaño; los archivos numerados
-  (`01 Comix Zone`) tienen la suya; **Juegos sin carátula** dice por qué no se usa una imagen.
-- **Se aplican las listas de los propios emuladores con ajustes especiales para algunos juegos** (el registro
-  dice cuáles).
-- **Un juego que no abre a la primera se vuelve a abrir solo.**
-- **Un solo teclado para todos los textos** (cambiar nombre, buscar, iniciar sesión) con los botones del menú;
-  todos los menús dan la vuelta; **L1 / R1 mantenidos** recorren las consolas; el menú del juego también puede
-  abrirse manteniendo R3 o el panel táctil, con Options + panel táctil, o manteniendo L1 + R1 o L2 + R2
-  (**Ajustes → Controles → Menú del juego**); zona muerta y sensibilidad del stick de PSP.
-- Todas las consolas parten con Calidad Baja, Relación de aspecto Auto y su propio marco (desde la 00.23: Ultra, la
-  3DS en Media).
-
-Todos los detalles: las [notas de la versión](https://github.com/arturofuentes1988/EmuSuNi/releases/latest) y el [historial de cambios](CHANGELOG.md).
+Todos los detalles: las [notas de la v00.23](https://github.com/arturofuentes1988/EmuSuNi/releases/tag/v00.23) y el [historial de cambios](CHANGELOG.md).
 
 ## Capturas
 
@@ -308,11 +303,14 @@ Versiones anteriores:
   disco, ajustes, trucos, logros, reiniciar, salir.
 - Hasta 5 mandos DualShock 4, vibración, avance rápido.
 - Un juego que no abre a la primera se vuelve a abrir solo.
+- **Actualizaciones, DLC y mods de 3DS** desde sus CIA, y **romsets parcheados** en Arcade
+  ([cómo](#dónde-poner-los-juegos)).
 
 **Juntos**
-- **[Juego online](#juego-online)** por internet, con rollback (como en los juegos de lucha) y chat de voz, para
-  NES, Super Nintendo, Genesis, Master System, Game Gear, SG-1000, PC Engine, Arcade, Atari 2600 y Atari 7800, y el
-  cable link de Game Boy; la PSP, la Dreamcast y la DS online por los servidores de la comunidad.
+- **[Juego online](#juego-online)** por internet, con rollback (como en los juegos de lucha), chat de voz y de
+  texto, espectadores y un ranking, para NES, Super Nintendo, Genesis, Master System, Game Gear, SG-1000, PC Engine,
+  Arcade, Atari 2600 y Atari 7800, y el cable link de Game Boy y Game Boy Advance; la PSP, la Dreamcast y la DS online
+  por los servidores de la comunidad.
 - **[Hasta 4 jugadores](#jugar-juntos-hasta-4-jugadores)** en una PS4, con el multitap que corresponde a cada consola.
 - **[Modo portátil](#modo-portátil)**: tus datos en una memoria USB, para jugar en la PS4 de un amigo.
 
@@ -325,9 +323,9 @@ Versiones anteriores:
   nueva, la descarga y se la pasa al instalador de la PS4.
 - **Orden de las consolas**: en el orden que quieras, o Por empresa, Por potencia, Por año o Por
   abecedario.
-- Favoritos, buscador, orden (A–Z, recientes, región, consola), juego predeterminado, explorador de
-  carpetas, *Limpiar juegos* y **13 idiomas** (completos en inglés y español; los otros 11, solo en
-  parte).
+- Favoritos, buscador, orden (A–Z, recientes, región, consola), **filtros** por género, por número de jugadores y
+  para ocultar los juegos para adultos, juego predeterminado, explorador de carpetas, *Limpiar juegos*, **Borrar
+  juego** (con todo lo suyo) y **13 idiomas** (completos en inglés y español; los otros 11, solo en parte).
 - **Cada ajuste para todos los juegos, para una consola o para un juego**, con una breve
   explicación de cada opción, y **botones configurables**.
 
@@ -346,7 +344,7 @@ Versiones anteriores:
   | Game Boy Advance | `.gba` `.agb` |
   | PlayStation | `.cue` (con sus pistas `.bin`) o un `.bin` solo, `.chd` `.pbp` `.m3u` `.iso` `.img` `.ecm` `.mds` |
   | Nintendo DS | `.nds` `.ids` |
-  | Nintendo 3DS (experimental) | `.3ds` `.cci` `.cxi` `.3dsx` descifrados (no `.cia`) |
+  | Nintendo 3DS (experimental) | `.3ds` `.cci` `.cxi` `.3dsx` descifrados (un `.cia` no se abre como juego: los de actualizaciones y DLC se instalan, [cómo](#dónde-poner-los-juegos)) |
   | PSP | `.iso` `.cso` `.chd` `.pbp` `.elf` |
   | Dreamcast | `.gdi` (con sus pistas) `.chd` `.cdi` `.cue` `.m3u` |
   | NAOMI / NAOMI 2 | Sets de MAME `.zip` `.7z` sin descomprimir, o imágenes `.dat` `.bin` |
@@ -404,11 +402,25 @@ Las carpetas: `snes`, `nes`, `n64`, `gb`, `gbc`, `gba`, `ps1`, `nds`, `3ds`, `ps
 `/data/EmuSuNi/Roms/openbor` en la PS4. Copia ahí el `.pak` de cada juego tal cual (sin comprimir); la app elige la
 versión de OpenBOR para la que se hizo. EmuSuNi no trae ninguno: son juegos gratis hechos por los fans de OpenBOR.
 
+**Actualizaciones, DLC y mods de 3DS**: copia los CIA **descifrados** de las actualizaciones y los DLC de tus juegos a
+la carpeta `cia` de los juegos de 3DS (`Roms/3ds/cia`). En la Biblioteca, **Triángulo → Actualizaciones, DLC y mods**
+sobre el juego (o lo mismo en el menú del juego, que antes cierra el juego) muestra lo que tiene instalado, instala sus
+CIA y quita una actualización o un DLC; luego el CIA ya no hace falta. Los CIA cifrados no se instalan, y los juegos
+se siguen abriendo desde su `.3ds` o `.cci`. Ahí también se encienden o apagan los mods del juego (LayeredFS, en
+`/data/EmuSuNi/saves/3ds/Azahar/load/mods/<ID del título>`). Una actualización puede cambiar la partida: cópiala antes.
+
+**Romsets parcheados de Arcade**: un hack sin driver propio, con el nombre de su set, va en la carpeta `patched` de los
+juegos de Arcade (`Roms/arcade/patched`). **Triángulo → Romset parcheado** lo instala en la PS4, y FinalBurn Neo abre
+el juego desde él en vez de su zip (que se queda en `Roms/arcade`). En línea siempre se usa el set normal.
+
 - Copia ahí tus juegos (por FTP o con el USB en un PC): aparecen solos. Pulsa **Cuadrado** en la Biblioteca
   para buscar otra vez enseguida.
 - **Cualquier carpeta** sirve también: **Ajustes → Carpetas de juegos** elige otra para una consola.
 - En la memoria de la PS4 importan las mayúsculas: un zip de arcade, NAOMI o Atomiswave debe llevar el
   nombre de su set en minúsculas (`mslug.zip`, `mvsc2.zip`).
+- **Triángulo → Borrar juego** borra de la unidad el juego (también las pistas de un `.cue` y todos sus discos) y todo
+  lo suyo: carátula, nombre, ajustes propios, controles, trucos y marco. Sus partidas y estados se conservan, salvo que
+  elijas **Partidas y estados: borrar también**.
 - Borrar o actualizar la app no borra `/data/EmuSuNi`: tus juegos, partidas, carátulas y ajustes se quedan.
 
 **Juegos de varios discos** (PlayStation, Dreamcast): se juntan solos en un juego cuando:
@@ -514,11 +526,11 @@ Todos los juegos, que son todos los de su consola).
 | Cruceta izquierda / derecha | Juego anterior / siguiente (arriba / abajo: de 10 en 10) |
 | L1 / R1 | Pestañas: Todos, cada consola, Favoritos, Ajustes (mantenidos: las recorren) |
 | Cruz | Jugar |
-| Triángulo | Opciones del juego: ajustes del juego, jugar online, trucos, controles, cambiar nombre, buscar carátula, logros, información, juego predeterminado, borrar |
+| Triángulo | Opciones del juego: ajustes del juego, jugar online, cable link en línea, trucos, controles, cambiar nombre, buscar carátula, logros, actualizaciones, DLC y mods (3DS), romset parcheado (Arcade), información, juego predeterminado, borrar |
 | L2 / R2 | Favorito / buscar |
 | Cuadrado | Buscar los juegos de nuevo |
 | Panel táctil | Filtro RA: todos los juegos, los que tienen logros, los que están en curso |
-| Options | Ordenar |
+| Options | Orden y filtros: el orden, el género, el número de jugadores, ocultar los juegos para adultos |
 | Círculo | Volver |
 
 Mantén **L1** al abrir EmuSuNi para ir al menú en vez del juego predeterminado.
@@ -557,28 +569,56 @@ EmuSuNi usa su propio sistema online (no el de RetroArch) con **rollback**, la t
 juego sigue sin esperar y se corrige solo si el botón del otro jugador llega tarde.
 
 - **Consolas**: NES, Super Nintendo, Genesis, Master System, Game Gear, SG-1000, PC Engine, Arcade, Atari 2600 y
-  Atari 7800 (las más ligeras). Llevan un pequeño globo en el menú.
-- **La pestaña En línea** lista todas las salas con su juego, consola, anfitrión, jugadores, tipo y ping.
-  **Cruz** se une, **Cuadrado** crea una sala, **Triángulo** se une con un código, **L2 / R2** filtran.
+  Atari 7800 (las más ligeras), y el cable link de Game Boy, Game Boy Color y Game Boy Advance. Llevan un pequeño globo
+  en el menú.
+- **La pestaña En línea** tiene cuatro páginas, que **L2 / R2** cambian (**Options**: Ajustes online):
+  - **Salas**: todas las salas con su juego, consola, anfitrión, jugadores, tipo y ping. **Cruz** se une,
+    **Cuadrado** crea una sala, **Triángulo** se une con un código, el **panel táctil** mira la partida.
+  - **Chat**: el chat mundial, para todos los que están en la pestaña En línea (**Cuadrado**: una frase rápida;
+    **Triángulo**: escribir).
+  - **Más jugados**: los juegos más jugados en línea estos días, con su versión (**Cruz** crea una sala con el tuyo).
+  - **Jugadores**: el ranking de quienes más tiempo juegan en línea, de los últimos 7 días o desde siempre.
 - **Salas**: **Triángulo → Jugar online** en un juego crea una **sala privada** (un código de 6 letras para tu
   amigo) o una **sala pública** (en la lista de todos), de **2, 3 o 4 jugadores** (**Jugadores**, en las consolas
   que los tienen). **Elegir juntos** crea una sala sin juego: cuando entra tu amigo, los dos ven, consola por
-  consola, los juegos que tienen los dos.
-- **El cable link de Game Boy**: en un juego de Game Boy o Game Boy Color, **Triángulo → Cable link en línea** crea
-  una sala para dos; tu amigo elige su propio juego (**Elegir tu juego**) y pueden intercambiar o pelear como con
-  un cable de verdad. Cada PS4 muestra su propia Game Boy y guarda su propia partida.
-- **Las dos PS4 necesitan la misma versión de EmuSuNi y el mismo archivo del juego** (la app los compara y te dice
-  si tienes otra versión).
-- **Tu sala sigue abierta** mientras usas los menús (**Círculo** vuelve al menú; **Cerrar sala** la cierra).
-  Cuando alguien pide entrar, un aviso te deja **aceptarlo** o **rechazarlo**.
+  consola, los juegos que tienen los dos. **Entrada a la sala**: **Libre** (quien llega entra enseguida; así empiezan
+  las públicas) o **Con permiso** (cada uno pide entrar y tú lo aceptas o lo rechazas, también con la partida en
+  marcha, desde el menú del juego).
+- **El cable link**: en un juego de Game Boy, Game Boy Color o Game Boy Advance, **Triángulo → Cable link en línea**
+  crea una sala para dos; tu amigo elige su propio juego (**Elegir tu juego**) y pueden intercambiar o pelear como con
+  un cable de verdad. Cada PS4 muestra su propia consola y guarda su propia partida.
+- **La partida**: el anfitrión puede **empezar solo** (Start) y los demás se suman al llegar. Si queda lugar, un
+  jugador puede **entrar con la partida empezada** (todos se detienen un momento) y hasta 4 pueden **mirarla** sin
+  jugar, sin voz ni chat (no en Arcade ni en los cables link); el anfitrión lo decide en la sala (**Entrar en la
+  partida**, **Espectadores**). El **Reiniciar juego** del anfitrión reinicia la partida para todos a la vez, y
+  **Volver a la sala**, en el menú del juego, la termina y todos vuelven a la sala para elegir otra.
+- **Tu sala sigue abierta** mientras usas los menús (**Círculo** vuelve al menú; **Cerrar sala** la cierra), y también
+  cuando un invitado sale o lo sacas.
+- **Versiones**: dos versiones de EmuSuNi juegan juntas cuando el juego en línea de esa consola no cambió entre ellas.
+  La v00.24 juega con la v00.23 en NES, Super Nintendo, Genesis, Master System, Game Gear, SG-1000, PC Engine, Atari
+  7800 y Arcade; la Atari 2600, los cables link y Elegir juntos piden la misma versión, y lo nuevo (el chat, Mirar,
+  entrar con la partida empezada, Reiniciar juego, Volver a la sala) solo funciona si todos lo tienen. Si hace falta
+  actualizar, la app dice quién.
+- **El mismo archivo del juego**: las salas comparan el contenido del juego (sin su cabecera), y cada jugador ve la
+  versión del juego de los demás. **Revisar mis juegos** (Ajustes online) dice cuáles de tus juegos son la versión
+  estándar (la de No-Intro; la de FinalBurn Neo 1.0.0.03 en Arcade), la que tiene la mayoría, con una marca bajo las
+  estrellas.
+- **Chat**: cada sala tiene su chat, a la derecha de la sala, y la página Chat el chat mundial. **Frases rápidas**,
+  que cada uno lee en su idioma, o un mensaje de hasta 100 letras con el teclado. Puedes silenciar o bloquear a un
+  jugador (**Ajustes online → Desbloquear a todos**), sacarlo de tu sala, o reportar un mensaje del chat mundial;
+  **Chat mundial: Oculto** lo apaga. Los chats se guardan 30 días para moderar, sin tu dirección IP
+  ([qué se guarda](#mis-estadísticas-y-el-perfil-online)); la voz no se graba.
 - **Chat de voz** (**Ajustes → Chat de voz**): el micrófono del usuario que juega (unos audífonos en el
   DualShock 4, un micrófono USB o la PlayStation Camera). Micrófono abierto o pulsar para hablar, volúmenes y
   **Probar micrófono**. Empieza **apagado en las salas públicas** (cada jugador activa el suyo) y puedes silenciar a
   cualquier jugador.
 - **La conexión** es directa entre las dos PS4 cuando se puede, y pasa por un servidor de relevo cuando no.
   **Ocultar mi dirección** usa siempre el relevo, así el otro jugador nunca sabe tu dirección.
-- **Apodo y perfil**: tu apodo es el del usuario de la PS4 salvo que escribas otro (pestaña En línea → Ajustes
-  online). El **Perfil online** es opcional y viene apagado ([detalles](#mis-estadísticas-y-el-perfil-online)).
+- **Apodo, país y perfil**: tu apodo es el del usuario de la PS4 salvo que escribas otro (pestaña En línea → Ajustes
+  online). **Mostrar mi país** (Sí por defecto) pone las dos letras de tu país junto a tu apodo: el servidor lo saca de
+  tu conexión y nunca muestra ni guarda tu dirección. **Aparecer en el ranking** (Sí por defecto) cuenta tu tiempo en
+  partidas para la página Jugadores. El **Perfil online** es opcional y viene apagado
+  ([detalles](#mis-estadísticas-y-el-perfil-online)).
 - **Barra de latencia**: el ping de cada jugador en pantalla (verde, ámbar, rojo); se puede apagar en los ajustes
   online o en el menú del juego.
 - Mientras juegas online no se pueden guardar ni cargar estados, rebobinar, usar trucos ni pausar: la partida sigue.
@@ -624,13 +664,16 @@ No-Intro: `Super Mario World (USA).sfc`). Si no, pon tu propio PNG o JPEG con el
 `covers/<consola>`, o usa **Triángulo → Buscar carátula**. **Ajustes → Juegos sin carátula** dice por qué no se
 usa una imagen. Mira [Carátulas](#carátulas).
 
-**¿Qué juegos de 3DS funcionan?** Solo los **descifrados** (`.3ds`, `.cci`, `.cxi`, `.3dsx`): los cifrados y los
-`.cia` no cargan. La 3DS es experimental y la consola más pesada: una PS4 Pro la mueve mejor.
+**¿Qué juegos de 3DS funcionan?** Solo los **descifrados** (`.3ds`, `.cci`, `.cxi`, `.3dsx`): los cifrados no cargan,
+y un juego en `.cia` no se abre (los `.cia` descifrados de actualizaciones y DLC sí se instalan: mira
+[Dónde poner los juegos](#dónde-poner-los-juegos)). La 3DS es experimental y la consola más pesada: una PS4 Pro la
+mueve mejor. Si un juego va lento, baja su **Resolución de 3DS**.
 
 **Mi juego de Arcade no arranca.** EmuSuNi usa sets de **FinalBurn Neo 1.0.0.03**: un `.zip` por juego, sin
 descomprimir, con el nombre del set en minúsculas (`mslug.zip`). Un set de otra versión de MAME o FinalBurn puede
 tener otros archivos y no arrancar. Los juegos de Neo Geo necesitan además tu `neogeo.zip` al lado. NAOMI y
-Atomiswave necesitan `naomi.zip` / `awbios.zip`. Mira [BIOS](#bios).
+Atomiswave necesitan `naomi.zip` / `awbios.zip`. Mira [BIOS](#bios). Un hack de un set va como **romset parcheado**
+([cómo](#dónde-poner-los-juegos)).
 
 **¿Cómo juego la Saturn?** Pon tu BIOS de Saturn (un `.bin` de 512 KB) en `/data/EmuSuNi/system/saturn` y los
 juegos (`.cue` con sus pistas `.bin`, o `.chd`) en `Roms/saturn`. Es experimental: dibuja por software y algunos
@@ -648,8 +691,9 @@ retrocompatibilidad, pero no está probado ni soportado.
 GoldHEN ([Instalación](#instalación)). Luego pon tus juegos en `Roms/<consola>` del pendrive.
 
 **¿Envía algo sobre mí?** Solo las [estadísticas anónimas](#estadísticas-anónimas), que puedes apagar en **Ajustes →
-Estadísticas anónimas**, y tu registro cuando eliges **Ajustes → Enviar registro**. Nunca se envía nada de tus
-archivos, nombres ni de tu PS4.
+Estadísticas anónimas**, tu registro cuando eliges **Ajustes → Enviar registro** y, si juegas en línea, lo que
+escribes en el chat y tu tiempo para el ranking ([detalles](#mis-estadísticas-y-el-perfil-online)). Nunca se envía
+nada de tus archivos, nombres ni de tu PS4.
 
 ## Ajustes
 
@@ -669,7 +713,7 @@ su opción actual.
 | **Vídeo** | **Calidad** (Baja, Media, Alta, Ultra) · Resolución · Resolución de N64, de PS1, de PSP, de Dreamcast y de 3DS · Relación de aspecto · Disposición de pantallas, Cambiar pantallas, Tamaño y Posición de la pantalla pequeña y Separación entre pantallas de la DS y la 3DS · Pantalla panorámica PS1 · Tamaño de imagen · Zoom panorámico · **Marco** · Recortar overscan · Límite de fotogramas · V-Sync · Contador de FPS |
 | **Gráficos** | Filtro de escalado · **Escalado por GPU** · Filtrado de texturas · suavizado de bordes, tramado, 2D, texturas lejanas y efectos de pantalla de la N64 · geometría (PGXP), filtrado de texturas, colores y antialiasing de la PlayStation · nitidez de texturas, escalado de texturas y antialiasing de la PSP · nitidez de texturas y transparencias de la Dreamcast · Fósforo de la 2600 · Filtro NTSC · Líneas de escaneo · **TV de tubo (CRT)** · Mezcla de alta resolución · Reducir parpadeo de sprites · Efectos de transparencia · **Colores de Game Boy** · Colores de pantalla · Estela LCD |
 | **Rendimiento** | Cuadros por segundo de la PSP (God of War) · Reloj de CPU de 3DS · Reloj de CPU de Dreamcast · DSP de sonido de Dreamcast · **Recompilador Jaguar** y Velocidad GPU/DSP de Jaguar · Reloj de CPU emulado · Reloj del SuperFX · sincronía de gráficos, núcleos de CPU, momento de la imagen, ritmo de CPU y ritmo de fotogramas de la N64 · Velocidad del disco PS1 · Velocidad de emulación · Avance rápido · Salto de fotogramas · Gráficas de rendimiento |
-| **Emulación** | Región · Paleta de NES · Botones turbo · CPU, RSP y Controller Pak de la N64 · Logo de inicio (BIOS) · Luz solar (Boktai) · Sensor de inclinación · Mando de PS1 · Logo de inicio PS1 · Zona muerta y sensibilidad del stick de PSP · Pantalla táctil de DS y de 3DS · Modo New 3DS · Sombreado exacto y Ojo derecho de la 3DS · Mando de PC Engine · Idioma de Dreamcast · BIOS de Jaguar · **Juego en línea de PSP**, Servidor ad hoc de PSP, **Dreamcast en línea** y **Wi-Fi de DS** ([online](#online-con-los-servidores-de-la-comunidad-psp-dreamcast-ds)) · Permitir direcciones opuestas · Memoria aleatoria y más |
+| **Emulación** | Región · Paleta de NES · Botones turbo · CPU, RSP y Controller Pak de la N64 · Logo de inicio (BIOS) · Luz solar (Boktai) · Sensor de inclinación · Mando de PS1 · Logo de inicio PS1 · Zona muerta y sensibilidad del stick de PSP · Pantalla táctil de DS y de 3DS · **Stick derecho de 3DS** (stick C o lápiz) · Modo New 3DS · Sombreado exacto y Ojo derecho de la 3DS · Mando de PC Engine · Idioma de Dreamcast · BIOS de Jaguar · **Juego en línea de PSP**, Servidor ad hoc de PSP, **Dreamcast en línea** y **Wi-Fi de DS** ([online](#online-con-los-servidores-de-la-comunidad-psp-dreamcast-ds)) · Permitir direcciones opuestas · Memoria aleatoria y más |
 | **Sistema** | Volumen del juego · Interpolación de audio · Filtro de sonido · Búfer de audio · **Adaptador multijugador** · Continuar donde lo dejaste |
 
 Los juegos de Dreamcast, NAOMI y Atomiswave muestran solo los ajustes que les sirven, entre ellos las
@@ -684,7 +728,8 @@ conectados ahora. Viene **activado por defecto**: **Ajustes → Estadísticas an
 
 - **Qué se envía**: un número aleatorio que la app crea una vez (`stats.ini` — no es el identificador
   de la PS4, de un usuario ni de PSN), la versión de la app, el idioma de la PS4, qué hace la app (los
-  menús, un juego de qué consola, el juego en línea), **el juego al que se juega** — solo como suma de
+  menús, un juego de qué consola, el juego en línea, también por los servidores de la comunidad: PSP, DCNet o la
+  Wi-Fi de DS), **el juego al que se juega** — solo como suma de
   control del cartucho, nombre corto del set arcade o código del disco, nunca el nombre del archivo —,
   cuántas búsquedas de actualizaciones desde el último latido y, una vez tras actualizar, la versión
   anterior.
@@ -712,7 +757,14 @@ conectados ahora. Viene **activado por defecto**: **Ajustes → Estadísticas an
   público** (desactivado salvo que lo actives) además pone tu apodo, país y horas en las
   clasificaciones de la página. **Borrar mi perfil** lo borra todo en el servidor (incluso con las
   estadísticas desactivadas); un perfil sin usar 400 días se borra solo. Sin perfil online, no se
-  guarda nada por PS4.
+  guarda nada por PS4, salvo el chat y el ranking (abajo).
+- **El chat** (el mundial y el de las salas): el servidor de EmuSuNi guarda cada mensaje **30 días**, para moderar, con
+  la fecha, tu apodo, tu código de jugador (8 letras sacadas de una clave al azar de esta consola, en `netplay.ini`), tu
+  país, la versión de la app y el texto. **Tu dirección IP no se guarda**: solo una huella con clave secreta, que cambia
+  cada 30 días, para poder bloquear a quien moleste. El aviso sale en la app antes de enviar nada, y la voz no se graba.
+- **El ranking** (la página **Jugadores**): con **Aparecer en el ranking** en Sí (el valor inicial), el servidor cuenta
+  tu tiempo en partidas en línea por consola bajo tu código de jugador, y la página lo muestra a todos con tu apodo, tu
+  país si lo muestras y tu consola más jugada; nunca tu dirección. En No, desde la próxima sala no se cuenta nada tuyo.
 
 ## Archivos en la PS4
 
@@ -722,7 +774,7 @@ Todo está en `/data/EmuSuNi` (accesible por FTP con GoldHEN):
 |---|---|
 | `games/`, `nes/` | Las carpetas de juegos predeterminadas de Super Nintendo y NES |
 | `covers/` | Carátulas: una carpeta por consola, con los nombres de las carpetas de juegos (`covers/snes`, `covers/nes`, `covers/md`...); PNG o JPEG |
-| `saves/` | Partidas de batería y el reloj de los cartuchos (`.rtc`), las tarjetas de memoria de PlayStation, la Memory Stick de la PSP (`saves/psp`), las VMU de la Dreamcast (`saves/dc`), la memoria interna de la Saturn (`saves/saturn`), las partidas y récords de los juegos de OpenBOR (`saves/openbor`) |
+| `saves/` | Partidas de batería y el reloj de los cartuchos (`.rtc`), las tarjetas de memoria de PlayStation, la Memory Stick de la PSP (`saves/psp`), las VMU de la Dreamcast (`saves/dc`), la memoria interna de la Saturn (`saves/saturn`), las partidas y récords de los juegos de OpenBOR (`saves/openbor`), la memoria de la 3DS con sus actualizaciones, DLC y mods (`saves/3ds/Azahar`) |
 | `states/` | Estados guardados |
 | `cheats/` | Trucos: `<nombre del archivo>.cht` (formato RetroArch), en la subcarpeta de su consola (`cheats/nes`, `cheats/ps1`...; los de Super Nintendo directamente en `cheats/`). Si un juego aún no tiene trucos, **Triángulo → Trucos** muestra la carpeta y el nombre exactos |
 | `system/` | Archivos de BIOS (ver [BIOS](#bios)) |
@@ -733,7 +785,7 @@ Todo está en `/data/EmuSuNi` (accesible por FTP con GoldHEN):
 | `retroachievements.ini` | Tu sesión de RetroAchievements (su token, nunca la contraseña) |
 | `stats.ini` | Las [estadísticas anónimas](#estadísticas-anónimas): activadas o no, el número aleatorio de esta app, el perfil online (activado o no, público o no, su código) |
 | `mystats.ini` | [Mis estadísticas](#mis-estadísticas-y-el-perfil-online): tu tiempo jugado, sesiones y partidas online por juego (nunca se envía) |
-| `netplay.ini` | [Juego online](#juego-online): tu apodo, la barra de latencia y, si quieres, otro servidor |
+| `netplay.ini` | [Juego online](#juego-online): tu apodo, la barra de latencia, los jugadores que bloqueaste o silenciaste, el chat mundial visible u oculto, la clave al azar de tu código de jugador y, si quieres, otro servidor |
 | `psp-mac.txt` | La dirección de red propia de la PSP para el [Juego en línea de PSP](#online-con-los-servidores-de-la-comunidad-psp-dreamcast-ds), creada al azar una vez |
 | `portable-drives.ini`, `portable-fallback/` | [Modo portátil](#modo-portátil): las memorias que esta PS4 ya respondió; lo guardado mientras la memoria no estaba |
 | `emusuni.log` | El registro, para informar de errores (`emusuni-1.log` a `emusuni-4.log`: las sesiones anteriores) |
@@ -750,8 +802,8 @@ sudo -i bash /ruta/a/EmuSuNi/scripts/setup.sh
 # luego, también como root (setup.sh deja las fuentes y el runtime de PS4 en la carpeta personal de root)
 sudo -i
 cd /ruta/a/EmuSuNi
-EMUSUNI_VERSION=00.23 bash scripts/build.sh with-saturn with-gblink with-openbor   # compila ~/emusuni-build/emusuni_eboot/eboot.bin
-bash scripts/package.sh 00.23                                                     # crea el .pkg en ~/emusuni-build/out
+EMUSUNI_VERSION=00.24 bash scripts/build.sh with-saturn with-gblink with-openbor   # compila ~/emusuni-build/emusuni_eboot/eboot.bin
+bash scripts/package.sh 00.24                                                     # crea el .pkg en ~/emusuni-build/out
 ```
 
 `scripts/build.sh` compila primero cada núcleo (`scripts/build-*-core.sh`, de nuevo solo lo que

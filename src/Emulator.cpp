@@ -65,6 +65,9 @@
 #include "Settings.h"
 #include "StartGuard.h"
 #include "Systems.h"
+#ifdef EMUSUNI_3DS
+#include "ThreeDsCia.h"  // ((01.09) a game's Mods: On / Off)
+#endif
 #include "Touchpad.h"
 #include "Tour.h"
 #include "Upscaler.h"
@@ -104,6 +107,21 @@ static void JitArenaReset()
   emusuni_jit_arena_reset();
 #endif
 }
+
+// (01.06) port/ps4_runtime.cpp: an arena of the heap for the calling thread (1: it has one), given back.
+extern "C" int ps4_heap_thread_arena(const char* name);
+extern "C" void ps4_heap_drop_arena(void);
+#ifdef EMUSUNI_3DS
+// (01.06) scripts/build-3ds-core.sh: the 3DS's frame handover. The serial of the picture set_image hands over, and the
+// wait for its submission (0: made; -1: timeout_ms ran out first), which the drawing does before its own reads it.
+// And the core's Vulkan worker's time from that picture's frame end to its submission (ms; -1: not known), which the
+// core's frame waited for before the handover: the pacing counts it as the core's.
+extern "C" uint64_t emusuni_3ds_image_serial(void);
+extern "C" int emusuni_3ds_wait_image(uint64_t serial, uint32_t timeout_ms);
+extern "C" double emusuni_3ds_image_worker_ms(uint64_t serial);
+// (01.10) port/ps4_n64.c: a 3DS game loads (its GPU commands' and DSP's threads are logged once a game).
+extern "C" void emusuni_3ds_game_starts(void);
+#endif
 
 // Mesa's PS4 layer (ac_ps4_drm.c): the GPU's busy time and the span it covers (GPU clock ticks,
 // since the start), and its submissions and buffers.
@@ -296,6 +314,13 @@ void NoteGeometry(const retro_game_geometry& geometry)
 // PSP Frame Rate Auto: God of War at 30 FPS (PPSSPP's hack) once its core couldn't keep up, until the
 // game ends.
 bool s_psp_30fps_auto = false;
+// (01.05) The game is one of the God of War games, the only ones the hack acts on (compat.ini's GoWFramerateHack60, as
+// the core says when the game boots: CoreLog).
+bool s_psp_gow = false;
+// (01.07, the master's idea) PPSSPP stopped the game itself ("Bad memory access detected! ... Stopping emulation.",
+// Core/MemFault.cpp: a fault it doesn't ignore - the core's log, on its threads): the player is told to leave with the
+// menu instead of a frozen picture with no word (said until the menu opens, again after it closes).
+std::atomic<bool> s_psp_stopped{false};
 // The PSP core's count of vblanks, given at the end of each run by its private environment call (00.81,
 // scripts/build-psp-core.sh): the pacing pays for those a run covered (PspFrames).
 constexpr unsigned EMUSUNI_ENVIRONMENT_PSP_VBLANKS = 0x20000 | 0x5053;
@@ -309,6 +334,10 @@ bool s_dc_reboot = false, s_dc_stopped = false;
 retro_hw_render_interface_vulkan s_vulkan = {};
 retro_vulkan_image s_hw_image = {};
 bool s_hw_image_set = false;
+// (01.06) The 3DS's frame handover on (EMUSUNI_3DS_ASYNC_HANDOFF given to the core), and the serial of the picture in
+// s_hw_image: the drawing waits for its submission before its own (emusuni_3ds_wait_image).
+bool s_3ds_handover = false;
+uint64_t s_hw_image_serial = 0;
 bool s_frame_hw = false;  // the newest frame is the core's image
 // (00.85) The game's picture as the screen showed it when the in-game menu opened, for a core that draws its own image
 // (no pixels of it here: s_frame is NULL): its states' thumbnails (SaveState). Empty: none (a core with pixels).
@@ -376,6 +405,29 @@ extern "C" size_t sameboy_emusuni_ram_size(unsigned gb);
 extern "C" bool sameboy_emusuni_save_battery(unsigned gb, uint8_t* out, size_t size);
 extern "C" void sameboy_emusuni_load_battery(unsigned gb, const uint8_t* data, size_t size);
 #endif
+#ifdef EMUSUNI_GBALINK
+extern "C" size_t gbalink_emusuni_battery_size(unsigned gba);
+extern "C" size_t gbalink_emusuni_ram_size(unsigned gba);
+extern "C" bool gbalink_emusuni_save_battery(unsigned gba, uint8_t* out, size_t size);
+extern "C" void gbalink_emusuni_load_battery(unsigned gba, const uint8_t* data, size_t size);
+#endif
+// (01.04) The link match's core's battery saves: SameBoy's (two Game Boys) or mGBA's link core's (two GBAs).
+struct LinkSaves
+{
+  size_t (*battery_size)(unsigned);
+  size_t (*ram_size)(unsigned);
+  bool (*save)(unsigned, uint8_t*, size_t);
+  void (*load)(unsigned, const uint8_t*, size_t);
+};
+#ifdef EMUSUNI_GBLINK
+const LinkSaves SAMEBOY_SAVES = {sameboy_emusuni_battery_size, sameboy_emusuni_ram_size, sameboy_emusuni_save_battery,
+                                 sameboy_emusuni_load_battery};
+#endif
+#ifdef EMUSUNI_GBALINK
+const LinkSaves GBALINK_SAVES = {gbalink_emusuni_battery_size, gbalink_emusuni_ram_size, gbalink_emusuni_save_battery,
+                                 gbalink_emusuni_load_battery};
+#endif
+const LinkSaves* s_link_saves = nullptr;
 bool s_gblink = false;
 std::vector<uint8_t> s_gblink_rom2;
 std::vector<uint8_t> s_gblink_saved;
@@ -544,6 +596,44 @@ constexpr unsigned JAGUAR_KEYS[12] = {RETROK_1, RETROK_2, RETROK_3, RETROK_4, RE
 // shows after the finger left, and where in the core's picture, in its pixels).
 int s_3ds_cursor = 0;
 std::array<float, 2> s_3ds_at{};
+
+// (01.15) The touches on player 1's touchpad (up to two), for Touchpad::Frame: it follows the finger by its number and
+// leaves a touch resting on the pad alone (until 01.14 only the pad's first touch was read: with one resting there,
+// the stylus never moved). Returns how many.
+int PadTouches(const OrbisPadTouchData& touch, bool live, Touchpad::Touch (&out)[2])
+{
+  const int count = live ? std::min<int>(touch.fingers, 2) : 0;
+  for (int i = 0; i < count; i++)
+    out[i] = {static_cast<float>(touch.touch[i].x), static_cast<float>(touch.touch[i].y), touch.touch[i].finger};
+  return count;
+}
+
+// The right stick moves the stylus (the DS; the 3DS with 3DS Right Stick: Stylus): up to a 64th of the touch screen's
+// width a frame past the stick's dead zone (the DS's 4 pixels, as until 01.14). True: it moved.
+bool StickMovesStylus(const OrbisPadData& data, float screen_w, float screen_h)
+{
+  const float sx = (static_cast<int>(data.rightStick.x) - 128) / 128.0f;
+  const float sy = (static_cast<int>(data.rightStick.y) - 128) / 128.0f;
+  const float len = std::sqrt(sx * sx + sy * sy);
+  if (len <= 0.2f)
+    return false;
+  const float speed = screen_w / 64.0f * std::min(1.0f, (len - 0.2f) / 0.8f) / len;
+  s_stylus.x = std::clamp(s_stylus.x + sx * speed, 0.0f, screen_w - 1.0f);
+  s_stylus.y = std::clamp(s_stylus.y + sy * speed, 0.0f, screen_h - 1.0f);
+  return true;
+}
+
+// The log's note of a touch left alone as resting in these 10 s (Touchpad::Pick), its count started again; "" none.
+std::string RestingTouchNote()
+{
+  if (s_stylus.rested == 0)
+    return "";
+  char note[128];
+  std::snprintf(note, sizeof(note), "; a touch resting on the pad left alone %d frames (at %.0f,%.0f of 1920x942)",
+                s_stylus.rested, s_stylus.rest_x, s_stylus.rest_y);
+  s_stylus.rested = 0;
+  return note;
+}
 // The core's pixels are XRGB8888 (SET_PIXEL_FORMAT): each frame is made RGB565 in s_converted.
 bool s_xrgb8888 = false;
 std::vector<uint16_t> s_converted;
@@ -565,6 +655,7 @@ struct PendingFrame
   bool image_set = false;
   retro_vulkan_image image = {};
   std::vector<VkSemaphore> semaphores;
+  uint64_t image_serial = 0;  // (01.06: the 3DS's handover)
 };
 PendingFrame s_pending;
 
@@ -574,6 +665,7 @@ void TakePendingFrame()
   {
     s_hw_image = s_pending.image;
     s_hw_image_set = true;
+    s_hw_image_serial = s_pending.image_serial;
     s_pending.image_set = false;
     if (!s_pending.semaphores.empty() && s_display)
       s_display->WaitForSemaphores(static_cast<uint32_t>(s_pending.semaphores.size()), s_pending.semaphores.data());
@@ -588,6 +680,77 @@ void TakePendingFrame()
   s_frame_pitch = s_pending.pitch;
   s_frame_new = true;
   s_pending.fresh = false;
+}
+
+// (01.09, the 3DS's specialist: the app closed by itself at DKC's second reset in 01.08) The 3DS makes its renderer
+// again in a reset (Azahar's retro_reset: System::Shutdown and a new load) and in a state's load (its serialize:
+// Shutdown(true) and Init): the images it handed over with set_image - their views, images and memory - are gone. The
+// app drew the one before until the first new one (~200 ms: ExternalTexture over a destroyed view), and once the GPU
+// read freed memory: its fault, the app killed with no crash.log. Now, around those calls (ThreedsRemaking):
+//  - before: the GPU done with the frames in flight, which may still read those images (Display::WaitIdle);
+//  - after: the images forgotten - none drawn, no handover waited for, until the core hands over a new one;
+//  - the passes after it (THREEDS_REMADE_PASSES) say in the log - and boot-trace.log, synced, which a kill leaves -
+//    the picture each draws, and whether its view is one of the last ones of before (s_3ds_views).
+constexpr int THREEDS_REMADE_PASSES = 20;
+VkImageView s_3ds_views[3] = {};         // the last views the core handed over (one each)
+VkImageView s_3ds_views_before[3] = {};  // those when its renderer was made again
+int s_3ds_views_next = 0;
+int s_3ds_remade_passes = 0;             // the passes still to say
+const char* s_3ds_remade_by = "";
+
+void ThreedsRememberView(VkImageView view)
+{
+  for (VkImageView seen : s_3ds_views)
+  {
+    if (seen == view)
+      return;
+  }
+  s_3ds_views[s_3ds_views_next] = view;
+  s_3ds_views_next = (s_3ds_views_next + 1) % 3;
+}
+
+// `remake`: the core's call that makes its renderer again (a reset, a state's load); `what`: said in the log.
+template <typename Call>
+auto ThreedsRemaking(const char* what, Call&& remake)
+{
+  if (s_display)
+    s_display->WaitIdle();
+  const uint64_t serial = s_hw_image_serial;
+  auto result = remake();
+  std::copy(std::begin(s_3ds_views), std::end(s_3ds_views), std::begin(s_3ds_views_before));
+  s_hw_image_set = false;
+  s_hw_image_serial = 0;
+  s_pending.image_set = false;
+  s_pending.semaphores.clear();
+  s_pending.image_serial = 0;
+  s_3ds_remade_passes = THREEDS_REMADE_PASSES;
+  s_3ds_remade_by = what;
+  LogF("3ds: %s made its renderer again: its pictures (the last %llu) not drawn until a new one", what,
+       static_cast<unsigned long long>(serial));
+  LogSync();
+  return result;
+}
+
+// Each drawing of a pass after it (DrawPicture): what it draws, said and synced.
+void ThreedsRemadeTrace()
+{
+  if (s_3ds_remade_passes <= 0)
+    return;
+  const int pass = THREEDS_REMADE_PASSES - --s_3ds_remade_passes;
+  if (!s_hw_image_set)
+  {
+    LogF("3ds: after the %s, drawing %d: no picture yet", s_3ds_remade_by, pass);
+  }
+  else
+  {
+    bool before = false;
+    for (VkImageView view : s_3ds_views_before)
+      before = before || (view != VK_NULL_HANDLE && view == s_hw_image.image_view);
+    LogF("3ds: after the %s, drawing %d: picture %llu (view %p)%s", s_3ds_remade_by, pass,
+         static_cast<unsigned long long>(s_hw_image_serial), reinterpret_cast<const void*>(s_hw_image.image_view),
+         before ? ": a view of before (the same handle - made again, or the old one)" : "");
+  }
+  LogSync();
 }
 // Resolution: the picture made bigger, and the part of the game texture the picture fills.
 std::vector<uint16_t> s_scaled;
@@ -615,6 +778,7 @@ void CoreLog(enum retro_log_level level, const char* format, ...)
   while (length > 0 && (line[length - 1] == '\n' || line[length - 1] == '\r'))
     line[--length] = 0;
   LogF("%s: %s", s_core->name, line);
+  UsageStats::CoreLine(line);  // (01.04: the community online modes' signs - DCNet, the DS's Wi-Fi, the PSP's)
   // (00.81) SwanStation's words for a disc it couldn't open and for a LibCrypt disc without its .sbi (Run tells the
   // player). Its line: "[System] Failed to load CD image '<path>': <reason>. Booting BIOS with no disc."
   if (s_system == SystemId::PS1)
@@ -644,6 +808,13 @@ void CoreLog(enum retro_log_level level, const char* format, ...)
       UsageStats::SetDiscCode(s_mp_game.disc_code);  // (00.23: the anonymous statistics' game)
     }
   }
+  // (01.05) PPSSPP's 30 FPS hack's games, from scripts/build-psp-core.sh's line for each compat.ini flag a game gets
+  // ("gamedb: psp UCUS98737: GoWFramerateHack60 = true (compat.ini)"): PSP Frame Rate Auto's 30 FPS only for them.
+  if (s_system == SystemId::PSP && std::strstr(line, ": GoWFramerateHack60 = true (compat.ini)"))
+    s_psp_gow = true;
+  if (s_system == SystemId::PSP && std::strstr(line, "Bad memory access detected!") &&
+      std::strstr(line, "Stopping emulation"))
+    s_psp_stopped = true;
 }
 
 // The menus' settings as Snes9x's options.
@@ -833,6 +1004,14 @@ void BuildGbVariables(const std::string& g)
 void BuildGbLinkVariables()
 {
   const GbLink::Match& match = GbLink::Get();
+  if (GbLink::Gba())
+  {
+    // (01.04) mGBA's link core (two GBAs): the cartridges' clock from the host's time now (the host's options are the
+    // match's: the same on both), and the GBA this console shows and hears (GbLinkLocalVariables: its own).
+    s_variables["gbalink_rtc"] = std::to_string(static_cast<long long>(std::time(nullptr)));
+    s_variables["gbalink_player"] = "1";
+    return;
+  }
   s_variables["sameboy_link"] = "enabled";
   s_variables["sameboy_screen_layout"] = "left-right";
   for (int i = 0; i < 2; i++)
@@ -857,10 +1036,13 @@ void BuildGbLinkVariables()
 // emulation's state).
 void GbLinkLocalVariables()
 {
-  const char* own = GbLink::Get().local == 1 ? "Game Boy #2" : "Game Boy #1";
-  if (s_variables["sameboy_audio_output"] != own)
+  // (01.04: two GBAs - this console's GBA's picture and sound, the other one is never drawn.)
+  const char* key = GbLink::Gba() ? "gbalink_player" : "sameboy_audio_output";
+  const char* own = GbLink::Gba() ? (GbLink::Get().local == 1 ? "2" : "1") :
+                                    (GbLink::Get().local == 1 ? "Game Boy #2" : "Game Boy #1");
+  if (s_variables[key] != own)
   {
-    s_variables["sameboy_audio_output"] = own;
+    s_variables[key] = own;
     s_variables_changed = true;
   }
 }
@@ -1063,6 +1245,7 @@ void BuildNdsVariables(const std::string& g)
   else
     LogF("nds: Wi-Fi: %s, DNS %s (DS Wi-Fi%s); the DS reaches only the internet", wifi == "wiilink" ? "WiiLink WFC" : "Wiimmfi",
          dns.c_str(), FileExists(std::string(App::DATA_DIR) + "/nds-dns.txt") ? ", /data/EmuSuNi/nds-dns.txt" : "");
+  UsageStats::SetDsWifi(dns == "5.161.56.11" ? "wiilink" : dns == "178.62.43.212" ? "wiimmfi" : "");  // (01.04)
   set("firmware_favorite_color", "default");
   set("firmware_birth_month", "default");
   set("firmware_birth_day", "default");
@@ -1480,7 +1663,9 @@ void BuildGpgxVariables(const std::string& g)
 // back), the picture as the board draws it (a vertical game's is turned by the app: SET_ROTATION), each
 // board's own refresh rate unless Arcade 60 Hz, the vector games drawn at 640x480, Frame Skip's 1 and 2
 // as its fixed skips (Auto is the app's), the CPUs at their speed, the service menu on START held, the
-// high-score table (hiscore.dat in system/fbneo), no patched romsets, 48 kHz sound with 4-point
+// high-score table (hiscore.dat in system/fbneo), the patched romsets of system/fbneo/patched (01.05: a hack
+// FinalBurn Neo has no driver of its own for - its zip under the set's name, CRCs unchecked, names and sizes
+// still; not online, where the other console has the set as the DAT knows it), 48 kHz sound with 4-point
 // interpolation and no low-pass filter, the sticks at their speed, opposite directions as the last
 // pressed (SOCD), the Neo Geo as chosen, a memory card per game. The DIP switches and cheats it declares
 // per game keep their defaults (unanswered), as do its light-gun and debug options.
@@ -1500,7 +1685,7 @@ void BuildArcadeVariables(const std::string& g)
   // from the game's load (FinalBurn Neo reads its options again in the game: a netplay flag alone - the "fast
   // savestates" of GET_AUDIO_VIDEO_ENABLE - was undone by that). The guests take the host's options.
   set("hiscores", Netplay::Active() ? "disabled" : "enabled");
-  set("allow-patched-romsets", "disabled");
+  set("allow-patched-romsets", Netplay::Active() ? "disabled" : "enabled");
   set("samplerate", "48000");
   set("sample-interpolation", "4-point 3rd order");
   set("fm-interpolation", "4-point 3rd order");
@@ -1642,26 +1827,6 @@ bool ThreedsAccurateMulGame(uint64_t title)
   return std::find(std::begin(GAMES), std::end(GAMES), title) != std::end(GAMES);
 }
 
-// The games that need the right eye drawn (00.81): with Azahar's Disable Right Eye Render, Majora's Mask 3D's blur
-// effects freeze the screen (azahar #791; its black intro is fixed by azahar #2467, scripts/build-3ds-core.sh), Kingdom
-// Hearts 3D's and Pokémon Super Mystery Dungeon's bottom screen stays black (#1005, not fixed by #2467), Fire Emblem
-// Warriors' too since #2467, and upstream's newer hack list keeps it for Minecraft: New Nintendo 3DS Edition; Metroid:
-// Samus Returns (00.89: a player's v00.22, the elevators' background dark with only Samus drawn - a second pass of the
-// top screen after its copy, which the disabler takes for the right eye and drops; its bottom screen was azahar #740).
-// (The core's own list - Luigi's Mansion 1 and 2, Rayman Origins - draws it whatever the setting.)
-bool ThreedsRightEyeGame(uint64_t title)
-{
-  static const uint64_t GAMES[] = {
-      0x0004000000125500, 0x0004000000125600, 0x00040000000D6E00,  // Majora's Mask 3D: USA, EUR, JPN
-      0x00040000001BB200, 0x00040000001BFB00, 0x00040000001BFC00,  // Metroid: Samus Returns: USA, EUR, JPN
-      0x000400000008D300, 0x0004000000095500, 0x000400000004EE00,  // Kingdom Hearts 3D: USA, EUR, JPN
-      0x0004000000174600, 0x0004000000174400,                      // Pokémon Super Mystery Dungeon: USA, EUR
-      0x000400000F70CC00, 0x000400000F70CD00,                      // Fire Emblem Warriors: USA, EUR
-      0x00040000001B8700, 0x000400000017CA00, 0x000400000017FD00,  // Minecraft: New 3DS Edition: USA, EUR, JPN
-  };
-  return std::find(std::begin(GAMES), std::end(GAMES), title) != std::end(GAMES);
-}
-
 // The games that need Azahar's GPU timing emulation (00.85): Luigi's Mansion 2, whose render thread expects the 3DS's
 // GPU to take its time (azahar #2095: with it, the game "no longer needs the delay render thread option to be
 // playable"; without, it stutters and crashes as it goes into the mansion - azahar #1878, on the libretro core; a
@@ -1690,8 +1855,7 @@ void Build3dsVariables(const std::string& g)
   auto set = [&](const char* key, const std::string& value) { s_variables[p + key] = value; };
   // New 3DS Mode and 3DS Resolution count as the game started: Azahar reads the first once, and the size is the
   // picture's for the whole game (its buffers, the touch screen's place). A change under a running game is its next
-  // start's. (Azahar's texture filters are left off: subtle on the 3D, and their textures at the full size took twice
-  // the GPU memory on the PC - Settings.cpp PRESETS.)
+  // start's.
   if (s_3ds_scale == 0)
   {
     s_3ds_scale = std::clamp(Settings::GetInt("3ds_resolution", g), 1, 4);
@@ -1699,7 +1863,11 @@ void Build3dsVariables(const std::string& g)
     // (00.81: the core applies both when the game takes the GPU, at its start: kept for the game as well.)
     const std::string mul = Settings::Get("3ds_accurate_mul", g), eye = Settings::Get("3ds_right_eye", g);
     s_3ds_accurate_mul = mul == "on" || (mul != "off" && ThreedsAccurateMulGame(s_3ds_title));
-    s_3ds_right_eye = eye == "draw" || (eye != "skip" && ThreedsRightEyeGame(s_3ds_title));
+    // (01.18) Auto draws the right eye in every game. From 00.81 to 01.17 it was left out but in the games known to
+    // break without it (Majora's Mask 3D, Metroid: Samus Returns, Kingdom Hearts 3D, Pokémon Super Mystery Dungeon,
+    // Fire Emblem Warriors, Minecraft: New 3DS Edition), and Azahar's disabler opened Castlevania and DKC black on
+    // the PS4 (scripts/build-3ds-core.sh). Not Drawn still leaves it out: faster in the games that draw both eyes.
+    s_3ds_right_eye = eye != "skip";
     s_3ds_gpu_timings = ThreedsGpuTimingsGame(s_3ds_title);
   }
   set("is_new_3ds", s_3ds_new == 1 ? "New 3DS" : "Old 3DS");
@@ -1729,13 +1897,21 @@ void Build3dsVariables(const std::string& g)
   // Accurate multiplication in the GPU's shaders: Off in most games (the same pictures, a little less GPU work), On in
   // those that draw wrong without it (00.81: 3DS Accurate Shader Multiplication; Off for every game until 00.80).
   set("shaders_accurate_mul", s_3ds_accurate_mul ? "enabled" : "disabled");
-  // The right eye's picture: left out (the PS4 shows no 3D) unless the game needs it (00.81: 3DS Right Eye; the core
-  // read only the file /data/EmuSuNi/3ds-right-eye until 00.80, which still draws it in every game).
+  // The right eye's picture: drawn unless 3DS Right Eye says Not Drawn for the game (01.18; 00.81 to 01.17: left out
+  // but in the games that need it). The core's file /data/EmuSuNi/3ds-right-eye draws it in every game, or with the
+  // word off leaves it out in every game.
   set("emusuni_right_eye", s_3ds_right_eye ? "enabled" : "disabled");
   // Azahar's GPU timing emulation: for the games that need it (00.85: ThreedsGpuTimingsGame, Luigi's Mansion 2).
   set("emusuni_gpu_timings", s_3ds_gpu_timings ? "enabled" : "disabled");
+#ifdef EMUSUNI_3DS
+  // (01.09) The game's LayeredFS mods (saves/3ds/Azahar/load/mods/<title ID>): its Updates, DLC and Mods -> Mods (on
+  // unless turned off for it; a core before 01.09 loads them whenever their folder is there).
+  set("emusuni_mods", s_3ds_title == 0 || ThreeDsCia::ModsOn(s_3ds_title) ? "enabled" : "disabled");
+#endif
   set("use_disk_shader_cache", "enabled");  // (saves/3ds/Azahar/shaders)
   set("resolution_factor", std::to_string(s_3ds_scale));
+  // (01.18) Azahar's texture filter never (01.17's ScaleForce option is gone: on the PS4 a GPU hang in Luigi's
+  // Mansion 2 and textures missing in Castlevania); an old settings.ini's 3ds_texture_filter does nothing.
   set("texture_filter", "none");
   set("texture_sampling", "GameControlled");
   set("custom_textures", "disabled");
@@ -2036,16 +2212,26 @@ void VulkanSetImage(void*, const retro_vulkan_image* image, uint32_t semaphore_c
 {
   if (!image)
     return;
+  if (s_system == SystemId::THREEDS)
+    ThreedsRememberView(image->image_view);  // ((01.09) its renderer made again: which views were before)
+  // (01.06) The 3DS: this picture's serial, for the drawing's wait for its submission.
+  uint64_t serial = 0;
+#ifdef EMUSUNI_3DS
+  if (s_3ds_handover)
+    serial = emusuni_3ds_image_serial();
+#endif
   if (s_defer_frame)
   {
     // The drawing beside the emulation still shows the image before: taken over with the frame.
     s_pending.image = *image;
     s_pending.image_set = true;
+    s_pending.image_serial = serial;
     s_pending.semaphores.assign(semaphores, semaphores + semaphore_count);
     return;
   }
   s_hw_image = *image;
   s_hw_image_set = true;
+  s_hw_image_serial = serial;
   if (semaphore_count > 0)
     s_display->WaitForSemaphores(semaphore_count, semaphores);
 }
@@ -2671,9 +2857,11 @@ bool NetplayAgree(Display& display, ImFont* regular, ImFont* bold, std::string* 
       return true;
     if (wait == Netplay::Wait::Failed)
     {
+      // ((01.23) No reason: the match went back to the room - Back to the Room, a player who left - while our game
+      // loaded: no error, the room shows again.)
       std::string why;
       Netplay::Ended(&why);
-      *error = why.empty() ? std::string("The online match ended") : why;
+      *error = why;
       return false;
     }
     ImGui::GetIO().DeltaTime = 1.0f / 60.0f;
@@ -3333,6 +3521,8 @@ void DrawScreens(ImDrawList* dl, const ScreensSource& src, const Screens& screen
 
 void DrawPicture(ImDrawList* dl, Display& display, const std::string& game)
 {
+  if (s_system == SystemId::THREEDS)
+    ThreedsRemadeTrace();  // ((01.09) the drawings after its renderer was made again)
   if (s_frame_w == 0 || s_frame_h == 0)
     return;
   if (s_frame_hw)
@@ -3480,6 +3670,12 @@ void UploadPicture(Display& display, const std::string& game)
   const GpuFilter::Mode gpu = GpuMode(game);
   if (GpuRedraws(gpu) && GpuFilter::Ready(gpu))
     factor = 1;  // the GPU redraws the console's own picture (Graphics > GPU Upscaler)
+  // (01.06) Nor while that filter is still being compiled (the game's first second or so): xBRZ on the CPU for those
+  // frames made its 64 MiB table (96 MiB while it was made), kept until the app ends - v00.23's U6V4SA: 62 MiB of heap
+  // in use before a GBA game with the AI filter, 126 after it, and the 3DS game after that ran out of heap. (A GPU
+  // filter that fails still has the CPU's upscaler, as before.)
+  if (GpuRedraws(gpu) && GpuFilter::Pending(gpu))
+    factor = 1;
   while (factor >= 2 && (s_frame_w * factor > Display::GAME_TEXTURE_W ||
                          s_frame_h * factor > Display::GAME_TEXTURE_H))
     factor--;
@@ -3776,61 +3972,77 @@ void AdoptDiscsCard(const Library::Game& game)
 // copy of its own game's save from before the match (BackupSave) and, as last written, its RAM (s_gblink_saved).
 void LoadGbLinkSaves()
 {
-#ifdef EMUSUNI_GBLINK
+  if (!s_link_saves)
+    return;
+  const LinkSaves& L = *s_link_saves;
   const GbLink::Match& match = GbLink::Get();
   const GbLink::Game& own = match.games[match.local];
+  const char* machine = GbLink::Gba() ? "GBA" : "Game Boy";
   GbLink::BackupSave(own.key);
   const std::vector<uint8_t> mine = GbLink::ReadSave(own.key, static_cast<uint64_t>(std::time(nullptr)));
-  const size_t ram = std::min(mine.size(), sameboy_emusuni_ram_size(static_cast<unsigned>(match.local)));
+  const size_t ram = std::min(mine.size(), L.ram_size(static_cast<unsigned>(match.local)));
   s_gblink_saved.assign(mine.begin(), mine.begin() + static_cast<std::ptrdiff_t>(ram));
   if (match.local == 0)
   {
-    sameboy_emusuni_load_battery(0, mine.data(), mine.size());
-    sameboy_emusuni_load_battery(1, match.guest_save.data(), match.guest_save.size());
-    LogF("gblink: battery saves loaded: ours %zu bytes in Game Boy 1 (it keeps %zu), the guest's %zu in Game Boy 2 (it "
-         "keeps %zu)", mine.size(), sameboy_emusuni_battery_size(0), match.guest_save.size(),
-         sameboy_emusuni_battery_size(1));
+    L.load(0, mine.data(), mine.size());
+    L.load(1, match.guest_save.data(), match.guest_save.size());
+    LogF("gblink: battery saves loaded: ours %zu bytes in %s 1 (it keeps %zu), the guest's %zu in %s 2 (it keeps %zu)",
+         mine.size(), machine, L.battery_size(0), match.guest_save.size(), machine, L.battery_size(1));
   }
   else
-    LogF("gblink: our save (%zu bytes) comes in the host's state, in Game Boy 2", mine.size());
-#endif
+    LogF("gblink: our save (%zu bytes) comes in the host's state, in %s 2", mine.size(), machine);
 }
 
 // A guest, once the host's state is in (before its first frame): Game Boy 2's battery RAM is its own save's as it is
 // on this console - false: it isn't (the host sent another), and the match ends without writing it.
 bool CheckGbLinkSave()
 {
-#ifdef EMUSUNI_GBLINK
-  const size_t size = sameboy_emusuni_battery_size(1), ram = sameboy_emusuni_ram_size(1);
+  if (!s_link_saves)
+    return false;
+  const LinkSaves& L = *s_link_saves;
+  const size_t size = L.battery_size(1), ram = L.ram_size(1);
   std::vector<uint8_t> data(size);
   if (s_gblink_saved.empty())
     return true;  // (no save of ours yet: a new game)
-  if (size == 0 || ram < s_gblink_saved.size() || !sameboy_emusuni_save_battery(1, data.data(), size))
+  if (size == 0 || ram < s_gblink_saved.size() || !L.save(1, data.data(), size))
     return false;
   return std::equal(s_gblink_saved.begin(), s_gblink_saved.end(), data.begin());
-#else
-  return false;
-#endif
+}
+
+// The battery RAM `data` (`ram` bytes) is the save last written (s_gblink_saved): the same bytes, the longer one's
+// rest 0xFF (01.04: a GBA's save is 128 KiB until mGBA knows its kind - a smaller one, its .srm, in its start).
+bool LinkSaveSame(const std::vector<uint8_t>& data, size_t ram)
+{
+  const size_t common = std::min(ram, s_gblink_saved.size());
+  if (!std::equal(s_gblink_saved.begin(), s_gblink_saved.begin() + static_cast<std::ptrdiff_t>(common), data.begin()))
+    return false;
+  const auto blank = [](uint8_t b) { return b == 0xFF; };
+  return std::all_of(data.begin() + static_cast<std::ptrdiff_t>(common), data.begin() + static_cast<std::ptrdiff_t>(ram),
+                     blank) &&
+         std::all_of(s_gblink_saved.begin() + static_cast<std::ptrdiff_t>(common), s_gblink_saved.end(), blank);
 }
 
 // This console's Game Boy's battery save written into its own game's (its RAM into <key>.srm, its clock into
-// <key>.rtc) when its RAM changed since last written, or `force`d (the game's end: the clock too). Beside the
-// emulation (the SaveWriter) during play. A guest writes nothing before its own save came in the host's state.
+// <key>.rtc) when its RAM changed since last written, or `force`d (the game's end: the clock too - a save without a
+// clock, as a GBA's, isn't written again unchanged). Beside the emulation (the SaveWriter) during play. A guest writes
+// nothing before its own save came in the host's state.
 void SaveGbLinkSave(bool force)
 {
-#ifdef EMUSUNI_GBLINK
+  if (!s_link_saves)
+    return;
+  const LinkSaves& L = *s_link_saves;
   const GbLink::Match& match = GbLink::Get();
   const unsigned gb = static_cast<unsigned>(match.local);
   if (s_gblink_failed || (gb == 1 && !s_gblink_checked))
     return;
-  const size_t size = sameboy_emusuni_battery_size(gb), ram = sameboy_emusuni_ram_size(gb);
+  const size_t size = L.battery_size(gb), ram = L.ram_size(gb);
   if (size == 0 || ram > size)
     return;
   std::vector<uint8_t> data(size);
-  if (!sameboy_emusuni_save_battery(gb, data.data(), size))
+  if (!L.save(gb, data.data(), size))
     return;
-  const bool same = s_gblink_saved.size() == ram && std::equal(s_gblink_saved.begin(), s_gblink_saved.end(), data.begin());
-  if (same && !force)
+  const bool same = LinkSaveSame(data, ram);
+  if (same && (!force || size == ram))
     return;
   const std::string& key = match.games[gb].key;
   if (std::all_of(data.begin(), data.begin() + static_cast<std::ptrdiff_t>(ram), [](uint8_t b) { return b == 0xFF; }) &&
@@ -3850,10 +4062,9 @@ void SaveGbLinkSave(bool force)
   if (GbLink::WriteSave(key, data.data(), size, ram, clock))
   {
     s_gblink_saved.assign(data.begin(), data.begin() + static_cast<std::ptrdiff_t>(ram));
-    LogF("gblink: Game Boy %u's battery save written into %s (%zu bytes%s)", gb + 1, key.c_str(), ram,
-         clock ? ", and its clock" : "");
+    LogF("gblink: %s %u's battery save written into %s (%zu bytes%s)", GbLink::Gba() ? "GBA" : "Game Boy", gb + 1,
+         key.c_str(), ram, clock ? ", and its clock" : "");
   }
-#endif
 }
 
 void LoadSram()
@@ -4009,7 +4220,11 @@ bool LoadState(int slot)
       }
     }
   }
-  const bool ok = s_core->unserialize(data.data(), data.size());
+  // ((01.09) The 3DS makes its renderer again in a state's load: its images forgotten - ThreedsRemaking.)
+  const bool ok = s_system == SystemId::THREEDS ?
+                      ThreedsRemaking("state's load",
+                                      [&data] { return s_core->unserialize(data.data(), data.size()); }) :
+                      s_core->unserialize(data.data(), data.size());
   if (!ok && disc_before >= 0)
   {
     s_disk.set_image_index(static_cast<unsigned>(disc_before));
@@ -4446,6 +4661,7 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
     {
       GbLink::Clear();
       s_gblink = false;
+      s_link_saves = nullptr;
       std::vector<uint8_t>().swap(s_gblink_rom2);
       std::vector<uint8_t>().swap(s_gblink_saved);
     }
@@ -4502,21 +4718,38 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
     LogLine("gblink: a link cable match without its games set (GbLink::Set): not started");
     return Result::Failed;
   }
+  s_link_saves = nullptr;
   if (s_gblink)
   {
+    // (01.04) Two Game Boy Advances: mGBA's link core (in mGBA's object) - else two Game Boys: SameBoy.
+    const bool gba = GbLink::Gba();
+#ifdef EMUSUNI_GBALINK
+    if (gba)
+    {
+      s_core = &Cores::GBALINK;
+      s_link_saves = &GBALINK_SAVES;
+    }
+#endif
 #ifdef EMUSUNI_GBLINK
+    if (!gba)
+    {
+      s_core = &Cores::SAMEBOY;
+      s_link_saves = &SAMEBOY_SAVES;
+    }
+#endif
+    if (!s_link_saves)
+    {
+      *error = "This version of EmuSuNi has no Game Boy link cable";
+      LogF("gblink: no %s in this build: the match can't start",
+           gba ? "GBA link core (scripts/build-gba-core.sh)" : "SameBoy (scripts/build.sh with-gblink)");
+      return Result::Failed;
+    }
     const GbLink::Game& other = GbLink::Get().games[1];
     if (!Library::ReadRom(other.path, other.system, &s_gblink_rom2, error))
     {
-      LogF("gblink: can't read Game Boy 2's ROM (%s): %s", other.path.c_str(), error->c_str());
+      LogF("gblink: can't read %s 2's ROM (%s): %s", gba ? "GBA" : "Game Boy", other.path.c_str(), error->c_str());
       return Result::Failed;
     }
-    s_core = &Cores::SAMEBOY;
-#else
-    *error = "This version of EmuSuNi has no Game Boy link cable";
-    LogLine("gblink: no SameBoy in this build (scripts/build.sh with-gblink): the match can't start");
-    return Result::Failed;
-#endif
   }
   // (00.23) Online (src/Netplay.h): the core's controller devices kept by the match (the host's are the guest's); the
   // room left, the others told, at every end of the game (NetplayEnd).
@@ -4777,9 +5010,18 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
     for (const std::string& zip : arcade_not_found)
       LogF("arcade: %s isn't beside %s (the core goes on without it)", zip.c_str(), game.id.c_str());
     // FinalBurn Neo's folders (saves/fbneo: the games' NVRAM; system/fbneo: hiscore.dat, samples,
-    // cheats), and its high-score table from the package the first time (scripts/package.sh).
-    MakeDirs(s_system_dir + "/fbneo");
+    // cheats; system/fbneo/patched: the patched romsets), and its high-score table from the package the
+    // first time (scripts/package.sh).
+    MakeDirs(s_system_dir + "/fbneo/patched");
     MakeDirs(s_save_dir + "/fbneo");
+    // (01.05) A patched romset is the core's first choice (BuildArcadeVariables): the log says when one is there.
+    for (const char* ext : {".zip", ".7z"})
+    {
+      const std::string patched = s_system_dir + "/fbneo/patched/" + game.id + ext;
+      if (FileExists(patched))
+        LogF("arcade: patched romset %s (%s; its CRCs aren't checked)", patched.c_str(),
+             Netplay::Active() ? "not used online" : "used before the game's own zip");
+    }
     const std::string hiscore = s_system_dir + "/fbneo/hiscore.dat";
     if (!FileExists(hiscore))
     {
@@ -4806,6 +5048,8 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   s_rotation = 0;
   s_core_aspect = 0.0f;
   s_psp_30fps_auto = false;
+  s_psp_gow = false;
+  s_psp_stopped = false;  // ((01.07))
   s_psp_vblanks_known = false;  // (the PSP core gives its count again from its first run: PspFrames)
   s_nds_r3 = false;
   Saves::Init(Portable::UserDir());  // (00.87: src/Portable.h)
@@ -4877,7 +5121,7 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   // (00.23) Online: the host's core options are the match's - sent from here; a guest waits for them before its core
   // starts (the emulation the same on both from the first frame).
   if (online && !NetplayAgree(display, regular, bold, error))
-    return Result::Failed;
+    return error->empty() ? Result::Menu : Result::Failed;
   if (s_gblink)
     GbLinkLocalVariables();  // (00.95: a guest has the host's options now, its sound too)
   if (IsFlycast(s_system))
@@ -4919,6 +5163,12 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
          s_3ds_gpu_timings ? "emulated (the game's list)" : "not emulated",
          FileExists("/data/EmuSuNi/3ds-gpu-timings") ? " (/data/EmuSuNi/3ds-gpu-timings: emulated in every game)" : "",
          FileExists("/data/EmuSuNi/3ds-cpu-shaders") ? "CPU (/data/EmuSuNi/3ds-cpu-shaders)" : "GPU");
+#ifdef EMUSUNI_3DS
+    // (01.09) Its mods: on or off (Updates, DLC and Mods), and whether its folder has any.
+    if (s_3ds_title != 0)
+      LogF("3ds: mods %s (%s)", ThreeDsCia::ModsOn(s_3ds_title) ? "on" : "off (the game's Updates, DLC and Mods)",
+           ThreeDsCia::HasMods(s_save_dir, s_3ds_title) ? "its folder has some" : "none in its folder");
+#endif
   }
   LogScreens(game.key, "the game's start");
   if (TwoScreens())
@@ -4992,6 +5242,26 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   // heap's spin lock under the PS4's fixed priorities, port/ps4_dlmalloc.c.)
   if (s_system == SystemId::PSP)
     setenv("EMUSUNI_PSP_RENDER_THREAD", "1", 1);
+  // (01.06) The 3DS: its frame handed over without the core waiting for its Vulkan worker at each frame's end (Donkey
+  // Kong Country Returns 3D: 2.7-4 ms a frame on the PS4); the drawing waits for each picture's submission itself,
+  // beside the next frame's emulation in the heavy mode (scripts/build-3ds-core.sh). The file 3ds-handoff-sync: as
+  // before.
+  s_3ds_handover = false;
+#ifdef EMUSUNI_3DS
+  if (s_system == SystemId::THREEDS)
+  {
+    s_3ds_handover = !FileExists(std::string(App::DATA_DIR) + "/3ds-handoff-sync");
+    if (s_3ds_handover)
+      setenv("EMUSUNI_3DS_ASYNC_HANDOFF", "1", 1);
+    else
+      unsetenv("EMUSUNI_3DS_ASYNC_HANDOFF");
+    LogF("3ds: the frame handed over %s", s_3ds_handover ?
+                                            "without the core waiting for its Vulkan worker (the drawing waits for "
+                                            "each picture's submission)" :
+                                            "once the core's Vulkan worker sent it, as before (the file "
+                                            "3ds-handoff-sync)");
+  }
+#endif
   // PPSSPP's pipelines with the driver's own cache data kept (build-psp-core.sh): those of earlier
   // sessions aren't compiled again at each start (God of War recompiled 115, 60-140 ms each).
   if (s_system == SystemId::PSP)
@@ -5117,19 +5387,25 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
     Achievements::GameStarting(ra);
   }
   StartGuard::Step("the core loads the game", true);
+#ifdef EMUSUNI_3DS
+  if (s_system == SystemId::THREEDS)
+    emusuni_3ds_game_starts();
+#endif
   bool loaded = false;
   if (s_gblink)
   {
-    // (00.95) The link cable's two Game Boys: Game Boy 1 this game, Game Boy 2 the other (SameBoy copies both ROMs).
+    // (00.95) The link cable's two Game Boys: Game Boy 1 this game, Game Boy 2 the other (the core copies both ROMs).
+    // (01.04: or two GBAs, mGBA's link core.)
     retro_game_info games[2] = {info, {}};
     games[1].path = GbLink::Get().games[1].path.c_str();
     games[1].data = s_gblink_rom2.data();
     games[1].size = s_gblink_rom2.size();
     loaded = s_core->load_game_special(GbLink::GAME_TYPE_LINK_2P, games, 2);
     std::vector<uint8_t>().swap(s_gblink_rom2);
-    LogF("gblink: SameBoy %s Game Boy 1 (%s) and Game Boy 2 (%s), joined by the cable; ours Game Boy %d",
-         loaded ? "loaded" : "couldn't load", GbLink::Get().games[0].title.c_str(),
-         GbLink::Get().games[1].title.c_str(), GbLink::Get().local + 1);
+    const char* machine = GbLink::Gba() ? "GBA" : "Game Boy";
+    LogF("gblink: %s %s %s 1 (%s) and %s 2 (%s), joined by the cable; ours %s %d", s_core->name,
+         loaded ? "loaded" : "couldn't load", machine, GbLink::Get().games[0].title.c_str(), machine,
+         GbLink::Get().games[1].title.c_str(), machine, GbLink::Get().local + 1);
   }
   else
     loaded = s_core->load_game(&info);
@@ -5478,6 +5754,21 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
          pinned ? "yes" : "no", static_cast<unsigned long long>(old_mask), static_cast<unsigned>(got),
          static_cast<unsigned>(set), sceKernelGetCurrentCpu());
   }
+  // (01.06) The 3DS: the emulation thread's allocations from an arena of the heap of its own while the game runs (its
+  // load's long-lived ones before, in the heap), given back when it ends - not under the one lock the core's pipeline,
+  // shader and Vulkan threads (their arenas: port/ps4_n64.c) took with it. /data/EmuSuNi/3ds-heap-arenas-off: no.
+  bool emulation_arena = false;
+  if (s_system == SystemId::THREEDS)
+  {
+    if (FileExists(Portable::UserDir() + "/3ds-heap-arenas-off") || FileExists("/data/EmuSuNi/3ds-heap-arenas-off"))
+      LogLine("game: the emulation thread with the one heap (3ds-heap-arenas-off)");
+    else
+    {
+      emulation_arena = ps4_heap_thread_arena("3ds emulation") != 0;
+      LogF("game: the emulation thread: %s",
+           emulation_arena ? "an arena of the heap of its own" : "no arena left: the heap");
+    }
+  }
   Controls::Layout layout = Controls::LayoutFor(game.key, game.system);
   // A NAOMI or Atomiswave game with analog controls (a wheel, a flight stick, pedals) or a light gun: the left stick
   // is analog only (the wheel, the sight), not the D-pad too - Crazy Taxi's gears are Up and Down - unless the
@@ -5512,7 +5803,8 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   if (s_system == SystemId::JAGUAR && overlap_drawing)
     LogF("pacing: the Jaguar's drawing always beside its emulation (a frame later)");
   bool psp_overlap = false;
-  int arcade_overlap_said = 0;  // (the Arcade's changes between the two, in the log: the first ten)
+  int arcade_overlap_said = 0;  // (the Arcade's changes between the two, in the log: the first ten; the PSP's too)
+  double psp_long_share = 0.0;  // (01.05) the PSP's recent long frames (over 0.85 of a refresh): their share, ~20 frames'
   s_defer_frame = false;
   s_pending = {};
 
@@ -5530,8 +5822,25 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   double clock_drift = 0.0;  // V-Sync off: the time the passes of about one refresh were off by (in refreshes)
   // The core's time per frame (a moving average), and whether it is too slow to be caught up.
   double core_avg = 0.0;
+  // (01.06) The drawing's time per pass (a moving average): the 3DS's heavy mode counts it too.
+  double draw_avg = 0.0;
+  // (01.06) The 3DS with the frame handover: its Vulkan worker's time after the frame's end (a moving average), and the
+  // last picture it counted (a pass that draws it again, with no frame of the core, counts nothing).
+  double worker_avg = 0.0;
+  uint64_t worker_serial = 0;
   bool heavy = false;
   bool threeds_pairs_said = false;  // (the 3DS: a light frame and the next in one pass, said once in the log)
+  // (01.08, the 3DS's specialist) That pair with V-Sync on too (the pacing, below: from 00.95 on it never ran). The file
+  // 3ds-pair-off: with V-Sync on, one frame a pass in the heavy mode, as 00.95 to 01.07.
+  bool threeds_vsync_pairs = false;
+  if (s_system == SystemId::THREEDS)
+  {
+    threeds_vsync_pairs =
+        !FileExists(Portable::UserDir() + "/3ds-pair-off") && !FileExists("/data/EmuSuNi/3ds-pair-off");
+    LogLine(threeds_vsync_pairs ? "pacing: the 3DS's heavy mode runs a light frame and the next in one pass with "
+                                  "V-Sync on too" :
+                                  "pacing: the 3DS's heavy mode runs one frame a pass with V-Sync on (3ds-pair-off)");
+  }
 #ifdef EMUSUNI_DC
   DcFrames dc_frames;  // (Flycast: the console's frames per picture)
 #endif
@@ -5570,6 +5879,16 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
       menu.Toast("Controller " + n + (connected ? " connected: Player " : " disconnected: Player ") + n, 3.0f);
     }
     pads.changes.clear();
+    // (01.07) PPSSPP stopped the game (CoreLog: s_psp_stopped): said over it, again and again while the menu is
+    // closed.
+    if (s_psp_stopped && !menu.IsOpen())
+    {
+      static bool said = false;
+      if (!said)
+        LogLine("game: PPSSPP stopped the emulation (a bad memory access): the player is told to leave with the menu");
+      said = true;
+      menu.Toast("The game stopped because of an emulation error: leave it with the menu", 1.5f);
+    }
     // (00.86) Our online room stays open while this game is played alone: its network every pass (the server drops a
     // console silent for 30 s), and a player asking to join is said - the in-game menu answers (Accept Player ends the
     // game and opens the room; the request waits Netplay::ASK_SECONDS).
@@ -5582,6 +5901,18 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
         join_noticed = ask.serial;
         LogF("online: %s asks to join our room while we play alone", ask.nick.c_str());
         menu.Toast(ask.nick + " wants to join your room: open the menu to answer", 6.0f);
+      }
+    }
+    // (01.23, the owner) Our online match under way, entry with permission: a player asking to join it is said - the
+    // in-game menu's online page answers (Accept Player: it joins the match).
+    if (online && Netplay::IsHost())
+    {
+      const Netplay::JoinRequest ask = Netplay::GetJoinRequest();
+      if (ask.member >= 0 && ask.serial != join_noticed)
+      {
+        join_noticed = ask.serial;
+        LogF("online: %s asks to join our match", ask.nick.c_str());
+        menu.Toast(ask.nick + " wants to join the match: open the menu to answer", 6.0f);
       }
     }
     // Player 1's pad drives the menu (the screenshot tour presses its buttons too).
@@ -5664,7 +5995,14 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
         // replaced by the reset: not the game's end. Before it: an error of the reset itself counts.)
         s_shutdown = false;
         s_message.clear();
-        s_core->reset();
+        // ((01.09) The 3DS makes its renderer again: its images forgotten - ThreedsRemaking.)
+        if (s_system == SystemId::THREEDS)
+          ThreedsRemaking("reset", [] {
+            s_core->reset();
+            return true;
+          });
+        else
+          s_core->reset();
         Achievements::Reset();  // (the achievements' progress from the start too)
         dc_reboot_pending = s_dc_stopped = false;  // (the Dreamcast's restart, if it waited for one)
         dc_restart_wait = s_system == SystemId::DC ? 180 : 0;
@@ -5759,6 +6097,7 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
     // ---- The drawing (below; the DS's beside the emulation) ----
     bool drawn = false;
     double pass_draw_ms = 0.0, pass_draw_wait = 0.0;
+    double pass_worker_ms = -1.0;  // (01.06: the 3DS's handover - the worker's time for the picture drawn; -1: none)
     const bool vsync = Settings::Get("vsync", game.key) != "off";
     LoadBezel(display, game);  // (here, before the drawing: the bezel's window for the picture's shape now)
     auto draw_pass = [&](uint64_t total) {
@@ -5778,8 +6117,34 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
       AchievementsUi::Draw(fg, display, regular, bold, dt);  // (RetroAchievements' popups, 00.73)
       ImGui::Render();
       stats.flip_frame[static_cast<size_t>(display.NextFlip() % 8)] = total;
+      // (01.06) The 3DS's picture sent by the core's Vulkan worker before this submission reads it (the handover):
+      // counted as the drawing's waiting. A picture not sent in 2 s is drawn anyway, said once. The worker's time for
+      // it after the frame's end goes to the pacing (below).
+      double handover_ms = 0.0;
+#ifdef EMUSUNI_3DS
+      if (s_3ds_handover && s_frame_hw && s_hw_image_set && s_hw_image_serial != 0)
+      {
+        const auto handover_start = Clock::now();
+        static bool handover_said = false;
+        if (emusuni_3ds_wait_image(s_hw_image_serial, 2000) == 0)
+        {
+          if (s_hw_image_serial != worker_serial)
+          {
+            worker_serial = s_hw_image_serial;
+            pass_worker_ms = emusuni_3ds_image_worker_ms(s_hw_image_serial);
+          }
+        }
+        else if (!handover_said)
+        {
+          handover_said = true;
+          LogF("3ds: picture %llu not sent by the core in 2 s: drawn anyway",
+               static_cast<unsigned long long>(s_hw_image_serial));
+        }
+        handover_ms = std::chrono::duration<double, std::milli>(Clock::now() - handover_start).count();
+      }
+#endif
       display.EndFrame();
-      pass_draw_wait = display.TakeWaitMs();
+      pass_draw_wait = display.TakeWaitMs() + handover_ms;
       pass_draw_ms = std::chrono::duration<double, std::milli>(Clock::now() - draw_start).count();
       if (!tour.shot.empty())
         Tour::SaveShot(display, tour.shot);
@@ -5914,29 +6279,18 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
           // The touchpad (1920x942) is the DS's touch screen (src/Touchpad.h): a trackpad - the finger moves the
           // stylus from where it is, a tap touches there, the Tap button (Controls) holds it down - or, with DS
           // Touch Screen: Direct, the screen itself. The right stick moves the stylus too (the DS has no use for
-          // that stick); it stays where it was left.
-          const auto& touch = pad.data.touch;
+          // that stick); it stays where it was left. (01.15: the finger followed among the pad's touches.)
           const bool live = pad.ok && !touring;
-          const bool finger = live && touch.fingers > 0;
+          Touchpad::Touch touches[2];
+          const int count = PadTouches(pad.data.touch, live, touches);
           const bool tap = live && layout.tap && (pad.data.buttons & layout.tap);
           const int taps_before = s_stylus.taps;
-          Touchpad::Update(s_stylus, finger, finger ? touch.touch[0].x : 0.0f, finger ? touch.touch[0].y : 0.0f, tap,
-                           256.0f, 192.0f, Settings::Get("nds_touch", game.key) == "touch");
+          const bool finger = Touchpad::Frame(s_stylus, touches, count, tap, 256.0f, 192.0f,
+                                              Settings::Get("nds_touch", game.key) == "touch");
           if (s_stylus.taps != taps_before)
             s_touch_taps++;
           if (!finger && live)
-          {
-            // Up to 4 pixels a frame past the stick's dead zone.
-            const float sx = (static_cast<int>(pad.data.rightStick.x) - 128) / 128.0f;
-            const float sy = (static_cast<int>(pad.data.rightStick.y) - 128) / 128.0f;
-            const float len = std::sqrt(sx * sx + sy * sy);
-            if (len > 0.2f)
-            {
-              const float speed = 4.0f * std::min(1.0f, (len - 0.2f) / 0.8f) / len;
-              s_stylus.x = std::clamp(s_stylus.x + sx * speed, 0.0f, 255.0f);
-              s_stylus.y = std::clamp(s_stylus.y + sy * speed, 0.0f, 191.0f);
-            }
-          }
+            StickMovesStylus(pad.data, 256.0f, 192.0f);
           if (finger)
             s_touch_frames++;
           if (s_stylus.down)
@@ -5969,21 +6323,30 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
           // the finger moves the stylus from where it is, a tap touches there, the Tap button (Controls) holds it
           // down - or, with 3DS Touch Screen: Direct, the screen itself; it stays where it was left. The core wants
           // it where the touch screen is in its picture (ThreedsLayout: always the same place since 00.80, whatever
-          // the screens' settings and R3 show), over the whole picture; also with Top Screen Only, unseen.
-          const auto& touch = pad.data.touch;
+          // the screens' settings and R3 show), over the whole picture; also with Top Screen Only, unseen. (01.15:
+          // the finger followed among the pad's touches.)
           const bool live = pad.ok && !touring;
-          const bool finger = live && touch.fingers > 0;
+          Touchpad::Touch touches[2];
+          const int count = PadTouches(pad.data.touch, live, touches);
           const bool tap = live && layout.tap && (pad.data.buttons & layout.tap);
           const int taps_before = s_stylus.taps;
-          Touchpad::Update(s_stylus, finger, finger ? touch.touch[0].x : 0.0f, finger ? touch.touch[0].y : 0.0f, tap,
-                           320.0f, 240.0f, Settings::Get("3ds_touch", game.key) == "touch");
+          const bool finger = Touchpad::Frame(s_stylus, touches, count, tap, 320.0f, 240.0f,
+                                              Settings::Get("3ds_touch", game.key) == "touch");
           if (s_stylus.taps != taps_before)
             s_touch_taps++;
+          // (01.15) 3DS Right Stick: Stylus - the right stick moves the stylus as on the DS (the Tap button touches)
+          // and the game gets no C-stick; C-Stick (the default) as until 01.14.
+          bool stick = false;
+          if (Settings::Get("3ds_right_stick", game.key) == "stylus")
+          {
+            s_analog[0][1] = {};
+            stick = !finger && live && StickMovesStylus(pad.data, 320.0f, 240.0f);
+          }
           if (finger)
             s_touch_frames++;
           if (s_stylus.down)
             s_tap_frames++;
-          if (finger || s_stylus.down)
+          if (finger || stick || s_stylus.down)
             s_3ds_cursor = 90;
           s_pointer = {};
           const ThreedsPicture where = ThreedsLayout(s_3ds_scale);
@@ -6042,6 +6405,7 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
       // the model, so the clock's way stays as it was, for comparison).
       int frames = 0;
       int threeds_owed = 0;  // (the 3DS's heavy mode: the frames owed before its one frame a pass)
+      bool vsync_paced = false;  // ((01.08) a frame a pass: the V-Sync on way below)
       bool paced = s_system == SystemId::N64 && !forward && ratio <= 1.25 && flip.vblanks >= 0 &&
                    Settings::Get("vsync", game.key) != "off" && Settings::Get("frame_pacing", game.key) != "clock";
       if (paced)
@@ -6089,7 +6453,10 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
           schedule += ratio * refreshes;
         }
         else
+        {
           schedule += ratio;
+          vsync_paced = true;
+        }
         // The frames owed, rounded to the nearest: the backlog stays within half a frame either way.
         // (Rounded down, passes of 16.6-16.8 ms against the TV's 16.68 ran 0, 2, 0, 2 frames once the
         // owed fraction sat near 0: God of War at 100% speed with a third of its pictures shown twice.)
@@ -6102,22 +6469,41 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
         // a pass then, every one of them shown; the game runs that much slower, its sound at its pitch.
         const double refresh_ms = 1000.0 / std::max(hz, 1.0);
         const bool was_heavy = heavy;
-        if (!heavy && core_avg > refresh_ms * 0.92)
+        // (01.06) The 3DS: the core and the drawing after it, which the heavy mode puts beside it (its only overlap).
+        // Castlevania: Mirror of Fate's calm parts at 4x took 11.8 ms of core and 8.6 of drawing, a pass of 20.4 ms
+        // after the emulation: 81% speed with the core under the 0.92 of a refresh that alone turned it on.
+        // With the frame handover the core's frame no longer waits for its Vulkan worker at the end: that time
+        // (worker_avg) counts as the core's, as when it was in the frame - else a pass that no longer fits a refresh
+        // (the drawing waits for the worker instead) would stay out of the heavy mode, and the heavy mode, where the
+        // drawing beside seldom waits, would end too soon.
+        const double threeds_core = core_avg + worker_avg;
+        const double load = s_system == SystemId::THREEDS ? threeds_core + draw_avg : core_avg;
+        if (!heavy && load > refresh_ms * 0.92)
           heavy = true;
-        else if (heavy && core_avg < refresh_ms * 0.85)
+        else if (heavy && load < refresh_ms * 0.85)
           heavy = false;
         if (heavy != was_heavy)
         {
-          LogF("pacing: the core takes %.1f ms a frame: %s", core_avg,
-               s_system == SystemId::SATURN ? (heavy ? "longer than a refresh, the game a little slower (one frame a "
-                                                       "pass, as always for the Saturn)" :
-                                                       "shorter than a refresh again") :
-               heavy                        ? "one frame a pass, the game a little slower" :
-                                              "caught up again");
+          if (s_system == SystemId::THREEDS)
+          {
+            LogF("pacing: the core takes %.1f ms a frame and the drawing %.1f: %s", threeds_core, draw_avg,
+                 heavy ? "one frame a pass, the drawing beside the emulation" : "caught up again");
+          }
+          else
+          {
+            LogF("pacing: the core takes %.1f ms a frame: %s", core_avg,
+                 s_system == SystemId::SATURN ? (heavy ? "longer than a refresh, the game a little slower (one frame a "
+                                                         "pass, as always for the Saturn)" :
+                                                         "shorter than a refresh again") :
+                 heavy                        ? "one frame a pass, the game a little slower" :
+                                                "caught up again");
+          }
         }
         // PSP Frame Rate Auto: about 2 s in a row too slow for 60 (not a loading screen's long frames,
-        // nor the first seconds' pipeline compiles): God of War at 30 FPS for the rest of the game.
-        if (s_system == SystemId::PSP && !s_psp_30fps_auto && Settings::Get("psp_frame_rate", game.key) == "auto")
+        // nor the first seconds' pipeline compiles): God of War at 30 FPS for the rest of the game. (01.05: only a God of
+        // War game - the hack acts on no other; 00.23's log said it for Midnight Club: L.A. Remix.)
+        if (s_system == SystemId::PSP && s_psp_gow && !s_psp_30fps_auto &&
+            Settings::Get("psp_frame_rate", game.key) == "auto")
         {
           const bool slow = heavy && core_avg < refresh_ms * 2.0 &&
                             std::chrono::duration<double>(Clock::now() - game_start).count() > 15.0;
@@ -6133,6 +6519,17 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
         if (heavy && !forward)
         {
           threeds_owed = s_system == SystemId::THREEDS ? frames : 0;
+          // (01.08, the 3DS's specialist) With V-Sync on each pass owed exactly one frame (schedule += ratio above), so
+          // 00.70's light frame and the next in one pass (below) never ran from 00.95 on: Captain Toad's frames of ~3
+          // and ~37 ms took 54 ms for two (a light one waiting a whole refresh by itself), 40 together. The 3DS's
+          // frames owed then by the refreshes the last pass took (1 to 2), as the clock's way counts them. Only the
+          // pair's choice: the schedule stays as it was (a pass with the heavy mode just over runs no catch-up frame),
+          // and a heavy first frame is one frame a pass as before.
+          if (s_system == SystemId::THREEDS && vsync_paced && threeds_vsync_pairs)
+          {
+            const double refreshes = std::clamp(static_cast<double>(dt) * hz, 1.0, 2.0);
+            threeds_owed = std::max(threeds_owed, static_cast<int>(std::floor(ratio * refreshes + 0.5)));
+          }
           frames = std::min(frames, 1);
           schedule = std::min(schedule, 0.5);
           // (The sound keeps its pitch: GameAudio stretches what the slower game sends.)
@@ -6191,15 +6588,27 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
       {
         const double refresh_ms = 1000.0 / std::max(display.RefreshHz(), 1.0);
         const bool was_overlap = psp_overlap;
-        if (!psp_overlap && core_avg > refresh_ms * 0.85)
+        // (01.05) The PSP also when more than 30% of its recent frames are long - over 0.85 of a refresh, as the
+        // average's mark: with the drawing after it (~1.9 ms) a 14.8 ms frame's pass already takes two -, though their
+        // average isn't: a game at 30 FPS alternates its frame and a light one (Midnight Club: L.A. Remix with
+        // compat.ini's EmuSuNiMax30FPS, scripts/build-psp-core.sh: ~25 and ~1 ms, an average of 12-14 under the 14.2
+        // above), and after the emulation the long one's pass took two refreshes and the light one's a third: 67% speed.
+        // Beside the drawing both fit in two. Off only with the average low and under 10% of them long. (A lone long
+        // frame - a loading's, a compile's - is 5% of the share: MotorStorm's frames are long only now and then, as
+        // before. God of War at 30 FPS the same way as Midnight Club once its frames are long.)
+        const bool psp = s_system == SystemId::PSP;
+        if (!psp_overlap && (core_avg > refresh_ms * 0.85 || (psp && psp_long_share > 0.3)))
           psp_overlap = true;
-        else if (psp_overlap && core_avg < refresh_ms * 0.75)
+        else if (psp_overlap && core_avg < refresh_ms * 0.75 && (!psp || psp_long_share < 0.1))
           psp_overlap = false;
-        if (s_system == SystemId::ARCADE && psp_overlap != was_overlap && arcade_overlap_said < 10)
+        if ((s_system == SystemId::ARCADE || psp) && psp_overlap != was_overlap && arcade_overlap_said < 10)
         {
           arcade_overlap_said++;
-          LogF("pacing: the %s takes %.1f ms a frame: the drawing %s", s_system == SystemId::ARCADE ? "board" : "core",
-               core_avg, psp_overlap ? "beside the emulation (a frame later)" : "after the emulation again");
+          LogF("pacing: the %s takes %.1f ms a frame%s: the drawing %s",
+               s_system == SystemId::ARCADE ? "board" : "core", core_avg,
+               psp ? (" (" + std::to_string(static_cast<int>(psp_long_share * 100.0 + 0.5)) +
+                      "% of its recent frames long)").c_str() : "",
+               psp_overlap ? "beside the emulation (a frame later)" : "after the emulation again");
         }
         // (The Saturn, 00.69: always - each change between the two showed a picture twice or jumped one, and its core
         // is near a refresh most of the time. (00.99) The Jaguar too: its core's average at those thresholds, Alien vs
@@ -6276,6 +6685,8 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
         stats.core_max = std::max(stats.core_max, run_ms);
         const double frame_ms = run_ms / covered;
         core_avg = core_avg <= 0.0 ? frame_ms : core_avg * 0.9 + frame_ms * 0.1;
+        if (s_system == SystemId::PSP)
+          psp_long_share = psp_long_share * 0.95 + (frame_ms > 850.0 / std::max(hz, 1.0) ? 0.05 : 0.0);
         stats.emulated += covered;
         stats.emulated10 += covered;
         stats.total++;
@@ -6375,6 +6786,8 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
         }
         restart_dc();
       }
+      // (01.20) A 3DS game whose picture stays black at its start is no longer reset by itself (01.16 to 01.19: at
+      // 10 s, twice at most a load; the owner's decision). The core's 3ds-black-watch still writes the log's lines.
       // The core's messages (the Famicom Disk System's disk side, a missing BIOS).
       if (!s_message.empty())
       {
@@ -6456,17 +6869,30 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
         // The core's time per frame against the game's frame (20 ms for PAL): above it, the PS4's
         // CPU (or, with Accurate sync, the GPU) can't keep up.
         // The GPU: busy since the last line, and the memory its buffers take.
-        static uint64_t last_busy = 0, last_span = 0;
+        static uint64_t last_busy = 0, last_span = 0, last_completed = 0;
         uint64_t busy = 0, span = 0, submitted = 0, completed = 0, bo_bytes = 0, bo_count = 0;
         ac_ps4_get_gpu_busy(&busy, &span);
         ac_ps4_get_stats(&submitted, &completed, &bo_bytes, &bo_count);
-        const double gpu_busy = span > last_span ? 100.0 * static_cast<double>(busy - last_busy) /
-                                                       static_cast<double>(span - last_span) : 0.0;
+        // (01.05) The driver's count (DolphinPS4's port/mesa/ac_ps4_drm.c, ac_ps4_get_gpu_busy: the union of each
+        // submission's GPU clock from its start to its end) can stand still while the GPU still finishes work: Midnight
+        // Club: L.A. Remix's "GPU busy 0%" from its second line on (00.23), PPSSPP's own timestamps 14-18 ms of each 30
+        // ms frame. Then "?" and the count's numbers, not a 0.
+        const bool counted = span > last_span && busy >= last_busy;
+        char gpu_busy[96];
+        if (counted)
+          snprintf(gpu_busy, sizeof(gpu_busy), "%.0f%%",
+                   100.0 * static_cast<double>(busy - last_busy) / static_cast<double>(span - last_span));
+        else if (completed > last_completed)
+          snprintf(gpu_busy, sizeof(gpu_busy), "? (the driver's count stood still: busy %llu, span %llu ticks)",
+                   static_cast<unsigned long long>(busy), static_cast<unsigned long long>(span));
+        else
+          snprintf(gpu_busy, sizeof(gpu_busy), "0%%");
         last_busy = busy;
         last_span = span;
+        last_completed = completed;
         // (And the regular flexible memory free: the trend up to any close of the app.)
         LogF("speed: %.1f FPS shown, %.0f%% of the game's speed; the core %.1f ms per frame (most %.1f) of %.1f; "
-             "drawing %.1f ms (%.1f of it waiting); CPU %d; GPU busy %.0f%%, %llu MiB, flexible %d MiB free",
+             "drawing %.1f ms (%.1f of it waiting); CPU %d; GPU busy %s, %llu MiB, flexible %d MiB free",
              stats.time10 > 0.0f ? stats.frames10 / stats.time10 : 0.0f,
              stats.time10 > 0.0f ? stats.emulated10 / stats.time10 / s_game_fps * 100.0 : 0.0,
              stats.core_runs ? stats.core_ms / stats.core_runs : 0.0, stats.core_max, 1000.0 / s_game_fps,
@@ -6482,9 +6908,9 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
         {
           // Whether the touchpad reaches the game at all (a player couldn't start a touch-screen game).
           LogF("input: touchpad (%s): %d frames with a finger, %d with the stylus down, %d taps in these 10 s; stylus "
-               "at %.0f,%.0f",
+               "at %.0f,%.0f%s",
                Settings::Get("nds_touch", game.key) == "touch" ? "direct" : "trackpad", s_touch_frames, s_tap_frames,
-               s_touch_taps, s_stylus.x, s_stylus.y);
+               s_touch_taps, s_stylus.x, s_stylus.y, RestingTouchNote().c_str());
           s_touch_frames = s_tap_frames = s_touch_taps = 0;
         }
         if (s_system == SystemId::THREEDS)
@@ -6494,12 +6920,13 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
           const std::string screens = Settings::Get("3ds_layout", game.key);
           const ThreedsPicture where = ThreedsLayout(s_3ds_scale);
           LogF("3ds: picture %ux%u (expected %ux%u), screens %s%s, touch screen at %.0f,%.0f %.0fx%.0f, %s 3DS at %dx; "
-               "touchpad (%s): %d frames with a finger, %d with the stylus down, %d taps in these 10 s; stylus at "
-               "%.0f,%.0f",
+               "touchpad (%s%s): %d frames with a finger, %d with the stylus down, %d taps in these 10 s; stylus at "
+               "%.0f,%.0f%s",
                s_frame_w, s_frame_h, where.w, where.h, screens.c_str(), s_r3_swap.load() ? " (R3: swapped)" : "",
                where.touch[0], where.touch[1], where.touch[2], where.touch[3], s_3ds_new == 1 ? "New" : "Old",
-               s_3ds_scale, Settings::Get("3ds_touch", game.key) == "touch" ? "direct" : "trackpad", s_touch_frames,
-               s_tap_frames, s_touch_taps, s_stylus.x, s_stylus.y);
+               s_3ds_scale, Settings::Get("3ds_touch", game.key) == "touch" ? "direct" : "trackpad",
+               Settings::Get("3ds_right_stick", game.key) == "stylus" ? ", the right stick the stylus" : "",
+               s_touch_frames, s_tap_frames, s_touch_taps, s_stylus.x, s_stylus.y, RestingTouchNote().c_str());
           s_touch_frames = s_tap_frames = s_touch_taps = 0;
         }
         // The GPU filter's own GPU time over the same 10 seconds (timestamps around its passes).
@@ -6519,6 +6946,15 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
       stats.draw_wait_ms += pass_draw_wait;
       stats.draw_ms += pass_draw_ms;
       stats.draws++;
+      // (01.06) Its work only: not its wait for the flip (V-Sync's, the GPU's), which a game at full speed spends there
+      // - a light 3DS game would have counted a refresh of drawing and gone heavy for nothing, a frame later.
+      const double draw_work = std::max(0.0, pass_draw_ms - pass_draw_wait);
+      draw_avg = draw_avg <= 0.0 ? draw_work : draw_avg * 0.9 + draw_work * 0.1;
+      // (01.06) The 3DS's worker after the frame's end (the handover): known in both modes, so the heavy mode comes
+      // and goes as before the handover. From 0, not from the first one: a first picture waiting for a pipeline
+      // (Luigi's Mansion: Dark Moon's on the PC, up to 0.9 s) isn't the game's pace.
+      if (pass_worker_ms >= 0.0)
+        worker_avg = worker_avg * 0.9 + pass_worker_ms * 0.1;
     }
     // ---- The start watchdog (src/StartGuard.h): the first picture, or none in the console's time ----
     // (00.23: online, the time waiting for the other console - the host's state, its inputs - isn't the game's.)
@@ -6592,6 +7028,8 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   s_audio = nullptr;
   audio.Stop();
   Upscaler::Stop();
+  if (emulation_arena)
+    ps4_heap_drop_arena();  // ((01.06) for the next 3DS game's; what it holds stays where it is until freed)
   std::vector<uint16_t>().swap(s_scaled);
   std::vector<uint16_t>().swap(s_converted);
   std::vector<uint16_t>().swap(s_rotated);

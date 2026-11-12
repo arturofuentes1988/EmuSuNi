@@ -18,6 +18,10 @@
 //   hack's name rated by one player would be some other game's closest name), on a thread of this module's (256 KiB of
 //   stack) that ends when the games are matched; an arcade, NAOMI or Atomiswave game by its set's name, else its
 //   parent's. A game of no line, or one LaunchBox's players didn't rate, has no stars.
+// - (01.18) The copy keeps each game's genres, most players and cooperative play too, read in the same pass over
+//   Metadata.xml (the games without a rating that have them as well: their own line, no stars), and the matching
+//   gives them with the stars. An arcade set without LaunchBox's genres gets its category's (xmb/ratings/
+//   arcade-genres.tsv, scripts/make-arcade-genres.py: catver.ini's categories), and the mark for adults.
 
 #pragma once
 
@@ -35,10 +39,22 @@
 
 namespace Ratings
 {
+// (01.18, the owner: the Library filtered by genre and by players) The genres a game can have: LaunchBox's 28, in
+// their English names (PS4Lang translates them); an arcade set's category is put into them too (MatchArcade).
+constexpr int GENRE_COUNT = 28;
+const char* GenreName(int genre);
+int GenreOf(const std::string& launchbox_name);  // -1: not one of them
+
 struct Rating
 {
   int half_stars = -1;  // 0 (no star) to 10 (five stars); -1: the game has none
   int votes = 0;        // how many players rated it
+  // (01.18) What LaunchBox says of the game too (in the copy with its rating, a game without one too): its genres (bit
+  // i: GenreName(i)), the most players at once (0: not known), cooperative play; for adults - an arcade set's category
+  // says so (LaunchBox marks none: an ESRB "AO" would). 8 bytes more a game.
+  uint32_t genres = 0;
+  uint8_t players = 0;
+  bool coop = false, adult = false;
 };
 
 // Where the ratings come from (Information says it).
@@ -55,10 +71,11 @@ struct Copy
   std::string date;   // the date of LaunchBox's data in it ("2026-10-22"), else empty
   int games = 0;      // its games
   std::string platforms;  // the LaunchBox platforms it was made for (00.80: "a|b|c"), else empty
+  bool meta = false;      // (01.18) the games' genres and players are in it (a copy before: none - downloaded again)
 };
 Copy ReadCopy(const std::string& data_dir);
-// No copy yet, one older than 60 days, or one made for fewer consoles (00.80: before the Sega CD and the 32X; a copy
-// made for more - 00.80's to 00.82's - is kept in 00.83).
+// No copy yet, one older than 60 days, one made for fewer consoles (00.80: before the Sega CD and the 32X; a copy made
+// for more - 00.80's to 00.82's - is kept in 00.83), or (01.18) one without the genres and players.
 bool CopyOld(const Copy& copy);
 // LaunchBox's Metadata.zip (its Metadata.xml, read as it is unpacked, a line at a time) into the copy at `path`: the
 // rated games of the app's consoles' platforms. False with *error (for the log) when the zip can't be read or holds

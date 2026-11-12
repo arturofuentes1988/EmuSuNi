@@ -118,6 +118,9 @@ struct Found
   std::array<std::vector<int>, SYSTEM_COUNT> found_in;         // how many games each of them gave
   std::array<int, SYSTEM_COUNT> counts{};                      // each console's games
   bool stopped = false;  // ScanProgress::stop ended the read before its end: these aren't all the games
+  // (01.06) Games' files their folders list but the drive says aren't there (left out): how many, the first.
+  int missing = 0;
+  std::string missing_first;
 };
 // ---- Big libraries (00.85) ----
 // What a read learns of a file by looking inside it - the console of a .zip's ROM, a CD track's data, a disc's console,

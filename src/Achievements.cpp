@@ -4236,6 +4236,37 @@ void SetLibrary(const std::vector<LibraryFile>& files)
   s_lib_wake.notify_all();
 }
 
+// (01.19, the owner: Delete Game deletes everything of the game) The files' hashes forgotten: the PS4's copy without
+// their lines, and the library's thread's own (it may not have read the copy yet: its copy then has none of them).
+void ForgetLibraryFiles(const std::vector<std::string>& paths)
+{
+  if (paths.empty())
+    return;
+  const std::set<std::string> gone(paths.begin(), paths.end());
+  {
+    std::lock_guard lock(s_mutex);
+    for (const std::string& path : gone)
+      s_lib_hashes.erase(path);
+  }
+  const std::string text = ReadTextFile(LibraryHashesFile());
+  if (text.empty())
+    return;
+  std::string kept;
+  int dropped = 0;
+  for (const std::string& line : Lines(text))
+  {
+    const size_t tab = line.rfind('\t');
+    if (!line.empty() && line[0] == 'H' && tab != std::string::npos && gone.count(line.substr(tab + 1)))
+    {
+      dropped++;
+      continue;
+    }
+    kept += line + "\n";
+  }
+  if (dropped > 0)
+    WriteTextFile(LibraryHashesFile(), kept);
+}
+
 void PauseLibrary(bool pause)
 {
   {

@@ -44,7 +44,8 @@
 #     .iso gets its sector size from what it holds (it was always read as 2352: such a game never started).
 #   - (00.81) A LibCrypt disc without its .sbi starts (the core refused it: the app could only say the
 #     game didn't load), logged for the app to tell the player; and each start logs the disc (or none:
-#     an image the core couldn't open boots the BIOS without one), its code, the BIOS and the CPU.
+#     an image the core couldn't open boots the BIOS without one), its code, the BIOS, the CPU and (01.04) the
+#     disc speed the player chose (reads and seeks: 1 is the console's own).
 #   - (00.89) Pauses as a game goes to a new scene (GitHub #1): the shader worker compiles only the game's texture
 #     filter and the depth tests it can use (not ~12000 pipelines), its pipelines are written to the cache file as
 #     soon as it is done (not only as the game ends), it and the disc's read thread get PS4 priorities and cores of
@@ -601,11 +602,13 @@ patch('src/libretro/libretro_host_interface.cpp',
       '  if (!BootSystem(std::move(bp)))\n'
       '    return false;\n'
       '#ifdef EMUSUNI_PORT\n'
-      '  Log_InfoPrintf("EmuSuNi: disc %s, code \'%s\', BIOS %s, CPU %s", System::HasMedia() ? "in" : "NONE",\n'
-      '                 System::GetRunningCode().c_str(),\n'
+      '  Log_InfoPrintf("EmuSuNi: disc %s, code \'%s\', BIOS %s, CPU %s, disc reads x%u, seeks x%u (1: as the console)",\n'
+      '                 System::HasMedia() ? "in" : "NONE", System::GetRunningCode().c_str(),\n'
       '                 std::memcmp(Bus::g_bios + 0x78, "OpenBIOS", 8) == 0 ? "OpenBIOS (built in: no BIOS file found)" :\n'
       '                                                                      "from a BIOS file",\n'
-      '                 Settings::GetCPUExecutionModeName(g_settings.cpu_execution_mode));\n'
+      '                 Settings::GetCPUExecutionModeName(g_settings.cpu_execution_mode),\n'
+      '                 static_cast<unsigned>(g_settings.cdrom_read_speedup),\n'
+      '                 static_cast<unsigned>(g_settings.cdrom_seek_speedup));\n'
       '#endif\n')
 
 # --- (00.89) Pauses of seconds as a PlayStation game goes from one scene to the next (Bust a Groove after Fever Time,

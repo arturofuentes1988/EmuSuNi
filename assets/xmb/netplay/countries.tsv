@@ -1,0 +1,301 @@
+# The countries' names (ISO 3166-1 alpha-2) in EmuSuNi's languages, from the Unicode CLDR (cldr-json's cldr-localenames-full 46.0.0) - scripts/make-countries.py. A tab between columns.
+#
+# UNICODE LICENSE V3
+#
+# COPYRIGHT AND PERMISSION NOTICE
+#
+# Copyright © 2004-2024 Unicode, Inc.
+#
+# NOTICE TO USER: Carefully read the following legal agreement. BY
+# DOWNLOADING, INSTALLING, COPYING OR OTHERWISE USING DATA FILES, AND/OR
+# SOFTWARE, YOU UNEQUIVOCALLY ACCEPT, AND AGREE TO BE BOUND BY, ALL OF THE
+# TERMS AND CONDITIONS OF THIS AGREEMENT. IF YOU DO NOT AGREE, DO NOT
+# DOWNLOAD, INSTALL, COPY, DISTRIBUTE OR USE THE DATA FILES OR SOFTWARE.
+#
+# Permission is hereby granted, free of charge, to any person obtaining a
+# copy of data files and any associated documentation (the "Data Files") or
+# software and any associated documentation (the "Software") to deal in the
+# Data Files or Software without restriction, including without limitation
+# the rights to use, copy, modify, merge, publish, distribute, and/or sell
+# copies of the Data Files or Software, and to permit persons to whom the
+# Data Files or Software are furnished to do so, provided that either (a)
+# this copyright and permission notice appear with all copies of the Data
+# Files or Software, or (b) this copyright and permission notice appear in
+# associated Documentation.
+#
+# THE DATA FILES AND SOFTWARE ARE PROVIDED "AS IS", WITHOUT WARRANTY OF ANY
+# KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT OF
+# THIRD PARTY RIGHTS.
+#
+# IN NO EVENT SHALL THE COPYRIGHT HOLDER OR HOLDERS INCLUDED IN THIS NOTICE
+# BE LIABLE FOR ANY CLAIM, OR ANY SPECIAL INDIRECT OR CONSEQUENTIAL DAMAGES,
+# OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+# WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+# ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THE DATA
+# FILES OR SOFTWARE.
+#
+# Except as contained in this notice, the name of a copyright holder shall
+# not be used in advertising or otherwise to promote the sale, use or other
+# dealings in these Data Files or Software without prior written
+# authorization of the copyright holder.
+#
+# SPDX-License-Identifier: Unicode-3.0
+code	en	es	fr	de	it	pt	nl	pl	tr	ru	ja	zh	ko
+AC	Ascension Island	Isla de la Ascensión	Île de l’Ascension	Ascension	Isola Ascensione	Ilha de Ascensão	Ascension	Wyspa Wniebowstąpienia	Ascension Adası	о-в Вознесения	Ascension Island	Ascension Island	Ascension Island
+AD	Andorra	Andorra	Andorre	Andorra	Andorra	Andorra	Andorra	Andora	Andorra	Андорра	アンドラ	Andorra	안도라
+AE	United Arab Emirates	Emiratos Árabes Unidos	Émirats arabes unis	Vereinigte Arabische Emirate	Emirati Arabi Uniti	Emirados Árabes Unidos	Verenigde Arabische Emiraten	Zjednoczone Emiraty Arabskie	Birleşik Arap Emirlikleri	ОАЭ	United Arab Emirates	United Arab Emirates	United Arab Emirates
+AF	Afghanistan	Afganistán	Afghanistan	Afghanistan	Afghanistan	Afeganistão	Afghanistan	Afganistan	Afganistan	Афганистан	アフガニスタン	Afghanistan	Afghanistan
+AG	Antigua & Barbuda	Antigua y Barbuda	Antigua-et-Barbuda	Antigua und Barbuda	Antigua e Barbuda	Antígua e Barbuda	Antigua en Barbuda	Antigua i Barbuda	Antigua ve Barbuda	Антигуа и Барбуда	アンティグア・バーブーダ	Antigua & Barbuda	Antigua & Barbuda
+AI	Anguilla	Anguila	Anguilla	Anguilla	Anguilla	Anguila	Anguilla	Anguilla	Anguilla	Ангилья	アンギラ	Anguilla	Anguilla
+AL	Albania	Albania	Albanie	Albanien	Albania	Albânia	Albanië	Albania	Arnavutluk	Албания	アルバニア	Albania	Albania
+AM	Armenia	Armenia	Arménie	Armenien	Armenia	Armênia	Armenië	Armenia	Ermenistan	Армения	アルメニア	Armenia	아르메니아
+AO	Angola	Angola	Angola	Angola	Angola	Angola	Angola	Angola	Angola	Ангола	アンゴラ	Angola	Angola
+AQ	Antarctica	Antártida	Antarctique	Antarktis	Antartide	Antártida	Antarctica	Antarktyda	Antarktika	Антарктида	Antarctica	Antarctica	Antarctica
+AR	Argentina	Argentina	Argentine	Argentinien	Argentina	Argentina	Argentinië	Argentyna	Arjantin	Аргентина	アルゼンチン	Argentina	Argentina
+AS	American Samoa	Samoa Americana	Samoa américaines	Amerikanisch-Samoa	Samoa Americane	Samoa Americana	Amerikaans-Samoa	Samoa Amerykańskie	Amerikan Samoası	Американское Самоа	American Samoa	American Samoa	American Samoa
+AT	Austria	Austria	Autriche	Österreich	Austria	Áustria	Oostenrijk	Austria	Avusturya	Австрия	オーストリア	Austria	오스트리아
+AU	Australia	Australia	Australie	Australien	Australia	Austrália	Australië	Australia	Avustralya	Австралия	オーストラリア	Australia	오스트레일리아
+AW	Aruba	Aruba	Aruba	Aruba	Aruba	Aruba	Aruba	Aruba	Aruba	Аруба	アルバ	Aruba	아루바
+AX	Åland Islands	Islas Aland	Îles Åland	Ålandinseln	Isole Åland	Ilhas Aland	Åland	Wyspy Alandzkie	Åland Adaları	Аландские о-ва	Åland Islands	Åland Islands	Åland Islands
+AZ	Azerbaijan	Azerbaiyán	Azerbaïdjan	Aserbaidschan	Azerbaigian	Azerbaijão	Azerbeidzjan	Azerbejdżan	Azerbaycan	Азербайджан	アゼルバイジャン	Azerbaijan	Azerbaijan
+BA	Bosnia & Herzegovina	Bosnia y Herzegovina	Bosnie-Herzégovine	Bosnien und Herzegowina	Bosnia ed Erzegovina	Bósnia e Herzegovina	Bosnië en Herzegovina	Bośnia i Hercegowina	Bosna-Hersek	Босния и Герцеговина	ボスニア・ヘルツェゴビナ	Bosnia & Herzegovina	Bosnia & Herzegovina
+BB	Barbados	Barbados	Barbade	Barbados	Barbados	Barbados	Barbados	Barbados	Barbados	Барбадос	バルバドス	Barbados	바베이도스
+BD	Bangladesh	Bangladés	Bangladesh	Bangladesch	Bangladesh	Bangladesh	Bangladesh	Bangladesz	Bangladeş	Бангладеш	バングラデシュ	Bangladesh	방글라데시
+BE	Belgium	Bélgica	Belgique	Belgien	Belgio	Bélgica	België	Belgia	Belçika	Бельгия	ベルギー	比利时	Belgium
+BF	Burkina Faso	Burkina Faso	Burkina Faso	Burkina Faso	Burkina Faso	Burquina Faso	Burkina Faso	Burkina Faso	Burkina Faso	Буркина-Фасо	ブルキナファソ	Burkina Faso	부르키나파소
+BG	Bulgaria	Bulgaria	Bulgarie	Bulgarien	Bulgaria	Bulgária	Bulgarije	Bułgaria	Bulgaristan	Болгария	ブルガリア	Bulgaria	불가리아
+BH	Bahrain	Baréin	Bahreïn	Bahrain	Bahrein	Barein	Bahrein	Bahrajn	Bahreyn	Бахрейн	バーレーン	Bahrain	바레인
+BI	Burundi	Burundi	Burundi	Burundi	Burundi	Burundi	Burundi	Burundi	Burundi	Бурунди	ブルンジ	Burundi	Burundi
+BJ	Benin	Benín	Bénin	Benin	Benin	Benin	Benin	Benin	Benin	Бенин	ベナン	Benin	Benin
+BL	St. Barthélemy	San Bartolomé	Saint-Barthélemy	St. Barthélemy	Saint-Barthélemy	São Bartolomeu	Saint-Barthélemy	Saint-Barthélemy	Saint Barthelemy	Сен-Бартелеми	サン・バルテルミー	St. Barthélemy	St. Barthélemy
+BM	Bermuda	Bermudas	Bermudes	Bermuda	Bermuda	Bermudas	Bermuda	Bermudy	Bermuda	Бермудские о-ва	バミューダ	Bermuda	Bermuda
+BN	Brunei	Brunéi	Brunei	Brunei Darussalam	Brunei	Brunei	Brunei	Brunei	Brunei	Бруней	ブルネイ	Brunei	브루나이
+BO	Bolivia	Bolivia	Bolivie	Bolivien	Bolivia	Bolívia	Bolivia	Boliwia	Bolivya	Боливия	ボリビア	Bolivia	Bolivia
+BQ	Caribbean Netherlands	Caribe neerlandés	Pays-Bas caribéens	Karibische Niederlande	Caraibi Olandesi	Países Baixos Caribenhos	Caribisch Nederland	Niderlandy Karaibskie	Karayip Hollandası	Бонэйр, Синт-Эстатиус и Саба	Caribbean Netherlands	Caribbean Netherlands	Caribbean Netherlands
+BR	Brazil	Brasil	Brésil	Brasilien	Brasile	Brasil	Brazilië	Brazylia	Brezilya	Бразилия	ブラジル	Brazil	Brazil
+BS	Bahamas	Bahamas	Bahamas	Bahamas	Bahamas	Bahamas	Bahama’s	Bahamy	Bahamalar	Багамы	バハマ	Bahamas	바하마
+BT	Bhutan	Bután	Bhoutan	Bhutan	Bhutan	Butão	Bhutan	Bhutan	Butan	Бутан	ブータン	Bhutan	Bhutan
+BV	Bouvet Island	Isla Bouvet	Île Bouvet	Bouvetinsel	Isola Bouvet	Ilha Bouvet	Bouveteiland	Wyspa Bouveta	Bouvet Adası	о-в Буве	Bouvet Island	Bouvet Island	Bouvet Island
+BW	Botswana	Botsuana	Botswana	Botsuana	Botswana	Botsuana	Botswana	Botswana	Botsvana	Ботсвана	ボツワナ	Botswana	Botswana
+BY	Belarus	Bielorrusia	Biélorussie	Belarus	Bielorussia	Bielorrússia	Belarus	Białoruś	Belarus	Беларусь	ベラルーシ	Belarus	Belarus
+BZ	Belize	Belice	Belize	Belize	Belize	Belize	Belize	Belize	Belize	Белиз	ベリーズ	Belize	Belize
+CA	Canada	Canadá	Canada	Kanada	Canada	Canadá	Canada	Kanada	Kanada	Канада	カナダ	Canada	Canada
+CC	Cocos (Keeling) Islands	Islas Cocos	Îles Cocos	Kokosinseln	Isole Cocos (Keeling)	Ilhas Cocos (Keeling)	Cocoseilanden	Wyspy Kokosowe	Cocos (Keeling) Adaları	Кокосовые о-ва	Cocos (Keeling) Islands	Cocos (Keeling) Islands	코코스 제도
+CD	Congo - Kinshasa	República Democrática del Congo	Congo-Kinshasa	Kongo-Kinshasa	Congo - Kinshasa	Congo - Kinshasa	Congo-Kinshasa	Demokratyczna Republika Konga	Kongo - Kinşasa	Конго - Киншаса	Congo - Kinshasa	刚果（金）	Congo - Kinshasa
+CF	Central African Republic	República Centroafricana	République centrafricaine	Zentralafrikanische Republik	Repubblica Centrafricana	República Centro-Africana	Centraal-Afrikaanse Republiek	Republika Środkowoafrykańska	Orta Afrika Cumhuriyeti	Центрально-Африканская Республика	Central African Republic	Central African Republic	Central African Republic
+CG	Congo - Brazzaville	Congo	Congo-Brazzaville	Kongo-Brazzaville	Congo-Brazzaville	República do Congo	Congo-Brazzaville	Kongo	Kongo - Brazavil	Конго - Браззавиль	Congo - Brazzaville	刚果（布）	Congo - Brazzaville
+CH	Switzerland	Suiza	Suisse	Schweiz	Svizzera	Suíça	Zwitserland	Szwajcaria	İsviçre	Швейцария	スイス	Switzerland	스위스
+CI	Côte d’Ivoire	Côte d’Ivoire	Côte d’Ivoire	Côte d’Ivoire	Costa d’Avorio	Costa do Marfim	Ivoorkust	Côte d’Ivoire	Côte d’Ivoire	Кот-д’Ивуар	コートジボワール	Côte d’Ivoire	코트디부아르
+CK	Cook Islands	Islas Cook	Îles Cook	Cookinseln	Isole Cook	Ilhas Cook	Cookeilanden	Wyspy Cooka	Cook Adaları	о-ва Кука	Cook Islands	Cook Islands	Cook Islands
+CL	Chile	Chile	Chili	Chile	Cile	Chile	Chili	Chile	Şili	Чили	チリ	Chile	Chile
+CM	Cameroon	Camerún	Cameroun	Kamerun	Camerun	Camarões	Kameroen	Kamerun	Kamerun	Камерун	カメルーン	Cameroon	Cameroon
+CN	China	China	Chine	China	Cina	China	China	Chiny	Çin	Китай	China	China	중국
+CO	Colombia	Colombia	Colombie	Kolumbien	Colombia	Colômbia	Colombia	Kolumbia	Kolombiya	Колумбия	コロンビア	Colombia	Colombia
+CP	Clipperton Island	Isla Clipperton	Île Clipperton	Clipperton-Insel	Isola di Clipperton	Ilha de Clipperton	Clipperton	Wyspa Clippertona	Clipperton Adası	о-в Клиппертон	Clipperton Island	Clipperton Island	Clipperton Island
+CQ	Sark	Sark	Sark	Sark	Sark	Sark	Sark	Sark	Sark	Sark	Sark	Sark	Sark
+CR	Costa Rica	Costa Rica	Costa Rica	Costa Rica	Costa Rica	Costa Rica	Costa Rica	Kostaryka	Kosta Rika	Коста-Рика	コスタリカ	Costa Rica	코스타리카
+CU	Cuba	Cuba	Cuba	Kuba	Cuba	Cuba	Cuba	Kuba	Küba	Куба	キューバ	Cuba	Cuba
+CV	Cape Verde	Cabo Verde	Cap-Vert	Cabo Verde	Capo Verde	Cabo Verde	Kaapverdië	Republika Zielonego Przylądka	Cabo Verde	Кабо-Верде	カーボベルデ	Cape Verde	카보베르데
+CW	Curaçao	Curazao	Curaçao	Curaçao	Curaçao	Curaçao	Curaçao	Curaçao	Curaçao	Кюрасао	キュラソー	Curaçao	Curaçao
+CX	Christmas Island	Isla de Navidad	Île Christmas	Weihnachtsinsel	Isola Christmas	Ilha Christmas	Christmaseiland	Wyspa Bożego Narodzenia	Christmas Adası	о-в Рождества	Christmas Island	Christmas Island	Christmas Island
+CY	Cyprus	Chipre	Chypre	Zypern	Cipro	Chipre	Cyprus	Cypr	Kıbrıs	Кипр	キプロス	Cyprus	키프로스
+CZ	Czechia	Chequia	Tchéquie	Tschechien	Cechia	Tchéquia	Tsjechië	Czechy	Çekya	Чехия	チェコ	Czechia	체코
+DE	Germany	Alemania	Allemagne	Deutschland	Germania	Alemanha	Duitsland	Niemcy	Almanya	Германия	ドイツ	Germany	Germany
+DG	Diego Garcia	Diego García	Diego Garcia	Diego Garcia	Diego Garcia	Diego Garcia	Diego Garcia	Diego Garcia	Diego Garcia	Диего-Гарсия	Diego Garcia	Diego Garcia	디에고 가르시아
+DJ	Djibouti	Yibuti	Djibouti	Dschibuti	Gibuti	Djibuti	Djibouti	Dżibuti	Cibuti	Джибути	ジブチ	Djibouti	지부티
+DK	Denmark	Dinamarca	Danemark	Dänemark	Danimarca	Dinamarca	Denemarken	Dania	Danimarka	Дания	デンマーク	Denmark	Denmark
+DM	Dominica	Dominica	Dominique	Dominica	Dominica	Dominica	Dominica	Dominika	Dominika	Доминика	Dominica	Dominica	도미니카
+DO	Dominican Republic	República Dominicana	République dominicaine	Dominikanische Republik	Repubblica Dominicana	República Dominicana	Dominicaanse Republiek	Dominikana	Dominik Cumhuriyeti	Доминиканская Республика	Dominican Republic	Dominican Republic	도미니카 공화국
+DZ	Algeria	Argelia	Algérie	Algerien	Algeria	Argélia	Algerije	Algieria	Cezayir	Алжир	アルジェリア	Algeria	Algeria
+EA	Ceuta & Melilla	Ceuta y Melilla	Ceuta et Melilla	Ceuta und Melilla	Ceuta e Melilla	Ceuta e Melilla	Ceuta en Melilla	Ceuta i Melilla	Ceuta ve Melilla	Сеута и Мелилья	セウタ・メリリャ	Ceuta & Melilla	Ceuta & Melilla
+EC	Ecuador	Ecuador	Équateur	Ecuador	Ecuador	Equador	Ecuador	Ekwador	Ekvador	Эквадор	エクアドル	Ecuador	Ecuador
+EE	Estonia	Estonia	Estonie	Estland	Estonia	Estônia	Estland	Estonia	Estonya	Эстония	エストニア	Estonia	Estonia
+EG	Egypt	Egipto	Égypte	Ägypten	Egitto	Egito	Egypte	Egipt	Mısır	Египет	エジプト	Egypt	이집트
+EH	Western Sahara	Sáhara Occidental	Sahara occidental	Westsahara	Sahara Occidentale	Saara Ocidental	Westelijke Sahara	Sahara Zachodnia	Batı Sahra	Западная Сахара	Western Sahara	Western Sahara	서사하라
+ER	Eritrea	Eritrea	Érythrée	Eritrea	Eritrea	Eritreia	Eritrea	Erytrea	Eritre	Эритрея	エリトリア	Eritrea	에리트리아
+ES	Spain	España	Espagne	Spanien	Spagna	Espanha	Spanje	Hiszpania	İspanya	Испания	スペイン	Spain	Spain
+ET	Ethiopia	Etiopía	Éthiopie	Äthiopien	Etiopia	Etiópia	Ethiopië	Etiopia	Etiyopya	Эфиопия	エチオピア	Ethiopia	Ethiopia
+FI	Finland	Finlandia	Finlande	Finnland	Finlandia	Finlândia	Finland	Finlandia	Finlandiya	Финляндия	フィンランド	Finland	Finland
+FJ	Fiji	Fiyi	Fidji	Fidschi	Figi	Fiji	Fiji	Fidżi	Fiji	Фиджи	フィジー	Fiji	Fiji
+FK	Falkland Islands	Islas Malvinas	Îles Malouines	Falklandinseln	Isole Falkland	Ilhas Malvinas	Falklandeilanden	Falklandy	Falkland Adaları	Фолклендские о-ва	Falkland Islands	Falkland Islands	Falkland Islands
+FM	Micronesia	Micronesia	Micronésie	Mikronesien	Micronesia	Micronésia	Micronesia	Mikronezja	Mikronezya	Федеративные Штаты Микронезии	Micronesia	Micronesia	미크로네시아
+FO	Faroe Islands	Islas Feroe	Îles Féroé	Färöer	Isole Fær Øer	Ilhas Faroé	Faeröer	Wyspy Owcze	Faroe Adaları	Фарерские о-ва	Faroe Islands	Faroe Islands	Faroe Islands
+FR	France	Francia	France	Frankreich	Francia	França	Frankrijk	Francja	Fransa	Франция	フランス	France	France
+GA	Gabon	Gabón	Gabon	Gabun	Gabon	Gabão	Gabon	Gabon	Gabon	Габон	ガボン	Gabon	Gabon
+GB	United Kingdom	Reino Unido	Royaume-Uni	Vereinigtes Königreich	Regno Unito	Reino Unido	Verenigd Koninkrijk	Wielka Brytania	Birleşik Krallık	Великобритания	イギリス	United Kingdom	영국
+GD	Grenada	Granada	Grenade	Grenada	Grenada	Granada	Grenada	Grenada	Grenada	Гренада	グレナダ	Grenada	그레나다
+GE	Georgia	Georgia	Géorgie	Georgien	Georgia	Geórgia	Georgië	Gruzja	Gürcistan	Грузия	ジョージア	Georgia	조지아
+GF	French Guiana	Guayana Francesa	Guyane française	Französisch-Guayana	Guyana Francese	Guiana Francesa	Frans-Guyana	Gujana Francuska	Fransız Guyanası	Французская Гвиана	French Guiana	French Guiana	French Guiana
+GG	Guernsey	Guernesey	Guernesey	Guernsey	Guernsey	Guernsey	Guernsey	Guernsey	Guernsey	Гернси	ガーンジー	Guernsey	Guernsey
+GH	Ghana	Ghana	Ghana	Ghana	Ghana	Gana	Ghana	Ghana	Gana	Гана	ガーナ	Ghana	가나
+GI	Gibraltar	Gibraltar	Gibraltar	Gibraltar	Gibilterra	Gibraltar	Gibraltar	Gibraltar	Cebelitarık	Гибралтар	ジブラルタル	Gibraltar	지브롤터
+GL	Greenland	Groenlandia	Groenland	Grönland	Groenlandia	Groenlândia	Groenland	Grenlandia	Grönland	Гренландия	グリーンランド	Greenland	Greenland
+GM	Gambia	Gambia	Gambie	Gambia	Gambia	Gâmbia	Gambia	Gambia	Gambiya	Гамбия	ガンビア	Gambia	Gambia
+GN	Guinea	Guinea	Guinée	Guinea	Guinea	Guiné	Guinee	Gwinea	Gine	Гвинея	ギニア	Guinea	기니
+GP	Guadeloupe	Guadalupe	Guadeloupe	Guadeloupe	Guadalupa	Guadalupe	Guadeloupe	Gwadelupa	Guadeloupe	Гваделупа	グアドループ	Guadeloupe	과들루프
+GQ	Equatorial Guinea	Guinea Ecuatorial	Guinée équatoriale	Äquatorialguinea	Guinea Equatoriale	Guiné Equatorial	Equatoriaal-Guinea	Gwinea Równikowa	Ekvator Ginesi	Экваториальная Гвинея	Equatorial Guinea	Equatorial Guinea	적도 기니
+GR	Greece	Grecia	Grèce	Griechenland	Grecia	Grécia	Griekenland	Grecja	Yunanistan	Греция	ギリシャ	Greece	그리스
+GS	South Georgia & South Sandwich Islands	Islas Georgia del Sur y Sandwich del Sur	Géorgie du Sud-et-les Îles Sandwich du Sud	Südgeorgien und die Südlichen Sandwichinseln	Georgia del Sud e Sandwich Australi	Ilhas Geórgia do Sul e Sandwich do Sul	Zuid-Georgia en Zuidelijke Sandwicheilanden	Georgia Południowa i Sandwich Południowy	Güney Georgia ve Güney Sandwich Adaları	Южная Георгия и Южные Сандвичевы о-ва	South Georgia & South Sandwich Islands	South Georgia & South Sandwich Islands	South Georgia & South Sandwich Islands
+GT	Guatemala	Guatemala	Guatemala	Guatemala	Guatemala	Guatemala	Guatemala	Gwatemala	Guatemala	Гватемала	グアテマラ	Guatemala	Guatemala
+GU	Guam	Guam	Guam	Guam	Guam	Guam	Guam	Guam	Guam	Гуам	グアム	Guam	Guam
+GW	Guinea-Bissau	Guinea-Bisáu	Guinée-Bissau	Guinea-Bissau	Guinea-Bissau	Guiné-Bissau	Guinee-Bissau	Gwinea Bissau	Gine-Bissau	Гвинея-Бисау	ギニアビサウ	Guinea-Bissau	기니비사우
+GY	Guyana	Guyana	Guyana	Guyana	Guyana	Guiana	Guyana	Gujana	Guyana	Гайана	ガイアナ	Guyana	가이아나
+HK	Hong Kong SAR China	RAE de Hong Kong (China)	R.A.S. chinoise de Hong Kong	Sonderverwaltungsregion Hongkong	RAS di Hong Kong	Hong Kong, RAE da China	Hongkong SAR van China	SRA Hongkong (Chiny)	Çin Hong Kong ÖİB	Гонконг (САР)	Hong Kong SAR China	Hong Kong SAR China	Hong Kong SAR China
+HM	Heard & McDonald Islands	Islas Heard y McDonald	Îles Heard-et-MacDonald	Heard und McDonaldinseln	Isole Heard e McDonald	Ilhas Heard e McDonald	Heard en McDonaldeilanden	Wyspy Heard i McDonalda	Heard Adası ve McDonald Adaları	о-ва Херд и Макдональд	Heard & McDonald Islands	Heard & McDonald Islands	Heard & McDonald Islands
+HN	Honduras	Honduras	Honduras	Honduras	Honduras	Honduras	Honduras	Honduras	Honduras	Гондурас	ホンジュラス	Honduras	온두라스
+HR	Croatia	Croacia	Croatie	Kroatien	Croazia	Croácia	Kroatië	Chorwacja	Hırvatistan	Хорватия	クロアチア	Croatia	크로아티아
+HT	Haiti	Haití	Haïti	Haiti	Haiti	Haiti	Haïti	Haiti	Haiti	Гаити	ハイチ	Haiti	아이티
+HU	Hungary	Hungría	Hongrie	Ungarn	Ungheria	Hungria	Hongarije	Węgry	Macaristan	Венгрия	ハンガリー	Hungary	Hungary
+IC	Canary Islands	Canarias	Îles Canaries	Kanarische Inseln	Isole Canarie	Ilhas Canárias	Canarische Eilanden	Wyspy Kanaryjskie	Kanarya Adaları	Канарские о-ва	Canary Islands	Canary Islands	카나리아 제도
+ID	Indonesia	Indonesia	Indonésie	Indonesien	Indonesia	Indonésia	Indonesië	Indonezja	Endonezya	Индонезия	インドネシア	Indonesia	인도네시아
+IE	Ireland	Irlanda	Irlande	Irland	Irlanda	Irlanda	Ierland	Irlandia	İrlanda	Ирландия	アイルランド	Ireland	Ireland
+IL	Israel	Israel	Israël	Israel	Israele	Israel	Israël	Izrael	İsrail	Израиль	イスラエル	以色列	Israel
+IM	Isle of Man	Isla de Man	Île de Man	Isle of Man	Isola di Man	Ilha de Man	Isle of Man	Wyspa Man	Man Adası	о-в Мэн	Isle of Man	Isle of Man	Isle of Man
+IN	India	India	Inde	Indien	India	Índia	India	Indie	Hindistan	Индия	インド	India	인도
+IO	British Indian Ocean Territory	Territorio Británico del Océano Índico	Territoire britannique de l’océan Indien	Britisches Territorium im Indischen Ozean	Territorio Britannico dell’Oceano Indiano	Território Britânico do Oceano Índico	Brits Indische Oceaanterritorium	Brytyjskie Terytorium Oceanu Indyjskiego	Britanya Hint Okyanusu Toprakları	Британская территория в Индийском океане	British Indian Ocean Territory	British Indian Ocean Territory	British Indian Ocean Territory
+IQ	Iraq	Irak	Irak	Irak	Iraq	Iraque	Irak	Irak	Irak	Ирак	イラク	Iraq	이라크
+IR	Iran	Irán	Iran	Iran	Iran	Irã	Iran	Iran	İran	Иран	イラン	Iran	Iran
+IS	Iceland	Islandia	Islande	Island	Islanda	Islândia	IJsland	Islandia	İzlanda	Исландия	アイスランド	Iceland	Iceland
+IT	Italy	Italia	Italie	Italien	Italia	Itália	Italië	Włochy	İtalya	Италия	イタリア	Italy	Italy
+JE	Jersey	Jersey	Jersey	Jersey	Jersey	Jersey	Jersey	Jersey	Jersey	Джерси	ジャージー	Jersey	저지
+JM	Jamaica	Jamaica	Jamaïque	Jamaika	Giamaica	Jamaica	Jamaica	Jamajka	Jamaika	Ямайка	ジャマイカ	Jamaica	자메이카
+JO	Jordan	Jordania	Jordanie	Jordanien	Giordania	Jordânia	Jordanië	Jordania	Ürdün	Иордания	ヨルダン	Jordan	요르단
+JP	Japan	Japón	Japon	Japan	Giappone	Japão	Japan	Japonia	Japonya	Япония	日本	日本	일본
+KE	Kenya	Kenia	Kenya	Kenia	Kenya	Quênia	Kenia	Kenia	Kenya	Кения	ケニア	Kenya	Kenya
+KG	Kyrgyzstan	Kirguistán	Kirghizstan	Kirgisistan	Kirghizistan	Quirguistão	Kirgizië	Kirgistan	Kırgızistan	Киргизия	キルギス	Kyrgyzstan	Kyrgyzstan
+KH	Cambodia	Camboya	Cambodge	Kambodscha	Cambogia	Camboja	Cambodja	Kambodża	Kamboçya	Камбоджа	カンボジア	Cambodia	Cambodia
+KI	Kiribati	Kiribati	Kiribati	Kiribati	Kiribati	Quiribati	Kiribati	Kiribati	Kiribati	Кирибати	キリバス	Kiribati	키리바시
+KM	Comoros	Comoras	Comores	Komoren	Comore	Comores	Comoren	Komory	Komorlar	Коморы	コモロ	Comoros	코모로
+KN	St. Kitts & Nevis	San Cristóbal y Nieves	Saint-Christophe-et-Niévès	St. Kitts und Nevis	Saint Kitts e Nevis	São Cristóvão e Névis	Saint Kitts en Nevis	Saint Kitts i Nevis	Saint Kitts ve Nevis	Сент-Китс и Невис	セントクリストファー・ネーヴィス	St. Kitts & Nevis	St. Kitts & Nevis
+KP	North Korea	Corea del Norte	Corée du Nord	Nordkorea	Corea del Nord	Coreia do Norte	Noord-Korea	Korea Północna	Kuzey Kore	КНДР	North Korea	North Korea	North Korea
+KR	South Korea	Corea del Sur	Corée du Sud	Südkorea	Corea del Sud	Coreia do Sul	Zuid-Korea	Korea Południowa	Güney Kore	Республика Корея	South Korea	South Korea	South Korea
+KW	Kuwait	Kuwait	Koweït	Kuwait	Kuwait	Kuwait	Koeweit	Kuwejt	Kuveyt	Кувейт	クウェート	Kuwait	Kuwait
+KY	Cayman Islands	Islas Caimán	Îles Caïmans	Kaimaninseln	Isole Cayman	Ilhas Cayman	Kaaimaneilanden	Kajmany	Cayman Adaları	о-ва Кайман	Cayman Islands	Cayman Islands	Cayman Islands
+KZ	Kazakhstan	Kazajistán	Kazakhstan	Kasachstan	Kazakistan	Cazaquistão	Kazachstan	Kazachstan	Kazakistan	Казахстан	カザフスタン	Kazakhstan	Kazakhstan
+LA	Laos	Laos	Laos	Laos	Laos	Laos	Laos	Laos	Laos	Лаос	ラオス	Laos	라오스
+LB	Lebanon	Líbano	Liban	Libanon	Libano	Líbano	Libanon	Liban	Lübnan	Ливан	レバノン	Lebanon	Lebanon
+LC	St. Lucia	Santa Lucía	Sainte-Lucie	St. Lucia	Saint Lucia	Santa Lúcia	Saint Lucia	Saint Lucia	Saint Lucia	Сент-Люсия	セントルシア	St. Lucia	세인트루시아
+LI	Liechtenstein	Liechtenstein	Liechtenstein	Liechtenstein	Liechtenstein	Liechtenstein	Liechtenstein	Liechtenstein	Liechtenstein	Лихтенштейн	リヒテンシュタイン	Liechtenstein	Liechtenstein
+LK	Sri Lanka	Sri Lanka	Sri Lanka	Sri Lanka	Sri Lanka	Sri Lanka	Sri Lanka	Sri Lanka	Sri Lanka	Шри-Ланка	スリランカ	Sri Lanka	Sri Lanka
+LR	Liberia	Liberia	Liberia	Liberia	Liberia	Libéria	Liberia	Liberia	Liberya	Либерия	リベリア	Liberia	라이베리아
+LS	Lesotho	Lesoto	Lesotho	Lesotho	Lesotho	Lesoto	Lesotho	Lesotho	Lesotho	Лесото	レソト	Lesotho	Lesotho
+LT	Lithuania	Lituania	Lituanie	Litauen	Lituania	Lituânia	Litouwen	Litwa	Litvanya	Литва	リトアニア	Lithuania	Lithuania
+LU	Luxembourg	Luxemburgo	Luxembourg	Luxemburg	Lussemburgo	Luxemburgo	Luxemburg	Luksemburg	Lüksemburg	Люксембург	ルクセンブルク	Luxembourg	Luxembourg
+LV	Latvia	Letonia	Lettonie	Lettland	Lettonia	Letônia	Letland	Łotwa	Letonya	Латвия	ラトビア	Latvia	라트비아
+LY	Libya	Libia	Libye	Libyen	Libia	Líbia	Libië	Libia	Libya	Ливия	リビア	Libya	리비아
+MA	Morocco	Marruecos	Maroc	Marokko	Marocco	Marrocos	Marokko	Maroko	Fas	Марокко	モロッコ	Morocco	모로코
+MC	Monaco	Mónaco	Monaco	Monaco	Monaco	Mônaco	Monaco	Monako	Monako	Монако	モナコ	Monaco	모나코
+MD	Moldova	Moldavia	Moldavie	Republik Moldau	Moldavia	Moldávia	Moldavië	Mołdawia	Moldova	Молдова	モルドバ	Moldova	Moldova
+ME	Montenegro	Montenegro	Monténégro	Montenegro	Montenegro	Montenegro	Montenegro	Czarnogóra	Karadağ	Черногория	モンテネグロ	Montenegro	Montenegro
+MF	St. Martin	San Martín	Saint-Martin	St. Martin	Saint Martin	São Martinho	Saint-Martin	Saint-Martin	Saint Martin	Сен-Мартен	サン・マルタン	St. Martin	St. Martin
+MG	Madagascar	Madagascar	Madagascar	Madagaskar	Madagascar	Madagascar	Madagaskar	Madagaskar	Madagaskar	Мадагаскар	マダガスカル	Madagascar	마다가스카르
+MH	Marshall Islands	Islas Marshall	Îles Marshall	Marshallinseln	Isole Marshall	Ilhas Marshall	Marshalleilanden	Wyspy Marshalla	Marshall Adaları	Маршалловы о-ва	Marshall Islands	Marshall Islands	Marshall Islands
+MK	North Macedonia	Macedonia del Norte	Macédoine du Nord	Nordmazedonien	Macedonia del Nord	Macedônia do Norte	Noord-Macedonië	Macedonia Północna	Kuzey Makedonya	Северная Македония	North Macedonia	North Macedonia	North Macedonia
+ML	Mali	Mali	Mali	Mali	Mali	Mali	Mali	Mali	Mali	Мали	マリ	马里	Mali
+MM	Myanmar (Burma)	Myanmar (Birmania)	Myanmar (Birmanie)	Myanmar	Myanmar (Birmania)	Mianmar (Birmânia)	Myanmar (Birma)	Mjanma (Birma)	Myanmar (Burma)	Мьянма (Бирма)	ミャンマー (ビルマ)	Myanmar (Burma)	Myanmar (Burma)
+MN	Mongolia	Mongolia	Mongolie	Mongolei	Mongolia	Mongólia	Mongolië	Mongolia	Moğolistan	Монголия	モンゴル	Mongolia	Mongolia
+MO	Macao SAR China	RAE de Macao (China)	R.A.S. chinoise de Macao	Sonderverwaltungsregion Macau	RAS di Macao	Macau, RAE da China	Macau SAR van China	SRA Makau (Chiny)	Çin Makao ÖİB	Макао (САР)	Macao SAR China	Macao SAR China	Macao SAR China
+MP	Northern Mariana Islands	Islas Marianas del Norte	Îles Mariannes du Nord	Nördliche Marianen	Isole Marianne Settentrionali	Ilhas Marianas do Norte	Noordelijke Marianen	Mariany Północne	Kuzey Mariana Adaları	Северные Марианские о-ва	Northern Mariana Islands	Northern Mariana Islands	Northern Mariana Islands
+MQ	Martinique	Martinica	Martinique	Martinique	Martinica	Martinica	Martinique	Martynika	Martinik	Мартиника	マルティニーク	Martinique	마르티니크
+MR	Mauritania	Mauritania	Mauritanie	Mauretanien	Mauritania	Mauritânia	Mauritanië	Mauretania	Moritanya	Мавритания	モーリタニア	Mauritania	모리타니
+MS	Montserrat	Montserrat	Montserrat	Montserrat	Montserrat	Montserrat	Montserrat	Montserrat	Montserrat	Монтсеррат	モントセラト	Montserrat	Montserrat
+MT	Malta	Malta	Malte	Malta	Malta	Malta	Malta	Malta	Malta	Мальта	マルタ	Malta	Malta
+MU	Mauritius	Mauricio	Maurice	Mauritius	Mauritius	Maurício	Mauritius	Mauritius	Mauritius	Маврикий	モーリシャス	Mauritius	Mauritius
+MV	Maldives	Maldivas	Maldives	Malediven	Maldive	Maldivas	Maldiven	Malediwy	Maldivler	Мальдивы	モルディブ	Maldives	Maldives
+MW	Malawi	Malaui	Malawi	Malawi	Malawi	Malaui	Malawi	Malawi	Malavi	Малави	マラウイ	Malawi	Malawi
+MX	Mexico	México	Mexique	Mexiko	Messico	México	Mexico	Meksyk	Meksika	Мексика	メキシコ	Mexico	Mexico
+MY	Malaysia	Malasia	Malaisie	Malaysia	Malaysia	Malásia	Maleisië	Malezja	Malezya	Малайзия	マレーシア	Malaysia	Malaysia
+MZ	Mozambique	Mozambique	Mozambique	Mosambik	Mozambico	Moçambique	Mozambique	Mozambik	Mozambik	Мозамбик	モザンビーク	Mozambique	모잠비크
+NA	Namibia	Namibia	Namibie	Namibia	Namibia	Namíbia	Namibië	Namibia	Namibya	Намибия	ナミビア	Namibia	나미비아
+NC	New Caledonia	Nueva Caledonia	Nouvelle-Calédonie	Neukaledonien	Nuova Caledonia	Nova Caledônia	Nieuw-Caledonië	Nowa Kaledonia	Yeni Kaledonya	Новая Каледония	ニューカレドニア	New Caledonia	New Caledonia
+NE	Niger	Níger	Niger	Niger	Niger	Níger	Niger	Niger	Nijer	Нигер	ニジェール	Niger	니제르
+NF	Norfolk Island	Isla Norfolk	Île Norfolk	Norfolkinsel	Isola Norfolk	Ilha Norfolk	Norfolk	Norfolk	Norfolk Adası	о-в Норфолк	Norfolk Island	Norfolk Island	Norfolk Island
+NG	Nigeria	Nigeria	Nigeria	Nigeria	Nigeria	Nigéria	Nigeria	Nigeria	Nijerya	Нигерия	ナイジェリア	Nigeria	나이지리아
+NI	Nicaragua	Nicaragua	Nicaragua	Nicaragua	Nicaragua	Nicarágua	Nicaragua	Nikaragua	Nikaragua	Никарагуа	ニカラグア	Nicaragua	니카라과
+NL	Netherlands	Países Bajos	Pays-Bas	Niederlande	Paesi Bassi	Países Baixos	Nederland	Holandia	Hollanda	Нидерланды	オランダ	Netherlands	Netherlands
+NO	Norway	Noruega	Norvège	Norwegen	Norvegia	Noruega	Noorwegen	Norwegia	Norveç	Норвегия	ノルウェー	Norway	Norway
+NP	Nepal	Nepal	Népal	Nepal	Nepal	Nepal	Nepal	Nepal	Nepal	Непал	ネパール	Nepal	Nepal
+NR	Nauru	Nauru	Nauru	Nauru	Nauru	Nauru	Nauru	Nauru	Nauru	Науру	ナウル	Nauru	나우루
+NU	Niue	Niue	Niue	Niue	Niue	Niue	Niue	Niue	Niue	Ниуэ	ニウエ	Niue	니우에
+NZ	New Zealand	Nueva Zelanda	Nouvelle-Zélande	Neuseeland	Nuova Zelanda	Nova Zelândia	Nieuw-Zeeland	Nowa Zelandia	Yeni Zelanda	Новая Зеландия	ニュージーランド	New Zealand	New Zealand
+OM	Oman	Omán	Oman	Oman	Oman	Omã	Oman	Oman	Umman	Оман	オマーン	Oman	오만
+PA	Panama	Panamá	Panama	Panama	Panama	Panamá	Panama	Panama	Panama	Панама	パナマ	Panama	파나마
+PE	Peru	Perú	Pérou	Peru	Perù	Peru	Peru	Peru	Peru	Перу	ペルー	Peru	Peru
+PF	French Polynesia	Polinesia Francesa	Polynésie française	Französisch-Polynesien	Polinesia Francese	Polinésia Francesa	Frans-Polynesië	Polinezja Francuska	Fransız Polinezyası	Французская Полинезия	French Polynesia	French Polynesia	French Polynesia
+PG	Papua New Guinea	Papúa Nueva Guinea	Papouasie-Nouvelle-Guinée	Papua-Neuguinea	Papua Nuova Guinea	Papua-Nova Guiné	Papoea-Nieuw-Guinea	Papua-Nowa Gwinea	Papua Yeni Gine	Папуа — Новая Гвинея	パプアニューギニア	Papua New Guinea	Papua New Guinea
+PH	Philippines	Filipinas	Philippines	Philippinen	Filippine	Filipinas	Filipijnen	Filipiny	Filipinler	Филиппины	フィリピン	Philippines	Philippines
+PK	Pakistan	Pakistán	Pakistan	Pakistan	Pakistan	Paquistão	Pakistan	Pakistan	Pakistan	Пакистан	パキスタン	Pakistan	Pakistan
+PL	Poland	Polonia	Pologne	Polen	Polonia	Polônia	Polen	Polska	Polonya	Польша	ポーランド	Poland	Poland
+PM	St. Pierre & Miquelon	San Pedro y Miquelón	Saint-Pierre-et-Miquelon	St. Pierre und Miquelon	Saint-Pierre e Miquelon	São Pedro e Miquelão	Saint-Pierre en Miquelon	Saint-Pierre i Miquelon	Saint Pierre ve Miquelon	Сен-Пьер и Микелон	St. Pierre & Miquelon	St. Pierre & Miquelon	St. Pierre & Miquelon
+PN	Pitcairn Islands	Islas Pitcairn	Îles Pitcairn	Pitcairninseln	Isole Pitcairn	Ilhas Pitcairn	Pitcairneilanden	Pitcairn	Pitcairn Adaları	о-ва Питкэрн	Pitcairn Islands	Pitcairn Islands	Pitcairn Islands
+PR	Puerto Rico	Puerto Rico	Porto Rico	Puerto Rico	Portorico	Porto Rico	Puerto Rico	Portoryko	Porto Riko	Пуэрто-Рико	プエルトリコ	Puerto Rico	Puerto Rico
+PS	Palestinian Territories	Territorios Palestinos	Territoires palestiniens	Palästinensische Autonomiegebiete	Territori Palestinesi	Territórios palestinos	Palestijnse gebieden	Terytoria Palestyńskie	Filistin Bölgeleri	Палестинские территории	Palestinian Territories	Palestinian Territories	Palestinian Territories
+PT	Portugal	Portugal	Portugal	Portugal	Portogallo	Portugal	Portugal	Portugalia	Portekiz	Португалия	ポルトガル	Portugal	Portugal
+PW	Palau	Palaos	Palaos	Palau	Palau	Palau	Palau	Palau	Palau	Палау	パラオ	Palau	Palau
+PY	Paraguay	Paraguay	Paraguay	Paraguay	Paraguay	Paraguai	Paraguay	Paragwaj	Paraguay	Парагвай	パラグアイ	Paraguay	파라과이
+QA	Qatar	Catar	Qatar	Katar	Qatar	Catar	Qatar	Katar	Katar	Катар	カタール	Qatar	카타르
+RE	Réunion	Reunión	La Réunion	Réunion	Riunione	Reunião	Réunion	Reunion	Reunion	Реюньон	レユニオン	Réunion	Réunion
+RO	Romania	Rumanía	Roumanie	Rumänien	Romania	Romênia	Roemenië	Rumunia	Romanya	Румыния	ルーマニア	Romania	루마니아
+RS	Serbia	Serbia	Serbie	Serbien	Serbia	Sérvia	Servië	Serbia	Sırbistan	Сербия	セルビア	Serbia	세르비아
+RU	Russia	Rusia	Russie	Russland	Russia	Rússia	Rusland	Rosja	Rusya	Россия	ロシア	Russia	러시아
+RW	Rwanda	Ruanda	Rwanda	Ruanda	Ruanda	Ruanda	Rwanda	Rwanda	Ruanda	Руанда	ルワンダ	Rwanda	르완다
+SA	Saudi Arabia	Arabia Saudí	Arabie saoudite	Saudi-Arabien	Arabia Saudita	Arábia Saudita	Saoedi-Arabië	Arabia Saudyjska	Suudi Arabistan	Саудовская Аравия	サウジアラビア	Saudi Arabia	사우디아라비아
+SB	Solomon Islands	Islas Salomón	Îles Salomon	Salomonen	Isole Salomone	Ilhas Salomão	Salomonseilanden	Wyspy Salomona	Solomon Adaları	Соломоновы о-ва	Solomon Islands	Solomon Islands	Solomon Islands
+SC	Seychelles	Seychelles	Seychelles	Seychellen	Seychelles	Seicheles	Seychellen	Seszele	Seyşeller	Сейшельские о-ва	セーシェル	Seychelles	Seychelles
+SD	Sudan	Sudán	Soudan	Sudan	Sudan	Sudão	Soedan	Sudan	Sudan	Судан	スーダン	Sudan	수단
+SE	Sweden	Suecia	Suède	Schweden	Svezia	Suécia	Zweden	Szwecja	İsveç	Швеция	スウェーデン	Sweden	Sweden
+SG	Singapore	Singapur	Singapour	Singapur	Singapore	Singapura	Singapore	Singapur	Singapur	Сингапур	シンガポール	Singapore	싱가포르
+SH	St. Helena	Santa Elena	Sainte-Hélène	St. Helena	Sant’Elena	Santa Helena	Sint-Helena	Wyspa Świętej Heleny	Saint Helena	о-в Св. Елены	セントヘレナ	St. Helena	St. Helena
+SI	Slovenia	Eslovenia	Slovénie	Slowenien	Slovenia	Eslovênia	Slovenië	Słowenia	Slovenya	Словения	スロベニア	Slovenia	슬로베니아
+SJ	Svalbard & Jan Mayen	Svalbard y Jan Mayen	Svalbard et Jan Mayen	Spitzbergen und Jan Mayen	Svalbard e Jan Mayen	Svalbard e Jan Mayen	Spitsbergen en Jan Mayen	Svalbard i Jan Mayen	Svalbard ve Jan Mayen	Шпицберген и Ян-Майен	Svalbard & Jan Mayen	Svalbard & Jan Mayen	Svalbard & Jan Mayen
+SK	Slovakia	Eslovaquia	Slovaquie	Slowakei	Slovacchia	Eslováquia	Slowakije	Słowacja	Slovakya	Словакия	スロバキア	Slovakia	슬로바키아
+SL	Sierra Leone	Sierra Leona	Sierra Leone	Sierra Leone	Sierra Leone	Serra Leoa	Sierra Leone	Sierra Leone	Sierra Leone	Сьерра-Леоне	シエラレオネ	Sierra Leone	시에라리온
+SM	San Marino	San Marino	Saint-Marin	San Marino	San Marino	San Marino	San Marino	San Marino	San Marino	Сан-Марино	サンマリノ	San Marino	San Marino
+SN	Senegal	Senegal	Sénégal	Senegal	Senegal	Senegal	Senegal	Senegal	Senegal	Сенегал	セネガル	Senegal	Senegal
+SO	Somalia	Somalia	Somalie	Somalia	Somalia	Somália	Somalië	Somalia	Somali	Сомали	ソマリア	Somalia	Somalia
+SR	Suriname	Surinam	Suriname	Suriname	Suriname	Suriname	Suriname	Surinam	Surinam	Суринам	スリナム	Suriname	Suriname
+SS	South Sudan	Sudán del Sur	Soudan du Sud	Südsudan	Sud Sudan	Sudão do Sul	Zuid-Soedan	Sudan Południowy	Güney Sudan	Южный Судан	South Sudan	South Sudan	South Sudan
+ST	São Tomé & Príncipe	Santo Tomé y Príncipe	Sao Tomé-et-Principe	São Tomé und Príncipe	São Tomé e Príncipe	São Tomé e Príncipe	Sao Tomé en Principe	Wyspy Świętego Tomasza i Książęca	Sao Tome ve Principe	Сан-Томе и Принсипи	サントメ・プリンシペ	São Tomé & Príncipe	São Tomé & Príncipe
+SV	El Salvador	El Salvador	Salvador	El Salvador	El Salvador	El Salvador	El Salvador	Salwador	El Salvador	Сальвадор	エルサルバドル	El Salvador	El Salvador
+SX	Sint Maarten	Sint Maarten	Saint-Martin (partie néerlandaise)	Sint Maarten	Sint Maarten	Sint Maarten	Sint-Maarten	Sint Maarten	Sint Maarten	Синт-Мартен	シント・マールテン	Sint Maarten	Sint Maarten
+SY	Syria	Siria	Syrie	Syrien	Siria	Síria	Syrië	Syria	Suriye	Сирия	シリア	Syria	시리아
+SZ	Eswatini	Esuatini	Eswatini	Eswatini	Eswatini	Essuatíni	Eswatini	Eswatini	Esvatini	Эсватини	エスワティニ	Eswatini	에스와티니
+TA	Tristan da Cunha	Tristán de Acuña	Tristan da Cunha	Tristan da Cunha	Tristan da Cunha	Tristão da Cunha	Tristan da Cunha	Tristan da Cunha	Tristan da Cunha	Тристан-да-Кунья	トリスタン・ダ・クーニャ	Tristan da Cunha	Tristan da Cunha
+TC	Turks & Caicos Islands	Islas Turcas y Caicos	Îles Turques-et-Caïques	Turks- und Caicosinseln	Isole Turks e Caicos	Ilhas Turcas e Caicos	Turks- en Caicoseilanden	Turks i Caicos	Turks ve Caicos Adaları	Тёркс и Кайкос	Turks & Caicos Islands	Turks & Caicos Islands	Turks & Caicos Islands
+TD	Chad	Chad	Tchad	Tschad	Ciad	Chade	Tsjaad	Czad	Çad	Чад	チャド	Chad	차드
+TF	French Southern Territories	Territorios Australes Franceses	Terres australes françaises	Französische Süd- und Antarktisgebiete	Terre Australi Francesi	Territórios Franceses do Sul	Franse Gebieden in de zuidelijke Indische Oceaan	Francuskie Terytoria Południowe i Antarktyczne	Fransız Güney Toprakları	Французские Южные территории	French Southern Territories	French Southern Territories	French Southern Territories
+TG	Togo	Togo	Togo	Togo	Togo	Togo	Togo	Togo	Togo	Того	トーゴ	Togo	Togo
+TH	Thailand	Tailandia	Thaïlande	Thailand	Thailandia	Tailândia	Thailand	Tajlandia	Tayland	Таиланд	タイ	Thailand	태국
+TJ	Tajikistan	Tayikistán	Tadjikistan	Tadschikistan	Tagikistan	Tadjiquistão	Tadzjikistan	Tadżykistan	Tacikistan	Таджикистан	タジキスタン	Tajikistan	Tajikistan
+TK	Tokelau	Tokelau	Tokelau	Tokelau	Tokelau	Tokelau	Tokelau	Tokelau	Tokelau	Токелау	トケラウ	Tokelau	Tokelau
+TL	Timor-Leste	Timor-Leste	Timor oriental	Timor-Leste	Timor Est	Timor-Leste	Oost-Timor	Timor Wschodni	Timor-Leste	Восточный Тимор	Timor-Leste	Timor-Leste	동티모르
+TM	Turkmenistan	Turkmenistán	Turkménistan	Turkmenistan	Turkmenistan	Turcomenistão	Turkmenistan	Turkmenistan	Türkmenistan	Туркменистан	トルクメニスタン	Turkmenistan	Turkmenistan
+TN	Tunisia	Túnez	Tunisie	Tunesien	Tunisia	Tunísia	Tunesië	Tunezja	Tunus	Тунис	チュニジア	Tunisia	Tunisia
+TO	Tonga	Tonga	Tonga	Tonga	Tonga	Tonga	Tonga	Tonga	Tonga	Тонга	トンガ	Tonga	통가
+TR	Türkiye	Turquía	Turquie	Türkei	Turchia	Turquia	Turkije	Turcja	Türkiye	Турция	トルコ	Türkiye	Türkiye
+TT	Trinidad & Tobago	Trinidad y Tobago	Trinité-et-Tobago	Trinidad und Tobago	Trinidad e Tobago	Trinidad e Tobago	Trinidad en Tobago	Trynidad i Tobago	Trinidad ve Tobago	Тринидад и Тобаго	トリニダード・トバゴ	Trinidad & Tobago	Trinidad & Tobago
+TV	Tuvalu	Tuvalu	Tuvalu	Tuvalu	Tuvalu	Tuvalu	Tuvalu	Tuvalu	Tuvalu	Тувалу	ツバル	Tuvalu	Tuvalu
+TW	Taiwan	Taiwán	Taïwan	Taiwan	Taiwan	Taiwan	Taiwan	Tajwan	Tayvan	Тайвань	Taiwan	Taiwan	대만
+TZ	Tanzania	Tanzania	Tanzanie	Tansania	Tanzania	Tanzânia	Tanzania	Tanzania	Tanzanya	Танзания	タンザニア	Tanzania	Tanzania
+UA	Ukraine	Ucrania	Ukraine	Ukraine	Ucraina	Ucrânia	Oekraïne	Ukraina	Ukrayna	Украина	ウクライナ	Ukraine	우크라이나
+UG	Uganda	Uganda	Ouganda	Uganda	Uganda	Uganda	Oeganda	Uganda	Uganda	Уганда	ウガンダ	Uganda	우간다
+UM	U.S. Outlying Islands	Islas menores alejadas de EE. UU.	Îles mineures éloignées des États-Unis	Amerikanische Überseeinseln	Isole Minori Esterne degli Stati Uniti	Ilhas Menores Distantes dos EUA	Kleine afgelegen eilanden van de Verenigde Staten	Dalekie Wyspy Mniejsze Stanów Zjednoczonych	ABD Küçük Harici Adaları	Внешние малые о-ва (США)	U.S. Outlying Islands	U.S. Outlying Islands	U.S. Outlying Islands
+US	United States	Estados Unidos	États-Unis	Vereinigte Staaten	Stati Uniti	Estados Unidos	Verenigde Staten	Stany Zjednoczone	Amerika Birleşik Devletleri	Соединенные Штаты	United States	United States	미국
+UY	Uruguay	Uruguay	Uruguay	Uruguay	Uruguay	Uruguai	Uruguay	Urugwaj	Uruguay	Уругвай	ウルグアイ	Uruguay	우루과이
+UZ	Uzbekistan	Uzbekistán	Ouzbékistan	Usbekistan	Uzbekistan	Uzbequistão	Oezbekistan	Uzbekistan	Özbekistan	Узбекистан	ウズベキスタン	Uzbekistan	Uzbekistan
+VA	Vatican City	Ciudad del Vaticano	État de la Cité du Vatican	Vatikanstadt	Città del Vaticano	Cidade do Vaticano	Vaticaanstad	Watykan	Vatikan	Ватикан	Vatican City	Vatican City	Vatican City
+VC	St. Vincent & Grenadines	San Vicente y las Granadinas	Saint-Vincent-et-les Grenadines	St. Vincent und die Grenadinen	Saint Vincent e Grenadine	São Vicente e Granadinas	Saint Vincent en de Grenadines	Saint Vincent i Grenadyny	Saint Vincent ve Grenadinler	Сент-Винсент и Гренадины	St. Vincent & Grenadines	St. Vincent & Grenadines	St. Vincent & Grenadines
+VE	Venezuela	Venezuela	Venezuela	Venezuela	Venezuela	Venezuela	Venezuela	Wenezuela	Venezuela	Венесуэла	ベネズエラ	Venezuela	Venezuela
+VG	British Virgin Islands	Islas Vírgenes Británicas	Îles Vierges britanniques	Britische Jungferninseln	Isole Vergini Britanniche	Ilhas Virgens Britânicas	Britse Maagdeneilanden	Brytyjskie Wyspy Dziewicze	Britanya Virjin Adaları	Виргинские о-ва (Великобритания)	British Virgin Islands	British Virgin Islands	British Virgin Islands
+VI	U.S. Virgin Islands	Islas Vírgenes de EE. UU.	Îles Vierges des États-Unis	Amerikanische Jungferninseln	Isole Vergini Americane	Ilhas Virgens Americanas	Amerikaanse Maagdeneilanden	Wyspy Dziewicze Stanów Zjednoczonych	ABD Virjin Adaları	Виргинские о-ва (США)	U.S. Virgin Islands	U.S. Virgin Islands	U.S. Virgin Islands
+VN	Vietnam	Vietnam	Viêt Nam	Vietnam	Vietnam	Vietnã	Vietnam	Wietnam	Vietnam	Вьетнам	ベトナム	Vietnam	Vietnam
+VU	Vanuatu	Vanuatu	Vanuatu	Vanuatu	Vanuatu	Vanuatu	Vanuatu	Vanuatu	Vanuatu	Вануату	バヌアツ	Vanuatu	Vanuatu
+WF	Wallis & Futuna	Wallis y Futuna	Wallis-et-Futuna	Wallis und Futuna	Wallis e Futuna	Wallis e Futuna	Wallis en Futuna	Wallis i Futuna	Wallis ve Futuna	Уоллис и Футуна	ウォリス・フツナ	Wallis & Futuna	Wallis & Futuna
+WS	Samoa	Samoa	Samoa	Samoa	Samoa	Samoa	Samoa	Samoa	Samoa	Самоа	サモア	Samoa	사모아
+XK	Kosovo	Kosovo	Kosovo	Kosovo	Kosovo	Kosovo	Kosovo	Kosowo	Kosova	Косово	コソボ	Kosovo	코소보
+YE	Yemen	Yemen	Yémen	Jemen	Yemen	Iêmen	Jemen	Jemen	Yemen	Йемен	イエメン	Yemen	Yemen
+YT	Mayotte	Mayotte	Mayotte	Mayotte	Mayotte	Mayotte	Mayotte	Majotta	Mayotte	Майотта	マヨット	Mayotte	마요트
+ZA	South Africa	Sudáfrica	Afrique du Sud	Südafrika	Sudafrica	África do Sul	Zuid-Afrika	Republika Południowej Afryki	Güney Afrika	Южно-Африканская Республика	South Africa	South Africa	South Africa
+ZM	Zambia	Zambia	Zambie	Sambia	Zambia	Zâmbia	Zambia	Zambia	Zambiya	Замбия	ザンビア	Zambia	잠비아
+ZW	Zimbabwe	Zimbabue	Zimbabwe	Simbabwe	Zimbabwe	Zimbábue	Zimbabwe	Zimbabwe	Zimbabve	Зимбабве	ジンバブエ	Zimbabwe	짐바브웨

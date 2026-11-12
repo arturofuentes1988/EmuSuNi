@@ -25,6 +25,7 @@
 #include <imgui_impl_vulkan.h>
 
 std::atomic<unsigned> g_display_frames{0};
+std::atomic<const char*> g_start_step{"the app's set-up"};
 
 // Mesa's GNM winsys (DolphinPS4 port/mesa/ac_ps4_drm.c): queues a flip behind the work submitted
 // so far.

@@ -37,4 +37,10 @@ const char* T(const char* english);
 // Font files with the glyphs the menus need beyond Nunito's (Japanese, Chinese, Korean - only
 // the characters the translations use), the current language's first. regular or bold.
 std::vector<std::string> ExtraFonts(const std::string& assets_dir, bool bold);
+
+// (01.07) A country's name in the current language (its ISO 3166-1 code, "CL": <assets>/xmb/netplay/countries.tsv,
+// the Unicode CLDR's - scripts/make-countries.py); the code itself when not known.
+std::string CountryName(const std::string& code);
+// (01.07) Online play's quick phrase as shown (NetProto::ChatPhrase translated): "I'm from {}"'s country by its name.
+std::string ChatPhraseText(int phrase, const std::string& param);
 }  // namespace PS4Lang

@@ -25,6 +25,7 @@
 #include <string.h>
 #include <sys/mman.h>
 #include <time.h>
+#include <unistd.h>
 
 #include <atomic>
 #include <sys/types.h>
@@ -67,6 +68,7 @@ void* memcpy(void* dst, const void* src, size_t n);
 // port/ps4_crashlog.cpp (weak: a program may link without it).
 __attribute__((weak)) void ps4_boot_trace(const char* stage);
 int ps4_heap_ok(void* msp);  // port/ps4_dlmalloc.c
+int ps4rt_thread_stack(uintptr_t* low, uintptr_t* high);  // (below: the calling thread's stack, 1 when known)
 
 extern char __text_start[];  // OpenOrbis link.x: start of .text (ELF address 0)
 }
@@ -107,15 +109,33 @@ void heldLess(const void* p) {
 }
 
 // sceKernelDebugOutText doesn't format its arguments; vsnprintf doesn't allocate.
-__attribute__((format(printf, 1, 2))) void heapLog(const char* fmt, ...) {
+void heapLogLine(bool report, const char* fmt, va_list args) {
     char line[256];
-    va_list args;
-    va_start(args, fmt);
     vsnprintf(line, sizeof(line), fmt, args);
-    va_end(args);
     sceKernelDebugOutText(0, line);
     if (ps4_boot_trace)
         ps4_boot_trace(line);
+    // (01.06) A problem of the heap's (a request that failed, the overflow heap, a broken heap): in emusuni.log too,
+    // which the players' reports carry (the boot trace isn't in them: v00.23's JSFJXM and U6V4SA said nothing of the
+    // malloc that failed). Straight to the file (src/main.cpp: stderr is emusuni.log, unbuffered), as
+    // port/ps4_new.cpp's OutOfMemory: no heap, no stdio lock. Before main, stderr is nowhere: nothing.
+    if (report) {
+        const size_t length = strlen(line);
+        if (length > 0 && write(STDERR_FILENO, line, length) < 0) {
+        }
+    }
+}
+__attribute__((format(printf, 1, 2))) void heapLog(const char* fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    heapLogLine(false, fmt, args);
+    va_end(args);
+}
+__attribute__((format(printf, 1, 2))) void heapReport(const char* fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    heapLogLine(true, fmt, args);
+    va_end(args);
 }
 
 unsigned long long elf(const void* address) {
@@ -123,14 +143,27 @@ unsigned long long elf(const void* address) {
                                            reinterpret_cast<uintptr_t>(__text_start));
 }
 
-// Logs the code addresses on the current stack (no frame pointers in release builds).
+// The calling thread's stack top (its highest address) when `at` is inside its stack, else 0.
+uintptr_t stackTop(uintptr_t at) {
+    uintptr_t low = 0, high = 0;
+    return ps4rt_thread_stack(&low, &high) && at >= low && at < high ? high : 0;
+}
+
+// Logs the code addresses on the current stack (no frame pointers in release builds). (01.06) Never past the thread's
+// stack top: v00.23's JSFJXM crashed here, a malloc that failed on the covers' thread - a thread whose stack holds
+// only 1.6 KiB above this frame - read 4 KiB up, into the page above its stack.
 void logStack() {
     const uintptr_t base = reinterpret_cast<uintptr_t>(__text_start);
     const auto* stack = static_cast<const uintptr_t*>(__builtin_frame_address(0));
+    const uintptr_t at = reinterpret_cast<uintptr_t>(stack);
+    const uintptr_t top = stackTop(at);
+    // (A stack that isn't known - a thread Sony's modules started, a signal's stack -: 64 words, its own frames.)
+    const uintptr_t room = top > at ? (top - at) / sizeof(uintptr_t) : 64;
+    const int words = room < 512 ? static_cast<int>(room) : 512;
     int found = 0;
-    for (int i = 0; i < 512 && found < 16; i++) {
+    for (int i = 0; i < words && found < 16; i++) {
         if (stack[i] >= base && stack[i] < base + 0x1000000) {
-            heapLog("[dolphin] heap:   stack elf 0x%llx\n", static_cast<unsigned long long>(stack[i] - base));
+            heapReport("[dolphin] heap:   stack elf 0x%llx\n", static_cast<unsigned long long>(stack[i] - base));
             found++;
         }
     }
@@ -258,13 +291,50 @@ inline mspace getHeap() {
 mspace g_overflow = nullptr;
 uintptr_t g_overflowBase = 0;
 size_t g_overflowSize = 0;
-bool g_overflowTried = false;
+// (01.06) 0: not tried yet, 1: a thread is making it, 2: made, or there was no memory for it.
+std::atomic<int> g_overflowState{0};
+// The thread making it (an allocation of its own meanwhile - a kernel call's - doesn't wait for itself).
+__attribute__((tls_model("initial-exec"))) thread_local bool t_makingOverflow = false;
 
-mspace overflowHeap() {
-    if (mspace msp = __atomic_load_n(&g_overflow, __ATOMIC_ACQUIRE))
-        return msp;
-    if (__atomic_exchange_n(&g_overflowTried, true, __ATOMIC_ACQ_REL))
-        return __atomic_load_n(&g_overflow, __ATOMIC_ACQUIRE);  // another thread is (or was) at it
+mspace makeOverflowHeap(const char* why);
+
+// The overflow heap, made the first time it is needed. (01.06) A thread whose request fails while another thread is
+// making it waits until it is made (or there is no memory for it), a few milliseconds: until 01.05 it was given NULL
+// at once - v00.23's U6V4SA: the main heap filled up with small requests from several threads at once, every one but
+// the first got NULL, and Mesa (ralloc_size, a Vulkan pipeline's compilation) wrote through it.
+mspace overflowHeap(const char* why = "main heap full", bool early = false) {
+    for (;;) {
+        if (mspace msp = __atomic_load_n(&g_overflow, __ATOMIC_ACQUIRE))
+            return msp;
+        int state = 0;
+        if (g_overflowState.compare_exchange_strong(state, 1, std::memory_order_acq_rel)) {
+            t_makingOverflow = true;
+            mspace msp = makeOverflowHeap(why);
+            t_makingOverflow = false;
+            // (An early try without direct memory then: the main heap's failure tries once more.)
+            g_overflowState.store(msp || !early ? 2 : 0, std::memory_order_release);
+            return msp;
+        }
+        if (state == 2 || t_makingOverflow)
+            return __atomic_load_n(&g_overflow, __ATOMIC_ACQUIRE);  // made, or no memory for it
+        while (g_overflowState.load(std::memory_order_acquire) == 1)
+            usleep(200);  // (blocks: the thread making it may have a lower priority)
+    }
+}
+
+// (01.06) Made a little before the main heap is full - when what the program holds passes 15/16 of it (480 of 512
+// MiB) - so that requests seldom have to wait for it; tried once that way. Allocations still come from the main heap
+// first.
+std::atomic<bool> g_overflowEarlyTried{false};
+inline void overflowEarly() {
+    if (g_heapSize == 0 || g_overflowEarlyTried.load(std::memory_order_relaxed) ||
+        g_heapHeld.load(std::memory_order_relaxed) <= static_cast<long long>(g_heapSize - g_heapSize / 16))
+        return;
+    if (!g_overflowEarlyTried.exchange(true) && g_overflowState.load(std::memory_order_acquire) == 0)
+        overflowHeap("main heap nearly full", true);
+}
+
+mspace makeOverflowHeap(const char* why) {
     const size_t sizes[] = {512 * MB, 384 * MB, 256 * MB, 128 * MB};
     for (size_t size : sizes) {
         off_t phys = 0;
@@ -274,8 +344,8 @@ mspace overflowHeap() {
         void* base = reinterpret_cast<void*>(0x1800000000ull);
         const int32_t ret = sceKernelMapDirectMemory(&base, size, PROT_CPU_RW, 0, phys, 2 * MB);
         if (ret != 0 || reinterpret_cast<uintptr_t>(base) < 0x400000000ull) {
-            heapLog("[dolphin] heap: overflow heap: mapping %zu MiB of direct memory failed (0x%x, %p)\n",
-                    size / MB, ret, base);
+            heapReport("[dolphin] heap: overflow heap: mapping %zu MiB of direct memory failed (0x%x, %p)\n",
+                       size / MB, ret, base);
             continue;
         }
         mspace msp = create_mspace_with_base(base, size, 1);
@@ -284,11 +354,13 @@ mspace overflowHeap() {
         g_overflowBase = reinterpret_cast<uintptr_t>(base);
         g_overflowSize = size;
         __atomic_store_n(&g_overflow, msp, __ATOMIC_RELEASE);
-        heapLog("[dolphin] heap: main heap full: overflow heap of %zu MiB of direct memory at %p\n", size / MB,
-                base);
+        heapReport("[dolphin] heap: %s (%lld MiB in use of %zu): overflow heap of %zu MiB of direct memory at %p\n",
+                   why, g_heapHeld.load(std::memory_order_relaxed) / static_cast<long long>(MB), g_heapSize / MB,
+                   size / MB, base);
         return msp;
     }
-    heapLog("[dolphin] heap: main heap full and no direct memory for an overflow heap\n");
+    heapReport("[dolphin] heap: %s (%lld MiB in use of %zu) and no direct memory for an overflow heap\n", why,
+               g_heapHeld.load(std::memory_order_relaxed) / static_cast<long long>(MB), g_heapSize / MB);
     return nullptr;
 }
 
@@ -351,13 +423,13 @@ void checkHeap(const char* op, const void* caller) {
     g_ops++;
     if (g_heap && !g_heapBroken && !ps4_heap_ok(g_heap)) {
         g_heapBroken = true;
-        heapLog("[dolphin] heap: CONTROL BLOCK OVERWRITTEN, noticed at operation #%llu (%s from elf 0x%llx); "
-                "previous operation %s from elf 0x%llx\n",
-                g_ops, op, elf(caller), g_prevOp, elf(g_prevCaller));
+        heapReport("[dolphin] heap: CONTROL BLOCK OVERWRITTEN, noticed at operation #%llu (%s from elf 0x%llx); "
+                   "previous operation %s from elf 0x%llx\n",
+                   g_ops, op, elf(caller), g_prevOp, elf(g_prevCaller));
         const auto* words = reinterpret_cast<const unsigned long long*>(g_heapBase);
         for (int i = 0; i < 16; i += 4)
-            heapLog("[dolphin] heap:   +0x%02x: %016llx %016llx %016llx %016llx\n", i * 8, words[i], words[i + 1],
-                    words[i + 2], words[i + 3]);
+            heapReport("[dolphin] heap:   +0x%02x: %016llx %016llx %016llx %016llx\n", i * 8, words[i], words[i + 1],
+                       words[i + 2], words[i + 3]);
         logStack();
     }
     g_prevOp = op;
@@ -366,7 +438,7 @@ void checkHeap(const char* op, const void* caller) {
 
 void reportFailure(const char* what, size_t size) {
     if (g_errors++ < 8) {
-        heapLog("[dolphin] heap: %s(%zu) failed, caller elf 0x%llx\n", what, size, elf(t_caller));
+        heapReport("[dolphin] heap: %s(%zu) failed, caller elf 0x%llx\n", what, size, elf(t_caller));
         logStack();
     }
 }
@@ -398,8 +470,8 @@ extern "C" {
 // dlmalloc found a corrupted heap (corruption = 1) or was asked to free/realloc something it
 // didn't allocate (corruption = 0).
 void ps4_heap_error(void* msp, void* chunk, int corruption) {
-    heapLog("[dolphin] heap: %s during %s from elf 0x%llx (chunk %p)\n",
-            corruption ? "CORRUPTION DETECTED" : "invalid pointer", t_op, elf(t_caller), chunk);
+    heapReport("[dolphin] heap: %s during %s from elf 0x%llx (chunk %p)\n",
+               corruption ? "CORRUPTION DETECTED" : "invalid pointer", t_op, elf(t_caller), chunk);
     logStack();
     if (corruption)
         abort();
@@ -422,6 +494,7 @@ void* __wrap_malloc(size_t size) {
     if (!p)
         reportFailure("malloc", size);
     heldMore(p);
+    overflowEarly();
     return p;
 }
 
@@ -433,8 +506,8 @@ void __wrap_free(void* ptr) {
     checkHeap(t_op, t_caller);
     if (!ownsPointer(ptr)) {
         if (g_errors++ < 8) {
-            heapLog("[dolphin] heap: free(%p) of memory not from this heap, caller elf 0x%llx (ignored)\n", ptr,
-                    elf(t_caller));
+            heapReport("[dolphin] heap: free(%p) of memory not from this heap, caller elf 0x%llx (ignored)\n", ptr,
+                       elf(t_caller));
             logStack();
         }
         return;
@@ -456,6 +529,7 @@ void* __wrap_calloc(size_t nelem, size_t size) {
     if (!p)
         reportFailure("calloc", nelem * size);
     heldMore(p);
+    overflowEarly();
     return p;
 }
 
@@ -464,9 +538,12 @@ void* __wrap_realloc(void* ptr, size_t size) {
     t_caller = __builtin_return_address(0);
     checkHeap(t_op, t_caller);
     if (ptr && !ownsPointer(ptr)) {
-        heapLog("[dolphin] heap: realloc(%p) of memory not from this heap, caller elf 0x%llx\n", ptr,
-                elf(t_caller));
-        logStack();
+        // ((01.06) At most 8 such reports in all, as free's: these go to emusuni.log too.)
+        if (g_errors++ < 8) {
+            heapReport("[dolphin] heap: realloc(%p) of memory not from this heap, caller elf 0x%llx\n", ptr,
+                       elf(t_caller));
+            logStack();
+        }
         return nullptr;
     }
     if (ptr && size == 0) {
@@ -497,6 +574,7 @@ void* __wrap_realloc(void* ptr, size_t size) {
     }
     if (!p)
         reportFailure("realloc", size);
+    overflowEarly();
     return p;
 }
 
@@ -513,22 +591,20 @@ void* __wrap_memalign(size_t alignment, size_t size) {
     if (!p)
         reportFailure("memalign", size);
     heldMore(p);
+    overflowEarly();
     return p;
 }
 
-// Gives the calling thread a private arena if it is one of Dolphin's busy threads (called when
-// a thread names itself: Common::SetCurrentThreadName -> ps4_watch_thread).
-void ps4_heap_private_arena(const char* name) {
-    static const char* const busy[] = {"CPU thread", "CPU-GPU thread", "Video thread",
-                                       "VK submission thread", "AsyncShaderCompiler Worker",
-                                       "DVD thread", "Audio thread - PS4"};
-    if (t_arena || !name || !getHeap())
-        return;
-    bool wanted = false;
-    for (const char* b : busy)
-        wanted |= strcmp(name, b) == 0;
-    if (!wanted)
-        return;
+}  // extern "C"
+
+namespace {
+// The calling thread's private arena (an exited thread's first, else a new one carved from the main heap, MAX_ARENAS
+// at most): 1 when it has one.
+int giveArena(const char* name) {
+    if (t_arena)
+        return 1;
+    if (!name || !getHeap())
+        return 0;
     if (!g_arenaKeyReady.load(std::memory_order_acquire)) {
         static std::atomic_flag s_creating = ATOMIC_FLAG_INIT;
         if (!s_creating.test_and_set()) {
@@ -546,18 +622,55 @@ void ps4_heap_private_arena(const char* name) {
     if (t_arena) {
         pthread_setspecific(g_arenaKey, t_arena);
         heapLog("[dolphin] heap: reused arena for '%s'\n", name);
-        return;
+        return 1;
     }
     if (g_arenaCount.fetch_add(1) >= MAX_ARENAS)
-        return;
+        return 0;
     void* block = mspace_malloc(getHeap(), ARENA_SIZE);
     if (!block)
-        return;
+        return 0;
     t_arena = create_mspace_with_base(block, ARENA_SIZE, 1);
     if (t_arena)
         pthread_setspecific(g_arenaKey, t_arena);
     heapLog("[dolphin] heap: private %zu MiB arena for '%s'%s\n", ARENA_SIZE / MB, name,
             t_arena ? "" : " FAILED");
+    return t_arena != nullptr;
+}
+}  // namespace
+
+extern "C" {
+
+// Gives the calling thread a private arena if it is one of Dolphin's busy threads (called when
+// a thread names itself: Common::SetCurrentThreadName -> ps4_watch_thread).
+void ps4_heap_private_arena(const char* name) {
+    static const char* const busy[] = {"CPU thread", "CPU-GPU thread", "Video thread",
+                                       "VK submission thread", "AsyncShaderCompiler Worker",
+                                       "DVD thread", "Audio thread - PS4"};
+    bool wanted = false;
+    for (const char* b : busy)
+        wanted |= name && strcmp(name, b) == 0;
+    if (wanted)
+        giveArena(name);
+}
+
+// (01.06) A busy thread of a core asks for an arena of its own (port/ps4_n64.c's emusuni_3ds_thread: the 3DS's
+// pipeline and shader workers, the pipeline optimizer, the Vulkan worker; src/Emulator.cpp: the emulation thread while
+// a 3DS game runs): 1 when it has one. The 3DS specialist's PC test (Luigi's Mansion: Dark Moon, one dlmalloc lock for
+// every thread against an arena each): retro_run 21% slower, the GPU commands 30%, with the one lock.
+int ps4_heap_thread_arena(const char* name) {
+    return giveArena(name);
+}
+
+// (01.06) The calling thread's arena given back for another thread (the emulation thread when the 3DS game ends): its
+// blocks still in use stay where they are (FOOTERS: freed into that arena by whichever thread frees them).
+void ps4_heap_drop_arena(void) {
+    mspace arena = t_arena;
+    if (!arena)
+        return;
+    t_arena = nullptr;
+    if (g_arenaKeyReady.load(std::memory_order_acquire))
+        pthread_setspecific(g_arenaKey, nullptr);
+    releaseArena(arena);
 }
 
 // posix_memalign and aligned_alloc in libc.a are built on __memalign.

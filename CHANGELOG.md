@@ -6,8 +6,235 @@ All notable changes to EmuSuNi. Versions follow the PS4 package version (`XX.YY`
 
 **Public release v00.22 (2026-10-28)** is the 00.83 test build below, packaged as version 00.22.
 
-**Public release v00.23 (2026-11-05)** gathers the test builds 00.84 to 01.03 (the section below), packaged as
+**Public release v00.23 (2026-11-05)** gathers the test builds 00.84 to 01.03 (its section below), packaged as
 version 00.23.
+
+**Public release v00.24 (2026-11-12)** gathers the test builds 01.04 to 01.23 (the section below), packaged as version
+00.24.
+
+## 00.24 (public release, 2026-11-12)
+
+The first public release since 00.23: **the test builds 01.04 to 01.23** (01.04: 3DS crash fixes, the Game Boy
+Advance link cable online, the Atari 2600's paddles and Warlords for 4, a lighter DS Wi-Fi, Midnight Club L.A., the
+N64's stops, 32 MiB Genesis cartridges, the Telegram QR code; 01.05: the room in full screen with its chat, Watch,
+joining a match under way, each player's country and file of the game, Check My Games, Most Played, the Arcade's
+patched romsets, Midnight Club at 30 FPS, the N64's crash at the app's start; 01.06: the 3DS's speed test, PSP, Sega
+and OpenBOR fixes; 01.07: online play between versions, the Online tab's pages, the world chat, the players' ranking;
+01.08: the 3DS game's language, L2 / R2 for the Online tab's pages; 01.09: the 3DS's updates, DLC and mods, Reset
+without a crash; 01.10 to 01.13: the 3DS's GPU commands and audio on threads of their own, its CPU without extra
+waits, its GPU's time per game; 01.14: a faster and safer start, free entry, starting alone, the host's Reset;
+01.15: the chat's fixes, the 3DS's touch and right stick, Castlevania's intro; 01.16 to 01.18: Castlevania, the
+Library's Order and Filters, the 3DS's right eye drawn; 01.19: the players' filter, Delete Game; 01.20 and 01.21:
+the 3DS's black start traced; 01.22: the black start fixed, installing from the game; 01.23: Back to the Room, a room
+that stays open, Entry With Permission fixed). Built with `with-saturn`, `with-gblink` and `with-openbor`, as 00.23.
+v00.23 and v00.24 play together on the consoles whose online level is the same (below).
+
+- **3DS: much faster** (01.06 to 01.14; scripts/build-3ds-core.sh, src/Emulator.cpp, port/ps4_n64.c,
+  port/ps4_runtime.cpp; the owner: "todo lo que me vaya sumando mejor rendimiento es bienvenido"). Every switch below
+  has its file in /data/EmuSuNi; the word "off" in it turns that one off, and a line at each game's start says them
+  all.
+  - (01.06) The pacing's heavy mode looks at the core and the drawing together, the drawing counted without the
+    V-Sync's wait (`draw_work`); 8 MiB heap arenas of their own for "Pipeline workers", "Shader workers", "Pipeline
+    optimizer", "VulkanWorker" and the emulation thread while a 3DS game runs (the heap's one lock cost Dark Moon's
+    emulation 21-30% on the PC; `3ds-heap-arenas-off`); the frame handed over without waiting for the core's Vulkan
+    worker (`emusuni_3ds_image_worker_ms` added to the pacing's load; `3ds-handoff-sync`); surfaces queued for
+    deletion recycled for 3 frames (`3ds-surface-recycle-off`); moved vertex layouts rebuilt with byte shuffles
+    (`pshufb`).
+    (01.08) The pacing's two-frame passes with V-Sync On (`3ds-pair-off`).
+  - (01.10; by default since 01.11) **The GPU's commands (PICA) and the audio's mixing (DSP HLE) on threads of their
+    own** (`3ds-async-pica`, `3ds-async-dsp`; an automatic mode gives the work back to the emulation thread while the
+    thread doesn't pay), placed by the app on cores 0 and 1 at priority 480 (core 2 is the emulation's), the PICA's
+    thread with its heap arena. Upstream's fix for `GetPhysMemRegionInfo` (a region kept in a shared variable), always.
+  - (01.11) The CPU's reads of the GPU's memory wait only where the GPU wrote (`3ds-async-cpu-reads`); the games' idle
+    loops skipped (`3ds-cpu-idle-loops`). (01.12) The CPU's writes to the GPU's memory queue the cache's invalidation
+    behind the GPU commands' thread instead of waiting (`3ds-async-cpu-writes`); the JIT's warm-up compiles the list's
+    first 120,000 blocks ahead, not 60,000 (`3ds-jit-warmup-wide`). (01.11) MemoryGuard's 3DS reserve 18 -> 22 MiB.
+  - (01.13; by default since 01.14) **The 3DS GPU's time per game** (`3ds-gpu-timing-games`): Azahar's GPU timing at
+    100% of its estimate for Castlevania: Mirror of Fate, at 200% for Monster Hunter 4 Ultimate and Luigi's Mansion:
+    Dark Moon. Without it they drew 60 pictures a second or more where a 3DS draws 30: 1.6 to 3 times the work a frame
+    (on the PC, a frame -65%, -40% and -35-40%). A number in `3ds-gpu-timings` (25-400) sets every other game's.
+    `svcGetThreadId` on the current thread answered at once (`3ds-hle-fast`: Monster Hunter's ~550 a frame, 20-25%
+    less time in the HLE), and a new PGO profile made with 01.13's code (scripts/3ds-core.profdata.xz).
+  - Not in: LTO (Dark Moon 3.7% slower), dynarmic's other changes and the second ARM11 core on a thread (not safe),
+    `Unsafe_IgnoreGlobalMonitor` (not safe in DKC or Castlevania). The 3DS CPU's clock per game
+    (`3ds-cpu-clock-games`) only with its file: at 50% Castlevania walked in jumps. `3ds-cpu-unsafe-fp` (on with its
+    file) is for tests; it didn't help.
+  - On the owner's PS4 at 4x (median speed): Donkey Kong Country Returns 3D 75% (01.05) -> 102% (01.11), Captain
+    Toad 93% (01.04) -> 100% (01.10), Super Mario 3D Land 100%, Luigi's Mansion: Dark Moon 63% (01.05) -> 68-72%
+    (its GPU at 77-96%: 3x looks nearly the same on a 1080p TV with 44% fewer pixels).
+- **3DS: games open the first time** (01.18, 01.22). Most starts on the PS4 showed a black top screen for seconds,
+  and a game often needed one or two resets (since the first 3DS builds; on the PC never). (01.18) **The right eye
+  drawn in every game**: Azahar's right-eye disabler opened Castlevania and DKC black on the PS4 (3DS Right Eye: Auto
+  draws it; Not Drawn says some games open black; the word off in `3ds-right-eye` leaves it out in every game).
+  (01.21, a diagnosis build) the picture was already black in the core, drawn black: the game's draws left no mark;
+  a live test on the PS4 brought it back at once with `3ds-uniforms-fresh`. (01.22) **`3ds-black-uniforms`**: a
+  black picture with the game drawing, in the first minute `3ds-black-watch` looks at (01.16, 01.17), has every
+  draw upload its three uniform blocks fresh until it shows; on the owner's PS4 it came 1-5 s after (the root cause,
+  the uniforms reused between draws at the start, is still open); upstream's `|=` for the VS block's pending upload
+  (its 1edf59e). (01.20) A renderer that closes leaves the pipelines still queued for its workers unbuilt (a reset
+  with whole pipelines waited for them all and never went on).
+- **Castlevania: Mirror of Fate** (01.15 to 01.18): its GPU commands on the emulation thread
+  (`3ds-pica-inline-games`; the intro and the lightning), its USA, EUR and JPN games at 100% of the GPU estimate;
+  (01.16) a command list's end at its time (`3ds-pica-on-time`: each command carries the emulated time it was sent),
+  56 MiB of code cache and 80 MiB of JIT memory for it (`3ds-jit-big-games`); (01.17) its GPU commands waited for at
+  their time, exactly (`3ds-pica-strict-games`: the game left draws out when its GPU looked ~1.2 ms late: the
+  objects that came and went), its draws waiting for their pipelines; (01.18) only while they are made by parts (with
+  whole ones a new place froze it 5 to 8 s a frame); (01.17) the JIT's warm-up again after a reset or a state's load.
+  Some of its places are still slow.
+- **3DS: the game in the app's language** (01.08, the owner: games in English though the cartridge had Spanish;
+  citra_libretro.cpp, 26 lines): the libretro port put the app's language in the CFG only when the game asked for its
+  region, which DKC never does; now from the start (`3ds: language from the start: Spanish`). A state saved before
+  keeps its language.
+- **3DS: updates, DLC and mods** (01.09, the owner; 01.22 from the game; new src/ThreeDsCia.h, .cpp, src/GameExtras.h,
+  .cpp). The core exports `CheckCIAToInstall`, `GetCIAInfos`, `InstallCIA` and `UninstallProgram` and the list of
+  what is installed, checks a CIA's size, header and the free space, refuses encrypted ones and games or system
+  titles, all under its rescue point. The app reads the CIAs of the folder `cia` in each 3DS games folder
+  (`Roms/3ds/cia`): **Triangle -> Updates, DLC and Mods** on a game (and the same page in the in-game menu, the game
+  closed first) shows the update it starts with, its DLC, Remove (after a word to copy the save first), **Install
+  from CIA Files** (its own CIAs; "Delete the CIA?" after) and **Mods On / Off** (LayeredFS: `romfs`, `exefs`,
+  `code.ips` in saves/3ds/Azahar/load/mods/<title ID>). Updates and DLC go to the emulated SD
+  (saves/3ds/Azahar/sdmc). 01.09 to 01.21 had the CIAs in Settings -> 3DS Updates and DLC; 01.22 left it out of
+  Settings.
+- **3DS: crashes** (from v00.23's reports): (01.04) directories made without the trailing '/' (a PS4 on system 13.09
+  stopped at its first 3DS game: mkdir refused with EINVAL), a state of the other 3DS (New 3DS Mode changed since)
+  loaded as that 3DS, a shadow texture on a surface that isn't RGBA8 drawn without it (Captain Toad), a game's
+  memory mode that doesn't fit this 3DS made its default (DKC, "-decrypted" files of Pokémon Y and Mario Tennis
+  Open); (01.05) a texture blit's source surface taken after the surface it creates (A Link Between Worlds at ~10
+  min), 64 MiB reserved for a save state and its growth 32 MiB at a time (Super Smash Bros. out of heap), each step
+  of the system's end in the log (Castlevania's end stopped 60 s); (01.06) the reserve heap made first and the other
+  threads waiting while it is made (`overflowHeap` gave them NULL: Pokémon Alpha Sapphire after a long play; 0 NULL
+  in the PC's race test, against over 800 000 before), the heap's lines in emusuni.log; (01.09) **Reset and a
+  state's load**: the app forgets the old renderer's image after the core makes its renderer again (it drew it ~200
+  ms more: the GPU read freed memory and the PS4 closed the app without crash.log, 1 Reset in 11); the fastmem
+  handler on the signal stack; (01.15) a file that says it's decrypted but isn't (its ExeFS has no .code, or its
+  .code doesn't decompress) fails as encrypted, with its message, instead of "Failed to load ROM" and hundreds of MB
+  reserved.
+- **3DS: touch and the right stick** (01.15; src/Touchpad.h, src/Settings.cpp, src/Emulator.cpp): the touchpad
+  follows a finger by its number and leaves a resting touch out (one owner's controller reported a touch that wasn't
+  there; the DS's too). **3DS Right Stick**: C-Stick (the default, as until 01.14) or **Stylus** (it moves the stylus
+  as on the DS; the Tap button touches; the game gets no C-stick).
+- **Online: chat** (01.05, 01.07, 01.15; src/Netplay.cpp, src/Menu.cpp DrawRoomScreen / DrawChatBox,
+  src/IngameMenu.cpp, src/NetplayUi.cpp). The room in full screen: its cover and game, its players, its chat and its
+  code big (Choose Together: a grid of 5 columns with the chat); (01.15) everything in view, actions on the left,
+  settings on the right. **Chat in every room**: quick phrases (sent as a number, each player reads them in their
+  language; (01.07) "I'm fine", "How are you?", "Where are you from?", "I'm from {country}" - its name from the
+  receiver's CLDR 46 table, assets/xmb/netplay/countries.tsv -, "Good luck!", "Let's play!"; (01.15) "Hahaha!", which
+  01.05 to 01.14 drop without failing) and typed lines of up to 100 letters, one every 2 s, the PS4's keyboard
+  without a capital after each space (01.15), the nicknames no longer over each other. Mute (voice and chat), Block on
+  This PS4 (netplay.ini; Online Settings -> Unblock All), Remove from the Room. The others' typed lines show as they
+  wrote them (the owner: no word filter; Others' Typed Messages: Shown / Hidden); the nicknames' filter stays.
+  Control Chat = 13: an older app confirms it and ignores it. (01.07) **The world chat**, the Online tab's Chat page,
+  through netd: one message every 3 s a player and 10 a second in all, Mute or Report, World Chat: Visible / Not Shown.
+  **Kept 30 days for moderation** (the owner), the world's and the rooms' lines alike (a room's copy sent by who
+  writes, taken only from the room's members): the time, place, nickname, player code, country, app version and
+  text, never the address - a keyed hash of it whose salt changes every 30 days, to block (server/emusuni-netd-chat.h;
+  `--chat-salt-dir`, `--chat-blocks`; SQLite 3.24 or newer); nothing is sent before its notice shows; the voice isn't
+  recorded. Each player's 8-letter code comes from a random key of the console (netplay.ini's `chat_key`). The
+  owner's panel has a Chat page (search, reports, blocks). The Japanese, Korean and Chinese fonts have only their
+  translations' characters: many countries' names show in English there.
+- **Online: the Online tab's pages** (01.05, 01.07 to 01.09, 01.16): **Rooms, Chat, Most Played and Players**, on
+  **L2 / R2** (the console filter gone; L1 / R1 stay the Library's tabs; on Chat, Square a quick phrase and Triangle
+  writes). **Most Played** (01.05): netd counts the matches of the last days by game and version, nothing of anyone
+  ((01.07) "Unknown version" for an app that sent its whole file's CRC); Cross makes a room for one of yours.
+  **Players** (01.07): the ranking by time in online matches, Last 7 Days or Since Ever, by each player's code, never
+  by the address (server/emusuni-netd-players.h); **Appear in the Ranking** (Online Settings, Yes by default; No:
+  nothing of yours counted, from the next room). (01.16) A list the server doesn't answer stays, with a notice, and a
+  room missing from one answer stays ~10 s.
+- **Online: Watch and joining a match under way** (01.05, 01.14, 01.15). **Watch**: up to 4 spectators, about a
+  second behind, with the host's confirmed inputs, no voice or chat; NES, SG-1000, Master System, Game Gear,
+  Genesis, PC Engine, Super Nintendo, Atari 2600 and 7800 (not Choose Together, a link cable or the Arcade);
+  Spectators: Yes in public rooms, No in private ones; a spectator compares checksums and asks for the state again
+  when they differ; the room says how many watch; (01.15) the Touchpad on the Online tab watches a room even with a
+  place left. **Late Joining** (Yes by default): the newcomer loads while the others play, they stop at one frame
+  (~0.4 s, "X is joining..."), the host sends its state and the ports; (01.14) rooms of 2 too; off while someone in
+  the room has v00.23. (01.14) **Entry: Free / With Permission** (Free by default in public rooms); **starting
+  alone** (Start plays now: whoever comes joins the match); **the host's Reset Game for every player** at the same
+  frame (CAP_RESET; not offered while a player has an older app). netd unchanged.
+- **Online: back to the room** (01.23, the owner: "salir del juego sin salir de la sala"; CAP_ROOM = 64, which netd
+  passes as it is). **Back to the Room** in the in-game menu ends the match for every player, all back in the room
+  (its chat, its players), the spectators too, where the host can start again; not in a link cable room, not while a
+  player has an older app. A guest who leaves, or one the host removes, no longer closes the room: the match ends and
+  the others go back to it, open with the host. **Entry: With Permission** asks during a match too (until 01.22 a
+  late joiner came in without asking): the host's in-game menu has Accept Player and Reject Player.
+- **Online between versions** (01.06, the owner; src/NetplayProtocol.h NetLevel, WriteNetCaps): each console has an
+  online level - its rules, its core's build, its inputs' and states' form -, raised whenever any of it changes; two
+  apps play a console's match together when its level is the same in both, whatever their versions. Level 1 (v00.23's):
+  NES, Super Nintendo, Genesis, Master System, Game Gear, SG-1000, PC Engine, Atari 7800, the Arcade and the GBA link
+  cable; level 2 (01.04): the Atari 2600 (its paddles) and the Game Boy link cable (its own rules). Choose Together and
+  the link cables need the same version; a refusal says who has to update; with an older app in the room, what it
+  hasn't got is off (chat, Late Joining, Reset, Back to the Room). local/herramientas/prueba-netplay/cruce.sh: v00.23
+  against 01.06, 20 of 20.
+- **Online: each player's country and file of the game** (01.05; netd updated 2026-11-07): the country's two
+  letters beside the nickname, looked up by EmuSuNi's server from the connection, never shown or kept (**Show My
+  Country**, Yes by default); each player's file (Same file / Another version) where the room says whether you have
+  its game. The rooms compare a game's contents without its header or padding (as No-Intro does). **Check My Games**
+  (Online Settings): which games are the standard versions (No-Intro's; FinalBurn Neo 1.0.0.03's for the Arcade; a
+  table of CRC and size to name, `assets/xmb/netplay/standard.bin`, never games), on the 13 consoles that play
+  online, each file read once in the background; a mark under the stars.
+- **Choose Together: "No games in common"** (01.04), with why under it (the same file: the same version and region).
+- **The Game Boy Advance link cable online** (01.04; mGBA's two GBAs joined by its cable, gbalink_retro_* in the GBA
+  core's object, scripts/gbalink/, scripts/build-gba-core.sh): **Triangle -> Link Cable Online** on a GBA game makes a
+  room for two, each player with their own game, as the Game Boy's.
+- **Atari 2600** (01.04; scripts/build-atari-cores.sh, scripts/make-netplay-players.py): Stella's paddles stay where
+  the stick leaves them (`Paddles::emusuniMove`), and Warlords plays online for 4 (two paddles in each port;
+  assets/xmb/netplay/players.bin).
+- **The Library's Order and Filters** (01.18, 01.19, 01.23; src/Ratings.h, .cpp, src/Menu.cpp, new
+  assets/xmb/ratings/arcade-genres.tsv by scripts/make-arcade-genres.py). Options on a game list opens **Order,
+  Genre, Players and Hide Adult Games** (until 01.17 it went to the next order at once). Genre and players come from
+  the LaunchBox Games Database, read in the stars' pass (an older copy of it downloaded again, once); the Arcade's
+  sets from catver.ini's categories (progettoSNAPS). Genre and players last the session; Hide Adult Games is kept (the
+  303 arcade sets whose category says so: LaunchBox marks none). (01.19) The players' filter worked with the old copy
+  only (the lists made again when the new one comes). (01.23, the owner) Players: Any Number, 1 Player Only, 2 Players
+  or More, Cooperative.
+- **Delete Game deletes everything of the game** (01.19, the owner; new src/GameDelete.h, .cpp). Its files (a .cue's
+  tracks, every disc, the folder named after it once empty), its cover pictures no other game shows, its name, own
+  settings, controls, cheats, downloaded bezels, RetroAchievements' hashes, recents and favorites; its saves and states
+  only with **Saves and States: Delete Too** (Keep by default). In v00.23 a deleted game could come back in the list
+  with its cover, and opening it gave an error: a read that ended before the deletion brought it back. (01.06) A game
+  whose file is gone leaves the list, and the default game's file is checked first.
+- **A faster start, and a safe one** (01.14; src/main.cpp, src/Menu.cpp, src/BezelProject.cpp, src/Ratings.cpp): the
+  bezels' count (one stat a bezel: 9 725 on one player's USB drive) and the star ratings' match (8.5 s) no longer
+  before the menu's first frame: the start's watchdog closed that app at 20 s, every start. After a start the
+  watchdog closed, the next one is safe - without the bezels' count, the ratings' match or the covers' and bezels'
+  downloads - and says the step it stopped at (`start-closed.txt`, read and deleted).
+- **N64: the app no longer closes at its start** (01.05; scripts/build-n64-core.sh, port/ps4_n64.c). ParaLLEl-RSP's
+  static `RSP::JIT::CPU` asked for executable memory before `main` and aborted when it got none: an `abort()` at the
+  app's start, whatever the console - v00.23's most reported crash (120 of the 249 crash reports on the server on the
+  11-11). Now it is made when an N64 game starts, with 8 MiB of its own, and CXD4 runs when there is none. (01.04) An
+  emulation that stops by itself ends the game with a message (which CPU or RSP to try for it), not the app.
+- **PSP** (01.04 to 01.07; scripts/build-psp-core.sh): Midnight Club: L.A. Remix without the depth rasterizer's wait
+  (`DepthRasterNoCallbackWait`: 32 -> 46-51 FPS in a race on the owner's PS4) and at 30 FPS at most (compat.ini's own
+  `EmuSuNiMax30FPS`, ULUS10383: a steady 30 at 100%). (01.06, from v00.23's reports) The PSP's 1 GiB with 64 KiB
+  reserved on each side (an access just past it: the MIPS offset added after the mask), MOVUPS for unaligned
+  `lv.q` / `sv.q` (MOVAPS gave a #GP), a #GP in the JIT stops the emulation, not the app (Rock Band Unplugged,
+  Burnout Legends...), and `retro_cheat_set` keeps every code (only a list's last one stayed: "CwCheat error").
+  (01.07) PPSSPP stopping a game says so. (01.05, src/Emulator.cpp) A PSP frame counts as long from 14.2 ms (16.7
+  before); drawing beside the emulation also when over 30% of the recent frames are heavy.
+- **Sega** (01.04, 01.06; scripts/build-gpgx-core.sh, scripts/build-saturn-core.sh): Genesis cartridges of up to 32
+  MiB (MAXROMSIZE); an illegal instruction's exception frame no longer written to the SVP's registers in a game
+  without one (Command & Conquer's beta; Game Boy games in the Genesis folder); a Mega-CD BIOS opened as a game says
+  so ("EmuSuNi doesn't emulate the Mega-CD") instead of closing the app. Saturn: the cheats' count back to 0 with
+  their list (Dracula X with cheats, started again in the same session), `Cs2CopyDirRecord` copies at most 32 bytes
+  of a name (Panzer Dragoon Zwei after another game), three errors of the CHD reader.
+- **OpenBOR** (01.06; scripts/build-openbor-core.sh, ASan clean): `checkhit` with a frame without a box (Double Dragon
+  Reloaded Alternate), a model's `defense` / `offense normalN` past the attack types left out and logged (Knights of
+  the Round Revenge, at its end).
+- **Arcade: patched romsets** (01.05, a player's request; 01.22 from the game; src/Emulator.cpp, src/GameExtras.cpp):
+  FinalBurn Neo's `allow-patched-romsets` on, but online (where both consoles need the set as its DAT knows it): a
+  hack with no driver of its own, named as its set, in system/fbneo/patched starts in place of the set's zip, its
+  CRCs not checked (the zip stays in Roms/arcade for the list). (01.22) **Triangle -> Patched Romset** (also in the
+  in-game menu): the one in use (Remove It), and the ones in `Roms/arcade/patched` to install (copied to the PS4).
+- **DS** (01.04; scripts/build-nds-core.sh): libslirp polls its sockets one call in four (~490 a second instead of
+  ~1950; tried on the PC in a real Wiimmfi race); `nds: Wi-Fi: GameSpy login` in the log.
+- **The Telegram group's QR code** (01.04; assets/xmb/telegram-qr.png): in How to Help, and under Send Log's code.
+- **Reports and logs** (01.04 to 01.06; src/LogReport.cpp, src/main.cpp, port/ps4_crashlog.cpp): the report adds the
+  trace of a start that closed before `main` (xmb-trace-1.log, at most 64 KiB); crash.log keeps the zone and 16 bytes
+  at the rip when it falls outside the eboot; `logStack` stops at the stack's top; the anonymous heartbeat says which
+  community online mode is connected (psp-adhoc, psp-infra, dcnet, wfc-wiimmfi, wfc-wiilink; src/UsageStats.cpp).
+- **Smaller fixes**: a setting's long help no longer runs over Change / Back (01.05, src/Menu.cpp
+  SidePanel::help_lines); xBRZ's 64 MiB table not made while the GPU filter compiles (01.06).
+- THIRD_PARTY_NOTICES.md: libretro-database's data in standard.bin (CC BY-SA 4.0) and FinalBurn Neo's DAT, Unicode
+  CLDR 46's territory names, LaunchBox's genres and players, catver.ini's categories.
 
 ## 00.23 (public release, 2026-11-05)
 

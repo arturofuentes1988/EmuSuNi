@@ -23,7 +23,10 @@ constexpr const char* PINS = "sha256//BXVkfZDFebd6hqe5Jgbv7Wo6gSd/Dk/vshDpzguwF4
                              "sha256//+jlb1ZDt+H3q/THrRGj+OZ6oUSNvpa/RqtyDnVeZYNg=";
 constexpr size_t LOG_MOST = 4 << 20;     // a log's end at most (they are ~0.3 MB)
 constexpr size_t CRASH_MOST = 256 << 10;  // crash.log's end (it grows with each crash)
+constexpr size_t TRACE_MOST = 64 << 10;   // (01.05) a start's trace before its log (~2 KB)
 constexpr const char* LOGS[] = {"emusuni.log", "emusuni-1.log", "crash.log"};
+// (01.05) The heading of the start's trace in crash.log's part (EarlyTrace).
+constexpr const char* TRACE_HEADING = "\n=== xmb-trace-1.log: the start before this one, closed before its log began\n";
 
 std::mutex s_mutex;  // the status, and report.ini
 Status s_status;
@@ -55,6 +58,26 @@ void Replace(std::string* text, const std::string& name, const std::string& labe
     return;  // (a name of one or two letters would hit everything)
   for (size_t at = text->find(name); at != std::string::npos; at = text->find(name, at + label.size()))
     text->replace(at, name.size(), label);
+}
+
+// (01.05) xmb-trace-1.log, the trace of the start before this one (port/ps4_crashlog.cpp: each start of the XMB moves
+// xmb-trace.log there), when that start ended before main() began its log - a crash in a static constructor (the v00.23
+// reports CXNNDN, U7USF6, FMC33M, QEREZH: ParaLLEl-RSP's JIT without executable memory) has a crash.log entry and no
+// log of its own; its trace says what the start did: the heap's and the mmaps' lines. Empty otherwise: a start that
+// reached main() has its log (emusuni-1.log), and its trace (the log's lines once more) isn't sent. A trace from before
+// main() holds only the program's own start - memory sizes, addresses in the program - never the player's name, an
+// address on the network or a room's code: those come with the log's lines, all after main()'s first one.
+std::string EarlyTrace(const std::string& data_dir)
+{
+  const std::string path = data_dir + "/xmb-trace-1.log";
+  if (!FileExists(path))
+    return {};
+  const std::string text = Tail(path, TRACE_MOST);
+  // main()'s first line ("[   0.120] EmuSuNi 01.05 starting", src/main.cpp): the start reached its log.
+  if (text.find(std::string("] ") + App::NAME + " ") != std::string::npos ||
+      text.find_first_not_of(" \n") == std::string::npos)
+    return {};
+  return text;
 }
 
 // report.ini's crash_seen: crash.log's size when it was last looked at (-1: never).
@@ -213,7 +236,16 @@ std::vector<std::pair<std::string, std::string>> GatherFiles(const Ask& ask)
     const std::string path = ask.data_dir + "/" + name;
     if (!FileExists(path))
       continue;
-    std::string text = Tail(path, std::string(name) == "crash.log" ? CRASH_MOST : LOG_MOST);
+    const bool crash = std::string(name) == "crash.log";
+    std::string text = Tail(path, crash ? CRASH_MOST : LOG_MOST);
+    // (01.05) A start that closed before its log: its trace after crash.log's entries, in that file's part - the
+    // server takes only these three files (server/emusuni-reports.py's NAMES), and a fourth would lose the report.
+    if (crash)
+    {
+      const std::string trace = EarlyTrace(ask.data_dir);
+      if (!trace.empty())
+        text += std::string(TRACE_HEADING) + trace;
+    }
     for (const auto& [taken, label] : ask.names)
       Replace(&text, taken, label);
     files.emplace_back(name, std::move(text));

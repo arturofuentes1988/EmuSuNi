@@ -69,8 +69,14 @@ void Set(const Match& match)
   if (match.local == 0)
     guest = match.guest_save.empty() ? ", the guest's save: none (a new game)" :
                                        ", the guest's save: " + std::to_string(match.guest_save.size()) + " bytes";
-  LogF("gblink: a link cable match: Game Boy 1 %s, Game Boy 2 %s; ours Game Boy %d%s", match.games[0].title.c_str(),
-       match.games[1].title.c_str(), match.local + 1, guest.c_str());
+  const char* machine = Gba() ? "GBA" : "Game Boy";
+  LogF("gblink: a link cable match: %s 1 %s, %s 2 %s; ours %s %d%s", machine, match.games[0].title.c_str(), machine,
+       match.games[1].title.c_str(), machine, match.local + 1, guest.c_str());
+}
+
+bool Gba()
+{
+  return s_active && s_match.games[0].system == SystemId::GBA;
 }
 
 void Clear()

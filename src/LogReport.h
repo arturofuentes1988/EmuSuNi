@@ -3,7 +3,9 @@
 // Log reports (00.91): the player sends EmuSuNi's logs to its creator - Settings -> Send Log, or Yes when the app asks
 // at the start after it closed by itself - and gets a 6-letter code to write in a report on GitHub or Telegram.
 // - What goes: data_dir's emusuni.log (this session), emusuni-1.log (the one before: the one that closed, after a
-//   crash) and the end of crash.log (its last 256 KiB: the newest crashes), with the app's version, made smaller
+//   crash) and the end of crash.log (its last 256 KiB: the newest crashes; after them, 01.05, xmb-trace-1.log when the
+//   start before this one closed before its log began - a crash before main(): at most 64 KiB, only the program's own
+//   start, under "=== xmb-trace-1.log: ..."), with the app's version, made smaller
 //   (zlib). First the player's own RetroAchievements user name and online nickname are taken out of them (each becomes
 //   "<ra-user>" / "<player>"); the server takes out the rest - the other players' nicknames, addresses, room codes,
 //   the PS4's user ids (server/emusuni-reports.py) - and keeps only the country, never the address, for 90 days.

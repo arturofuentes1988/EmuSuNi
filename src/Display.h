@@ -23,6 +23,9 @@
 
 // Frames submitted so far (main.cpp's start-up watchdog).
 extern std::atomic<unsigned> g_display_frames;
+// (01.11) The app's start's step until its first picture (main.cpp, src/Menu.cpp: a literal): the start-up watchdog's
+// line says where the start was when it closed the app.
+extern std::atomic<const char*> g_start_step;
 
 class Display
 {

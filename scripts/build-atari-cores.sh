@@ -1077,6 +1077,102 @@ patch('stella', 'src/os/libretro/libretro.cxx',
       b'    return false;\n'
       b'  emusuni_tail_load(static_cast<const uInt8*>(data) + size - EMUSUNI_TAIL);\n'
       b'  return true;\n')
+# (01.04) The paddles stay where the stick leaves them. The left stick (the app's: not absolute, Emulator.cpp) and the
+# mouse moved the analog axis' own position (paddle_a/b above), which a paddle follows only while it changes (Paddles'
+# updateAnalogAxesA/B): held at its end or let go, the paddle went back to where the D-pad had left it. Now they turn
+# the paddle from where it is, as its D-pad does (the same position, the same direction, swapped paddles and directions
+# too) at the analog axis' speed: one position, kept in the state's tail (myPosition). The analog axis moves only when
+# absolute (the stick's position is the paddle's).
+patch('stella', 'src/emucore/Paddles.hxx',
+      b'    void emusuniLoad(const uInt8* in);\n',
+      b'    void emusuniLoad(const uInt8* in);\n'
+      b'    // EmuSuNi: the paddle whose D-pad event increase is turned by move (the analog axis\' units, rightwards +)\n'
+      b'    void emusuniMove(Event::Type increase, float move);\n')
+patch('stella', 'src/emucore/Paddles.cxx',
+      b'// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
+      b'void Paddles::update()\n',
+      b'// EmuSuNi (scripts/build-atari-cores.sh, 01.04): the mouse or the stick turns the paddle from where it is, as its\n'
+      b'// D-pad does - increase is the D-pad\'s left (os/libretro), rightwards its right - at the analog axis\' speed.\n'
+      b'void Paddles::emusuniMove(Event::Type increase, float move)\n'
+      b'{\n'
+      b'  if(move == 0.F || increase == Event::NoType)\n'
+      b'    return;\n'
+      b'  const float step = move * SENSITIVITY / float{ANALOG_RANGE};\n'
+      b'  int index = -1;\n'
+      b'  float delta = 0.F;\n'
+      b'  if(increase == myAIncEvent)      { index = myAxisDigitalZero; delta = -step; }\n'
+      b'  else if(increase == myADecEvent) { index = myAxisDigitalZero; delta = step; }\n'
+      b'  else if(increase == myBIncEvent) { index = myAxisDigitalOne;  delta = -step; }\n'
+      b'  else if(increase == myBDecEvent) { index = myAxisDigitalOne;  delta = step; }\n'
+      b'  if(index < 0)\n'
+      b'    return;\n'
+      b'  myPosition[index] = BSPF::clamp(myPosition[index] + delta, 0.F, POSITION_LIMIT);\n'
+      b'}\n'
+      b'\n'
+      b'// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -\n'
+      b'void Paddles::update()\n')
+patch('stella', 'src/os/libretro/StellaLIBRETRO.hxx',
+      b'    // EmuSuNi: the input window (Event::emusuniSave), in the same tail.\n',
+      b'    // EmuSuNi (01.04): a paddle turned by the mouse or the stick (libretro.cxx\'s retro_analog_paddle): increase is\n'
+      b'    // its D-pad\'s left event, the paddle the one that has it (either port: their events are their jacks\').\n'
+      b'    void emusuniPaddleMove(Event::Type increase, float move) const {\n'
+      b'      if(move == 0.F)\n'
+      b'        return;\n'
+      b'      for(Controller* c : {&myOSystem->console().leftController(), &myOSystem->console().rightController()})\n'
+      b'      {\n'
+      b'        const Controller::Type type = c->type();\n'
+      b'        if(type == Controller::Type::Paddles || type == Controller::Type::PaddlesIAxis ||\n'
+      b'           type == Controller::Type::PaddlesIAxDr)\n'
+      b'          static_cast<Paddles*>(c)->emusuniMove(increase, move);\n'
+      b'      }\n'
+      b'    }\n'
+      b'\n'
+      b'    // EmuSuNi: the input window (Event::emusuniSave), in the same tail.\n')
+patch('stella', 'src/os/libretro/libretro.cxx',
+      b'static void retro_analog_paddle(unsigned pad, int32_t *analog_axis, int32_t *input_bitmask)\n'
+      b'{\n'
+      b'  RETRO_ANALOG_COMMON();\n'
+      b'\n'
+      b'  if (mouse_x)\n'
+      b'    *analog_axis += mouse_x * stella_settings.paddle_mouse_sensitivity;\n'
+      b'  else if (!stella_settings.paddle_analog_absolute)\n'
+      b'    *analog_axis += analog_x / 50;\n'
+      b'  else\n'
+      b'    *analog_axis  = analog_x;\n'
+      b'  *analog_axis = BSPF::clamp(*analog_axis, -0x7fff, 0x7fff);\n'
+      b'}\n',
+      b'// EmuSuNi (scripts/build-atari-cores.sh, 01.04): the mouse\'s or the stick\'s move (not absolute) for the paddle to\n'
+      b'// turn from where it is (StellaLIBRETRO::emusuniPaddleMove), as much as it moved the analog axis before; absolute,\n'
+      b'// the analog axis is the stick\'s position.\n'
+      b'static float retro_analog_paddle(unsigned pad, int32_t *analog_axis, int32_t *input_bitmask)\n'
+      b'{\n'
+      b'  RETRO_ANALOG_COMMON();\n'
+      b'\n'
+      b'  if (mouse_x)\n'
+      b'    return static_cast<float>(mouse_x * stella_settings.paddle_mouse_sensitivity);\n'
+      b'  if (!stella_settings.paddle_analog_absolute)\n'
+      b'    return static_cast<float>(analog_x / 50);\n'
+      b'  *analog_axis = BSPF::clamp(analog_x, -0x7fff, 0x7fff);\n'
+      b'  return 0.F;\n'
+      b'}\n')
+for side in (b'Left', b'Right'):
+    for paddle in (b'A', b'B'):
+        name = b'paddle_' + paddle.lower()
+        patch('stella', 'src/os/libretro/libretro.cxx',
+              b'      retro_analog_paddle(pad, &' + name + b', &input_bitmask[pad]);\n'
+              b'      EVENT(Event::' + side + b'Paddle' + paddle + b'Analog, ' + name + b');\n',
+              b'      stella.emusuniPaddleMove(Event::' + side + b'Paddle' + paddle + b'Increase,\n'
+              b'                               retro_analog_paddle(pad, &' + name + b', &input_bitmask[pad]));\n'
+              b'      EVENT(Event::' + side + b'Paddle' + paddle + b'Analog, ' + name + b');\n')
+# The analog axes' positions from the game before (an older state's tail: they move no more) back to the middle.
+patch('stella', 'src/os/libretro/libretro.cxx',
+      b'bool retro_load_game(const struct retro_game_info *info)\n'
+      b'{\n'
+      b'  enum retro_pixel_format fmt = RETRO_PIXEL_FORMAT_XRGB8888;\n',
+      b'bool retro_load_game(const struct retro_game_info *info)\n'
+      b'{\n'
+      b'  memset(emusuni_paddle, 0, sizeof(emusuni_paddle));  // EmuSuNi (scripts/build-atari-cores.sh)\n'
+      b'  enum retro_pixel_format fmt = RETRO_PIXEL_FORMAT_XRGB8888;\n')
 
 
 # ---- ProSystem ----

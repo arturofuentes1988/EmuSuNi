@@ -300,7 +300,8 @@ struct Day
   std::map<std::pair<std::string, std::string>, uint64_t> updates;  // (from, to) -> installs
 };
 
-const char* const LABEL_KINDS[] = {"country", "version", "language", "state", "console", "game"};
+const char* const LABEL_KINDS[] = {"country", "version", "language", "state", "console", "game",
+                                   "community"};  // ((01.04) the community online modes: the owner's only)
 
 bool ParseDay(const std::string& text, Day* d)
 {
@@ -391,11 +392,27 @@ struct Seen  // an install seen today (its key: the id hashed with the day's sal
 {
   uint64_t consoles = 0;  // bits: the day's consoles it played (Stats::console_bits)
   uint8_t states = 0;     // bits: the states it was in
+  uint8_t communities = 0;  // (01.04) bits: the community online modes it used (COMMUNITY_MODES; seen's states << 8)
   uint8_t checks = 0;     // update checks counted
   bool updated = false;   // an update counted
   double last_beat = -1e9;
   std::vector<uint32_t> games;  // the games it played today (GameHash of their labels), GAMES_A_DAY at most
 };
+
+// (01.04) The community online modes a game can be connected to while it plays - servers that aren't ours, which the
+// app sees in its cores' own log lines (src/UsageStats.cpp: CoreLine) - in the heartbeat's community: only the mode's
+// name, never an address. Anything else is dropped. The owner's panel shows them (label "community"), not the public
+// page. At most 8 (Seen::communities).
+const char* const COMMUNITY_MODES[] = {"psp-adhoc", "psp-infra", "dcnet", "wfc-wiimmfi", "wfc-wiilink"};
+int CommunityBit(const std::string& mode)
+{
+  for (size_t i = 0; i < sizeof(COMMUNITY_MODES) / sizeof(COMMUNITY_MODES[0]); i++)
+  {
+    if (mode == COMMUNITY_MODES[i])
+      return static_cast<int>(i);
+  }
+  return -1;
+}
 
 uint32_t GameHash(const std::string& label)
 {
@@ -582,10 +599,66 @@ void SaveSeen(sqlite3* db, const char* table, const std::unordered_map<uint64_t,
       std::snprintf(hex, sizeof(hex), "%s%x", i ? "," : "", s.games[i]);
       games += hex;
     }
-    put.Int(1, static_cast<int64_t>(key)).Int(2, static_cast<int64_t>(s.consoles)).Int(3, s.states).Int(4, s.checks)
+    // ((01.04) The community modes in the states' column, above its 8 bits: no column more - a server of before
+    // reads the states alone.)
+    put.Int(1, static_cast<int64_t>(key)).Int(2, static_cast<int64_t>(s.consoles))
+        .Int(3, s.states | (static_cast<int64_t>(s.communities) << 8)).Int(4, s.checks)
         .Int(5, s.updated ? 1 : 0).Text(6, games).Run();
   }
   dirty.clear();
+}
+
+// ---- (01.04) The requests refused a day, by request and why (SendRefused; refusal_day: numbers only) ----
+std::map<std::tuple<std::string, std::string, std::string>, uint64_t> s_refusals;  // (date, request, why): not saved yet
+
+const char* RefusalName(Refusal why)
+{
+  switch (why)
+  {
+  case Refusal::NoRoom: return "no-room";
+  case Refusal::Full: return "full";
+  case Refusal::Version: return "version";
+  case Refusal::TooMany: return "too-many";
+  case Refusal::ServerFull: return "server-full";
+  case Refusal::BadRequest: return "bad-request";
+  case Refusal::Started: return "started";
+  case Refusal::BadCookie: return "bad-cookie";
+  case Refusal::Kicked: return "kicked";
+  case Refusal::NoWatch: return "no-watch";  // (01.05)
+  }
+  return "other";
+}
+
+const char* RequestName(Type type)
+{
+  switch (type)
+  {
+  case Type::Hello: return "hello";
+  case Type::Create: return "create";
+  case Type::Join: return "join";
+  case Type::List: return "list";
+  case Type::ListAll: return "list-all";
+  case Type::Info: return "info";
+  default: return "other";
+  }
+}
+
+void CountRefusal(Type request, Refusal why)
+{
+  if (!s_stats.on || s_refusals.size() > 1000)
+    return;
+  s_refusals[{DateOf(WallNow()), RequestName(request), RefusalName(why)}]++;
+}
+
+void SaveRefusals(sqlite3* db)
+{
+  for (const auto& [key, n] : s_refusals)
+  {
+    Stmt q(db, "INSERT INTO refusal_day(date, request, why, n) VALUES (?, ?, ?, ?) "
+               "ON CONFLICT(date, request, why) DO UPDATE SET n = n + excluded.n");
+    q.Text(1, std::get<0>(key)).Text(2, std::get<1>(key)).Text(3, std::get<2>(key)).Int(4, static_cast<int64_t>(n)).Run();
+  }
+  s_refusals.clear();
 }
 
 void SaveDay()
@@ -594,6 +667,7 @@ void SaveDay()
   if (!s_stats.on || !db || s_stats.day.date.empty())
     return;
   StoreExec(db, "BEGIN");
+  SaveRefusals(db);  // (01.04)
   StoreSaveDay(db, s_stats.day);
   SaveSeen(db, "seen", s_stats.seen, s_stats.dirty);
   StoreSaveDay(db, s_stats.pub, "pub_");  // (00.95)
@@ -779,6 +853,7 @@ bool StatsStart(const std::string& dir)
       Seen s;
       s.consoles = static_cast<uint64_t>(q.ColInt(1));
       s.states = static_cast<uint8_t>(q.ColInt(2));
+      s.communities = static_cast<uint8_t>(q.ColInt(2) >> 8);  // (01.04)
       s.checks = static_cast<uint8_t>(q.ColInt(3));
       s.updated = q.ColInt(4) != 0;
       std::istringstream list(q.ColText(5));
@@ -932,6 +1007,7 @@ struct Beat
 {
   uint64_t sketch_key = 0, day_key = 0;
   std::string country, version, language, console, game, from;
+  std::string community;  // (01.04) a COMMUNITY_MODES' one, else 
   StatsState state = StatsState::Menu;
   bool playing = false, fresh = false;
   int update_checks = 0;
@@ -987,6 +1063,19 @@ bool CountBeat(Day& day, std::unordered_map<uint64_t, Seen>& seen_map, std::unor
     if (bit < MAX_CONSOLE_BITS && !(s.consoles & (uint64_t{1} << bit)))
     {
       s.consoles |= uint64_t{1} << bit;
+      l.installs++;
+      l.sketch.Add(b.sketch_key);
+    }
+    if (counted_beat)
+      l.beats++;
+  }
+  // (01.04) The community online mode connected while it played: its installs and hours.
+  if (const int bit = CommunityBit(b.community); bit >= 0)
+  {
+    Label& l = LabelOf(day, "community", b.community);
+    if (!(s.communities & (1u << bit)))
+    {
+      s.communities |= static_cast<uint8_t>(1u << bit);
       l.installs++;
       l.sketch.Add(b.sketch_key);
     }
@@ -1093,6 +1182,7 @@ ProfileReply StatsRecord(const Heartbeat& h, uint32_t ip, AddressState& address)
   b.update_checks = h.update_checks;
   b.from = Token(h.updated_from, MAX_APP_VERSION);
   b.game = playing ? GameLabel(console, h.game) : std::string();
+  b.community = playing && CommunityBit(h.community) >= 0 ? h.community : std::string();  // (01.04)
   const bool counted_beat = CountBeat(day, s_stats.seen, s_stats.dirty, b, now);
   if (counted_beat)
     s_stats.beats_since_log++;
@@ -1767,7 +1857,8 @@ int StatsReport(const std::string& dir, int days, bool json, const std::string& 
       {
         o += (i ? ", " : "") + std::string("{\"") + kind + "\": " + JsonText(std::get<0>(rows[i])) +
              ", \"installs\": " + std::to_string(std::get<1>(rows[i]));
-        if (std::string(kind) == "console" || std::string(kind) == "state" || std::string(kind) == "game")
+        if (std::string(kind) == "console" || std::string(kind) == "state" || std::string(kind) == "game" ||
+            std::string(kind) == "community")
         {
           char hours[32];
           std::snprintf(hours, sizeof(hours), "%.1f", static_cast<double>(std::get<2>(rows[i])) * 5.0 / 60.0);
@@ -1835,8 +1926,9 @@ int StatsReport(const std::string& dir, int days, bool json, const std::string& 
   for (const auto& [pair, n] : updates)
     std::printf("  %s -> %s: %llu\n", pair.first.c_str(), pair.second.c_str(), static_cast<unsigned long long>(n));
   const char* titles[] = {"Countries", "Versions", "PS4 languages", "States (installs, hours)",
-                          "Consoles played (installs, hours)", "Games played (installs, hours; the top 40)"};
-  for (size_t k = 0; k < 6; k++)
+                          "Consoles played (installs, hours)", "Games played (installs, hours; the top 40)",
+                          "Community online modes (installs, hours)"};
+  for (size_t k = 0; k < 7; k++)
   {
     auto rows = sorted(LABEL_KINDS[k]);
     if (k == 5)

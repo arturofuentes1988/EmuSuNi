@@ -32,4 +32,20 @@ float DrawLatencyBar(ImDrawList* dl, ImFont* regular, ImFont* bold, const std::v
 // while not known - in its colour.
 void DrawBars(ImDrawList* dl, ImVec2 at, float h, int quality, int ping_ms, float alpha);
 ImU32 QualityColor(int quality, float alpha);
+
+// (01.15, the owner: the nicknames "como superpuestos") A chat's line - the room's, the world chat's, the game's menu's:
+// its nickname and ":" in bold, then its words in the regular font after it, wrapped under it. (Until 01.14 the whole
+// line was drawn in the regular font and the nickname again over it in bold - wider: the bold one ran over the words
+// and the regular one showed under it.) Laid out first - its height, to go up from the newest -, then drawn.
+struct ChatLine
+{
+  std::string who;                 // "Ana:" (a nickname wider than the line: cut with "...")
+  float indent = 0.0f;             // where the first line's words start
+  std::vector<std::string> lines;  // the words' lines (the first empty: a long nickname, the words under it)
+  float height = 0.0f;
+};
+ChatLine LayoutChatLine(ImFont* regular, ImFont* bold, float size, float line_h, const std::string& nick,
+                        const std::string& words, float width);
+void DrawChatLine(ImDrawList* dl, ImFont* regular, ImFont* bold, float size, float line_h, const ChatLine& line,
+                  ImVec2 at, ImU32 who_colour, ImU32 colour);
 }  // namespace NetplayUi

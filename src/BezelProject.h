@@ -101,11 +101,16 @@ struct Downloaded
   int files = 0;
   int64_t bytes = 0;
 };
-// The console's downloaded bezels still there (as recorded).
+// The console's downloaded bezels, as recorded ((01.11) the record alone: no file looked at).
 Downloaded Count(const std::string& data_dir, const std::string& console);
 // Deletes every console's downloaded bezels (only the files the downloads wrote, still as they were written, and the
 // downloads' .part files) and their records. What was deleted.
 Downloaded DeleteAll(const std::string& data_dir, const std::vector<std::string>& consoles);
+// (01.19) Delete Game: games' downloaded bezels (<console>/<the file's name>.png, as the download names them) - only
+// those the record has and as they were written (else the player's own: they stay) -, and their lines in the record
+// (read and written once). The ids whose bezel was deleted.
+std::vector<std::string> DeleteGameBezels(const std::string& data_dir, const std::string& console,
+                                          const std::vector<std::string>& game_ids);
 
 // ---- The download (one at a time, on a thread of its own) ----
 class Downloader

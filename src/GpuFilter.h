@@ -66,6 +66,8 @@ void Shutdown();
 // mode is asked for (quickly from the cache file after the first time); until then the picture
 // is drawn as before.
 bool Ready(Mode mode);
+// (01.06) The mode's pipelines are still being compiled (asked for, neither ready nor failed): it will draw soon.
+bool Pending(Mode mode);
 
 // The picture: an image fragment shaders can read, in that layout.
 struct Source

@@ -31,14 +31,15 @@ constexpr int REFUSE_ALL = 999;       // in data_dir/memory-guard: every start i
 
 // The regular flexible memory a game's start takes from a fresh app, in MiB, by the console's key (System::key),
 // as measured in the PS4 logs: the PSP 63 (God of War: 15 PPSSPP threads at its load, then a thread for each
-// shader compile while it plays), the 3DS 18 (Hey! Pikmin from a fresh start, about 9 threads), the N64 12, the
-// Dreamcast and its arcade boards 9, the PlayStation 8, the DS and the Game Boys 6, the others 3.
+// shader compile while it plays), the 3DS 22 (Hey! Pikmin from a fresh start, about 9 threads: 18; 01.11: and the
+// GPU commands' and the DSP's threads, on by default, their two stacks), the N64 12, the Dreamcast and its arcade
+// boards 9, the PlayStation 8, the DS and the Game Boys 6, the others 3.
 inline int ColdMiB(const std::string& console)
 {
   if (console == "psp")
     return 63;
   if (console == "3ds")
-    return 18;
+    return 22;
   if (console == "n64")
     return 12;
   if (console == "dc" || console == "naomi" || console == "atomiswave")

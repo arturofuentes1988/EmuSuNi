@@ -174,6 +174,8 @@ const std::vector<Setting> SETTINGS = {
      "The size the GPU draws 3DS games at: real HD 3D, not an enlarged picture. A bigger size is more work for the "
      "GPU only, but a game that reads its picture back (a few do, for effects) waits for it and can slow down.",
      FOR_3DS},
+    // (01.18: 01.17's 3DS Texture Filter - ScaleForce - is gone, the owner's decision: on the PS4 a GPU hang in Luigi's
+    // Mansion 2 and textures missing in Castlevania. An old settings.ini's 3ds_texture_filter does nothing.)
     {"resolution", "Resolution", "Video",
      {{"1", "Native (224p)", "The console's own 256x224 picture, enlarged by the TV (the fastest)."},
       {"2", "2x (448p)", "Redrawn at 512x448 before it is fitted to the TV."},
@@ -995,6 +997,16 @@ const std::vector<Setting> SETTINGS = {
      "How the DualShock 4's touchpad is the 3DS's touch screen. The stylus stays where it was left; the Tap button "
      "is set in Controls.",
      FOR_3DS},
+    // (01.15) The right stick as the 3DS's C-stick (as until 01.14), or moving the stylus as on the DS (src/Emulator.cpp:
+    // the game then gets no C-stick).
+    {"3ds_right_stick", "3DS Right Stick", "Emulation",
+     {{"cstick", "C-Stick", "The 3DS's C-stick: the New 3DS's, and the Circle Pad Pro's in the games that read it."},
+      {"stylus", "Stylus",
+       "Moves the stylus on the touch screen, as on the DS; the Tap button touches. The game gets no C-stick."}},
+     "cstick", true,
+     "What the right stick is in 3DS games. Stylus is for playing on the touch screen without the touchpad; the Tap "
+     "button is set in Controls (the touchpad's click by default).",
+     FOR_3DS},
     {"3ds_new", "New 3DS Mode", "Emulation",
      {{"off", "Off (Old 3DS)",
        "The original 3DS (two ARM11 cores): the lightest, and nearly every game runs on it."},
@@ -1022,14 +1034,16 @@ const std::vector<Setting> SETTINGS = {
      FOR_3DS},
     // (00.81) Azahar's "Disable Right Eye Render", on for every game since 00.63 (scripts/build-3ds-core.sh: the PS4
     // shows no 3D), breaks a few games: Majora's Mask 3D's intro stays black and its blur effects freeze the screen
-    // (azahar #791), Kingdom Hearts 3D and Pokémon Super Mystery Dungeon lose a screen (#1005). Auto: drawn for the
-    // games of Emulator.cpp ThreedsRightEyeGame; the file /data/EmuSuNi/3ds-right-eye still draws it in every game.
+    // (azahar #791), Kingdom Hearts 3D and Pokémon Super Mystery Dungeon lose a screen (#1005). (01.18) On the PS4 it
+    // also opened Castlevania: Mirror of Fate and DKC black: Auto draws it in every game (Emulator.cpp
+    // Build3dsVariables); the core's file /data/EmuSuNi/3ds-right-eye with the word off leaves it out in every game.
     {"3ds_right_eye", "3DS Right Eye", "Emulation",
      {{"auto", "Auto",
-       "Not drawn, but drawn in the games known to need it (Majora's Mask 3D, Metroid: Samus Returns, Kingdom Hearts "
-       "3D, Pokémon Super Mystery Dungeon, Fire Emblem Warriors, Minecraft: New Nintendo 3DS Edition)."},
+       "Drawn in every game: left out, Castlevania: Mirror of Fate and Donkey Kong Country Returns 3D opened with a "
+       "black screen on the PS4."},
       {"skip", "Not Drawn (faster)",
-       "The PS4 shows no 3D, so the right eye's picture is left out: less work in the games that draw both eyes."},
+       "The PS4 shows no 3D, so the right eye's picture is left out: less work in the games that draw both eyes, but "
+       "some games open with a black screen or lose a screen."},
       {"draw", "Drawn",
        "As on the 3DS: for a game whose screen stays black, freezes on an effect or is out of place. Slower in the "
        "games that draw both eyes."}},

@@ -28,6 +28,7 @@
 #include <thread>
 #include <unistd.h>
 #include <unordered_map>
+#include <unordered_set>
 
 #include <sys/stat.h>
 
@@ -51,6 +52,7 @@
 #include "CoverFiles.h"
 #include "Display.h"
 #include "GameAudio.h"
+#include "GameDelete.h"
 #include "Image.h"
 #include "Log.h"
 #include "LogReport.h"
@@ -79,12 +81,25 @@
 #ifdef EMUSUNI_SATURN
 #include "SaturnTest.h"
 #endif
+#ifdef EMUSUNI_3DS
+#include "ThreeDsCia.h"  // ((01.09) the 3DS's updates and DLC from CIAs, a game's mods on or off)
+#include "GameExtras.h"  // ((01.22) the Arcade's patched romsets; the in-game menu's asks after the game)
+#endif
 
 namespace
 {
+#ifdef EMUSUNI_3DS
+// (01.09) A text in the player's language as a string, to be joined to others (PS4Lang::T keeps a literal a pointer).
+std::string Tr(const std::string& english)
+{
+  return PS4Lang::T(english);
+}
+#endif
 using Clock = std::chrono::steady_clock;
 constexpr float W = static_cast<float>(Display::WIDTH);
 constexpr float H = static_cast<float>(Display::HEIGHT);
+// (01.05) A panel's help text ends above the button hints (DrawHints: their glyphs from H - 98), at 25 px a line.
+constexpr float HELP_END = H - 106.0f, HELP_LINE = 25.0f;
 
 void Log(const std::string& text)
 {
@@ -712,6 +727,9 @@ struct Preferences
   // (00.80) The games' RetroAchievements filter (Touchpad): "off", "known" (the games with achievements), "progress"
   // (those with achievements begun, not all unlocked).
   std::string ra_filter = "off";
+  // (01.18) Order and Filters (Options in a list of games): Hide Adult Games - an arcade set whose category is for
+  // adults, a game LaunchBox marks so. Off by default; kept (the genre and players filters last the session).
+  bool hide_adult = false;
   std::string console_order;      // Settings -> Console Order: "snes,nes,..." ("": the usual one)
   // 2: the standard order became Nintendo then Sony, the most basic first (00.43): an order saved
   // before is dropped once.
@@ -756,6 +774,8 @@ struct Preferences
         default_game = Portable::FromStored(value);
       else if (key == "ra_filter")
         ra_filter = value == "known" || value == "progress" ? value : "off";
+      else if (key == "hide_adult")
+        hide_adult = value == "on";
       else if (key == "console_order")
         console_order = value;
       else if (key == "console_order_version")
@@ -777,7 +797,7 @@ struct Preferences
             "\ngames_dir=" + (snes == games_dirs.end() ? std::string() : Portable::ToStored(snes->second)) +
             "\nlast_game=" + Portable::ToStored(last_game) + "\nstyle=" + style + "\nsort=" + sort +
             "\ndefault_game=" + Portable::ToStored(default_game) + "\nra_filter=" + ra_filter +
-            "\nconsole_order=" + console_order +
+            "\nhide_adult=" + (hide_adult ? "on" : "off") + "\nconsole_order=" + console_order +
             "\nconsole_order_version=" + std::to_string(console_order_version) + "\n";
     for (const auto& [key, dir] : games_dirs)
     {
@@ -1319,6 +1339,19 @@ enum Setting
   SET_SEND_LOG,         // (00.91) Send Log (src/LogReport.h): what goes, Send; then sending, its code, or why not
   SET_SEND_LOG_ASK,     //   at the start after EmuSuNi closed by itself: send its log? Yes / No
   SET_OL_LINKGAME,      // (00.95) a Game Boy link cable room's guest: its own game for Game Boy 2
+  SET_OL_CHECK,         // (01.05) Online Settings -> Check My Games: each console's standard versions (OpenCheckGames)
+  SET_OL_CHECK_LIST,    //   a console's games: standard or not
+  SET_3DS_CIA,          // (01.09, src/ThreeDsCia.h) 3DS Updates and DLC: the CIAs found ((01.22) none: from the game)
+  SET_3DS_CIA_CONFIRM,  //   what it is, the free space: Install / Cancel
+  SET_3DS_CIA_INSTALL,  //   its install as it goes (Cancel), then its result: Delete the CIA / Keep It
+  SET_3DS_CIA_DELETE,   //   "Delete?" for that CIA: it can't be brought back
+  SET_3DS_EXTRAS,       //   a 3DS game's Triangle -> Updates, DLC and Mods: what it has, Remove, Mods On / Off
+  SET_3DS_REMOVE,       //   "Remove?" for its update or its DLC (copy its save first)
+  SET_LIST_VIEW,        // (01.18) Options in a list of games: Order and Filters - the order, genre, players, adults
+  SET_ARCADE_PATCHED,   // (01.22, src/GameExtras.h) an Arcade game's Triangle -> Patched Romset: in use, Remove, found
+  SET_ARCADE_CONFIRM,   //   one found chosen: Install / Cancel (the room it takes)
+  SET_ARCADE_COPY,      //   its copy as it goes (Cancel), then its result
+  SET_ARCADE_REMOVE,    //   "Remove?" for the one in use
 #ifdef EMUSUNI_SATURN
 #endif
   SET_GROUP = 100,  // + index into Settings::Categories(): an emulation settings list
@@ -1357,6 +1390,9 @@ struct SidePanel
   float slide = 0.0f;
   float scroll = 0.0f;
   bool snap = false;  // the list went round (00.76): its scroll jumps there instead of sliding through every row
+  // (01.05) The help text's lines under the list, as last drawn: the list ends higher for a long one, so that it ends
+  // above the button hints (v00.23's tour: Dreamcast Online's ran through them).
+  int help_lines = 0;
   // Information: a game's rating in stars (half stars 0 to 10; -1 none), drawn at the end of its line of `lines`.
   int stars = -1;
   std::string stars_line;
@@ -1371,6 +1407,9 @@ struct Game
   Ratings::Rating rating;  // its stars (src/Ratings.h; half_stars -1: none, or not matched yet)
   Achievements::LibraryInfo ra;  // RetroAchievements' mark (00.77: src/Achievements.h's library marks)
   int order = 0;  // its place in the read's list (00.85: games of one title stay in that order after a rename)
+  // (01.05) Its mark under the stars (StandardMark): 0 not known yet (its file not read), 1 the standard version, 2
+  // another, 3 nothing to say (a console the list hasn't, discs). Known once, then kept.
+  mutable int8_t standard = 0;
 };
 
 // (00.85) A game for the matchers of names - the stars' (Ratings::Matcher), the covers' download - which read none of
@@ -1388,6 +1427,15 @@ Library::Game NamesOf(const Library::Game& rom)
   names.discs = rom.discs;
   names.cover_names = rom.cover_names;
   return names;
+}
+
+// (01.05, the owner: "que le dé prioridad solo a las consolas que se juegan en online con EmuSuNi") The consoles Check
+// My Games and the marks under the stars are for: those of the online rooms (Netplay::RulesFor) and of the link cable
+// rooms (the Game Boy, the Game Boy Color, the Game Boy Advance) - the others have neither.
+bool PlaysOnline(SystemId id)
+{
+  return Netplay::RulesFor(GetSystem(id).key).online || id == SystemId::GB || id == SystemId::GBC ||
+         id == SystemId::GBA;
 }
 }  // namespace
 
@@ -1409,11 +1457,14 @@ public:
     MakeDirs(UserDir() + "/covers");
     MakeDirs(UserDir() + "/cheats");
     MakeDirs(UserDir() + "/themes");
+    g_start_step = "the menu: the games' names";
     LoadNames();
     m_rating_copy = Ratings::ReadCopy(m_data_dir);  // (LaunchBox's ratings downloaded before: SetGames matches)
     // (00.85) The last read's games at once, from the internal storage (no USB drive is asked anything before the
     // menu's first frame: a sleeping or broken one would hold it back); the read of the drives on its thread.
+    g_start_step = "the menu: the games' list kept from the last read";
     LoadCachedGames();
+    g_start_step = "the menu: the games played and the favorites";
     LoadPlayed();
     LoadFavorites();
     AskRead(true, true);
@@ -1458,6 +1509,9 @@ public:
     // (00.86: a match's only - after a game played alone, the end of our room that stayed open, if it ended meanwhile,
     // is UpdateOnline's to say.)
     m_pending_title = m_launch_online && !Netplay::TakeError().empty() && !error.empty() ? "Online Play" : "";
+    // ((01.23) Back to the room from its match - Back to the Room, a guest who left -: the room shows, the host's
+    // too with no one else in it.)
+    m_online_back = m_launch_online && error.empty() && Netplay::GetView().phase == Netplay::Phase::Room;
     m_launch_online = false;
   }
   bool DefaultGame(Library::Game* game)
@@ -1469,6 +1523,14 @@ public:
     {
       if (g.rom.path == m_prefs.default_game)
       {
+        // (01.06) The cache's games are the last read's: a file gone since (v00.23's E46NUS: deleted while the app was
+        // closed) opens the menu, not a start that says it can't be opened.
+        if (!FileExists(g.rom.path))
+        {
+          Log("default game's file isn't there any more: " + m_prefs.default_game);
+          return false;
+        }
+        TellInstallFolders(g.rom.system);  // ((01.22) its in-game menu's Updates, DLC and Mods)
         *game = g.rom;
         HoldRead();  // (the game starts before the menu)
         return true;
@@ -1484,6 +1546,7 @@ public:
     {
       if (g.rom.path == path)
       {
+        TellInstallFolders(g.rom.system);  // ((01.22) its in-game menu's Updates, DLC and Mods)
         *game = g.rom;
         HoldRead();
         return true;
@@ -1491,6 +1554,7 @@ public:
     }
     return false;
   }
+  void SafeStart() { m_safe_start = true; }  // (01.11: main.cpp)
   ImFont* m_font = nullptr;
   ImFont* m_bold = nullptr;
   void LoadAssets();
@@ -1661,6 +1725,18 @@ private:
   bool OnlinePanelInput(uint32_t pressed);
   NetProto::LobbyGame FindOnlineGame(const NetProto::GameInfo& game, int* index);
   bool OnlineGameInfo(int game, NetProto::GameInfo* info);
+  bool OnlineFileId(int game, uint32_t* crc, uint64_t* size);
+  // (01.05, the owner) A game's version as its file's name says it ("USA, Rev 1"; "" none), and a player's country as
+  // a small tag (its width; 0 none) - the rooms' cards and the Online tab's table.
+  std::string OnlineVersionText(int game) const;
+  bool MayBeContent(const Library::Game& rom, uint64_t size) const;
+  // (01.05, the owner: "una marca debajo de las estrellas") A game's file the standard version or not (1, 2; 0 nothing
+  // to show), and its mark: a green circle with a tick, an amber one with a bar - its word beside it (label) for the
+  // game selected. Its width.
+  int StandardMark(const Game& game) const;
+  float DrawStandardMark(ImDrawList* dl, ImVec2 left_center, float r, int mark, float alpha, bool label);
+  float StandardMarkWidth(float r, int mark, bool label) const;
+  float DrawCountryTag(ImDrawList* dl, float x, float cy, const std::string& country, float size, float a);
   int OnlinePlayersMost(int game) const;
   std::string OnlinePlayersHelp() const;
   int m_online_game = -1;  // the game played online (m_games' index): the host's, or the one a guest found
@@ -1674,12 +1750,15 @@ private:
   bool m_online_link_said = false;
   std::vector<std::string> m_online_actions;  // what each option of an online panel does ("start", "kick:1"...)
   std::map<std::string, std::pair<uint32_t, uint64_t>> m_online_crcs;  // the files' CRC32 and size, by path
+  // (01.06) Their whole files' (Netplay::FileCrc: v00.23's), read only for a room of such an app or our own room.
+  std::map<std::string, std::pair<uint32_t, uint64_t>> m_online_file_crcs;
   // The listed rooms' games among ours (and their m_games' index), by game (console, CRC32, size, title).
   std::map<std::string, std::pair<NetProto::LobbyGame, int>> m_online_marks;
   // The Online tab (00.85): a table of the rooms there are - public and private, waiting or playing, with their game
-  // -, asked for while the tab shows and again every few seconds (Netplay::Browse: the server's ListAll); L2 / R2
-  // filter it by console and by type; Cross joins the selected room (a private one with its code, asked for), Square
-  // makes one, Triangle joins with a code, Options opens Online Settings (Nickname, Hide My Address, the online
+  // -, asked for while the tab shows and again every few seconds (Netplay::Browse: the server's ListAll; (01.07) every
+  // console's, the filters gone - (01.08) L2 / R2 the tab's pages); Cross joins the selected room (a private one with its
+  // code, asked for), Square makes one, Triangle joins with a code, Options opens Online Settings (Nickname, Hide My
+  // Address, the online
   // profile, My Stats). The player's own room, while there is one, on top (the last list under it, dimmed). The same
   // table in both styles: the Library's page, the XMB's column.
   struct OnlineRow
@@ -1695,23 +1774,94 @@ private:
   void BuildOnlineTable();
   void DrawOnlineTable(ImDrawList* dl, float alpha, float x0, float x1, float top, float bottom, bool summary);
   bool OnlineTabInput(uint32_t pressed);
-  void JoinOnlineRow(const OnlineRow& row);
+  // (`watch`: (01.15) as a spectator, though a player's place is left - the Touchpad.)
+  void JoinOnlineRow(const OnlineRow& row, bool watch = false);
+  // (01.15, the owner) The selected room takes a spectator now - its host lets them, a spectator's place is left, the
+  // game is ours: the Touchpad watches it, a player's place left or not (Cross joins it as before). An older host's room
+  // (before 01.05) never does: the server says it isn't watchable.
+  bool OnlineRowCanWatch() const
+  {
+    if (m_online_index < 0 || m_online_index >= static_cast<int>(m_online_rows.size()))
+      return false;
+    const OnlineRow& row = m_online_rows[static_cast<size_t>(m_online_index)];
+    return !row.mine && !row.together && row.room.watchable && row.room.watchers < NetProto::MAX_WATCHERS &&
+           row.found != NetProto::LobbyGame::Missing && Netplay::CanJoinVersion(row.room);
+  }
+  // (01.05) The selected room's match may be watched (Cross watches it: the hint says so).
+  bool OnlineRowWatch() const
+  {
+    if (m_online_index < 0 || m_online_index >= static_cast<int>(m_online_rows.size()))
+      return false;
+    const OnlineRow& row = m_online_rows[static_cast<size_t>(m_online_index)];
+    const NetProto::RoomEntry& room = row.room;
+    const bool late = room.playing && room.late && room.players < room.max_players;  // ((01.05) joined instead)
+    return !row.mine && !late && room.watchable && room.watchers < NetProto::MAX_WATCHERS &&
+           (room.playing || room.players >= room.max_players) && row.found != NetProto::LobbyGame::Missing;
+  }
   void OpenOnlineSettings(const std::string& select = "");
+  // (01.05, the owner: "Revisar mis juegos") Check My Games: console "" each console's count, else that console's
+  // games; the rows come again as NetplayLibrary reads the files (m_check_signature).
+  void OpenCheckGames(const std::string& console, const std::string& select = "");
+  void BuildCheckRows();
+  std::string CheckSignature() const;
+  std::string m_check_console, m_check_signature;
+  double m_check_at = 0.0;
+  // (01.05, the owner: "haz una tabla con los más jugados") The Online tab's table shows the games most played online
+  // instead of the rooms (m_online_top: Touchpad); its rows (BuildTopTable: the server's list - Netplay::TopGames - and
+  // whether each is in our games: found 1 the same version, 2 another of its title, 0 none), the selected one.
+  struct TopRow
+  {
+    Netplay::TopGame top;
+    std::string title, version, standard, tab;
+    const System* system = nullptr;
+    bool link = false;  // a link cable room's (its game: a Game Boy's, a GBA's)
+    int game = -1;      // ours (m_games' index)
+    int found = 0;
+  };
+  void BuildTopTable();
+  void DrawTopTable(ImDrawList* dl, float alpha, float x0, float x1, float y, float bottom);
+  // (01.07, the owner) The Online tab's pages - Rooms, Chat (the world chat), Most Played (the table above),
+  // Players (the ranking) -, L1 / R1 between them (the Library's: past the first or the last, the menu's tabs).
+  enum OnlinePage
+  {
+    PAGE_ROOMS = 0,
+    PAGE_CHAT = 1,
+    PAGE_TOP = 2,
+    PAGE_PLAYERS = 3,
+    ONLINE_PAGES = 4,
+  };
+  int m_online_page = PAGE_ROOMS;
+  bool OnlinePageInput(uint32_t pressed);
+  void DrawOnlinePages(ImDrawList* dl, float alpha, float x0, float x1, float y);
+  // The world chat's page (Netplay::GetWorldChat): its lines, the one selected (-1: none - the newest at the bottom),
+  // a line's actions (mute its player, report it), the last answer said (a toast).
+  void DrawWorldChat(ImDrawList* dl, float alpha, float x0, float x1, float y, float bottom);
+  bool WorldChatInput(uint32_t pressed);
+  void OpenWorldPhrases();
+  void OpenWorldLine(int index);
+  void WriteWorldLine();
+  void WorldSaid(Netplay::WorldSayResult result);
+  int m_world_index = -1;  // (the selected line's number - its serial -, -1: none)
+  uint32_t m_world_said_seen = 0;
+  // The players' ranking's page (Netplay::TopPlayers): the last 7 days or since ever (Triangle), the row selected.
+  void DrawPlayersTable(ImDrawList* dl, float alpha, float x0, float x1, float y, float bottom);
+  int m_players_days = NetProto::TOP_DAYS;
+  int m_players_index = 0;
+  std::vector<TopRow> m_top_rows;
+  int m_top_index = 0;
+  uint32_t m_top_serial = 0, m_top_logged = 0;
+  float m_top_built = -10.0f;
   void BuildOnlineSettingsRows();
   std::string OnlineSettingsSignature() const;
-  std::vector<std::string> OnlineConsoles() const;  // the console filter's: "" (every one), then those online
+  std::vector<std::string> OnlineConsoles() const;  // "" (every one), then those online
   std::string OnlineSummary() const;  // "12 players online now  ·  3 rooms" (translated)
-  std::vector<OnlineRow> m_online_rows;          // as the table shows them (the filters applied)
+  std::vector<OnlineRow> m_online_rows;          // as the table shows them (ours on top)
   std::vector<Netplay::RoomView> m_online_last;  // the last list that came whole
   int m_online_last_total = 0;
   bool m_online_listed = false;  // a list came (since the last failure)
   std::string m_online_row_key;  // the selected room's (kept while the list is asked for again)
   int m_online_index = 0;        // its row (m_selected's: BuildItems puts that one back to 0)
-  int m_online_filter_console = 0, m_online_filter_type = 0;  // OnlineConsoles()' index; every / public / private
-  // (00.92) The others' rooms the filters leave of the last list (ours on top is neither), and the log's last line of
-  // them (said again when the filters or the counts change).
-  int m_online_shown = 0, m_online_others = 0;
-  std::string m_online_filter_said;
+  // ((01.07, the owner: the console filter's row out - every console's rooms, the pages' tabs in its place.)
   float m_online_entered = 0.0f, m_online_refresh_at = 0.0f, m_online_retry_at = 0.0f;
   // Choose Together rooms (00.23): the library's files hashed on NetplayLibrary's thread (started with Online Play),
   // this console's list sent to the room once complete, each game of it by its file (console, CRC32, size), the
@@ -1732,7 +1882,7 @@ private:
   };
   struct TogetherScreen
   {
-    static constexpr int COLS = 7;  // cards a row
+    static constexpr int COLS = 5;  // cards a row ((01.05) 5: the room's chat beside them; 7 before)
     bool on = false;
     std::vector<std::string> tabs;  // "": every console's; then the consoles' keys
     std::vector<int> counts;
@@ -1751,6 +1901,41 @@ private:
   void DrawTogetherScreen(ImDrawList* dl, float dt);
   bool TogetherInput(uint32_t pressed);
   void TogetherPick(int game);
+  // (01.05, the owner) The room on the whole screen (DrawRoomScreen): the game and its cover, its players with their
+  // ping and voice, the options (the host's Start, a player's actions...), the room's chat (DrawChatBox: a Choose
+  // Together room's beside its games too). Over it, a picker: a quick phrase, or a player's actions (mute, block,
+  // remove). L2: a quick phrase; R2: a line typed on the app's keyboard (src/Netplay.h: the chat).
+  struct RoomPicker
+  {
+    bool open = false;
+    std::string title;
+    std::vector<std::string> items, actions;  // items translated when drawn (raw: as they are - a nickname)
+    std::vector<bool> raw;
+    int selected = 0;
+  } m_room_picker;
+  std::vector<std::string> m_room_notes;  // what the room says (BuildOnlinePanel): the game found, waiting, starting
+  // (01.15, the owner: "todas las opciones a la vista sin tener que bajar por la lista") Every option on the room screen
+  // at once: a player's actions on its card (column -1), under the cards the actions as buttons (column 0) and the
+  // room's settings - Entry, Late Joining, Spectators: a value and a switch - beside them (column 1; Reject too, beside
+  // Accept). A room without settings (a guest's): its actions in both columns. Up / Down: a column (through the cards),
+  // Left / Right: the other column. (Until 01.14 a list, scrolled past four options.)
+  struct RoomPlace
+  {
+    int column = 0, row = 0;
+  };
+  std::vector<RoomPlace> RoomPlaces() const;
+  static bool RoomSetting(const std::string& action);
+  bool RoomScreenShown() const;
+  void MoveRoomSelection(uint32_t pressed);
+  void DrawRoomScreen(ImDrawList* dl, float dt);
+  void DrawChatBox(ImDrawList* dl, const Netplay::View& v, float x0, float y0, float x1, float y1, float a);
+  void DrawRoomPicker(ImDrawList* dl, float a);
+  bool RoomPickerInput(uint32_t pressed);
+  bool PickerAction(const std::string& action);
+  void OpenQuickPhrases();
+  void OpenPlayerActions(int member);
+  void WriteChatLine();
+  void ChatSaid(Netplay::ChatResult result);
   // (00.86) The host's room stays open while the host goes anywhere (Circle on its panel goes back, Close Room closes
   // it): the Online tab's table lists the rooms on its connection, ours on top (Cross: back to it). A player asking to
   // join is a notice over whatever shows (Accept, Reject; Circle: later, in the room) - unless the room's panel shows
@@ -1768,6 +1953,7 @@ private:
   std::string m_online_prefer;        // the room panel's option to select once it is there ("accept", "start")
   bool m_online_was_hosting = false;  // our room was open last frame (its end in the background is said)
   bool m_launch_online = false;       // the game launched is an online match (its end's error is the room's)
+  bool m_online_back = false;         // (01.23) that match ended back in the room: the room shows (Run)
   // RetroAchievements (00.73, src/Achievements.h): Settings -> RetroAchievements - log in (the user name, then the
   // password, on the keyboard), log out; the panel follows the login as it goes (every frame).
   void OpenAchievementsPanel();
@@ -1855,7 +2041,19 @@ private:
   void RestartApp(const std::string& why);
   // Deleting games: one (Triangle's options), or the duplicates and the other regions (Clean Up).
   void OpenCleanUp();
-  void DeleteGames(const std::vector<std::string>& paths);
+  // (01.19, the owner: "Borrar" deletes everything of the game) `saves`: its saves and states too (Delete Game's
+  // choice, off by default; never Clean Up's).
+  void DeleteGames(const std::vector<std::string>& paths, bool saves = false);
+  // What else is a deleted game's: its cover (the pictures no remaining game shows), name, own settings, controls,
+  // cheats, rating, saves and states (`saves`) - only when no remaining game has its key (a copy of it elsewhere keeps
+  // them). (DeleteGames: its downloaded bezel, the recents' and RetroAchievements' lines of its files, for them all at
+  // once.) What the remaining games keep is looked at once (Clean Up deletes thousands). Returns what went (the log).
+  struct KeptByOthers
+  {
+    std::unordered_set<std::string> keys, names, pictures;  // the remaining games' keys, "<console>/<id>", pictures
+  };
+  std::string ForgetGame(const Game& game, bool saves, const KeptByOthers& kept);
+  void SetDeleteGameLines();
   std::string OptionHelp(const std::string& option) const;
   void TourCommand(const std::string& command);
   // Saved data.
@@ -1894,7 +2092,45 @@ private:
   void OpenBezelsPanel();
   void BuildBezelRows();
   void UpdateBezelDownload();
-  std::string BezelsDetail();  // (the bezels there are counted the first time)
+  // (the bezels there are counted the first time; (01.11) count false: not now - the text without the count)
+  std::string BezelsDetail(bool count = true);
+  // (01.09, the owner, src/ThreeDsCia.h) A 3DS game's Triangle -> Updates, DLC and Mods: its update and DLC (removed,
+  // its save copied first), its mods on or off, and ((01.22) until then: Settings -> 3DS Updates and DLC) the CIAs of
+  // the 3DS's game folders' "cia" folders that are its own, one installed at a time on its thread (Update3dsInstall,
+  // every frame), then its CIA deleted if the player wants. Not in a build without the 3DS.
+#ifdef EMUSUNI_3DS
+  void List3dsCias();  // m_cias: every CIA of the "cia" folders (made where there is none), each one's information
+  void Open3dsCiaConfirm(size_t index);
+  void Update3dsInstall();
+  // select_key: that row selected; reread false: the CIAs as listed (back from one of them).
+  void Open3dsExtras(int game, const std::string& select_key = {}, bool reread = true);
+  void Ask3dsRemove(bool dlc);  // "Remove?" for its update or its DLC
+  void ThreeDsPanelChoice();  // Cross on one of their options
+  bool ThreeDsPanelBack();    // Circle on one of them (true: taken)
+  std::string ThreeDsSaveDir() const;  // the 3DS's save folder (the core's: <UserDir>/saves/3ds)
+  // The title of the player's 3DS game with that title ID ("" none: its file's header read once, m_3ds_titles).
+  std::string ThreeDsGameName(uint64_t game_title_id);
+  // A CIA said in a line: its game (the player's game's title, its own name, or its file's), what it is, its version.
+  std::string CiaLine(const ThreeDsCia::File& file);
+#endif
+  // (01.22, src/GameExtras.h) An Arcade game's Triangle -> Patched Romset: the one FinalBurn Neo uses (Remove), and
+  // those of its set in the Arcade's "patched" folders (Roms/arcade/patched), one copied in at a time on its thread
+  // (UpdatePatchedCopy, every frame).
+  void OpenArcadePatched(int game, const std::string& select_key = {});
+  void OpenPatchedConfirm(size_t index);
+  void AskPatchedRemove();
+  void UpdatePatchedCopy();
+  void ArcadePanelChoice();  // Cross on one of their options
+  bool ArcadePanelBack();    // Circle on one of them (true: taken)
+  std::string PatchedDir() const;  // <the Arcade's system folder>/fbneo/patched (Emulator.cpp's)
+  // The game's index in m_games by its file (-1 gone: the games read again meanwhile).
+  int GameIndexOf(const std::string& path) const;
+  // A game's extras panels: Start the Game, its row (after the game closed for an install or removal).
+  void StartGameFromPanel(int game);
+  // As a game starts: the folders the in-game menu looks into for what it can install (GameExtras::InstallFolders).
+  void TellInstallFolders(SystemId system);
+  // Back from a game closed by its in-game menu to install or remove something: that game's panel, on that.
+  void OpenAfterGame(const GameExtras::AfterGame& after);
 
   bool Library() const { return m_prefs.style != "xmb"; }
   int LibraryTab() const;
@@ -2006,6 +2242,25 @@ private:
   bool RaFilterPasses(const Game& game) const;
   std::string RaFilterHiddenLine(int c) const;  // (00.89) "Only games with achievements - 355 hidden - Touchpad: show all"
   std::string RaFilterLine(int c) const;  // "With achievements: 438 of 793  -  checking 1200 of 3585..."
+  // (01.18, the owner: the Library filtered by genre and players) Options in a list of games: Order and Filters
+  // (SET_LIST_VIEW) - the order (as Options went through them until 01.17), a genre, the players, Hide Adult Games.
+  // A game's genres and players are its rating's (src/Ratings.h: LaunchBox's, an arcade set's category); one without
+  // them is left out while a genre or players are chosen. The genre and players last the session.
+  int m_filter_genre = -1;    // Ratings::GenreName's index; -1 every genre
+  int m_filter_players = 0;   // 0 any, 1 one player only, 2 two or more, 5 cooperative ((01.23) no 3 or 4 any more)
+  int m_view_hidden[CATEGORY_COUNT] = {};   // each list's games the genre or players left out
+  bool m_view_emptied[CATEGORY_COUNT] = {};  // ... all of them
+  int m_view_category = -1;                  // the list Order and Filters was opened in (its genres' counts)
+  std::vector<int> m_view_genres;            // ... the genres of its games (Genre's choices after Every Genre)
+  int m_view_players_known = 0;              // ... its games whose players are known (none: said when chosen)
+  bool ViewFilterOn() const { return m_filter_genre >= 0 || m_filter_players > 0; }
+  bool ViewPasses(const Game& game) const;
+  std::string ViewFilterLine(int c) const;  // "Genre: Fighting  -  2 Players or More  -  355 hidden  -  Options: change"
+  static std::string PlayersName(int players);
+  void OpenViewPanel();
+  void BuildViewRows();
+  void ChangeViewRow(int direction);
+  void ViewChanged(int list = -1);  // (-1: the list Order and Filters was opened in)
   SidePanel m_panel;
   bool m_assets_loaded = false;
 
@@ -2023,6 +2278,9 @@ private:
   ImTextureID m_wallpaper{};
   ImTextureID m_logo{};  // the "EmuSuNi" letters
   ImTextureID m_help_qr{};  // (00.90) How to Help's QR code (loaded the first time it opens)
+  // (01.04, the owner) The group on Telegram's (assets/xmb/telegram-qr.png, scripts/make-help-qr.py): How to Help, beside
+  // the website's, and a log sent, under its code.
+  ImTextureID m_telegram_qr{};
   float m_logo_aspect = 4.0f;
   ImTextureID m_glow{};  // a soft round light (white, gaussian alpha): the intro's stardust
   ImTextureID m_star{};  // a star (white, soft edges): the ratings' stars, tinted (DrawRating)
@@ -2156,6 +2414,10 @@ private:
   std::map<std::string, BezelProject::Downloaded> m_bezels_there;
   bool m_bezels_counted = false;
   bool m_bezel_resume_tried = false;
+  // (01.11) The start after one the start-up watchdog closed (main.cpp: SafeStart): no big inventory this session - the
+  // bezels counted only when their page opens, no star ratings matched, no covers', bezels' or ratings' download.
+  bool m_safe_start = false;
+  bool m_ratings_waiting = false;  // (01.11) the games to match wait for the menu's first frames (StartRatings)
 
   std::string m_browse_dir;  // Game Folder browser: the folder shown ("" = the places)
   SystemId m_browse_system = SystemId::SNES;  // whose game folder it picks
@@ -2239,8 +2501,30 @@ private:
 
   // Files waiting for "Delete" (Delete Game, Clean Up Games), and Clean Up's two lists.
   std::vector<std::string> m_pending_delete;
+  bool m_delete_saves = false;  // (01.19) Delete Game: its saves and states too (off each time it opens)
+  std::string m_delete_title, m_delete_file;  // ... the game's title and file, for its lines
+  size_t m_delete_files = 0;                  // ... its files' count
   std::vector<std::string> m_cleanup_dups, m_cleanup_others[SYSTEM_COUNT];
   std::string m_cleanup_system;  // Keep Only USA Games' console ("snes", "nes", "n64")
+#ifdef EMUSUNI_3DS
+  // (01.09) 3DS Updates and DLC: the CIAs listed, the one chosen; a game's Updates, DLC and Mods: the game, its title
+  // ID, what its options do, the title to remove; each 3DS game file's title ID once read (by its path).
+  std::vector<ThreeDsCia::File> m_cias;
+  size_t m_cia_chosen = 0;
+  int m_3ds_game = -1;
+  std::string m_3ds_path;  // ((01.22) its file: its index again if the games were read meanwhile)
+  uint64_t m_3ds_title = 0;
+  std::vector<std::string> m_3ds_actions;
+  uint64_t m_3ds_remove = 0;
+  std::unordered_map<std::string, uint64_t> m_3ds_titles;
+#endif
+  // (01.22) An Arcade game's Patched Romset: the game, those found, the one chosen; a game's panel opened after the
+  // game closed for it (Start the Game at its top).
+  int m_patched_game = -1;
+  std::string m_patched_path;
+  std::vector<GameExtras::PatchedFile> m_patched_found;
+  size_t m_patched_chosen = 0;
+  bool m_extras_from_game = false;
   // The screenshot tour (Tour.h) is running; the menu style to put back at its end.
   bool m_tour = false;
   std::string m_tour_style;
@@ -2474,6 +2758,9 @@ bool Menu::Impl::ReadNow(const ReadAsk& ask, ReadDone* done)
   char took[96];
   std::snprintf(took, sizeof(took), " (read in %.1f s; %zu files' contents known)", seconds, m_read_contents.size());
   Log("games: " + counts + took);
+  if (found.missing > 0)
+    Log("games: " + std::to_string(found.missing) + " file(s) their folder lists aren't there (left out; deleted while "
+        "another program had them open?): " + found.missing_first);
   // The next start's games: written when they (or the places, the folders, the files' contents) aren't the cache's.
   if (done->fingerprint != m_cache_fingerprint || m_read_contents.size() != m_cache_facts ||
       done->places != m_cache_places || StoredChosen(ask.chosen) != m_cache_chosen)
@@ -2619,6 +2906,11 @@ void Menu::Impl::StartCoversOnce()
   if (m_dl_auto || !m_running || !m_games_read || !m_covers_listed)
     return;
   m_dl_auto = true;
+  if (m_safe_start)
+  {
+    Log("covers: no download of the missing ones in a safe start");  // (01.11)
+    return;
+  }
   if (MissingCovers())
   {
     Log("covers: downloading the missing ones in the background");
@@ -2736,6 +3028,9 @@ void Menu::Impl::SetGames(std::vector<Library::Game>&& roms)
   ApplyNames();
   StartRatings();  // (the stars: the games matched before at once, the others on the matcher's thread)
   StartAchievementMarks();  // (RetroAchievements' marks, 00.77: hashed on the module's thread)
+  // ((01.05) the files' ids - the marks under the stars, online play's: read once on NetplayLibrary's thread, its copy
+  // kept; nothing read while a game runs)
+  StartOnlineLibrary();
 }
 
 // The user's own names (Rename) on the games - a name taken away gives the game its own title back -, then every
@@ -3165,6 +3460,13 @@ void Menu::Impl::StartRatings(bool again)
   }
   if (wanted.empty() || busy)
     return;
+  // (01.11) Not before the menu's first frames (its thread took the disk and the CPU from them: Gabriel's 14 146 games,
+  // 8.5 s), and not at all in a safe start (SafeStart): UpdateRatings starts it then.
+  if (m_safe_start || g_display_frames.load(std::memory_order_relaxed) < 3)
+  {
+    m_ratings_waiting = true;
+    return;
+  }
   std::vector<std::string> keys;
   keys.reserve(wanted.size());
   for (const Library::Game& rom : wanted)
@@ -3178,6 +3480,11 @@ void Menu::Impl::StartRatings(bool again)
 
 void Menu::Impl::UpdateRatings()
 {
+  if (m_ratings_waiting && !m_safe_start && g_display_frames.load(std::memory_order_relaxed) >= 3)
+  {
+    m_ratings_waiting = false;
+    StartRatings();  // ((01.11) the games that waited for the menu's first frames)
+  }
   // A download ended: a new copy means every game's rating again (the panel of Star Ratings says how it went).
   bool downloaded = false;
   if (m_rating_download.Finished(&downloaded))
@@ -3206,6 +3513,14 @@ void Menu::Impl::UpdateRatings()
   }
   m_rating_asked.clear();
   StartRatings();
+  // ((01.18) The genres and players came (a new copy of the star ratings' data, a game matched now): with a genre, the
+  // players or Hide Adult Games on, the lists again - until then a filter chosen before they came kept its empty lists
+  // (01.18's first test: the players chosen with the copy before 01.18, the new one 29 minutes later). The panel's
+  // counts too.)
+  if (ViewFilterOn() || m_prefs.hide_adult)
+    ViewChanged(m_category);
+  if (m_panel.open && m_panel.setting == SET_LIST_VIEW)
+    BuildViewRows();
 }
 
 bool Menu::Impl::StartRatingsDownload()
@@ -3255,8 +3570,10 @@ bool Menu::Impl::StartBezelDownload(const std::vector<std::string>& consoles, bo
 }
 
 // The Settings row's value: the download as it goes, else the bezels there (counted the first time, and again after a
-// download or a deletion).
-std::string Menu::Impl::BezelsDetail()
+// download or a deletion). (01.11) Counted from their records (BezelProject::Count), never before the menu's first
+// frame: BuildItems asks without the count (count false), and Run's frames count them once the menu shows - in a safe
+// start (SafeStart), only when their page opens.
+std::string Menu::Impl::BezelsDetail(bool count)
 {
   if (m_bezel_download.Busy())
   {
@@ -3271,15 +3588,25 @@ std::string Menu::Impl::BezelsDetail()
       return "Waiting while a game runs";
     return "Downloading bezels: " + std::to_string(done >> 20) + " / " + std::to_string(total >> 20) + " MB";
   }
+  if (!m_bezels_counted && !count)
+    return "The Bezel Project's, for your games";
   if (!m_bezels_counted)
   {
+    const auto start = Clock::now();
     m_bezels_counted = true;
     m_bezels_there.clear();
+    int files = 0;
     for (const System& system : Systems())
     {
       if (BezelProject::Has(system.key) && FileExists(BezelProject::RecordPath(UserDir(), system.key)))
+      {
         m_bezels_there[system.key] = BezelProject::Count(UserDir(), system.key);
+        files += m_bezels_there[system.key].files;
+      }
     }
+    LogF("bezels: %d downloaded, as their records say (%d consoles, %lld ms)", files,
+         static_cast<int>(m_bezels_there.size()),
+         static_cast<long long>(std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - start).count()));
   }
   int files = 0;
   for (const auto& [key, there] : m_bezels_there)
@@ -4133,6 +4460,7 @@ void Menu::Impl::BuildItems()
   // The emulation settings (Video, Graphics, Performance, Emulation, System) are set from a game
   // (Triangle -> Game Settings: for that game, its console or all games), not here.
   settings.push_back({"Game Folders", "A folder for each console's games", -1, -1, SET_FOLDERS});
+  // ((01.09 to 01.21: 3DS Updates and DLC here. (01.22, the owner) From the game: Triangle -> Updates, DLC and Mods.)
   {
     std::string order;
     for (SystemId id : ConsoleOrder())
@@ -4145,7 +4473,8 @@ void Menu::Impl::BuildItems()
                       SET_DOWNLOAD});
   settings.push_back({"Games Without Cover", NoCoverDetail(), -1, -1, SET_NO_COVER});
   settings.push_back({"Covers Saved On", CoversDetail(), -1, -1, SET_COVERS});
-  settings.push_back({"Game Bezels", BezelsDetail(), -1, -1, SET_BEZELS});  // (00.80: The Bezel Project's)
+  // (00.80: The Bezel Project's) (01.11: not counted here - BezelsDetail)
+  settings.push_back({"Game Bezels", BezelsDetail(false), -1, -1, SET_BEZELS});
   settings.push_back({"Star Ratings", m_prefs.ratings ? "On" : "Off", -1, -1, SET_RATINGS});
   settings.push_back({"Sound Effects", m_prefs.sounds ? "On" : "Off", -1, -1, SET_SOUNDS});
   settings.push_back({"Volume", std::to_string(m_prefs.volume), -1, -1, SET_VOLUME});
@@ -4211,6 +4540,9 @@ void Menu::Impl::BuildItems()
   const bool ra_filter = RaFilterOn();
   for (auto& count : m_ra_count)
     count = {};
+  const bool view_filter = ViewFilterOn();
+  for (int& hidden : m_view_hidden)
+    hidden = 0;
   for (const int i : order)
   {
     const Game& game = m_games[i];
@@ -4246,6 +4578,19 @@ void Menu::Impl::BuildItems()
       if (!RaFilterPasses(game))
         continue;
     }
+    // ((01.18) Order and Filters: the games for adults hidden (kept: no count); a genre, the players.)
+    if (m_prefs.hide_adult && game.rating.adult)
+      continue;
+    if (view_filter && !ViewPasses(game))
+    {
+      for (const int c : {static_cast<int>(Category::Games), ListOfSystem(game.rom.system),
+                          m_favorites.count(game.rom.key) ? static_cast<int>(Category::Favorites) : -1})
+      {
+        if (c >= 0)
+          m_view_hidden[c]++;
+      }
+      continue;
+    }
     std::string detail = game.rom.region;
     if (!game.rom.tags.empty())
       detail += (detail.empty() ? "" : "  -  ") + game.rom.tags;
@@ -4271,6 +4616,10 @@ void Menu::Impl::BuildItems()
                                                               "No games with achievements here",
                             m_ra_count[c].unchecked > 0 ? "Still checking the files: they show here as they're found" :
                                                           "Touchpad shows every game again"});
+    // (01.18) A list the genre or players emptied.
+    m_view_emptied[c] = !m_ra_emptied[c] && view_filter && m_view_hidden[c] > 0 && m_items[c].empty();
+    if (m_view_emptied[c])
+      m_items[c].push_back({"No games of that genre or players here", "Options shows every game again"});
   }
   // (00.85) A list still empty while the games are being read: "Reading your games..." and how many so far
   // (UpdateReadingItems counts on).
@@ -4754,6 +5103,59 @@ void Menu::Impl::ChangeSettingRow(int direction)
     return;
   const SettingRow row = m_panel.rows[m_panel.selected];
   const std::string game = m_panel.game_id;
+  if (m_panel.setting == SET_LIST_VIEW)
+  {
+    ChangeViewRow(direction);  // (01.18) Order and Filters
+    return;
+  }
+#ifdef EMUSUNI_3DS
+  // (01.09) A game's Updates, DLC and Mods: Mods On / Off (either way), Remove the Update / the DLC ("Remove?" first),
+  // the update's or DLC's row (where to install them); (01.22) one of its CIAs (Cross or Right: Open3dsCiaConfirm),
+  // Start the Game (after the game closed for it).
+  if (m_panel.setting == SET_3DS_EXTRAS)
+  {
+    if (row.key == "3ds:mods")
+    {
+      ThreeDsCia::SetModsOn(m_3ds_title, row.tag < 0);
+      m_panel.rows[m_panel.selected].tag = row.tag < 0 ? 1 : -1;
+    }
+    else if (direction > 0 && row.key == "3ds:start")
+    {
+      StartGameFromPanel(m_3ds_game);
+    }
+    else if (direction > 0 && row.key.rfind("cia:", 0) == 0)
+    {
+      Open3dsCiaConfirm(static_cast<size_t>(std::atoi(row.key.c_str() + 4)));
+    }
+    else if (direction > 0 && (row.key == "3ds:remove_update" || row.key == "3ds:remove_dlc"))
+    {
+      Ask3dsRemove(row.key == "3ds:remove_dlc");
+    }
+    else if (direction > 0 && (row.key == "3ds:update" || row.key == "3ds:dlc" || row.key == "3ds:nocia"))
+    {
+      ShowToast(ThreeDsCia::Available() ? "Copy its CIA files to Roms/3ds/cia: they show here" :
+                                          "This version's 3DS emulator can't install CIAs yet.",
+                0);
+    }
+    return;
+  }
+#endif
+  // (01.22) An Arcade game's Patched Romset: Start the Game, Remove It ("Remove?" first), one found (Install?), where
+  // they go.
+  if (m_panel.setting == SET_ARCADE_PATCHED)
+  {
+    if (direction <= 0)
+      return;
+    if (row.key == "patched:start")
+      StartGameFromPanel(m_patched_game);
+    else if (row.key == "patched:remove")
+      AskPatchedRemove();
+    else if (row.key.rfind("patched:file:", 0) == 0)
+      OpenPatchedConfirm(static_cast<size_t>(std::atoi(row.key.c_str() + 13)));
+    else if (row.key == "patched:none")
+      ShowToast("Copy it to Roms/arcade/patched, named as the game's set: it shows here", 0);
+    return;
+  }
   if (m_panel.setting == SET_CLEANUP)
   {
     if (direction <= 0 || (row.key != "__dups__" && row.key.rfind("__usaonly__:", 0) != 0))
@@ -5602,7 +6004,888 @@ void Menu::Impl::OpenGameOptions()
   if (game.rom.system == SystemId::GB || game.rom.system == SystemId::GBC)
     m_panel.options.insert(m_panel.options.begin() + 1, "Link Cable Online");
 #endif
+#ifdef EMUSUNI_GBALINK
+  // (01.04) The Game Boy Advance's (mGBA's link core): the same room, two GBA games.
+  if (game.rom.system == SystemId::GBA)
+    m_panel.options.insert(m_panel.options.begin() + 1, "Link Cable Online");
+#endif
+#ifdef EMUSUNI_3DS
+  // (01.09) A 3DS game's update and DLC (installed from its CIAs: (01.22) here, until then from Settings), and its mods
+  // on or off.
+  if (game.rom.system == SystemId::THREEDS)
+  {
+    const auto info = std::find(m_panel.options.begin(), m_panel.options.end(), "Information");
+    m_panel.options.insert(info, "Updates, DLC and Mods");
+  }
+#endif
+  // (01.22) An Arcade game's patched romset (FinalBurn Neo's system/fbneo/patched, 01.05): in use, removed, installed.
+  if (game.rom.system == SystemId::ARCADE)
+  {
+    const auto info = std::find(m_panel.options.begin(), m_panel.options.end(), "Information");
+    m_panel.options.insert(info, "Patched Romset");
+  }
+  m_extras_from_game = false;  // (its panels from here: Start is in this list)
   Play("menu");
+}
+
+#ifdef EMUSUNI_3DS
+// ---- (01.09, the owner: "Sí, hazlo") The 3DS's updates and DLC from the player's CIAs, a game's mods ----
+
+std::string Menu::Impl::ThreeDsSaveDir() const
+{
+  return Portable::UserDir() + "/saves/3ds";  // (Emulator.cpp: the core's save folder, its Azahar/sdmc below)
+}
+
+std::string Menu::Impl::ThreeDsGameName(uint64_t game_title_id)
+{
+  if (game_title_id == 0)
+    return {};
+  for (const Game& game : m_games)
+  {
+    if (game.rom.system != SystemId::THREEDS)
+      continue;
+    auto found = m_3ds_titles.find(game.rom.path);
+    if (found == m_3ds_titles.end())
+      found = m_3ds_titles.emplace(game.rom.path, ThreeDsCia::RomTitleId(game.rom.path)).first;
+    if (found->second == game_title_id)
+      return game.rom.title;
+  }
+  return {};
+}
+
+std::string Menu::Impl::CiaLine(const ThreeDsCia::File& file)
+{
+  const ThreeDsCia::Info& info = file.info;
+  std::string name = info.read ? ThreeDsGameName(ThreeDsCia::GameOf(info.title_id)) : std::string();
+  if (name.empty() && info.read)
+    name = info.name;
+  if (name.empty())
+    name = std::filesystem::path(file.file_name).stem().string();
+  return name;
+}
+
+// The CIAs of the 3DS's game folders' "cia" folders (made where there is none, so the player sees where they go), each
+// with what it is ((01.22) for a game's Updates, DLC and Mods: its own among them; until then Settings -> 3DS Updates
+// and DLC listed them all).
+void Menu::Impl::List3dsCias()
+{
+  const System& system = GetSystem(SystemId::THREEDS);
+  const std::vector<std::string> folders = ThreeDsCia::Folders(
+      Library::ConsoleFolders(system, GamesFolder(SystemId::THREEDS), m_places), true);
+  m_cias = ThreeDsCia::List(folders);
+  std::string where;
+  for (const std::string& folder : folders)
+    where += (where.empty() ? "" : ", ") + folder;
+  LogF("3ds cia: %zu CIA%s in %s%s", m_cias.size(), m_cias.size() == 1 ? "" : "s",
+       where.empty() ? "no folder" : where.c_str(), ThreeDsCia::Available() ? "" : " (this core has no installer)");
+}
+
+// A CIA chosen: what it is, the room it takes and the free space; Install / Cancel (only Back without the room).
+void Menu::Impl::Open3dsCiaConfirm(size_t index)
+{
+  if (index >= m_cias.size())
+    return;
+  const ThreeDsCia::File& file = m_cias[index];
+  const ThreeDsCia::Info& info = file.info;
+  const int refused = !info.read ? info.code :
+                      info.encrypted ? ThreeDsCia::ENCRYPTED :
+                      info.kind != ThreeDsCia::Kind::Update && info.kind != ThreeDsCia::Kind::Dlc ?
+                                       ThreeDsCia::NOT_INSTALLED :
+                                       ThreeDsCia::OK;
+  if (refused != ThreeDsCia::OK)
+  {
+    LogF("3ds cia: %s refused: %s", file.file_name.c_str(), ThreeDsCia::CodeText(refused).c_str());
+    ShowToast(ThreeDsCia::CodeText(refused), 0);
+    Play("error");
+    return;
+  }
+  m_cia_chosen = index;
+  const bool update = info.kind == ThreeDsCia::Kind::Update;
+  const int64_t free = ThreeDsCia::FreeBytes(Portable::UserDir());
+  const uint64_t need = info.install_bytes + ThreeDsCia::SPARE_BYTES;
+  const bool room = free < 0 || static_cast<uint64_t>(free) >= need;
+  LogF("3ds cia: %s chosen: %s %s of %s, %s to install, %s free", file.file_name.c_str(), update ? "the update" : "DLC",
+       ThreeDsCia::VersionText(info.version).c_str(), ThreeDsCia::Hex(ThreeDsCia::GameOf(info.title_id)).c_str(),
+       ThreeDsCia::SizeText(info.install_bytes).c_str(),
+       free < 0 ? "not known" : ThreeDsCia::SizeText(static_cast<uint64_t>(free)).c_str());
+  m_panel = {};
+  m_panel.open = true;
+  m_panel.setting = SET_3DS_CIA_CONFIRM;
+  m_panel.title = update ? "Install the Update" : "Install the DLC";
+  m_panel.options = room ? std::vector<std::string>{"Install", "Cancel"} : std::vector<std::string>{"Back"};
+  const auto add = [this](const std::string& translated) {
+    std::istringstream lines(WrapText(m_font, 28, translated, 550.0f));
+    for (std::string line; std::getline(lines, line);)
+      m_panel.lines.push_back(line);
+  };
+  m_panel.lines = {""};
+  add(CiaLine(file));
+  add(update ? Tr("Update " + ThreeDsCia::VersionText(info.version)) : Tr("DLC"));
+  m_panel.lines.push_back("");
+  add(Tr("It takes: " + ThreeDsCia::SizeText(info.install_bytes)));
+  add(Tr("Free space: " + (free < 0 ? Tr("not known") : ThreeDsCia::SizeText(static_cast<uint64_t>(free)))));
+  m_panel.lines.push_back("");
+  if (!room)
+    add(Tr("Not enough free space: free some first (the PS4's storage, or the USB drive with Keep My Data on "
+                   "the USB Drive)."));
+  else if (update)
+    add(Tr("An update can change the game's save: copy the save first if you may go back."));
+  else
+    add(Tr("The game finds its DLC from its next start."));
+  Play("menu");
+}
+
+// Each frame: the install's panel - its progress, then its result once (the CIA deleted or kept).
+void Menu::Impl::Update3dsInstall()
+{
+  if (!m_panel.open || m_panel.setting != SET_3DS_CIA_INSTALL)
+    return;
+  const ThreeDsCia::Progress progress = ThreeDsCia::Status();
+  if (!progress.busy && !progress.done)
+    return;  // (its result said)
+  const ThreeDsCia::File* file = m_cia_chosen < m_cias.size() ? &m_cias[m_cia_chosen] : nullptr;
+  const std::string name = file ? CiaLine(*file) : std::filesystem::path(progress.path).filename().string();
+  const auto add = [this](const std::string& translated) {
+    std::istringstream lines(WrapText(m_font, 28, translated, 550.0f));
+    for (std::string line; std::getline(lines, line);)
+      m_panel.lines.push_back(line);
+  };
+  m_panel.lines = {""};
+  add(name);
+  m_panel.lines.push_back("");
+  if (progress.busy)
+  {
+    const int percent = progress.total > 0 ? static_cast<int>(progress.bytes * 100 / progress.total) : 0;
+    add(Tr(m_panel.options.empty() ? "Cancelling..." : "Installing...") + " " + std::to_string(percent) + "%");
+    if (progress.total > 0)
+      add(ThreeDsCia::SizeText(progress.bytes) + " / " + ThreeDsCia::SizeText(progress.total));
+    m_panel.lines.push_back("");
+    add(Tr("Don't close EmuSuNi or turn off the PS4 until it ends."));
+    return;
+  }
+  // Done: said once (its thread joined: the next frame has nothing to say).
+  const int result = progress.result;
+  ThreeDsCia::Forget();
+  if (result == ThreeDsCia::OK)
+  {
+    const bool update = file && file->info.kind == ThreeDsCia::Kind::Update;
+    add(update ? Tr("The update is installed: " + ThreeDsCia::VersionText(file->info.version)) :
+                 Tr("The DLC is installed."));
+    add(Tr("The game uses it from its next start."));
+    m_panel.lines.push_back("");
+    add(Tr("The CIA file isn't needed any more. Delete it from the drive?"));
+    m_panel.options = {"Delete the CIA", "Keep the CIA"};
+  }
+  else
+  {
+    add(Tr(ThreeDsCia::CodeText(result)));
+    m_panel.options = {"Back"};
+  }
+  m_panel.selected = 0;
+  Play(result == ThreeDsCia::OK ? "confirm" : "error");
+}
+
+// A 3DS game's Triangle -> Updates, DLC and Mods: its update and its DLC (Remove: its save copied first), its mods,
+// and ((01.22) the owner: from the game, not Settings) its own CIAs to install (Cross: Open3dsCiaConfirm); after the
+// game closed for one of them (the in-game menu's), Start the Game at its top.
+void Menu::Impl::Open3dsExtras(int game_index, const std::string& select_key, bool reread)
+{
+  if (game_index < 0 || game_index >= static_cast<int>(m_games.size()))
+  {
+    m_panel = {};  // (no game there any more: the games read again meanwhile)
+    return;
+  }
+  const Game& game = m_games[game_index];
+  m_3ds_game = game_index;
+  m_3ds_path = game.rom.path;
+  auto found = m_3ds_titles.find(game.rom.path);
+  if (found == m_3ds_titles.end())
+    found = m_3ds_titles.emplace(game.rom.path, ThreeDsCia::RomTitleId(game.rom.path)).first;
+  m_3ds_title = found->second;
+  m_panel = {};
+  m_panel.open = true;
+  m_panel.setting = SET_3DS_EXTRAS;
+  m_panel.title = "Updates, DLC and Mods";
+  if (m_3ds_title == 0)
+  {
+    m_panel.lines = {"", game.rom.title, ""};
+    std::istringstream lines(WrapText(m_font, 28,
+                                      Tr("A homebrew game (.3dsx) has no title ID: no updates, DLC or mods."),
+                                      550.0f));
+    for (std::string line; std::getline(lines, line);)
+      m_panel.lines.push_back(line);
+    Play("menu");
+    return;
+  }
+  const std::string save_dir = ThreeDsSaveDir();
+  std::vector<SettingRow> rows;
+  if (m_extras_from_game)
+  {
+    SettingRow start{"Start the Game", "", "3ds:start"};
+    start.help = "The game starts again with what it has installed now.";
+    rows.push_back(start);
+  }
+  rows.push_back({game.rom.title, ThreeDsCia::Hex(m_3ds_title), "", true});
+  if (ThreeDsCia::Available())
+  {
+    const ThreeDsCia::Installed has = ThreeDsCia::InstalledFor(save_dir, m_3ds_title);
+    SettingRow update{"Update", Tr("None"), "3ds:update"};
+    SettingRow dlc{"DLC", Tr("None"), "3ds:dlc"};
+    update.help = dlc.help = "Install them from their CIA files: copied to Roms/3ds/cia, they show here.";
+    if (has.read && has.has_update)
+    {
+      update.value = ThreeDsCia::VersionText(has.update_version) + " (" + ThreeDsCia::SizeText(has.update_bytes) + ")";
+      update.help = "The game starts with this update. Another version: install its CIA (below, once in Roms/3ds/cia).";
+    }
+    if (has.read && has.dlc_titles > 0)
+    {
+      dlc.value = Tr("Installed") + " (" + ThreeDsCia::SizeText(has.dlc_bytes) + ")";
+      dlc.help = Tr("Its DLC's contents installed: " + std::to_string(has.dlc_contents));
+    }
+    if (!has.read)
+      update.help = dlc.help = ThreeDsCia::CodeText(has.code);
+    rows.push_back(update);
+    rows.push_back(dlc);
+    const std::string copy_first =
+        "Removed for good. An update or DLC can change the game's save: copy the save first (its folder: saves/3ds/"
+        "Azahar/sdmc, by FTP), or the game may not read it after.";
+    if (has.read && has.has_update)
+    {
+      SettingRow remove{"Remove the Update", "", "3ds:remove_update"};
+      remove.help = copy_first;
+      rows.push_back(remove);
+    }
+    if (has.read && has.dlc_titles > 0)
+    {
+      SettingRow remove{"Remove the DLC", "", "3ds:remove_dlc"};
+      remove.help = copy_first;
+      rows.push_back(remove);
+    }
+    // Its own CIAs in the "cia" folders (an encrypted one said; one that can't be read has no game to show under).
+    if (reread)
+      List3dsCias();
+    const int64_t free = ThreeDsCia::FreeBytes(Portable::UserDir());
+    rows.push_back({"Install from CIA Files",
+                    free < 0 ? std::string() : "Free: " + ThreeDsCia::SizeText(static_cast<uint64_t>(free)), "",
+                    true});
+    size_t own = 0;
+    for (size_t i = 0; i < m_cias.size(); i++)
+    {
+      const ThreeDsCia::File& file = m_cias[i];
+      const ThreeDsCia::Info& info = file.info;
+      if (!info.read || ThreeDsCia::GameOf(info.title_id) != m_3ds_title || info.kind == ThreeDsCia::Kind::Game)
+        continue;
+      own++;
+      const bool is_update = info.kind == ThreeDsCia::Kind::Update;
+      SettingRow row;
+      row.label = is_update ? "Update " + ThreeDsCia::VersionText(info.version) : std::string("DLC");
+      row.key = "cia:" + std::to_string(i);
+      std::string help = file.file_name + "  \xC2\xB7  " + ThreeDsCia::SizeText(file.size);
+      if (info.encrypted)
+      {
+        row.value = Tr("Encrypted");
+        help += "\n" + Tr(ThreeDsCia::CodeText(ThreeDsCia::ENCRYPTED));
+      }
+      else if (is_update && has.read && has.has_update && has.update_version >= info.version)
+      {
+        row.value = Tr("Installed");
+        help += "\n" + Tr("Installed already: " + ThreeDsCia::VersionText(has.update_version));
+      }
+      else
+      {
+        row.value = ThreeDsCia::SizeText(info.install_bytes);
+        help += "\n" + Tr(!is_update && has.read && has.dlc_titles > 0 ?
+                              "This game has DLC installed: Cross installs this one too." :
+                              "Cross: install it.");
+      }
+      row.help = help;
+      rows.push_back(row);
+    }
+    if (own == 0)
+    {
+      // Where they go: the 3DS's "cia" folders (one made in each game folder: List3dsCias).
+      std::string where;
+      for (const std::string& folder : ThreeDsCia::Folders(
+               Library::ConsoleFolders(GetSystem(SystemId::THREEDS), GamesFolder(SystemId::THREEDS), m_places), false))
+        where += (where.empty() ? "" : "\n") + folder;
+      SettingRow none{"No CIA Files for It", "", "3ds:nocia"};
+      none.help = Tr("Copy its decrypted update or DLC CIAs to the folder cia in Roms/3ds:") + "\n" +
+                  (where.empty() ? std::string("USB: Roms/3ds/cia") : where);
+      rows.push_back(none);
+    }
+  }
+  else
+  {
+    SettingRow none{"Updates and DLC", Tr("Not in This Version"), "3ds:update"};
+    none.help = ThreeDsCia::CodeText(ThreeDsCia::NO_CORE);
+    rows.push_back(none);
+  }
+  SettingRow mods{"Mods", "", "3ds:mods"};
+  mods.tag = ThreeDsCia::ModsOn(m_3ds_title) ? 1 : -1;
+  const bool any = ThreeDsCia::HasMods(save_dir, m_3ds_title);
+  const std::string folder = "saves/3ds/Azahar/load/mods/" + ThreeDsCia::Hex(m_3ds_title);
+  mods.help = any ? "Its mods are loaded when it starts (Off: the game as it is - a mod for another version or region "
+                    "can hang it). Their folder: " + folder :
+                    "No mods in its folder (LayeredFS: romfs, exefs, code.ips): " + folder;
+  rows.push_back(mods);
+  m_panel.rows = std::move(rows);
+  m_panel.selected = m_extras_from_game ? 0 : 1;
+  for (size_t i = 0; i < m_panel.rows.size(); i++)
+  {
+    if (!select_key.empty() && m_panel.rows[i].key == select_key)
+      m_panel.selected = static_cast<int>(i);
+  }
+  if (m_panel.rows[m_panel.selected].header)
+    MoveSettingRow(1);
+  else
+    MoveSettingRow(0);
+  Play("menu");
+}
+
+// "Remove?" for the game's update or its DLC (its save copied first).
+void Menu::Impl::Ask3dsRemove(bool dlc)
+{
+  m_3ds_remove = (uint64_t{dlc ? 0x0004008Cu : 0x0004000Eu} << 32) | (m_3ds_title & 0xFFFFFFFFull);
+  const std::string title =
+      m_3ds_game >= 0 && m_3ds_game < static_cast<int>(m_games.size()) ? m_games[m_3ds_game].rom.title : std::string();
+  m_panel = {};
+  m_panel.open = true;
+  m_panel.setting = SET_3DS_REMOVE;
+  m_panel.title = dlc ? "Remove the DLC" : "Remove the Update";
+  m_panel.options = {"Cancel", "Remove"};
+  m_panel.lines = {"", title, ""};
+  std::istringstream lines(WrapText(m_font, 28,
+                                    Tr("An update or DLC can change the game's save, and the game may not read it once "
+                                       "removed. Copy the save first (by FTP: saves/3ds/Azahar/sdmc)."),
+                                    550.0f));
+  for (std::string line; std::getline(lines, line);)
+    m_panel.lines.push_back(line);
+  Play("menu");
+}
+
+// Cross on the installer's or a game's options panels (their rows are ChangeSettingRow's).
+void Menu::Impl::ThreeDsPanelChoice()
+{
+  if (m_panel.selected < 0 || m_panel.selected >= static_cast<int>(m_panel.options.size()))
+    return;
+  const std::string choice = m_panel.options[static_cast<size_t>(m_panel.selected)];
+  const std::string path = m_cia_chosen < m_cias.size() ? m_cias[m_cia_chosen].path : std::string();
+  switch (m_panel.setting)
+  {
+  case SET_3DS_CIA_CONFIRM:
+    if (choice != "Install")
+    {
+      Open3dsExtras(GameIndexOf(m_3ds_path), "cia:" + std::to_string(m_cia_chosen), false);
+      Play("back");
+      return;
+    }
+    MakeDirs(ThreeDsSaveDir());
+    if (!ThreeDsCia::Start(ThreeDsSaveDir(), path))
+    {
+      ShowToast(ThreeDsCia::CodeText(ThreeDsCia::Status().result), 0);
+      ThreeDsCia::Forget();
+      Play("error");
+      return;
+    }
+    m_panel.setting = SET_3DS_CIA_INSTALL;
+    m_panel.options = {"Cancel"};
+    m_panel.selected = 0;
+    Update3dsInstall();
+    Play("confirm");
+    return;
+  case SET_3DS_CIA_INSTALL:
+    if (choice == "Cancel")
+    {
+      ThreeDsCia::Cancel();
+      LogLine("3ds cia: the install cancelled by the player");
+      m_panel.options.clear();  // ("Cancelling..." until it stops)
+      Play("back");
+    }
+    else if (choice == "Delete the CIA")
+    {
+      m_panel = {};
+      m_panel.open = true;
+      m_panel.setting = SET_3DS_CIA_DELETE;
+      m_panel.title = "Delete the CIA";
+      m_panel.options = {"Cancel", "Delete"};
+      m_panel.lines = {"", std::filesystem::path(path).filename().string(), ""};
+      std::istringstream lines(WrapText(m_font, 28,
+                                        Tr("It is deleted from the drive for good: the PS4 has no recycle "
+                                                   "bin. What it installed stays."),
+                                        550.0f));
+      for (std::string line; std::getline(lines, line);)
+        m_panel.lines.push_back(line);
+      Play("menu");
+    }
+    else
+    {
+      Open3dsExtras(GameIndexOf(m_3ds_path), "cia:" + std::to_string(m_cia_chosen));
+      Play("back");
+    }
+    return;
+  case SET_3DS_CIA_DELETE:
+    if (choice == "Delete")
+    {
+      std::error_code ec;
+      const bool deleted = std::filesystem::remove(path, ec);
+      LogF("3ds cia: %s deleted: %s", path.c_str(), deleted ? "yes" : ec ? ec.message().c_str() : "not there");
+      ShowToast(deleted ? "CIA deleted" : "The CIA couldn't be deleted", 0);
+      Open3dsExtras(GameIndexOf(m_3ds_path));
+      Play(deleted ? "confirm" : "error");
+    }
+    else
+    {
+      Open3dsExtras(GameIndexOf(m_3ds_path), "cia:" + std::to_string(m_cia_chosen), false);
+      Play("back");
+    }
+    return;
+  case SET_3DS_REMOVE:
+    if (choice == "Remove" && m_3ds_remove != 0)
+    {
+      const int code = ThreeDsCia::Uninstall(ThreeDsSaveDir(), m_3ds_remove);
+      const bool dlc = ThreeDsCia::KindOf(m_3ds_remove) == ThreeDsCia::Kind::Dlc;
+      ShowToast(code == ThreeDsCia::OK ? (dlc ? "DLC removed" : "Update removed") : ThreeDsCia::CodeText(code), 0);
+      Open3dsExtras(GameIndexOf(m_3ds_path));
+      Play(code == ThreeDsCia::OK ? "confirm" : "error");
+    }
+    else
+    {
+      Open3dsExtras(GameIndexOf(m_3ds_path), "", false);
+      Play("back");
+    }
+    return;
+  default:
+    m_panel.open = false;
+    Play("back");
+  }
+}
+
+bool Menu::Impl::ThreeDsPanelBack()
+{
+  switch (m_panel.setting)
+  {
+  case SET_3DS_CIA_INSTALL:
+    if (ThreeDsCia::Status().busy)
+      return true;  // (it goes on: Cancel stops it)
+    [[fallthrough]];
+  case SET_3DS_CIA_CONFIRM:
+  case SET_3DS_CIA_DELETE:
+  {
+    const bool installed = m_panel.setting == SET_3DS_CIA_INSTALL;  // (what it has may have changed: read again)
+    Open3dsExtras(GameIndexOf(m_3ds_path), "cia:" + std::to_string(m_cia_chosen), installed);
+    Play("back");
+    return true;
+  }
+  case SET_3DS_REMOVE:
+    Open3dsExtras(GameIndexOf(m_3ds_path), "", false);
+    Play("back");
+    return true;
+  case SET_3DS_EXTRAS:
+  {
+    if (m_extras_from_game)
+    {
+      // ((01.22) Opened after the game closed for it: the list as it was - the game selected may be another one.)
+      m_extras_from_game = false;
+      m_panel.open = false;
+      Play("back");
+      return true;
+    }
+    OpenGameOptions();  // (the game is still the one selected)
+    const auto at = std::find(m_panel.options.begin(), m_panel.options.end(), "Updates, DLC and Mods");
+    m_panel.selected = at == m_panel.options.end() ? 0 : static_cast<int>(at - m_panel.options.begin());
+    return true;
+  }
+  default:
+    return false;
+  }
+}
+#endif
+
+// ---- (01.22, the owner: "En el menú de triángulo en una carátula y en el menú L2 y R2 en un juego") What a game has
+// installed, from the game ----
+
+int Menu::Impl::GameIndexOf(const std::string& path) const
+{
+  for (size_t i = 0; i < m_games.size(); i++)
+  {
+    if (m_games[i].rom.path == path)
+      return static_cast<int>(i);
+  }
+  return -1;
+}
+
+void Menu::Impl::StartGameFromPanel(int game)
+{
+  if (game < 0 || game >= static_cast<int>(m_games.size()))
+    return;
+  m_extras_from_game = false;
+  m_panel.open = false;
+  ActivateItem(Item{m_games[game].rom.title, "", game});
+}
+
+void Menu::Impl::TellInstallFolders(SystemId system)
+{
+  std::vector<std::string> folders;
+  const auto games = [&] { return Library::ConsoleFolders(GetSystem(system), GamesFolder(system), m_places); };
+#ifdef EMUSUNI_3DS
+  if (system == SystemId::THREEDS)
+    folders = ThreeDsCia::Folders(games(), false);
+#endif
+  if (system == SystemId::ARCADE)
+    folders = GameExtras::PatchedFolders(games(), false);
+  GameExtras::SetInstallFolders(system, folders);
+}
+
+void Menu::Impl::OpenAfterGame(const GameExtras::AfterGame& after)
+{
+  const int game = GameIndexOf(after.game_path);
+  if (game < 0)
+  {
+    LogLine("game extras: the game isn't in the list any more: " + after.game_path);
+    return;
+  }
+  LogLine("game extras: back from the game for " + after.action);
+  m_extras_from_game = true;
+  const auto has_row = [this](const std::string& key) {
+    return std::any_of(m_panel.rows.begin(), m_panel.rows.end(), [&](const SettingRow& r) { return r.key == key; });
+  };
+#ifdef EMUSUNI_3DS
+  if (after.action.rfind("3ds:", 0) == 0)
+  {
+    Open3dsExtras(game);
+    if (after.action == "3ds:remove_update" || after.action == "3ds:remove_dlc")
+    {
+      if (has_row(after.action))
+        Ask3dsRemove(after.action == "3ds:remove_dlc");
+    }
+    else if (after.action.rfind("3ds:install:", 0) == 0)
+    {
+      const std::string path = after.action.substr(12);
+      size_t at = m_cias.size();
+      for (size_t i = 0; i < m_cias.size(); i++)
+      {
+        if (m_cias[i].path == path)
+          at = i;
+      }
+      if (at < m_cias.size())
+        Open3dsCiaConfirm(at);
+      else
+        ShowToast("The file isn't there any more", 0);
+    }
+    return;
+  }
+#endif
+  if (after.action.rfind("arcade:", 0) == 0)
+  {
+    OpenArcadePatched(game);
+    if (after.action == "arcade:remove")
+    {
+      if (has_row("patched:remove"))
+        AskPatchedRemove();
+    }
+    else if (after.action.rfind("arcade:install:", 0) == 0)
+    {
+      const std::string path = after.action.substr(15);
+      size_t at = m_patched_found.size();
+      for (size_t i = 0; i < m_patched_found.size(); i++)
+      {
+        if (m_patched_found[i].path == path)
+          at = i;
+      }
+      if (at < m_patched_found.size())
+        OpenPatchedConfirm(at);
+      else
+        ShowToast("The file isn't there any more", 0);
+    }
+  }
+}
+
+std::string Menu::Impl::PatchedDir() const
+{
+  // (Emulator.cpp's: the Arcade's system folder - the player's data on a USB drive too -, its fbneo/patched.)
+  return Portable::SystemDir(GetSystem(SystemId::ARCADE).key) + "/fbneo/patched";
+}
+
+// An Arcade game's Triangle -> Patched Romset: the one FinalBurn Neo uses instead of the game's zip (Remove It), and
+// those of its set in Roms/arcade/patched (made where there is none, so the player sees where they go; Cross: install).
+void Menu::Impl::OpenArcadePatched(int game_index, const std::string& select_key)
+{
+  if (game_index < 0 || game_index >= static_cast<int>(m_games.size()))
+  {
+    m_panel = {};  // (no game there any more: the games read again meanwhile)
+    return;
+  }
+  const Game& game = m_games[game_index];
+  m_patched_game = game_index;
+  m_patched_path = game.rom.path;
+  const std::string& set = game.rom.id;
+  const std::string dir = PatchedDir();
+  const GameExtras::PatchedFile in_use = GameExtras::PatchedInUse(dir, set);
+  const std::vector<std::string> folders = GameExtras::PatchedFolders(
+      Library::ConsoleFolders(GetSystem(SystemId::ARCADE), GamesFolder(SystemId::ARCADE), m_places), true);
+  m_patched_found = GameExtras::PatchedFound(folders, set);
+  LogF("arcade patched: %s: %s in use, %zu found", set.c_str(), in_use.path.empty() ? "none" : in_use.path.c_str(),
+       m_patched_found.size());
+  m_panel = {};
+  m_panel.open = true;
+  m_panel.setting = SET_ARCADE_PATCHED;
+  m_panel.title = "Patched Romset";
+  std::vector<SettingRow> rows;
+  if (m_extras_from_game)
+  {
+    SettingRow start{"Start the Game", "", "patched:start"};
+    start.help = "The game starts again with what it has installed now.";
+    rows.push_back(start);
+  }
+  rows.push_back({game.rom.title, set, "", true});
+  SettingRow use{"In Use", in_use.path.empty() ? Tr("None") : in_use.name, "patched:inuse"};
+  use.help = in_use.path.empty() ?
+                 "The game starts from its own zip. A patched romset (a hack with no driver of its own, named as the "
+                 "set) takes its place: copied to Roms/arcade/patched, it shows below." :
+                 Tr("FinalBurn Neo starts the game from it instead of its own zip (never online, where both consoles "
+                    "need the set as the DAT knows it).") +
+                     "\n" + in_use.path + "  \xC2\xB7  " + GameExtras::SizeText(in_use.size);
+  rows.push_back(use);
+  if (!in_use.path.empty())
+  {
+    SettingRow remove{"Remove It", "", "patched:remove"};
+    remove.help = "Deleted from the PS4: the game starts from its own zip again.";
+    rows.push_back(remove);
+  }
+  const int64_t free = GameExtras::FreeBytes(Portable::SystemDir(GetSystem(SystemId::ARCADE).key));
+  rows.push_back({"Install from Roms/arcade/patched",
+                  free < 0 ? std::string() : "Free: " + GameExtras::SizeText(static_cast<uint64_t>(free)), "", true});
+  for (size_t i = 0; i < m_patched_found.size(); i++)
+  {
+    const GameExtras::PatchedFile& file = m_patched_found[i];
+    SettingRow row{file.name, GameExtras::SizeText(file.size), "patched:file:" + std::to_string(i)};
+    row.help = file.path + "\n" +
+               Tr(in_use.path.empty() ? "Cross: install it." : "Cross: install it (in place of the one in use).");
+    rows.push_back(row);
+  }
+  if (m_patched_found.empty())
+  {
+    std::string where;
+    for (const std::string& folder : folders)
+      where += (where.empty() ? "" : "\n") + folder;
+    SettingRow none{"None Found", "", "patched:none"};
+    none.help = Tr("Copy the patched romset, named as the game's set, to the folder patched in Roms/arcade: " + set +
+                   ".zip") +
+                "\n" + (where.empty() ? std::string("USB: Roms/arcade/patched") : where);
+    rows.push_back(none);
+  }
+  m_panel.rows = std::move(rows);
+  m_panel.selected = m_extras_from_game ? 0 : 1;  // (In Use: not Remove It at once)
+  for (size_t i = 0; i < m_panel.rows.size(); i++)
+  {
+    if (!select_key.empty() && m_panel.rows[i].key == select_key)
+      m_panel.selected = static_cast<int>(i);
+  }
+  m_panel.selected = std::min(m_panel.selected, static_cast<int>(m_panel.rows.size()) - 1);
+  if (m_panel.rows[m_panel.selected].header)
+    MoveSettingRow(1);
+  else
+    MoveSettingRow(0);
+  Play("menu");
+}
+
+// One found chosen: what it takes, the free space; Install / Cancel (only Back without the room).
+void Menu::Impl::OpenPatchedConfirm(size_t index)
+{
+  if (index >= m_patched_found.size() || m_patched_game < 0 || m_patched_game >= static_cast<int>(m_games.size()))
+    return;
+  m_patched_chosen = index;
+  const GameExtras::PatchedFile& file = m_patched_found[index];
+  const Game& game = m_games[m_patched_game];
+  const std::string dir = PatchedDir();
+  const GameExtras::PatchedFile in_use = GameExtras::PatchedInUse(dir, game.rom.id);
+  const int64_t free = GameExtras::FreeBytes(Portable::SystemDir(GetSystem(SystemId::ARCADE).key));
+  const uint64_t need = file.size + (16ull << 20);
+  const bool room = free < 0 || static_cast<uint64_t>(free) >= need;  // (the one in use goes once the copy is whole)
+  m_panel = {};
+  m_panel.open = true;
+  m_panel.setting = SET_ARCADE_CONFIRM;
+  m_panel.title = "Install the Patched Romset";
+  m_panel.options = room ? std::vector<std::string>{"Install", "Cancel"} : std::vector<std::string>{"Back"};
+  const auto add = [this](const std::string& translated) {
+    std::istringstream lines(WrapText(m_font, 28, translated, 550.0f));
+    for (std::string line; std::getline(lines, line);)
+      m_panel.lines.push_back(line);
+  };
+  m_panel.lines = {""};
+  add(game.rom.title);
+  add(file.name);
+  m_panel.lines.push_back("");
+  add(Tr("It takes: " + GameExtras::SizeText(file.size)));
+  add(Tr("Free space: " + (free < 0 ? Tr("not known") : GameExtras::SizeText(static_cast<uint64_t>(free)))));
+  m_panel.lines.push_back("");
+  if (!room)
+    add(Tr("Not enough free space: free some first (the PS4's storage, or the USB drive with Keep My Data on "
+           "the USB Drive)."));
+  else if (!in_use.path.empty())
+    add(Tr("It takes the place of the one in use: " + in_use.name));
+  add(Tr("FinalBurn Neo starts the game from it from its next start (online: its own zip)."));
+  Play("menu");
+}
+
+void Menu::Impl::AskPatchedRemove()
+{
+  if (m_patched_game < 0 || m_patched_game >= static_cast<int>(m_games.size()))
+    return;
+  const Game& game = m_games[m_patched_game];
+  const GameExtras::PatchedFile in_use = GameExtras::PatchedInUse(PatchedDir(), game.rom.id);
+  m_panel = {};
+  m_panel.open = true;
+  m_panel.setting = SET_ARCADE_REMOVE;
+  m_panel.title = "Remove the Patched Romset";
+  m_panel.options = {"Cancel", "Remove"};
+  m_panel.lines = {"", game.rom.title, in_use.name, ""};
+  std::istringstream lines(WrapText(m_font, 28,
+                                    Tr("It is deleted from the PS4 for good: the game starts from its own zip again. "
+                                       "Its copy in Roms/arcade/patched, if any, stays."),
+                                    550.0f));
+  for (std::string line; std::getline(lines, line);)
+    m_panel.lines.push_back(line);
+  Play("menu");
+}
+
+// Each frame: the copy's panel - its progress, then its result once.
+void Menu::Impl::UpdatePatchedCopy()
+{
+  if (!m_panel.open || m_panel.setting != SET_ARCADE_COPY)
+    return;
+  const GameExtras::CopyProgress progress = GameExtras::CopyStatus();
+  if (!progress.busy && !progress.done)
+    return;  // (its result said)
+  const auto add = [this](const std::string& translated) {
+    std::istringstream lines(WrapText(m_font, 28, translated, 550.0f));
+    for (std::string line; std::getline(lines, line);)
+      m_panel.lines.push_back(line);
+  };
+  m_panel.lines = {""};
+  add(std::filesystem::path(progress.from).filename().string());
+  m_panel.lines.push_back("");
+  if (progress.busy)
+  {
+    const int percent = progress.total > 0 ? static_cast<int>(progress.bytes * 100 / progress.total) : 0;
+    add(Tr(m_panel.options.empty() ? "Cancelling..." : "Copying...") + " " + std::to_string(percent) + "%");
+    if (progress.total > 0)
+      add(GameExtras::SizeText(progress.bytes) + " / " + GameExtras::SizeText(progress.total));
+    m_panel.lines.push_back("");
+    add(Tr("Don't close EmuSuNi or turn off the PS4 until it ends."));
+    return;
+  }
+  GameExtras::ForgetCopy();  // (said once: its thread joined)
+  if (progress.ok)
+  {
+    add(Tr("The patched romset is installed."));
+    add(Tr("The game uses it from its next start."));
+  }
+  else
+  {
+    add(Tr(progress.cancelled ? std::string("Cancelled: the game keeps what it had before") : progress.error));
+  }
+  m_panel.options = {"OK"};
+  m_panel.selected = 0;
+  Play(progress.ok ? "confirm" : "error");
+}
+
+void Menu::Impl::ArcadePanelChoice()
+{
+  if (m_panel.selected < 0 || m_panel.selected >= static_cast<int>(m_panel.options.size()))
+    return;
+  const std::string choice = m_panel.options[static_cast<size_t>(m_panel.selected)];
+  const int game = GameIndexOf(m_patched_path);
+  const std::string chosen_key = "patched:file:" + std::to_string(m_patched_chosen);
+  switch (m_panel.setting)
+  {
+  case SET_ARCADE_CONFIRM:
+    if (choice != "Install" || game < 0 || m_patched_chosen >= m_patched_found.size())
+    {
+      OpenArcadePatched(game, chosen_key);
+      Play("back");
+      return;
+    }
+    if (!GameExtras::StartCopy(m_patched_found[m_patched_chosen].path, PatchedDir(), m_games[game].rom.id))
+    {
+      const GameExtras::CopyProgress progress = GameExtras::CopyStatus();
+      ShowToast(progress.error.empty() ? std::string("Another copy is going on") : progress.error, 0);
+      GameExtras::ForgetCopy();
+      Play("error");
+      return;
+    }
+    m_panel.setting = SET_ARCADE_COPY;
+    m_panel.options = {"Cancel"};
+    m_panel.selected = 0;
+    UpdatePatchedCopy();
+    Play("confirm");
+    return;
+  case SET_ARCADE_COPY:
+    if (choice == "Cancel")
+    {
+      GameExtras::CancelCopy();
+      LogLine("arcade patched: the copy cancelled by the player");
+      m_panel.options.clear();  // ("Cancelling..." until it stops)
+      Play("back");
+      return;
+    }
+    OpenArcadePatched(game, chosen_key);
+    Play("back");
+    return;
+  case SET_ARCADE_REMOVE:
+    if (choice == "Remove" && game >= 0)
+    {
+      std::string error;
+      const bool removed = GameExtras::RemovePatched(PatchedDir(), m_games[game].rom.id, &error);
+      ShowToast(removed ? "Patched romset removed" : "It couldn't be deleted: " + error, 0);
+      OpenArcadePatched(game);
+      Play(removed ? "confirm" : "error");
+      return;
+    }
+    OpenArcadePatched(game, "patched:remove");
+    Play("back");
+    return;
+  default:
+    m_panel.open = false;
+    Play("back");
+  }
+}
+
+bool Menu::Impl::ArcadePanelBack()
+{
+  const int game = GameIndexOf(m_patched_path);
+  switch (m_panel.setting)
+  {
+  case SET_ARCADE_COPY:
+    if (GameExtras::CopyStatus().busy)
+      return true;  // (it goes on: Cancel stops it)
+    [[fallthrough]];
+  case SET_ARCADE_CONFIRM:
+    OpenArcadePatched(game, "patched:file:" + std::to_string(m_patched_chosen));
+    Play("back");
+    return true;
+  case SET_ARCADE_REMOVE:
+    OpenArcadePatched(game, "patched:remove");
+    Play("back");
+    return true;
+  case SET_ARCADE_PATCHED:
+  {
+    if (m_extras_from_game)
+    {
+      // (Opened after the game closed for it: the list as it was - the game selected may be another one.)
+      m_extras_from_game = false;
+      m_panel.open = false;
+      Play("back");
+      return true;
+    }
+    OpenGameOptions();  // (the game is still the one selected)
+    const auto at = std::find(m_panel.options.begin(), m_panel.options.end(), "Patched Romset");
+    m_panel.selected = at == m_panel.options.end() ? 0 : static_cast<int>(at - m_panel.options.begin());
+    return true;
+  }
+  default:
+    return false;
+  }
 }
 
 void Menu::Impl::ApplySettingOption(int setting, int option)
@@ -5721,6 +7004,12 @@ void Menu::Impl::HandleInput(uint32_t pressed)
     {
       if (m_first_language && m_panel.setting == SET_LANGUAGE)
         ApplySettingOption(SET_LANGUAGE, m_panel.selected);
+#ifdef EMUSUNI_3DS
+      if (ThreeDsPanelBack())
+        return;  // ((01.09) the 3DS's installer: back to its list; an install going on stays)
+#endif
+      if (ArcadePanelBack())
+        return;  // ((01.22) an Arcade game's patched romset: back to its panel; a copy going on stays)
       if (m_panel.setting == SET_RA_HISTORY)
       {
         // (My Achievements, 00.75: back to Settings -> RetroAchievements, on its row.)
@@ -5875,15 +7164,26 @@ void Menu::Impl::HandleInput(uint32_t pressed)
       }
       return;
     }
+    if (m_panel.setting == SET_DELETE_GAME && m_panel.options[m_panel.selected].rfind("Saves and States: ", 0) == 0)
+    {
+      // ((01.19) Delete Game: its saves and states kept or deleted too - the choice changes, the panel stays.)
+      m_delete_saves = !m_delete_saves;
+      m_panel.options[m_panel.selected] = m_delete_saves ? "Saves and States: Delete Too" : "Saves and States: Keep";
+      SetDeleteGameLines();
+      Play("category");
+      return;
+    }
     if (m_panel.setting == SET_DELETE_GAME || m_panel.setting == SET_CLEANUP_CONFIRM)
     {
       const bool go = m_panel.options[m_panel.selected] == "Delete";
+      const bool saves = m_panel.setting == SET_DELETE_GAME && m_delete_saves;
       m_panel.open = false;
       if (go)
-        DeleteGames(m_pending_delete);
+        DeleteGames(m_pending_delete, saves);
       else
         Play("back");
       m_pending_delete.clear();
+      m_delete_saves = false;
       return;
     }
     if (m_panel.setting == SET_BEZELS_DELETE)
@@ -5934,6 +7234,18 @@ void Menu::Impl::HandleInput(uint32_t pressed)
       PortablePanelChoice();  // (00.87)
       return;
     }
+#ifdef EMUSUNI_3DS
+    if (m_panel.setting >= SET_3DS_CIA && m_panel.setting <= SET_3DS_REMOVE)
+    {
+      ThreeDsPanelChoice();  // (01.09)
+      return;
+    }
+#endif
+    if (m_panel.setting >= SET_ARCADE_PATCHED && m_panel.setting <= SET_ARCADE_REMOVE)
+    {
+      ArcadePanelChoice();  // (01.22)
+      return;
+    }
     if (m_panel.setting >= 0)
     {
       ApplySettingOption(m_panel.setting, m_panel.selected);
@@ -5962,19 +7274,17 @@ void Menu::Impl::HandleInput(uint32_t pressed)
       if (choice == "Delete Game")
       {
         m_pending_delete = {game.rom.path};
-        const std::string title = game.rom.title;
-        const std::string file = std::filesystem::path(game.rom.path).filename().string();
+        m_delete_title = game.rom.title;
+        m_delete_file = std::filesystem::path(game.rom.path).filename().string();
         // A .cue's tracks and each disc of a game on several go with it (DeleteGames).
-        const size_t files = Library::GameFiles(game.rom).size();
+        m_delete_files = Library::GameFiles(game.rom).size();
+        m_delete_saves = false;  // ((01.19) its saves stay unless chosen: put back, the game would find them)
         m_panel = {};
         m_panel.open = true;
         m_panel.setting = SET_DELETE_GAME;
         m_panel.title = "Delete Game";
-        m_panel.options = {"Cancel", "Delete"};
-        m_panel.lines = {"", title, "",
-                         files > 1 ? "Its " + std::to_string(files) + " files are deleted from the drive:" :
-                                     std::string("Its file is deleted from the drive:"),
-                         file, "", "Its saves stay (Saved Data)."};
+        m_panel.options = {"Cancel", "Delete", "Saves and States: Keep"};
+        SetDeleteGameLines();
         Play("menu");
         return;
       }
@@ -6000,6 +7310,18 @@ void Menu::Impl::HandleInput(uint32_t pressed)
       if (choice == "Find Cover")
       {
         OpenFindCover(item.game);
+        return;
+      }
+#ifdef EMUSUNI_3DS
+      if (choice == "Updates, DLC and Mods")
+      {
+        Open3dsExtras(item.game);  // (01.09)
+        return;
+      }
+#endif
+      if (choice == "Patched Romset")
+      {
+        OpenArcadePatched(item.game);  // (01.22)
         return;
       }
       if (choice == "Achievements")
@@ -6060,6 +7382,27 @@ void Menu::Impl::HandleInput(uint32_t pressed)
                          "Folder: " + std::filesystem::path(game.rom.path).parent_path().string()};
         if (game.rom.discs.size() > 1)
           m_panel.lines.insert(m_panel.lines.begin() + 6, "Discs: " + std::to_string(game.rom.discs.size()));
+        // (01.05, the owner: "Revisar mis juegos") Whether its file is the standard version (No-Intro's, FinalBurn
+        // Neo's): once NetplayLibrary has read it (it is read in the background, from here too).
+        const std::string console_key = GetSystem(game.rom.system).key;
+        if (game.rom.discs.size() <= 1 && PlaysOnline(game.rom.system) && NetplayLibrary::Covered(console_key))
+        {
+          uint32_t crc = 0;
+          uint64_t content = 0;
+          std::string line;
+          if (NetplayLibrary::Lookup(game.rom.path, &crc, &content))
+          {
+            const std::string name = NetplayLibrary::StandardName(console_key, crc, content);
+            line = name.empty() ? "Standard version: no (" + NetplayLibrary::StandardSource(console_key) + ")" :
+                                  "Standard version: " + name;
+          }
+          else
+          {
+            line = "Standard version: being checked (Online Settings: Check My Games)";
+            StartOnlineLibrary();
+          }
+          m_panel.lines.insert(m_panel.lines.begin() + 5, line);
+        }
         if (game.rom.system == SystemId::ARCADE)
         {
           // The romset (a clone's parent too), its board, maker and year, and the zips it may need that aren't
@@ -6196,6 +7539,8 @@ void Menu::Impl::HandleInput(uint32_t pressed)
     {
       m_category = columns[to];
       Play("category");
+      // ((01.07 to 01.08 the Library's L1 / R1 went through the Online tab's pages, starting at its first or its last;
+      // (01.09) L2 / R2 only: the tab shows the page it was left on.)
       // Its covers and a look at the drives (a drive plugged in since: its games come) once the tabs settle
       // (UpdateTabs): holding L1 / R1 through them loads nothing on the way.
       m_tab_changed = m_time;
@@ -6239,37 +7584,9 @@ void Menu::Impl::HandleInput(uint32_t pressed)
   }
   else if ((pressed & BTN_OPTIONS) && games)
   {
-    // The next game order; the selected game stays selected.
-    size_t sort = 0;
-    while (sort < std::size(SORT_NAMES) && m_prefs.sort != SORT_NAMES[sort][0])
-      sort++;
-    m_prefs.sort = SORT_NAMES[(sort + 1) % std::size(SORT_NAMES)][0];
-    m_prefs.Save(UserDir() + "/xmb.ini");
-    const int game = items.empty() ? -1 : items[selected].game;
-    BuildItems();
-    const auto& sorted = m_items[m_category];
-    bool found = false;
-    for (size_t i = 0; i < sorted.size(); i++)
-    {
-      if (game >= 0 && sorted[i].game == game)
-      {
-        m_selected[m_category] = static_cast<int>(i);
-        found = true;
-      }
-    }
-    // Into Without Cover from a game with its cover: the next game without one (A-Z = m_games' order).
-    if (!found && game >= 0 && m_prefs.sort == "nocover")
-    {
-      int next = 0;
-      while (next + 1 < static_cast<int>(sorted.size()) && sorted[next].game >= 0 && sorted[next].game < game)
-        next++;
-      m_selected[m_category] = next;
-    }
-    m_item_pos[m_category] = static_cast<float>(m_selected[m_category]);
-    m_sort_shown = 2.5f;
-    if (!Library())
-      ShowToast(SortName(), 0);  // the XMB shows the order nowhere else
-    Play("category");
+    // ((01.18) Order and Filters: the order - until 01.17 Options went to the next one at once -, a genre, the
+    // players, Hide Adult Games.)
+    OpenViewPanel();
   }
   else if ((pressed & BTN_TOUCHPAD) && games)
   {
@@ -7357,6 +8674,211 @@ bool Menu::Impl::RaFilterPasses(const Game& game) const
          (info.progress && info.unlocked > 0 && info.unlocked < info.achievements);
 }
 
+// ---- (01.18) Order and Filters: Options in a list of games ----
+
+bool Menu::Impl::ViewPasses(const Game& game) const
+{
+  const Ratings::Rating& r = game.rating;
+  if (m_filter_genre >= 0 && (r.genres & (1u << m_filter_genre)) == 0)
+    return false;
+  switch (m_filter_players)
+  {
+  case 1:
+    return r.players == 1;
+  case 2:
+    return r.players >= 2;
+  case 5:
+    return r.coop;
+  default:
+    return true;
+  }
+}
+
+std::string Menu::Impl::PlayersName(int players)
+{
+  switch (players)
+  {
+  case 1:
+    return "1 Player Only";
+  case 2:
+    return "2 Players or More";
+  case 5:
+    return "Cooperative";
+  default:
+    return "Any Number";
+  }
+}
+
+std::string Menu::Impl::ViewFilterLine(int c) const
+{
+  std::string line;
+  if (m_filter_genre >= 0)
+    line = std::string("Genre: ") + Ratings::GenreName(m_filter_genre);
+  if (m_filter_players > 0)
+    line += (line.empty() ? "" : "  -  ") + PlayersName(m_filter_players);
+  const int hidden = c >= 0 && c < CATEGORY_COUNT ? m_view_hidden[c] : 0;
+  return line + "  -  " + std::to_string(hidden) + " hidden  -  Options: change";
+}
+
+void Menu::Impl::OpenViewPanel()
+{
+  m_view_category = m_category;
+  m_panel = {};
+  m_panel.open = true;
+  m_panel.setting = SET_LIST_VIEW;
+  m_panel.title = "Order and Filters";
+  BuildViewRows();
+  m_panel.selected = 0;
+  Play("menu");
+}
+
+// Its rows: the order, the genre (among the list's games' genres), the players, Hide Adult Games - each one's help
+// says how many of the list's games are known (their genres and players come with the star ratings' data).
+void Menu::Impl::BuildViewRows()
+{
+  const int c = m_view_category;
+  const bool every = c == static_cast<int>(Category::Games), favorites = c == static_cast<int>(Category::Favorites);
+  int counts[Ratings::GENRE_COUNT] = {};
+  int total = 0, with_genres = 0, adult = 0;
+  m_view_players_known = 0;
+  for (const Game& game : m_games)
+  {
+    if (!every && (favorites ? m_favorites.count(game.rom.key) == 0 : ListOfSystem(game.rom.system) != c))
+      continue;
+    total++;
+    with_genres += game.rating.genres != 0 ? 1 : 0;
+    m_view_players_known += game.rating.players != 0 || game.rating.coop ? 1 : 0;
+    adult += game.rating.adult ? 1 : 0;
+    for (int g = 0; g < Ratings::GENRE_COUNT; g++)
+      counts[g] += (game.rating.genres >> g) & 1u;
+  }
+  m_view_genres.clear();
+  for (int g = 0; g < Ratings::GENRE_COUNT; g++)
+  {
+    if (counts[g] > 0 || g == m_filter_genre)
+      m_view_genres.push_back(g);
+  }
+  // (Without LaunchBox's genres and players yet - none downloaded, or a copy before 01.18 being downloaded again: until
+  // then only the arcade's genres are known, and no game's players (01.18's first test: every game hidden) - said so.
+  // A line each sentence: each one translated by itself.)
+  const std::string coming =
+      m_rating_copy.meta ? std::string() :
+      m_rating_download.Busy() ? std::string("\nThe star ratings' data is downloading: the others come with it.") :
+                                 std::string("\nThe others come with the star ratings' data (Settings: Star Ratings).");
+  const std::string genres_line =
+      std::to_string(with_genres) + " of " + std::to_string(total) + " games here have their genre known." + coming;
+  const std::string players_line = std::to_string(m_view_players_known) + " of " + std::to_string(total) +
+                                   " games here have their players known." + coming;
+  const int was = m_panel.selected;
+  m_panel.rows.clear();
+  const auto add = [this](const std::string& label, const std::string& value, const std::string& key,
+                          const std::string& help) {
+    SettingRow row{label, value, key};
+    row.help = help;
+    m_panel.rows.push_back(std::move(row));
+  };
+  add("Order", SortName(), "view:sort",
+      "The games' order: A-Z, Recently Played, Region, Console, or only those Without Cover (this session).");
+  add("Genre", m_filter_genre >= 0 ? Ratings::GenreName(m_filter_genre) : "Every Genre", "view:genre",
+      std::string("Left / Right: the genres of this list's games.") +
+          (m_filter_genre >= 0 ? "\n" + std::to_string(counts[m_filter_genre]) + " games of this genre here." :
+                                 std::string()) +
+          "\n" + genres_line);
+  add("Players", PlayersName(m_filter_players), "view:players",
+      "1 Player Only, 2 Players or More (at once), or Cooperative play.\n" + players_line);
+  add("Hide Adult Games", m_prefs.hide_adult ? "On" : "Off", "view:adult",
+      adult > 0 ? "Arcade games for adults (their category says so) left out of every list.\n" + std::to_string(adult) +
+                      " of them here." :
+                  std::string("Arcade games for adults (their category says so) left out of every list."));
+  m_panel.selected = std::clamp(was, 0, static_cast<int>(m_panel.rows.size()) - 1);
+}
+
+void Menu::Impl::ChangeViewRow(int direction)
+{
+  if (m_panel.selected < 0 || m_panel.selected >= static_cast<int>(m_panel.rows.size()))
+    return;
+  const std::string key = m_panel.rows[static_cast<size_t>(m_panel.selected)].key;
+  if (key == "view:sort")
+  {
+    const int n = static_cast<int>(std::size(SORT_NAMES));
+    int sort = 0;
+    while (sort < n && m_prefs.sort != SORT_NAMES[sort][0])
+      sort++;
+    m_prefs.sort = SORT_NAMES[((sort + direction) % n + n) % n][0];
+    m_prefs.Save(UserDir() + "/xmb.ini");
+  }
+  else if (key == "view:genre")
+  {
+    // (Every Genre, then the list's genres, round.)
+    std::vector<int> choices = {-1};
+    choices.insert(choices.end(), m_view_genres.begin(), m_view_genres.end());
+    const int n = static_cast<int>(choices.size());
+    int at = static_cast<int>(std::find(choices.begin(), choices.end(), m_filter_genre) - choices.begin());
+    m_filter_genre = choices[static_cast<size_t>((((at < n ? at : 0) + direction) % n + n) % n)];
+  }
+  else if (key == "view:players")
+  {
+    // ((01.23, the owner: "basta con que salga 2 o más") Any Number, 1 Player Only, 2 Players or More, Cooperative -
+    // until 01.22 3 and 4 Players or More too.)
+    static constexpr int CHOICES[] = {0, 1, 2, 5};
+    constexpr int n = static_cast<int>(std::size(CHOICES));
+    const int at = static_cast<int>(std::find(std::begin(CHOICES), std::end(CHOICES), m_filter_players) -
+                                    std::begin(CHOICES));
+    m_filter_players = CHOICES[(((at < n ? at : 0) + direction) % n + n) % n];
+    // ((01.18's first test) No game of the list with its players known yet - the star ratings' data not there, or
+    // being downloaded again -: every game is left out until it comes; said, not only in the row's help.)
+    if (m_filter_players > 0 && m_view_players_known == 0)
+      ShowToast(m_rating_download.Busy() ? "The players aren't known yet: they come with the star ratings' data, "
+                                           "downloading now" :
+                                           "The players aren't known yet: they come with the star ratings' data "
+                                           "(Settings: Star Ratings)",
+                0);
+  }
+  else if (key == "view:adult")
+  {
+    m_prefs.hide_adult = !m_prefs.hide_adult;
+    m_prefs.Save(UserDir() + "/xmb.ini");
+  }
+  Log("menu: order and filters: " + std::string(m_prefs.sort) + ", genre " +
+      (m_filter_genre >= 0 ? Ratings::GenreName(m_filter_genre) : "every one") + ", players " +
+      std::to_string(m_filter_players) + ", adults " + (m_prefs.hide_adult ? "hidden" : "shown"));
+  ViewChanged();
+  BuildViewRows();
+}
+
+// The lists made again after a change: the selected game stays selected (Without Cover from a game with its cover:
+// the next one without, A-Z), the list's line says the order and the filters a moment.
+void Menu::Impl::ViewChanged(int list)
+{
+  const int c = list >= 0 && list < CATEGORY_COUNT                       ? list :
+                m_view_category >= 0 && m_view_category < CATEGORY_COUNT ? m_view_category :
+                                                                           m_category;
+  const auto& before = m_items[c];
+  const int at = m_selected[c];
+  const int game = at >= 0 && at < static_cast<int>(before.size()) ? before[static_cast<size_t>(at)].game : -1;
+  BuildItems();
+  const auto& sorted = m_items[c];
+  bool found = false;
+  for (size_t i = 0; i < sorted.size(); i++)
+  {
+    if (game >= 0 && sorted[i].game == game)
+    {
+      m_selected[c] = static_cast<int>(i);
+      found = true;
+    }
+  }
+  if (!found && game >= 0 && m_prefs.sort == "nocover")
+  {
+    int next = 0;
+    while (next + 1 < static_cast<int>(sorted.size()) && sorted[next].game >= 0 && sorted[next].game < game)
+      next++;
+    m_selected[c] = next;
+  }
+  m_selected[c] = std::clamp(m_selected[c], 0, std::max(0, static_cast<int>(sorted.size()) - 1));
+  m_item_pos[c] = static_cast<float>(m_selected[c]);
+  m_sort_shown = 2.5f;
+}
+
 std::string Menu::Impl::RaFilterHiddenLine(int c) const
 {
   const int shown = m_ra_emptied[c] ? 0 : static_cast<int>(m_items[c].size());
@@ -7922,43 +9444,39 @@ void Menu::Impl::OpenCleanUp()
 // Deletes games (by their path) with every file of each - a .cue's tracks, each disc of a game on
 // several (Library::GameFiles); their favorite and default-game marks go with them, the list is read
 // again.
-void Menu::Impl::DeleteGames(const std::vector<std::string>& paths)
+void Menu::Impl::DeleteGames(const std::vector<std::string>& paths, bool saves)
 {
-  int deleted = 0;
+  int deleted = 0, partly = 0;
   std::string error;
   // (00.85: the games by file once - Clean Up deletes thousands of a big library's games, each looked for among all.)
   std::unordered_map<std::string, std::vector<size_t>> by_path;
   for (size_t i = 0; i < m_games.size(); i++)
     by_path[m_games[i].rom.path].push_back(i);
   std::set<std::string> gone;
+  std::vector<std::pair<Game, std::vector<std::string>>> forget;  // ((01.19) each game gone, with its files deleted)
   for (const std::string& path : paths)
   {
-    std::vector<std::string> files = {path};
     const auto found = by_path.find(path);
+    Library::Game rom;
+    rom.path = path;
     if (found != by_path.end())
-      files = Library::GameFiles(m_games[found->second.front()].rom);
-    bool all = true;
-    for (const std::string& file : files)
-    {
-      std::error_code ec;
-      if (std::filesystem::remove(file, ec))
-      {
-        Log("deleted " + file);
-        continue;
-      }
-      all = false;
-      if (error.empty())
-        error = ec ? ec.message() : "the file isn't there";
-      Log("couldn't delete " + file + ": " + (ec ? ec.message() : "not found"));
-    }
-    if (all)
+      rom = m_games[found->second.front()].rom;
+    // ((01.19) src/GameDelete.h: a file already gone counts as deleted - until 01.18 it kept the game in the lists -;
+    // the game is gone when its own file is (each disc's), whatever of its other files couldn't be deleted (said):
+    // until 01.18 such a file kept it in the lists without its own one - its cover there, opened: an error.)
+    const GameDelete::Files files = GameDelete::DeleteFiles(rom);
+    if (error.empty())
+      error = files.error;
+    if (files.own_gone)
     {
       deleted++;
+      partly += files.failed.empty() ? 0 : 1;
       gone.insert(path);
       if (found != by_path.end())
       {
         for (const size_t i : found->second)
           m_favorites.erase(m_games[i].rom.key);
+        forget.emplace_back(m_games[found->second.front()], files.deleted);
       }
       if (m_prefs.default_game == path)
         m_prefs.default_game.clear();
@@ -7982,13 +9500,61 @@ void Menu::Impl::DeleteGames(const std::vector<std::string>& paths)
     m_games.erase(std::remove_if(m_games.begin(), m_games.end(),
                                  [&gone](const Game& game) { return gone.count(game.rom.path) > 0; }),
                   m_games.end());
+    // ((01.19) A read that ended before the delete and wasn't taken yet has the games as they were: dropped - it
+    // brought them back with their covers until the next read (RefreshGames' below, which reads again).)
+    {
+      std::lock_guard lock(m_read_mutex);
+      if (m_read_done && m_read_done->scanned)
+        m_read_done.reset();
+    }
+    // ((01.19) What else was theirs - what the remaining games keep looked at once -; their downloaded bezels,
+    // RetroAchievements' hashes of their files, the recents' lines of their files, each list once.)
+    KeptByOthers kept;
+    bool pictures = false;
+    for (const auto& [game, files] : forget)
+    {
+      for (const std::string& name : CoverNames(game.rom))
+        pictures = pictures || m_cover_files.count(name) > 0;
+    }
+    for (const Game& other : m_games)
+    {
+      kept.keys.insert(other.rom.key);
+      kept.names.insert(std::string(GetSystem(other.rom.system).key) + "/" + other.rom.id);
+      if (!pictures)
+        continue;
+      for (const std::string& name : CoverNames(other.rom))
+      {
+        const auto it = m_cover_files.find(name);
+        if (it != m_cover_files.end())
+          kept.pictures.insert(it->second);
+      }
+    }
+    std::set<std::string> played_gone;
+    std::vector<std::string> hashed_gone;
+    std::map<std::string, std::vector<std::string>> bezels;  // console -> its games' ids
+    for (const auto& [game, files] : forget)
+    {
+      const std::string went = ForgetGame(game, saves, kept);
+      Log("deleted game " + game.rom.key + (went.empty() ? std::string() : ": " + went));
+      played_gone.insert(game.rom.path);
+      played_gone.insert(game.rom.discs.begin(), game.rom.discs.end());
+      hashed_gone.insert(hashed_gone.end(), files.begin(), files.end());
+      const std::string console = GetSystem(game.rom.system).key;
+      if (!kept.names.count(console + "/" + game.rom.id))
+        bezels[console].push_back(game.rom.id);
+    }
+    for (const auto& [console, ids] : bezels)
+      BezelProject::DeleteGameBezels(UserDir(), console, ids);
+    Achievements::ForgetLibraryFiles(hashed_gone);
+    GameDelete::DropPlayed(UserDir() + "/played.ini", played_gone,
+                           [](const std::string& stored) { return Portable::FromStored(stored); });
     m_games_fingerprint = 0;  // (the read's games, whatever they are, come in)
     StartAchievementMarks();  // (the games' new places in m_games)
     GamesChanged(selected, online);
   }
   RefreshGames();
   const int failed = static_cast<int>(paths.size()) - deleted;
-  if (failed == 0)
+  if (failed == 0 && partly == 0)
   {
     ShowToast(deleted == 1 ? "Game deleted" : std::to_string(deleted) + " games deleted", 0);
     Play("confirm");
@@ -7999,7 +9565,89 @@ void Menu::Impl::DeleteGames(const std::vector<std::string>& paths)
   m_panel.title = "Delete";
   m_panel.lines = {"", std::to_string(deleted) + " deleted, " + std::to_string(failed) + " not:", error, "",
                    "Is the drive read-only?"};
+  if (failed == 0)  // ((01.19) gone from the lists, a file of theirs not deleted)
+    m_panel.lines = {"", deleted == 1 ? "Game deleted" : std::to_string(deleted) + " games deleted",
+                     "Some of their other files couldn't be deleted:", error, "", "Is the drive read-only?"};
   Play("error");
+}
+
+std::string Menu::Impl::ForgetGame(const Game& game, bool saves, const KeptByOthers& kept)
+{
+  const Library::Game& rom = game.rom;
+  const std::string& key = rom.key;
+  std::vector<std::string> went;
+  // (A copy of the game elsewhere - another drive, another folder - has its key: its name, settings, saves stay.)
+  const bool key_kept = kept.keys.count(key) > 0;
+  // Its cover: the pictures of its names (its key, its title, an arcade set's full name and parent's) no remaining game
+  // shows by any of its names - a title's picture another region's game shows too stays.
+  const std::set<std::string> pictures = GameDelete::OwnPictures(CoverNames(rom), m_cover_files, kept.pictures);
+  if (!pictures.empty())
+  {
+    int covers = 0;
+    for (const std::string& picture : pictures)
+    {
+      if (std::remove(picture.c_str()) != 0)
+      {
+        Log("couldn't delete the cover " + picture);
+        continue;
+      }
+      covers++;
+      for (auto it = m_cover_files.begin(); it != m_cover_files.end();)
+        it = it->second == picture ? m_cover_files.erase(it) : std::next(it);
+    }
+    if (covers > 0)
+      went.push_back(covers == 1 ? "its cover" : std::to_string(covers) + " covers");
+  }
+  if (!key_kept)
+  {
+    m_cover_why.erase(key);
+    m_ratings.erase(key);  // (its stars: matched again if it comes back)
+    m_rating_asked.erase(key);
+    if (m_names.erase(key) > 0)
+    {
+      SaveNames();
+      went.push_back("its name");
+    }
+    if (Settings::IsCustom(key))
+    {
+      Settings::ResetGame(key);
+      went.push_back("its own settings");
+    }
+    if (Controls::HasGameProfile(key))
+    {
+      Controls::DeleteGameProfile(key);
+      went.push_back("its controls");
+    }
+    if (std::remove((UserDir() + "/cheats/" + key + ".cht").c_str()) == 0)
+      went.push_back("its cheats");
+    if (saves)
+    {
+      int removed = Saves::DeleteSram(key) ? 1 : 0;
+      std::remove(Saves::DiscPath(key).c_str());
+      for (int slot = 0; slot <= Saves::SLOTS; slot++)
+        removed += Saves::DeleteState(key, slot) ? 1 : 0;
+      if (removed > 0)
+        went.push_back(std::to_string(removed) + (removed == 1 ? " save or state" : " saves and states"));
+    }
+  }
+  // A game named after its folder ("EBOOT.PBP", "disc.gdi" in "Game Name/"): the folder too, once empty - never
+  // anything else in it.
+  if (GameDelete::RemoveEmptyFolder(rom))
+    went.push_back("its folder (empty)");
+  std::string text;
+  for (const std::string& each : went)
+    text += (text.empty() ? "" : ", ") + each;
+  return text;
+}
+
+void Menu::Impl::SetDeleteGameLines()
+{
+  m_panel.lines = {"", m_delete_title, "",
+                   m_delete_files > 1 ? "Its " + std::to_string(m_delete_files) + " files are deleted from the drive:" :
+                                        std::string("Its file is deleted from the drive:"),
+                   m_delete_file, "", "And its cover, name, own settings, controls, cheats and bezel.",
+                   m_delete_saves ? "Its saves and states are deleted too: they can't be brought back." :
+                                    "Its saves and states stay (Saved Data)."};
 }
 
 // What an option of a side panel does (shown at the panel's bottom).
@@ -8019,7 +9667,18 @@ std::string Menu::Impl::OptionHelp(const std::string& option) const
       {"Find Cover", "Choose the game's cover from libretro's pictures: the ones most like its name, or another name."},
       {"Set as Default Game", "This game starts by itself when EmuSuNi opens (hold L1 to get the menu)."},
       {"Remove Default Game", "EmuSuNi opens on the menu again."},
-      {"Delete Game", "Deletes the game's files from the drive (a .cue's tracks and every disc too; its saves stay)."},
+      {"Delete Game", "Deletes the game's files from the drive (a .cue's tracks and every disc too), and its cover, name, "
+                      "own settings, controls, cheats and bezel. Its saves stay unless you choose."},
+      // (01.19) Delete Game's choice for the saves.
+      {"Saves and States: Keep", "Its saves and states stay (Saved Data): put back, the game finds them. Cross: "
+                                 "delete them too."},
+      {"Saves and States: Delete Too", "Its battery saves and save states are deleted with it: they can't be brought "
+                                       "back. Cross: keep them."},
+      // (01.22, the owner) What a game has installed, from the game (no longer Settings).
+      {"Updates, DLC and Mods", "Its update and DLC (installed from its CIA files in Roms/3ds/cia, or removed) and its "
+                                "mods on or off. Also in the in-game menu."},
+      {"Patched Romset", "A hack of this set with no driver of its own: the one FinalBurn Neo uses (removed), or one "
+                         "installed from Roms/arcade/patched. Also in the in-game menu."},
       {"Cancel", "Nothing is changed."},
       {"Delete", "Deletes for good: it can't be brought back."},
       {"Reset everything", "Every setting, global and per game, back to the default."},
@@ -8053,6 +9712,21 @@ std::string Menu::Impl::OptionHelp(const std::string& option) const
                           "same file) and you pick one; after its match, another one, without joining again."},
       {"Close Room", "Closes the room: no one can join it any more."},
       {"Leave Room", "Leaves the room."},
+      // (01.05) The room's chat.
+      {"Quick Phrase", "A ready phrase for everyone in the room, each reads it in their language (L2 does the same)."},
+      {"Write a Message", "A line of up to 100 letters with the keyboard, for everyone in the room (R2 does the same)."},
+      // (01.05) Spectators.
+      {"Spectators: Yes", "Up to 4 may watch the match from the Online tab, without voice or chat. Cross: no spectators."},
+      {"Spectators: No", "No one watches the match. Cross: up to 4 may watch it from the Online tab."},
+      {"Stop Watching", "Leaves the room: the match goes on without you."},
+      {"Late Joining: Yes", "A player may join the match under way while a place is left: everyone stops a moment "
+                            "while it comes in. Cross: no one joins once it starts."},
+      {"Late Joining: No", "No one joins the match once it starts. Cross: a player may join it under way."},
+      // (01.14) Free entry.
+      {"Entry: Free", "Whoever comes is in the room at once, without asking you. Cross: each one asks first."},
+      {"Entry: With Permission", "Each player asks to join and you accept them or not. Cross: whoever comes is in at "
+                                 "once."},
+      {"Watch the Match", "Watch it as a spectator, about a second behind the players: you play nothing."},
       {"Play Anyway", "Your file of this game isn't the host's (another version or dump): it may go out of step, "
                       "which the match corrects, or not start at all."},
   };
@@ -8074,7 +9748,9 @@ bool Menu::Impl::OnlineGameInfo(int game, NetProto::GameInfo* info)
   {
     uint32_t crc = 0;
     uint64_t size = 0;
-    if (!Netplay::GameCrc(rom.path, &crc, &size))
+    // ((01.05) its content's - NetplayLibrary's copy first: the menu's thread reads nothing it already knows)
+    if (!NetplayLibrary::Lookup(rom.path, &crc, &size) &&
+        !Netplay::GameCrc(rom.path, &crc, &size, GetSystem(rom.system).key))
       return false;
     it = m_online_crcs.emplace(rom.path, std::make_pair(crc, size)).first;
   }
@@ -8090,10 +9766,33 @@ bool Menu::Impl::OnlineGameInfo(int game, NetProto::GameInfo* info)
   return true;
 }
 
+// (01.06) A game's whole file's CRC32 and size, as v00.23 knew it (Netplay::FileCrc): NetplayLibrary's copy first, else
+// read now (once a session) - a file of a room of such an app, or our room's own.
+bool Menu::Impl::OnlineFileId(int game, uint32_t* crc, uint64_t* size)
+{
+  if (game < 0 || game >= static_cast<int>(m_games.size()))
+    return false;
+  const Library::Game& rom = m_games[static_cast<size_t>(game)].rom;
+  auto it = m_online_file_crcs.find(rom.path);
+  if (it == m_online_file_crcs.end())
+  {
+    uint32_t c = 0;
+    uint64_t s = 0;
+    if (!NetplayLibrary::LookupFile(rom.path, &c, &s) && !Netplay::FileCrc(rom.path, &c, &s))
+      return false;
+    it = m_online_file_crcs.emplace(rom.path, std::make_pair(c, s)).first;
+  }
+  *crc = it->second.first;
+  *size = it->second.second;
+  return true;
+}
+
 // (00.95) The players a room for the game may take: those the game takes at once (NetplayLibrary::Players; not known:
 // as many as the ports) on the console's ports - 4 with its adapter (Multiplayer.h: the game's Multiplayer Adapter Off,
 // 2) or on a console of 4 (the N64, the Dreamcast, the NAOMI, the Atomiswave, the Arcade, the PC Engine's TurboTap), 2
-// on the others -, 2 to NetProto::MAX_MEMBERS. A Choose Together room (game -1): MAX_MEMBERS.
+// on the others -, 2 to NetProto::MAX_MEMBERS. A Choose Together room (game -1): MAX_MEMBERS. (01.04) The Atari 2600's
+// paddle games: up to 4 (two paddles in each port, Stella's RetroPad ports 1-4: Warlords) - players.bin has more than 2
+// for them only (scripts/make-netplay-players.py); a 2600 game not known: 2.
 int Menu::Impl::OnlinePlayersMost(int game) const
 {
   if (game < 0 || game >= static_cast<int>(m_games.size()))
@@ -8104,13 +9803,14 @@ int Menu::Impl::OnlinePlayersMost(int game) const
   if (Multiplayer::HasAdapter(id))
     ports = Settings::Get("multiplayer_adapter", rom.key) == "off" ? 2 : 4;
   else if (id == SystemId::N64 || id == SystemId::DC || id == SystemId::NAOMI || id == SystemId::ATOMISWAVE ||
-           id == SystemId::ARCADE || id == SystemId::PCE)
+           id == SystemId::ARCADE || id == SystemId::PCE || id == SystemId::A2600)
     ports = 4;
   uint32_t crc = 0;
   uint64_t size = 0;
   NetplayLibrary::Lookup(rom.path, &crc, &size);
   const int players = NetplayLibrary::Players(GetSystem(id).key, rom.id, crc);
-  return std::clamp(players > 0 ? std::min(players, ports) : ports, 2, NetProto::MAX_MEMBERS);
+  const int unknown = id == SystemId::A2600 ? 2 : ports;
+  return std::clamp(players > 0 ? std::min(players, ports) : unknown, 2, NetProto::MAX_MEMBERS);
 }
 
 // (00.95) Play Online's Players: what it does, and how far it goes.
@@ -8118,6 +9818,15 @@ std::string Menu::Impl::OnlinePlayersHelp() const
 {
   return "Up to " + std::to_string(m_online_players) + " players in the room (Left / Right: 2 to " +
          std::to_string(m_online_players_most) + "). The match starts with those in it when you press Start.";
+}
+
+// (01.04) A game of ours for a link cable room of that console (NetProto::GBLINK: Game Boy and Game Boy Color games;
+// NetProto::GBALINK: Game Boy Advance games).
+static bool LinkGameFits(const std::string& link_console, SystemId system)
+{
+  if (link_console == NetProto::GBALINK)
+    return system == SystemId::GBA;
+  return system == SystemId::GB || system == SystemId::GBC;
 }
 
 // The room's game among ours: the same file (its CRC32 and size: only our files of its size are read), else a game of
@@ -8128,9 +9837,11 @@ NetProto::LobbyGame Menu::Impl::FindOnlineGame(const NetProto::GameInfo& game, i
   using NetProto::LobbyGame;
   *index = -1;
   // (00.95) A Game Boy link cable room: its game among our Game Boy and Game Boy Color games, the same file only (Game
-  // Boy 1 runs the same ROM on both consoles).
-  const bool link = game.console == NetProto::GBLINK;
-  const System* system = link ? &GetSystem(SystemId::GB) : SystemByKey(game.console);
+  // Boy 1 runs the same ROM on both consoles). (01.04: a Game Boy Advance link room's among our GBA games.)
+  const bool link = game.console == NetProto::GBLINK || game.console == NetProto::GBALINK;
+  const System* system = game.console == NetProto::GBLINK  ? &GetSystem(SystemId::GB) :
+                         game.console == NetProto::GBALINK ? &GetSystem(SystemId::GBA) :
+                                                             SystemByKey(game.console);
   if (!system)
     return LobbyGame::Missing;
   auto title_key = [](const std::string& title) {
@@ -8147,10 +9858,21 @@ NetProto::LobbyGame Menu::Impl::FindOnlineGame(const NetProto::GameInfo& game, i
   for (size_t i = 0; i < m_games.size(); i++)
   {
     const Library::Game& rom = m_games[i].rom;
-    if (link ? rom.system != SystemId::GB && rom.system != SystemId::GBC : rom.system != system->id)
+    if (link ? !LinkGameFits(game.console, rom.system) : rom.system != system->id)
       continue;
     NetProto::GameInfo mine;
-    if (rom.size == game.size && OnlineGameInfo(static_cast<int>(i), &mine) && mine.crc == game.crc)
+    if (MayBeContent(rom, game.size) && OnlineGameInfo(static_cast<int>(i), &mine) && mine.crc == game.crc &&
+        mine.size == game.size)
+    {
+      *index = static_cast<int>(i);
+      return LobbyGame::Same;
+    }
+    // (01.06) A room of v00.23's (or 01.04's) says its game by its whole file: ours of that very size, by theirs. (Not
+    // a link cable room's: of this version only.)
+    uint32_t file_crc = 0;
+    uint64_t file_size = 0;
+    if (!link && rom.size == game.size && OnlineFileId(static_cast<int>(i), &file_crc, &file_size) &&
+        file_crc == game.crc && file_size == game.size)
     {
       *index = static_cast<int>(i);
       return LobbyGame::Same;
@@ -8167,17 +9889,143 @@ NetProto::LobbyGame Menu::Impl::FindOnlineGame(const NetProto::GameInfo& game, i
   return IsRomsetSystem(system->id) ? LobbyGame::Same : LobbyGame::Different;
 }
 
+// (01.05) Whether a file of ours may hold a content of that size (NetplayLibrary::ContentId's): known already (the
+// library's copy: its content's size), else its file's size the content's or the content's with a header (iNES 16,
+// with a trainer 528, a78 128, LNX 64, a copier's 512), or a zip - the only files the menu's thread reads to know.
+bool Menu::Impl::MayBeContent(const Library::Game& rom, uint64_t size) const
+{
+  uint32_t crc = 0;
+  uint64_t content = 0;
+  if (NetplayLibrary::Lookup(rom.path, &crc, &content))
+    return content == size;
+  const std::string& p = rom.path;
+  if (p.size() > 4 && p[p.size() - 4] == '.' && std::tolower(static_cast<unsigned char>(p[p.size() - 3])) == 'z' &&
+      std::tolower(static_cast<unsigned char>(p[p.size() - 2])) == 'i' &&
+      std::tolower(static_cast<unsigned char>(p[p.size() - 1])) == 'p')
+    return true;
+  for (const uint64_t header : {0, 16, 64, 128, 512, 528})
+  {
+    if (rom.size == size + header)
+      return true;
+  }
+  return false;
+}
+
+// (01.05, the owner: "que se vea también la versión que tiene cada uno del juego") A game's version as its file's name
+// says it: its region and its other groups, without their brackets - "Super Mario World (USA) (Rev 1)" is "USA, Rev 1"
+// ("[!]", a good dump's mark, left out). "" when the name says none.
+static std::string VersionText(const std::string& region, const std::string& tags)
+{
+  std::string out = region;
+  for (size_t i = 0; i < tags.size();)
+  {
+    const char open = tags[i];
+    const char close = open == '(' ? ')' : open == '[' ? ']' : 0;
+    const size_t stop = close ? tags.find(close, i + 1) : std::string::npos;
+    if (stop == std::string::npos)
+    {
+      i++;
+      continue;
+    }
+    const std::string inside = tags.substr(i + 1, stop - i - 1);
+    if (!inside.empty() && inside != "!")
+      out += (out.empty() ? "" : ", ") + inside;
+    i = stop + 1;
+  }
+  return out;
+}
+
+std::string Menu::Impl::OnlineVersionText(int game) const
+{
+  if (game < 0 || game >= static_cast<int>(m_games.size()))
+    return {};
+  const Library::Game& rom = m_games[static_cast<size_t>(game)].rom;
+  return VersionText(rom.region, rom.tags);
+}
+
+int Menu::Impl::StandardMark(const Game& game) const
+{
+  if (game.standard == 0)
+  {
+    const std::string key = GetSystem(game.rom.system).key;
+    uint32_t crc = 0;
+    uint64_t size = 0;
+    if (game.rom.discs.size() > 1 || !PlaysOnline(game.rom.system) || !NetplayLibrary::Covered(key))
+      game.standard = 3;
+    else if (NetplayLibrary::Lookup(game.rom.path, &crc, &size))
+      game.standard = NetplayLibrary::StandardName(key, crc, size).empty() ? 2 : 1;
+  }
+  return game.standard == 1 || game.standard == 2 ? game.standard : 0;
+}
+
+float Menu::Impl::DrawStandardMark(ImDrawList* dl, ImVec2 left_center, float r, int mark, float alpha, bool label)
+{
+  if (mark != 1 && mark != 2)
+    return 0.0f;
+  const Theme& theme = CurrentTheme();
+  const bool light = theme.text != 0xFFFFFF;
+  const uint32_t color = mark == 1 ? (light ? 0x1E7F46 : 0x3FBF6F) : (light ? 0x9A5C00 : 0xE0A030);
+  const ImVec2 c(left_center.x + r, left_center.y);
+  dl->AddCircleFilled(c, r, Rgba(color, alpha * 0.95f), 20);
+  const ImU32 white = Rgba(0xFFFFFF, alpha);
+  const float t = std::max(1.5f, r * 0.26f);
+  if (mark == 1)
+  {
+    dl->PathLineTo(ImVec2(c.x - r * 0.48f, c.y + r * 0.02f));
+    dl->PathLineTo(ImVec2(c.x - r * 0.12f, c.y + r * 0.38f));
+    dl->PathLineTo(ImVec2(c.x + r * 0.50f, c.y - r * 0.34f));
+    dl->PathStroke(white, 0, t);
+  }
+  else
+    dl->AddLine(ImVec2(c.x - r * 0.48f, c.y), ImVec2(c.x + r * 0.48f, c.y), white, t);
+  if (label)
+  {
+    const float size = std::max(16.0f, r * 1.6f);
+    const std::string word = PS4Lang::T(mark == 1 ? "Standard" : "Another version");
+    dl->AddText(m_bold, size, ImVec2(c.x + r + 8.0f, c.y - size * 0.58f), Rgba(color, alpha), word.c_str());
+  }
+  return StandardMarkWidth(r, mark, label);
+}
+
+float Menu::Impl::StandardMarkWidth(float r, int mark, bool label) const
+{
+  if (mark != 1 && mark != 2)
+    return 0.0f;
+  if (!label)
+    return r * 2.0f;
+  const float size = std::max(16.0f, r * 1.6f);
+  const std::string word = PS4Lang::T(mark == 1 ? "Standard" : "Another version");
+  return r * 2.0f + 8.0f + m_bold->CalcTextSizeA(size, FLT_MAX, 0.0f, word.c_str()).x;
+}
+
+// (01.05, the owner: "en el nick de la persona salga una abreviación pequeña del país") A player's country as a small
+// tag: its two letters in a rounded box, centred on cy; its width (0: none - not shown).
+float Menu::Impl::DrawCountryTag(ImDrawList* dl, float x, float cy, const std::string& country, float size, float a)
+{
+  if (country.empty())
+    return 0.0f;
+  const Theme& theme = CurrentTheme();
+  const float tw = m_bold->CalcTextSizeA(size, FLT_MAX, 0.0f, country.c_str()).x;
+  const float w = tw + size * 0.8f, h = size + 8.0f;
+  const ImVec2 p0(x, cy - h * 0.5f), p1(x + w, cy + h * 0.5f);
+  dl->AddRectFilled(p0, p1, Rgba(theme.text, 0.10f * a), h * 0.3f);
+  dl->AddRect(p0, p1, Rgba(theme.text, 0.40f * a), h * 0.3f, 0, 1.5f);
+  dl->AddText(m_bold, size, ImVec2(x + (w - tw) * 0.5f, cy - size * 0.58f), Rgba(theme.text, 0.9f * a),
+              country.c_str());
+  return w;
+}
+
 // (00.95) A Game Boy link cable room: the guest's game for Game Boy 2 among ours - the same file (console, CRC32, size).
 int Menu::Impl::FindLinkGame(const NetProto::LibraryGame& game)
 {
+  const std::string link = Netplay::LinkConsole();
   for (size_t i = 0; i < m_games.size(); i++)
   {
     const Library::Game& rom = m_games[i].rom;
-    if ((rom.system != SystemId::GB && rom.system != SystemId::GBC) || GetSystem(rom.system).key != game.console ||
-        rom.size != game.size)
+    if (!LinkGameFits(link, rom.system) || GetSystem(rom.system).key != game.console || !MayBeContent(rom, game.size))
       continue;
     NetProto::GameInfo mine;
-    if (OnlineGameInfo(static_cast<int>(i), &mine) && mine.crc == game.crc)
+    if (OnlineGameInfo(static_cast<int>(i), &mine) && mine.crc == game.crc && mine.size == game.size)
       return static_cast<int>(i);
   }
   return -1;
@@ -8210,10 +10058,11 @@ void Menu::Impl::OpenLinkGamePicker()
   m_panel.title = "Your Game";
   m_panel.lines = {"", "The game of your Game Boy (Game Boy 2).", "The other console needs its file too."};
   m_online_actions.clear();
+  const std::string link = Netplay::LinkConsole();  // (01.04: a GBA link room's: GBA games)
   for (size_t i = 0; i < m_games.size(); i++)
   {
     const Library::Game& rom = m_games[i].rom;
-    if (rom.system != SystemId::GB && rom.system != SystemId::GBC)
+    if (!LinkGameFits(link, rom.system))
       continue;
     if (static_cast<int>(i) == m_online_link_game)
       m_panel.selected = static_cast<int>(m_online_actions.size());
@@ -8314,6 +10163,40 @@ bool Menu::Impl::OnlineAction(const std::string& action)
         },
         8, TextKeyboard::Mode::Plain, "The 6 letters and numbers of your friend's room.");
   }
+  else if (action.rfind("watch:", 0) == 0)
+  {
+    // (01.05) A match to watch (its room's code): as a spectator, the game found as a guest's is.
+    m_online_found = NetProto::LobbyGame::Looking;
+    m_online_game = -1;
+    m_online_library_sent = false;
+    Netplay::Watch(action.substr(6), m_data_dir);
+    OpenOnlineRoom();
+    Play("confirm");
+  }
+  else if (action == "entry")
+  {
+    // (01.14) The host: whoever comes is in at once, or asks first.
+    const Netplay::View v = Netplay::GetView();
+    Netplay::SetFreeEntry(!v.free_entry);
+    ShowToast(!v.free_entry ? "Players come in without asking" : "Players ask you to join first", 0);
+    Play("confirm");
+  }
+  else if (action == "late")
+  {
+    // (01.05) The host: a player may join the match under way, or not.
+    const Netplay::View v = Netplay::GetView();
+    Netplay::SetLateAllowed(!v.late_allowed);
+    ShowToast(!v.late_allowed ? "A player may join the match under way" : "No one joins the match once it starts", 0);
+    Play("confirm");
+  }
+  else if (action == "watchers")
+  {
+    // (01.05) The host: spectators let in or not.
+    const Netplay::View v = Netplay::GetView();
+    Netplay::SetWatchAllowed(!v.watch_allowed);
+    ShowToast(!v.watch_allowed ? "Spectators may watch the match" : "No spectators: those watching left", 0);
+    Play("confirm");
+  }
   else if (action == "together")
   {
     OpenOnlineHost(-1);  // (00.23: a room without a game - Choose Together)
@@ -8351,6 +10234,44 @@ bool Menu::Impl::OnlineAction(const std::string& action)
   {
     Netplay::SetLatencyBar(m_data_dir, !Netplay::LatencyBar(m_data_dir));
     back_to_settings("ol:bar");
+    Play("confirm");
+  }
+  else if (action == "chattext")  // (01.05)
+  {
+    Netplay::SetChatText(m_data_dir, !Netplay::ChatText(m_data_dir));
+    back_to_settings("ol:chattext");
+    Play("confirm");
+  }
+  else if (action == "country")  // (01.05)
+  {
+    Netplay::SetShowCountry(m_data_dir, !Netplay::ShowCountry(m_data_dir));
+    back_to_settings("ol:country");
+    Play("confirm");
+  }
+  else if (action == "unblock")
+  {
+    Netplay::UnblockAll(m_data_dir);
+    ShowToast("Every blocked player unblocked", 0);
+    back_to_settings("ol:nick");
+    Play("confirm");
+  }
+  else if (action == "world")  // (01.07: the world chat shown or hidden)
+  {
+    Netplay::SetWorldChatOn(m_data_dir, !Netplay::WorldChatOn(m_data_dir));
+    back_to_settings("ol:world");
+    Play("confirm");
+  }
+  else if (action == "ranking")  // (01.07: the players' ranking)
+  {
+    Netplay::SetRanked(m_data_dir, !Netplay::Ranked(m_data_dir));
+    back_to_settings("ol:ranking");
+    Play("confirm");
+  }
+  else if (action == "worldmuted")
+  {
+    Netplay::ClearWorldMuted(m_data_dir);
+    ShowToast("The players muted in the world chat are read again", 0);
+    back_to_settings("ol:world");
     Play("confirm");
   }
   else if (action == "profile_on" || action == "profile_off")
@@ -8399,6 +10320,357 @@ std::string Menu::Impl::MyStatsDetail() const
   char hours[32];
   std::snprintf(hours, sizeof(hours), "%.1f", static_cast<double>(seconds) / 3600.0);
   return std::string(hours) + " h played";
+}
+
+// (01.05, the owner: "Revisar mis juegos") Check My Games: each console of the standard versions' list
+// (NetplayLibrary::Covered) with games here - how many of them are standard -, then (Cross) a console's games, those not
+// standard first, each with its standard name. Its files are read on NetplayLibrary's thread (its copy: once); the rows
+// come again as it goes (UpdateOnline: CheckSignature).
+void Menu::Impl::OpenCheckGames(const std::string& console, const std::string& select)
+{
+  const float slide = m_panel.open ? m_panel.slide : 0.0f;
+  m_panel = {};
+  m_panel.open = true;
+  m_panel.slide = slide;
+  m_check_console = console;
+  m_panel.setting = console.empty() ? SET_OL_CHECK : SET_OL_CHECK_LIST;
+  const System* system = console.empty() ? nullptr : SystemByKey(console);
+  m_panel.title = system ? system->name : "Check My Games";
+  if (console.empty())
+  {
+    StartOnlineLibrary();
+    Log("online: Check My Games");
+  }
+  BuildCheckRows();
+  for (size_t i = 0; i < m_panel.rows.size() && !select.empty(); i++)
+  {
+    if (m_panel.rows[i].key == select)
+      m_panel.selected = static_cast<int>(i);
+  }
+}
+
+std::string Menu::Impl::CheckSignature() const
+{
+  const NetplayLibrary::Progress p = NetplayLibrary::GetProgress();
+  return std::to_string(p.done) + "/" + std::to_string(p.total) + (p.finished ? "+" : "") + m_check_console;
+}
+
+void Menu::Impl::BuildCheckRows()
+{
+  const std::string was = m_panel.selected >= 0 && m_panel.selected < static_cast<int>(m_panel.rows.size()) ?
+                              m_panel.rows[static_cast<size_t>(m_panel.selected)].key :
+                              std::string();
+  std::vector<SettingRow> rows;
+  const NetplayLibrary::Progress progress = NetplayLibrary::GetProgress();
+  if (!progress.finished)
+  {
+    SettingRow row{"Looking at Your Games",
+                   std::to_string(progress.done) + " of " + std::to_string(progress.total) + " read", "check:reading"};
+    row.help = "Each file is read once, in the background (its copy is kept): the menu goes on meanwhile.";
+    rows.push_back(std::move(row));
+  }
+  struct Count
+  {
+    int total = 0, standard = 0, unread = 0;
+  };
+  std::map<std::string, Count> counts;
+  std::vector<std::string> order;  // (the consoles in the library's order)
+  struct Item
+  {
+    int state = 0;  // 0 not standard, 1 not read yet, 2 standard
+    std::string title, help;
+    int game = -1;
+  };
+  std::vector<Item> items;
+  for (size_t i = 0; i < m_games.size(); i++)
+  {
+    const Library::Game& rom = m_games[i].rom;
+    const std::string key = GetSystem(rom.system).key;
+    if (rom.discs.size() > 1 || !PlaysOnline(rom.system) || !NetplayLibrary::Covered(key))
+      continue;
+    if (!m_check_console.empty() && key != m_check_console)
+      continue;
+    uint32_t crc = 0;
+    uint64_t size = 0;
+    const bool read = NetplayLibrary::Lookup(rom.path, &crc, &size);
+    const std::string name = read ? NetplayLibrary::StandardName(key, crc, size) : std::string();
+    Count& c = counts[key];
+    if (c.total == 0)
+      order.push_back(key);
+    c.total++;
+    c.standard += name.empty() ? 0 : 1;
+    c.unread += read ? 0 : 1;
+    if (m_check_console.empty())
+      continue;
+    Item item;
+    item.game = static_cast<int>(i);
+    item.title = rom.title;
+    item.state = !read ? 1 : name.empty() ? 0 : 2;
+    const std::string file = std::filesystem::path(rom.path).filename().string();
+    char id[16];
+    std::snprintf(id, sizeof(id), "%08x", crc);
+    item.help = item.state == 2 ? "Standard (" + NetplayLibrary::StandardSource(key) + "): " + name :
+                item.state == 1 ? std::string("Being read...") :
+                                  "Not the standard version (" + NetplayLibrary::StandardSource(key) + "): " + file +
+                                      ", CRC32 " + id + ". Online it finds only players with this same file.";
+    items.push_back(std::move(item));
+  }
+  if (m_check_console.empty())
+  {
+    for (const std::string& key : order)
+    {
+      const Count& c = counts[key];
+      const System* system = SystemByKey(key);
+      SettingRow row{system ? system->name : key,
+                     std::to_string(c.standard) + " of " + std::to_string(c.total) + " standard", "check:" + key};
+      row.help = c.unread > 0 ? "Still reading " + std::to_string(c.unread) + " of them. Cross: each game." :
+                 c.standard == c.total ? std::string("Every one is the standard version. Cross: each game.") :
+                                         std::to_string(c.total - c.standard) +
+                                             " aren't the standard version: online they find only players with the "
+                                             "same file. Cross: which.";
+      rows.push_back(std::move(row));
+    }
+    if (order.empty())
+    {
+      SettingRow row{"No games to check", "", "check:none"};
+      row.help = "The list has the cartridges of the consoles that play online (No-Intro) and the Arcade's sets "
+                 "(FinalBurn Neo 1.0.0.03); discs aren't in it.";
+      rows.push_back(std::move(row));
+    }
+  }
+  else
+  {
+    std::stable_sort(items.begin(), items.end(), [](const Item& a, const Item& b) {
+      return a.state != b.state ? a.state < b.state : a.title < b.title;
+    });
+    for (const Item& item : items)
+    {
+      SettingRow row{item.title, item.state == 2 ? "Standard" : item.state == 1 ? "..." : "Not standard",
+                     "game:" + std::to_string(item.game)};
+      row.help = item.help;
+      rows.push_back(std::move(row));
+    }
+  }
+  m_panel.rows = std::move(rows);
+  m_panel.selected = 0;
+  for (size_t i = 0; i < m_panel.rows.size(); i++)
+  {
+    if (!was.empty() && m_panel.rows[i].key == was)
+      m_panel.selected = static_cast<int>(i);
+  }
+  m_check_signature = CheckSignature();
+}
+
+// (01.05, the owner: "haz una tabla con los más jugados") The Online tab's table of the games most played online
+// (Touchpad: the rooms' or this one) - Netplay::TopGames, the main server's count of the last days' matches by game:
+// each its title and version as the standard list names it (NetplayLibrary::StandardName by its CRC32; else a public
+// room's title of it), its console, its matches, and whether it is in our games - the same version (the same content:
+// the library's copy of the files' ids) or another of that title. Made again as the server's list comes and as the
+// files are read (UpdateOnline: every 2 s at most).
+void Menu::Impl::BuildTopTable()
+{
+  const Netplay::TopList top = Netplay::TopGames();
+  m_top_serial = top.serial;
+  m_top_built = m_time;
+  std::vector<TopRow> rows;
+  for (const Netplay::TopGame& g : top.games)
+  {
+    TopRow row;
+    row.top = g;
+    const bool gb_link = g.console == NetProto::GBLINK, gba_link = g.console == NetProto::GBALINK;
+    row.link = gb_link || gba_link;
+    const std::string key = gb_link ? "gb" : gba_link ? "gba" : g.console;
+    row.standard = NetplayLibrary::StandardName(key, g.crc, 0);
+    if (!row.standard.empty())
+    {
+      std::string region, tags;
+      Library::ParseName(row.standard, &row.title, &region, &tags);
+      row.version = VersionText(region, tags);
+      // (An Arcade set's: its set's name, the one its zip has.)
+      const size_t open = row.standard.rfind('['), close = row.standard.rfind(']');
+      if (key == "arcade" && open != std::string::npos && close != std::string::npos && close > open)
+        row.version = row.standard.substr(open + 1, close - open - 1);
+    }
+    else
+      row.title = g.title;
+    if (row.title.empty())
+    {
+      char id[16];
+      std::snprintf(id, sizeof(id), "%08x", g.crc);
+      row.title = std::string("CRC32 ") + id;
+    }
+    row.system = SystemByKey(key);
+    row.tab = gb_link ? std::string("GB Link") : gba_link ? std::string("GBA Link") :
+              row.system ? std::string(row.system->tab) :
+                           g.console;
+    const std::string want = NetplayLibrary::TitleKey(row.title);
+    for (size_t i = 0; i < m_games.size(); i++)
+    {
+      const Library::Game& rom = m_games[i].rom;
+      const SystemId s = rom.system;
+      const bool fits = gb_link ? (s == SystemId::GB || s == SystemId::GBC) : gba_link ? s == SystemId::GBA :
+                                                                               GetSystem(s).key == key;
+      if (!fits)
+        continue;
+      uint32_t crc = 0;
+      uint64_t size = 0;
+      if (NetplayLibrary::Lookup(rom.path, &crc, &size) && crc == g.crc)
+      {
+        row.game = static_cast<int>(i);
+        row.found = 1;
+        break;
+      }
+      if (row.found == 0 && !want.empty() && NetplayLibrary::TitleKey(rom.title) == want)
+      {
+        row.game = static_cast<int>(i);
+        row.found = 2;
+      }
+    }
+    rows.push_back(std::move(row));
+  }
+  // ((01.07, the owner's 01.05 log said nothing of it) How many of the list are standard versions and ours, once a
+  // list.)
+  if (top.answered && top.serial != m_top_logged)
+  {
+    m_top_logged = top.serial;
+    int standard = 0, same = 0, other = 0;
+    for (const TopRow& r : rows)
+    {
+      standard += r.standard.empty() ? 0 : 1;
+      same += r.found == 1 ? 1 : 0;
+      other += r.found == 2 ? 1 : 0;
+    }
+    Log("online: the games most played online: " + std::to_string(rows.size()) + ", " + std::to_string(standard) +
+        " standard versions (the others' version unknown), " + std::to_string(same) + " in our games (" +
+        std::to_string(other) + " more by another version of their title)");
+  }
+  m_top_rows = std::move(rows);
+  m_top_index = std::clamp(m_top_index, 0, std::max(0, static_cast<int>(m_top_rows.size()) - 1));
+}
+
+// The table in the rooms' box (y: under the summary line): its title, the columns' names, the games - rank, cover (ours)
+// or a tile in its console's colour, title and standard name, console, version, matches, in our games or not -, the
+// selected one lit; instead, before the server's answer or without matches, why.
+void Menu::Impl::DrawTopTable(ImDrawList* dl, float alpha, float x0, float x1, float y, float bottom)
+{
+  const Theme& theme = CurrentTheme();
+  const bool light = theme.text != 0xFFFFFF;
+  const uint32_t GREEN = light ? 0x1E7F46 : 0x5BD38A, AMBER = light ? 0x9A5C00 : 0xFFC870,
+                 RED = light ? 0xB3261E : 0xFF8A80;
+  const auto raw = [dl](ImFont* font, float size, ImVec2 at, ImU32 color, const std::string& text) {
+    dl->AddText(font, size, at, color, text.c_str());
+  };
+  const auto raw_w = [](ImFont* font, float size, const std::string& text) {
+    return font->CalcTextSizeA(size, FLT_MAX, 0.0f, text.c_str()).x;
+  };
+  const Netplay::TopList top = Netplay::TopGames();
+  const std::string days = std::to_string(top.days > 0 ? top.days : NetProto::TOP_DAYS);
+  Text(dl, m_bold, 26, ImVec2(x0 + 2, y + 4), Rgba(theme.wave, alpha), "Most played online in the last " + days + " days",
+       false);
+  y += 60.0f;
+  const float w = x1 - x0;
+  const float tx = x0 + 132.0f, col_console = x0 + w * 0.47f, col_version = x0 + w * 0.56f,
+              col_matches = x0 + w * 0.74f, col_mine = x0 + w * 0.83f;
+  constexpr float HEAD = 22.0f;
+  const ImU32 head = Rgba(theme.text, alpha * 0.55f);
+  Text(dl, m_bold, HEAD, ImVec2(x0 + 22.0f, y), head, "Game", false);
+  Text(dl, m_bold, HEAD, ImVec2(col_console, y), head, "Console", false);
+  Text(dl, m_bold, HEAD, ImVec2(col_version, y), head, "Version", false);
+  Text(dl, m_bold, HEAD, ImVec2(col_matches, y), head, "Matches", false);
+  Text(dl, m_bold, HEAD, ImVec2(col_mine, y), head, "In Your Games", false);
+  y += 32.0f;
+  dl->AddLine(ImVec2(x0, y), ImVec2(x1, y), Rgba(theme.text, alpha * 0.12f), 1.5f);
+  y += 12.0f;
+  const float list_top = y;
+  const int count = static_cast<int>(m_top_rows.size());
+  if (count == 0)
+  {
+    const float cx = (x0 + x1) * 0.5f, cy = list_top + std::min(170.0f, (bottom - list_top) * 0.35f);
+    const std::string first = PS4Lang::T(!top.answered ? "Asking the server..." : "No matches these days");
+    raw(m_bold, 32, ImVec2(cx - raw_w(m_bold, 32, first) * 0.5f, cy), Rgba(theme.text, alpha), first);
+    const std::string second = PS4Lang::T("EmuSuNi's server counts the matches of the last " + days +
+                                          " days by game: only the games and how many - nothing of anyone.");
+    const std::string fitted = Fit(m_font, 24, second, w - 80.0f);
+    raw(m_font, 24, ImVec2(cx - raw_w(m_font, 24, fitted) * 0.5f, cy + 54.0f), Rgba(theme.text, alpha * 0.65f), fitted);
+    return;
+  }
+  constexpr float ROW_H = 78.0f, GAP = 8.0f;
+  const float visible = std::max(1.0f, std::floor((bottom - list_top) / ROW_H));
+  const float scroll = std::clamp(static_cast<float>(m_top_index) - std::floor((visible - 1.0f) * 0.5f), 0.0f,
+                                  std::max(0.0f, static_cast<float>(count) - visible));
+  dl->PushClipRect(ImVec2(x0 - 4.0f, list_top - 4.0f), ImVec2(x1 + 4.0f, bottom + 4.0f), true);
+  for (int i = 0; i < count; i++)
+  {
+    const float ry = list_top + (static_cast<float>(i) - scroll) * ROW_H;
+    if (ry < list_top - ROW_H || ry > bottom)
+      continue;
+    const TopRow& row = m_top_rows[static_cast<size_t>(i)];
+    const bool sel = i == m_top_index;
+    const float rh = ROW_H - GAP, cy = ry + rh * 0.5f;
+    const float edge = std::clamp(std::min((ry - list_top) / 36.0f, (bottom - ry - rh) / 36.0f) + 1.0f, 0.0f, 1.0f);
+    const float ra = alpha * edge, a = ra * (sel || row.found == 1 ? 1.0f : 0.8f);
+    const ImVec2 r0(x0, ry), r1(x1, ry + rh);
+    if (sel)
+    {
+      dl->AddRectFilled(r0, r1, Rgba(theme.wave, ra * 0.20f), 14.0f);
+      dl->AddRect(r0, r1, Rgba(theme.wave, ra), 14.0f, 0, 2.5f);
+    }
+    else
+      dl->AddRectFilled(r0, r1, light ? Rgba(0xFFFFFF, ra * 0.55f) : Rgba(0x000000, ra * 0.22f), 14.0f);
+    // Its rank; its cover when it is one of ours, else a tile in its console's colour.
+    const std::string rank = std::to_string(i + 1);
+    raw(m_bold, 28, ImVec2(x0 + 40.0f - raw_w(m_bold, 28, rank) * 0.5f, cy - 17.0f), Rgba(theme.wave, a), rank);
+    const ImVec2 b0(x0 + 68.0f, cy - 30.0f), b1(x0 + 114.0f, cy + 30.0f);
+    float aspect = 0.7f;
+    const ImTextureID cover = row.game >= 0 ? Cover(row.game, &aspect) : ImTextureID{};
+    if (cover != ImTextureID{})
+    {
+      const float bw = b1.x - b0.x, bh = b1.y - b0.y;
+      float cw = bh * std::max(0.2f, aspect), ch = bh;
+      if (cw > bw)
+      {
+        cw = bw;
+        ch = bw / std::max(0.2f, aspect);
+      }
+      const ImVec2 p0((b0.x + b1.x - cw) * 0.5f, cy - ch * 0.5f);
+      dl->AddImageRounded(ImTextureRef(cover), p0, ImVec2(p0.x + cw, p0.y + ch), ImVec2(0, 0), ImVec2(1, 1),
+                          IM_COL32(255, 255, 255, static_cast<int>(a * 255)), 4.0f);
+    }
+    else
+    {
+      const uint32_t tile = row.system ? row.system->color : 0x5C6070;
+      dl->AddRectFilled(b0, b1, Rgba(tile, a * 0.9f), 6.0f);
+      dl->AddRect(b0, b1, Rgba(0xFFFFFF, a * 0.2f), 6.0f, 0, 1.5f);
+      DrawCartridgeIcon(dl, ImVec2((b0.x + b1.x) * 0.5f, cy), 28.0f, Rgba(0xFFFFFF, a * 0.85f), Rgba(tile, a));
+    }
+    // Its title, and under it its standard name (or that it isn't in the list).
+    const float title_w = col_console - tx - 18.0f;
+    raw(m_bold, 28, ImVec2(tx, ry + 7.0f), Rgba(theme.text, a), Fit(m_bold, 28, row.title, title_w));
+    const std::string under = row.standard.empty() ? PS4Lang::T("Not in the standard list") : row.standard;
+    raw(m_font, 22, ImVec2(tx, ry + 41.0f), Rgba(theme.text, a * 0.6f), Fit(m_font, 22, under, title_w));
+    // Its console: a pill in its colour.
+    {
+      const uint32_t pill = row.system ? row.system->color : 0x6A6F7D;
+      const float pw = raw_w(m_bold, 22, row.tab) + 24.0f;
+      const ImVec2 p0(col_console, cy - 16.0f), p1(col_console + pw, cy + 16.0f);
+      dl->AddRectFilled(p0, p1, Rgba(pill, a * 0.95f), 16.0f);
+      dl->AddRect(p0, p1, Rgba(0xFFFFFF, a * 0.25f), 16.0f, 0, 1.5f);
+      raw(m_bold, 22, ImVec2(col_console + 12.0f, cy - 14.0f), Rgba(0xFFFFFF, a), row.tab);
+    }
+    // Its version, its matches, whether it is in our games.
+    // ((01.07, the owner's 01.05 test: blank) A game not in standard.bin - an old app's room by its whole file, a
+    // hack -: "Unknown version".)
+    const bool unknown = row.version.empty() && row.standard.empty();
+    raw(m_font, 24, ImVec2(col_version, cy - 15.0f), Rgba(theme.text, a * (unknown ? 0.6f : 1.0f)),
+        Fit(m_font, 24, unknown ? PS4Lang::T("Unknown version") : row.version.empty() ? std::string("-") : row.version,
+            col_matches - col_version - 18.0f));
+    raw(m_bold, 26, ImVec2(col_matches, cy - 16.0f), Rgba(theme.text, a), std::to_string(row.top.matches));
+    const char* mine = row.found == 1 ? "Same version" : row.found == 2 ? "Another version" : "Not in your games";
+    const uint32_t mine_color = row.found == 1 ? GREEN : row.found == 2 ? AMBER : RED;
+    raw(m_font, 24, ImVec2(col_mine, cy - 15.0f), Rgba(mine_color, a * 0.95f),
+        Fit(m_font, 24, PS4Lang::T(mine), x1 - col_mine - 16.0f));
+  }
+  dl->PopClipRect();
 }
 
 void Menu::Impl::OpenMyStats()
@@ -8565,7 +10837,8 @@ void Menu::Impl::StartOnlineLibrary()
   for (const Game& game : m_games)
   {
     const System& system = GetSystem(game.rom.system);
-    if (Netplay::RulesFor(system.key).online && game.rom.discs.size() <= 1)
+    // ((01.05) the link cable rooms' too - the Game Boys': Check My Games, the marks under the stars)
+    if (PlaysOnline(game.rom.system) && game.rom.discs.size() <= 1)
       files.push_back({system.key, game.rom.path, game.rom.id});
   }
   NetplayLibrary::Start(m_data_dir, files);
@@ -8651,8 +10924,10 @@ void Menu::Impl::DrawOnlineAsk(ImDrawList* dl, float dt)
   float y = y0 + PAD - 6.0f;
   Text(dl, m_bold, 34, ImVec2(x0 + PAD, y), Rgba(theme.wave, a), "Join Request", false);
   y += 62.0f;
-  const std::string who =
-      v.asking_nick + (v.asking_region.empty() ? "" : " (" + v.asking_region + ")") + " wants to join your room";
+  // ((01.05) its country and time zone: "Ana (CL, UTC-3) wants to join your room")
+  const std::string where =
+      v.asking_country + (v.asking_country.empty() || v.asking_region.empty() ? "" : ", ") + v.asking_region;
+  const std::string who = v.asking_nick + (where.empty() ? "" : " (" + where + ")") + " wants to join your room";
   Text(dl, m_bold, 32, ImVec2(x0 + PAD, y), Rgba(theme.text, a), Fit(m_bold, 32, who, BOX_W - PAD * 2), false);
   y += 52.0f;
   const System* system = SystemByKey(v.game.console);
@@ -8701,6 +10976,7 @@ void Menu::Impl::BuildOnlinePanel()
   m_together.on = false;
   m_panel.rows.clear();
   const std::string you = " (you)";
+  size_t notes_from = SIZE_MAX;  // (01.05) the lines after the players' (the room screen's notes)
   if (v.phase == Phase::Off)
   {
     m_panel.title = "Online Play";
@@ -8714,6 +10990,12 @@ void Menu::Impl::BuildOnlinePanel()
     }
     options = {"OK"};
     actions = {"close"};
+    // (01.05) Its match started, and its host lets spectators watch it.
+    if (!v.watch_offer.empty())
+    {
+      options.insert(options.begin(), "Watch the Match");
+      actions.insert(actions.begin(), "watch:" + v.watch_offer);
+    }
   }
   else if (v.phase == Phase::Connecting)
   {
@@ -8736,7 +11018,11 @@ void Menu::Impl::BuildOnlinePanel()
       for (const Netplay::PlayerView& p : v.players)
       {
         if (p.id == 0)
-          lines.push_back("Host: " + p.nick + (p.region.empty() ? "" : " (" + p.region + ")"));
+        {
+          // ((01.05) its country and time zone: "(CL, UTC-3)")
+          const std::string where = p.country + (p.country.empty() || p.region.empty() ? "" : ", ") + p.region;
+          lines.push_back("Host: " + p.nick + (where.empty() ? "" : " (" + where + ")"));
+        }
       }
     }
     // (Short: under the code and the options the panel holds about seven lines above its help text.)
@@ -8748,9 +11034,10 @@ void Menu::Impl::BuildOnlinePanel()
       lines.push_back("Game: " + v.game.title + (system ? std::string(" (") + system->tab + ")" : std::string()));
     if (!v.host && !v.together)
     {
-      const std::string mine = m_online_game >= 0 && m_online_game < static_cast<int>(m_games.size()) ?
-                                   m_games[static_cast<size_t>(m_online_game)].rom.title :
-                                   std::string();
+      // ((01.05) ours as its file's name says it - "Europe, Rev 1" -, else its title)
+      std::string mine = OnlineVersionText(m_online_game);
+      if (mine.empty() && m_online_game >= 0 && m_online_game < static_cast<int>(m_games.size()))
+        mine = m_games[static_cast<size_t>(m_online_game)].rom.title;
       lines.push_back(m_online_found == LobbyGame::Same      ? std::string("You have this game.") :
                       m_online_found == LobbyGame::Missing   ? std::string("You haven't got this game.") :
                       m_online_found == LobbyGame::Looking   ? std::string("Looking for it in your games...") :
@@ -8782,6 +11069,10 @@ void Menu::Impl::BuildOnlinePanel()
                                                          p.nick + " is looking for the game");
       }
     }
+    notes_from = lines.size();  // (01.05: the room screen shows what follows as the room's notes)
+    // (01.23) Back from its match: why it ended ("Ana ended the match", "Ana left the room"), until the next one.
+    if (!v.together && !v.notice.empty() && v.phase == Phase::Room)
+      lines.push_back(v.notice);
     // (00.95) A Game Boy link cable room: the game of Game Boy 2 - the guest's own -, and whether the host has it.
     if (v.link)
     {
@@ -8803,9 +11094,10 @@ void Menu::Impl::BuildOnlinePanel()
     {
       if (v.asking >= 0)
       {
-        // (00.86) A player asks to join: Accept or Reject, first.
-        lines.push_back(v.asking_nick + (v.asking_region.empty() ? "" : " (" + v.asking_region + ")") +
-                        " wants to join your room");
+        // (00.86) A player asks to join: Accept or Reject, first. ((01.05) Its country and time zone.)
+        const std::string where = v.asking_country +
+                                  (v.asking_country.empty() || v.asking_region.empty() ? "" : ", ") + v.asking_region;
+        lines.push_back(v.asking_nick + (where.empty() ? "" : " (" + where + ")") + " wants to join your room");
         lines.push_back("Answer within " + std::to_string(v.asking_seconds) + " s");
         options.push_back("Accept");
         actions.push_back("accept:" + std::to_string(v.asking));
@@ -8814,8 +11106,10 @@ void Menu::Impl::BuildOnlinePanel()
       }
       else
       {
-        lines.push_back(guests == 0  ? "Waiting for a player..." :
-                        v.can_start  ? "Press Start to play." :
+        // ((01.14) Alone, with Late Joining: Start plays now, whoever comes joins the match.)
+        lines.push_back(guests == 0 && v.can_start ? "Press Start to play now: whoever comes joins the match." :
+                        guests == 0                ? "Waiting for a player..." :
+                        v.can_start                ? "Press Start to play." :
                         guests == 1  ? "Waiting for the player..." :
                                        "Waiting for the players...");  // (00.95)
       }
@@ -8824,15 +11118,50 @@ void Menu::Impl::BuildOnlinePanel()
         options.push_back("Start");
         actions.push_back("start");
       }
+      // (01.05) The chat, and each player's actions (mute, block, remove: a picker - until 01.04 Remove alone here).
+      options.push_back("Quick Phrase");
+      actions.push_back("chat:phrase");
+      options.push_back("Write a Message");
+      actions.push_back("chat:text");
       for (const Netplay::PlayerView& p : v.players)
       {
         if (!p.me && !p.asking)
         {
-          options.push_back("Remove " + p.nick);
-          actions.push_back("kick:" + std::to_string(p.id));
+          options.push_back(p.nick + "...");
+          actions.push_back("player:" + std::to_string(p.id));
+        }
+      }
+      // (01.14) Whoever comes is in at once, or asks first.
+      options.push_back(v.free_entry ? "Entry: Free" : "Entry: With Permission");
+      actions.push_back("entry");
+      // (01.05) A player joining the match under way: let or not.
+      if (v.late_possible)
+      {
+        options.push_back(v.late_allowed ? "Late Joining: Yes" : "Late Joining: No");
+        actions.push_back("late");
+      }
+      // (01.05) Spectators: let in or not, and who watches.
+      if (v.watch_possible)
+      {
+        options.push_back(v.watch_allowed ? "Spectators: Yes" : "Spectators: No");
+        actions.push_back("watchers");
+        if (!v.watchers.empty())
+        {
+          std::string who;
+          for (const Netplay::PlayerView& w : v.watchers)
+            who += (who.empty() ? "" : ", ") + w.nick;
+          lines.push_back("Watching: " + who);
         }
       }
       options.push_back("Close Room");
+      actions.push_back("leave");
+    }
+    else if (v.watching)
+    {
+      // (01.05) A spectator: it waits for the match (or for its state, the match on), then watches it.
+      lines.push_back("You watch this room's match: you play nothing.");
+      lines.push_back("It shows here once the host starts it.");
+      options.push_back("Stop Watching");
       actions.push_back("leave");
     }
     else if (v.waiting_host)
@@ -8856,10 +11185,36 @@ void Menu::Impl::BuildOnlinePanel()
         options.push_back("Play Anyway");
         actions.push_back("anyway");
       }
+      // (01.05) The chat, and each player's actions (mute, block).
+      options.push_back("Quick Phrase");
+      actions.push_back("chat:phrase");
+      options.push_back("Write a Message");
+      actions.push_back("chat:text");
+      for (const Netplay::PlayerView& p : v.players)
+      {
+        if (!p.me && !p.asking)
+        {
+          options.push_back(p.nick + "...");
+          actions.push_back("player:" + std::to_string(p.id));
+        }
+      }
       options.push_back("Leave Room");
       actions.push_back("leave");
     }
   }
+  // (01.05) The room screen's notes: what the room says once its players are listed (the game found too, a guest's).
+  m_room_notes.clear();
+  if (!v.host && !v.together && v.phase != Phase::Off && v.phase != Phase::Connecting && notes_from > 0)
+  {
+    for (const std::string& l : lines)
+    {
+      if (l.rfind("You have this game", 0) == 0 || l.rfind("You haven't got", 0) == 0 || l.rfind("Looking for it", 0) == 0 ||
+          l.rfind("Yours is another version", 0) == 0)
+        m_room_notes.push_back(l);
+    }
+  }
+  for (size_t i = notes_from; i < lines.size(); i++)
+    m_room_notes.push_back(lines[i]);
   // (The selection stays on its action.)
   const std::string was = m_panel.selected >= 0 && m_panel.selected < static_cast<int>(m_online_actions.size()) ?
                               m_online_actions[static_cast<size_t>(m_panel.selected)] :
@@ -8867,6 +11222,14 @@ void Menu::Impl::BuildOnlinePanel()
   m_panel.options = std::move(options);
   m_panel.lines = std::move(lines);
   m_online_actions = std::move(actions);
+  // (01.05) A player's entry says what its picker does (the other options: OptionHelp's for their text).
+  m_panel.helps.assign(m_online_actions.size(), std::string());
+  for (size_t i = 0; i < m_online_actions.size(); i++)
+  {
+    if (m_online_actions[i].rfind("player:", 0) == 0)
+      m_panel.helps[i] = v.host ? "Mute this player (voice and chat), block them on this PS4, or remove them." :
+                                  "Mute this player (voice and chat), or block them on this PS4.";
+  }
   m_panel.selected = 0;
   bool kept = false;
   for (size_t i = 0; i < m_online_actions.size(); i++)
@@ -8963,15 +11326,13 @@ void Menu::Impl::BuildTogetherRows(const Netplay::View& v)
                                  "You have no games for " + std::to_string(need) + " players in common";
     else if (all.empty())
       t.status = t.unknown > 0 ? "No game you both have is known to take 2 players: Square shows them all" :
-                                 "You have no games in common";
+                                 "No games in common";  // (01.04: and why, under it)
   }
-  // (00.92) A new room: on the tab of the Online tab's console filter (once both lists have games of it).
+  // (00.92) A new room: on every console's tab ((01.07) the Online tab's console filter is no more).
   if (v.code != m_together_room)
   {
     m_together_room = v.code;
-    const std::vector<std::string> consoles = OnlineConsoles();
-    m_together_tab = consoles[static_cast<size_t>(std::clamp(m_online_filter_console, 0,
-                                                             static_cast<int>(consoles.size()) - 1))];
+    m_together_tab.clear();
     m_together_game = -1;
     m_together_said.clear();
   }
@@ -9053,6 +11414,8 @@ void Menu::Impl::DrawTogetherScreen(ImDrawList* dl, float dt)
   dl->AddRectFilled(ImVec2(0, 0), ImVec2(W, H), light ? Rgba(0xF4F4F8, 0.97f * a) : Rgba(0x06060A, 0.95f * a));
   constexpr float X0 = 80.0f;
   const float x1 = W - 80.0f;
+  // (01.05) The games' grid left of the room's chat (TogetherScreen::COLS cards a row there).
+  const float gx1 = x1 - 500.0f;
   // The title, the room's code (the host's), the versions' check and how many games; what the room says.
   Text(dl, m_bold, 44, ImVec2(X0, 52), Rgba(theme.text, a), "Choose Together");
   if (v.host && !v.code.empty())
@@ -9084,12 +11447,16 @@ void Menu::Impl::DrawTogetherScreen(ImDrawList* dl, float dt)
     {
       if (p.me)
         continue;
+      // ((01.05) its country beside the ping)
       const std::string line = p.nick + (p.region.empty() ? "" : " (" + p.region + ")") + "  " +
+                               (p.country.empty() ? "" : p.country + "  ") +
                                (p.ping_ms >= 0 ? std::to_string(p.ping_ms) + " ms" : std::string("..."));
       raw(m_font, 26, ImVec2(x1 - raw_w(m_font, 26, line), py), Rgba(theme.text, 0.85f * a), line);
       py += 36.0f;
     }
   }
+  // (01.05) The room's chat, at the right.
+  DrawChatBox(dl, v, gx1 + 50.0f, 196.0f, x1, HELP_END - 10.0f, a);
   // The tabs: L1, every console's and each console's with its count, R1 (scrolled to keep the chosen one in view).
   constexpr float TAB_Y = 196.0f, TAB_H = 46.0f, TAB_FONT = 24.0f, GLYPH = 36.0f;
   std::vector<std::string> labels;
@@ -9101,7 +11468,7 @@ void Menu::Impl::DrawTogetherScreen(ImDrawList* dl, float dt)
     widths.push_back(raw_w(m_bold, TAB_FONT, labels.back()) + 36.0f);
   }
   float x = X0 + PS4Glyphs::Draw(dl, m_bold, "L1", X0, TAB_Y + TAB_H * 0.5f, GLYPH, a) + 14.0f;
-  const float tabs_end = x1 - PS4Glyphs::Width("R1", GLYPH) - 14.0f;
+  const float tabs_end = gx1 - PS4Glyphs::Width("R1", GLYPH) - 14.0f;
   size_t first = 0;
   const auto span = [&](size_t from, size_t to) {
     float w = 0.0f;
@@ -9135,21 +11502,34 @@ void Menu::Impl::DrawTogetherScreen(ImDrawList* dl, float dt)
   const float top = 272.0f, bottom = H - 128.0f;
   if (t.cards.empty())
   {
-    const std::string text = PS4Lang::T(t.status.empty() ? std::string("You have no games in common") : t.status);
-    raw(m_bold, 32, ImVec2((W - raw_w(m_bold, 32, text)) * 0.5f, (top + bottom) * 0.5f - 20.0f),
-        Rgba(theme.text, 0.8f * a), text);
+    const std::string status = t.status.empty() ? std::string("No games in common") : t.status;
+    // ((01.05) Centred in the grid's place, left of the chat; wrapped to it.)
+    const float gw = gx1 - X0;
+    const std::string text = WrapText(m_bold, 32, PS4Lang::T(status), gw);
+    const float tw = std::min(gw, raw_w(m_bold, 32, text));
+    raw(m_bold, 32, ImVec2(X0 + (gw - tw) * 0.5f, (top + bottom) * 0.5f - 20.0f), Rgba(theme.text, 0.8f * a), text);
+    if (status == "No games in common")
+    {
+      // (01.04, the owner: strangers met in Choose Together and left - the same file is needed, and few know it.)
+      const std::string why =
+          WrapText(m_font, 24, PS4Lang::T("You all need the same file of the game (the same version and region)."), gw);
+      const float ww = std::min(gw, raw_w(m_font, 24, why));
+      raw(m_font, 24, ImVec2(X0 + (gw - ww) * 0.5f, (top + bottom) * 0.5f + 26.0f), Rgba(theme.text, 0.65f * a), why);
+    }
+    if (m_room_picker.open)
+      DrawRoomPicker(dl, a);  // (01.05)
     return;
   }
   constexpr int COLS = TogetherScreen::COLS;
-  constexpr float GAP = 20.0f, CARD_H = 212.0f, BOX_H = 136.0f;  // (three rows: 21 games in view)
-  const float card_w = (x1 - X0 - GAP * static_cast<float>(COLS - 1)) / static_cast<float>(COLS);
+  constexpr float GAP = 20.0f, CARD_H = 212.0f, BOX_H = 136.0f;  // (three rows: 15 games in view)
+  const float card_w = (gx1 - X0 - GAP * static_cast<float>(COLS - 1)) / static_cast<float>(COLS);
   const int count = static_cast<int>(t.cards.size());
   const int rows = (count + COLS - 1) / COLS;
   const float visible = std::max(1.0f, std::floor((bottom - top + GAP) / (CARD_H + GAP)));
   const float target = std::clamp(static_cast<float>(t.index / COLS) - std::floor((visible - 1.0f) * 0.5f), 0.0f,
                                   std::max(0.0f, static_cast<float>(rows) - visible));
   Approach(t.scroll, target, 14.0f, dt);
-  dl->PushClipRect(ImVec2(X0 - 8.0f, top - 8.0f), ImVec2(x1 + 8.0f, bottom + 8.0f), true);
+  dl->PushClipRect(ImVec2(X0 - 8.0f, top - 8.0f), ImVec2(gx1 + 8.0f, bottom + 8.0f), true);
   for (int i = 0; i < count; i++)
   {
     const float cy = top + (static_cast<float>(i / COLS) - t.scroll) * (CARD_H + GAP);
@@ -9216,7 +11596,7 @@ void Menu::Impl::DrawTogetherScreen(ImDrawList* dl, float dt)
   // More rows than fit: where the view is, at the right.
   if (static_cast<float>(rows) > visible)
   {
-    const float track_x = x1 + 24.0f, h = bottom - top;
+    const float track_x = gx1 + 24.0f, h = bottom - top;
     dl->AddRectFilled(ImVec2(track_x, top), ImVec2(track_x + 4.0f, top + h), Rgba(theme.text, a * 0.10f), 2.0f);
     const float thumb = std::max(30.0f, h * visible / static_cast<float>(rows));
     const float at = top + (h - thumb) * t.scroll / std::max(1.0f, static_cast<float>(rows) - visible);
@@ -9226,11 +11606,998 @@ void Menu::Impl::DrawTogetherScreen(ImDrawList* dl, float dt)
   if (t.cards[static_cast<size_t>(t.index)].players == 0)
     Text(dl, m_font, 22, ImVec2(X0, bottom + 14.0f), Rgba(theme.text, 0.6f * a),
          "How many players it takes isn't known.");
+  if (m_room_picker.open)
+    DrawRoomPicker(dl, a);  // (01.05)
 }
 
 // (00.92) A Choose Together room's screen: arrows through the cards, L1 / R1 the console tabs, Cross plays the game
 // (the host) or suggests it (a guest), Square Show All Common Games, Triangle Close Room (a guest: Leave Room). (Circle
 // is OnlinePanelInput's: the host's room stays open, a guest leaves.)
+// ---- (01.05, the owner) The room on the whole screen, and its chat ----
+
+// The room (waiting, starting): the title and the room's kind on top, the room's code (the host's) at the right; the
+// game's cover, its title and what the room says on the left; its players - nickname, time zone, ping, voice - and the
+// options (BuildOnlinePanel's: Start, the chat, a player's actions, Leave) in the middle; the room's chat on the
+// right. Readable on a TV: 26 px at least, the players and the options 30.
+bool Menu::Impl::RoomSetting(const std::string& action)
+{
+  return action == "entry" || action == "late" || action == "watchers";
+}
+
+std::vector<Menu::Impl::RoomPlace> Menu::Impl::RoomPlaces() const
+{
+  std::vector<RoomPlace> places(m_online_actions.size());
+  bool settings = false;
+  std::vector<int> ids;  // (the cards top to bottom: by member id, as drawn)
+  for (const std::string& a : m_online_actions)
+  {
+    settings = settings || RoomSetting(a) || a.rfind("reject:", 0) == 0;
+    if (a.rfind("player:", 0) == 0)
+      ids.push_back(std::atoi(a.c_str() + 7));
+  }
+  std::sort(ids.begin(), ids.end());
+  int rows[2] = {0, 0}, spread = 0;
+  for (size_t i = 0; i < m_online_actions.size(); i++)
+  {
+    const std::string& a = m_online_actions[i];
+    if (a.rfind("player:", 0) == 0)
+    {
+      const int id = std::atoi(a.c_str() + 7);
+      places[i] = {-1, static_cast<int>(std::find(ids.begin(), ids.end(), id) - ids.begin())};
+    }
+    else if (settings)
+    {
+      const int column = RoomSetting(a) || a.rfind("reject:", 0) == 0 ? 1 : 0;
+      places[i] = {column, rows[column]++};
+    }
+    else
+    {
+      places[i] = {spread % 2, spread / 2};
+      spread++;
+    }
+  }
+  return places;
+}
+
+bool Menu::Impl::RoomScreenShown() const
+{
+  if (!m_panel.open || m_panel.setting != SET_ONLINE_ROOM || m_together.on)
+    return false;
+  const Netplay::Phase phase = Netplay::GetView().phase;
+  return phase == Netplay::Phase::Room || phase == Netplay::Phase::Starting;
+}
+
+void Menu::Impl::MoveRoomSelection(uint32_t pressed)
+{
+  const std::vector<RoomPlace> places = RoomPlaces();
+  const int n = static_cast<int>(places.size());
+  if (n == 0)
+    return;
+  const auto at = [&](int column, int row) {
+    for (int i = 0; i < n; i++)
+    {
+      if (places[static_cast<size_t>(i)].column == column && places[static_cast<size_t>(i)].row == row)
+        return i;
+    }
+    return -1;
+  };
+  const int selected = m_panel.selected;
+  int to = selected;
+  if (selected < 0 || selected >= n)
+    to = at(0, 0) >= 0 ? at(0, 0) : 0;  // (none selected - an option gone from under it: the first one)
+  else if (pressed & (BTN_UP | BTN_DOWN))
+  {
+    // The cards, then the column's options, top to bottom (from a card: the actions' column).
+    const uint32_t arrow = (pressed & BTN_UP) ? BTN_UP : BTN_DOWN;
+    const int column = std::max(0, places[static_cast<size_t>(selected)].column);
+    std::vector<int> stack;
+    for (const int c : {-1, column})
+    {
+      for (int row = 0; at(c, row) >= 0; row++)
+        stack.push_back(at(c, row));
+    }
+    const int pos = static_cast<int>(std::find(stack.begin(), stack.end(), selected) - stack.begin());
+    if (!stack.empty())
+      to = stack[static_cast<size_t>(
+          MenuNav::Step(std::min(pos, static_cast<int>(stack.size()) - 1), arrow == BTN_UP ? -1 : 1,
+                        static_cast<int>(stack.size()), Fresh(arrow)))];
+  }
+  else if (places[static_cast<size_t>(selected)].column >= 0)
+  {
+    // Left / Right: the other column, on the same row (or its last).
+    const int other = 1 - places[static_cast<size_t>(selected)].column;
+    int rows = 0;
+    while (at(other, rows) >= 0)
+      rows++;
+    if (rows > 0)
+      to = at(other, std::min(places[static_cast<size_t>(selected)].row, rows - 1));
+  }
+  if (to != selected)
+  {
+    m_panel.selected = to;
+    m_online_prefer.clear();  // (00.86: the player's choice from now on)
+    Play("move");
+  }
+}
+
+void Menu::Impl::DrawRoomScreen(ImDrawList* dl, float dt)
+{
+  (void)dt;
+  const float a = m_panel.slide;
+  const Theme& theme = CurrentTheme();
+  const bool light = theme.text != 0xFFFFFF;
+  const uint32_t AMBER = light ? 0x9A5C00 : 0xFFC870, GREEN = light ? 0x1E7F46 : 0x5BD38A,
+                 RED = light ? 0xB3261E : 0xFF8A80;
+  const Netplay::View v = Netplay::GetView();
+  const auto raw = [dl](ImFont* font, float size, ImVec2 at, ImU32 color, const std::string& text) {
+    dl->AddText(font, size, at, color, text.c_str());
+  };
+  const auto raw_w = [](ImFont* font, float size, const std::string& text) {
+    return font->CalcTextSizeA(size, FLT_MAX, 0.0f, text.c_str()).x;
+  };
+  dl->AddRectFilled(ImVec2(0, 0), ImVec2(W, H), light ? Rgba(0xF4F4F8, 0.97f * a) : Rgba(0x06060A, 0.95f * a));
+  constexpr float X0 = 80.0f, LEFT_W = 520.0f, MID_X = 660.0f, MID_W = 540.0f, CHAT_X = 1260.0f, TOP = 196.0f;
+  const float x1 = W - 80.0f;
+  const ImU32 text = Rgba(theme.text, a), dim = Rgba(theme.text, 0.65f * a);
+  const ImU32 card = light ? Rgba(0x000000, 0.05f * a) : Rgba(0xFFFFFF, 0.06f * a);
+
+  // ---- The title, the room's kind, its code ----
+  const std::string title = v.host ? "Play Online" : v.watching ? "Watching" : "Online Room";
+  Text(dl, m_bold, 44, ImVec2(X0, 52), text, title);
+  std::string kind = v.together ? "Choose Together" : v.link ? "Link cable" : v.is_public ? "Public room" :
+                                                                                           "Private room";
+  std::string sub = PS4Lang::T(kind);
+  int in_room = 0;
+  for (const Netplay::PlayerView& p : v.players)
+    in_room += p.asking || (v.watching && p.me) ? 0 : 1;
+  if (!v.watching)  // ((01.05) a spectator sees the host only)
+    sub += "  \xC2\xB7  " + PS4Lang::T("Players: " + std::to_string(in_room) + " of " + std::to_string(v.max_players));
+  // ((01.05, the owner) how many watch - every member knows it, the server says it)
+  if (v.watcher_count > 0)
+    sub += "  \xC2\xB7  " + PS4Lang::T(std::to_string(v.watcher_count) + " watching");
+  if (v.hidden)
+    sub += std::string("  \xC2\xB7  ") + PS4Lang::T("Your address is hidden.");
+  raw(m_font, 26, ImVec2(X0, 118), dim, sub);
+  if (!v.code.empty() && (v.host || !v.is_public))
+  {
+    const std::string label = PS4Lang::T("Room code");
+    const float cw = raw_w(m_bold, 64, v.code);
+    raw(m_bold, 64, ImVec2(x1 - cw, 44), Rgba(theme.wave, a), v.code);
+    raw(m_font, 24, ImVec2(x1 - cw - raw_w(m_font, 24, label) - 18.0f, 74), dim, label);
+  }
+  dl->AddLine(ImVec2(X0, 168), ImVec2(x1, 168), Rgba(theme.wave, 0.35f * a), 1.5f);
+
+  // ---- Left: the game, its cover, what the room says ----
+  {
+    float y = TOP;
+    const int game = m_online_game;
+    float aspect = 0.0f;
+    const ImTextureID cover = game >= 0 && game < static_cast<int>(m_games.size()) ? Cover(game, &aspect) : ImTextureID{};
+    constexpr float BOX_H = 330.0f;
+    if (cover != ImTextureID{})
+    {
+      float h = BOX_H, w = BOX_H * (aspect > 0.0f ? aspect : 0.75f);
+      if (w > LEFT_W)
+      {
+        w = LEFT_W;
+        h = w / (aspect > 0.0f ? aspect : 0.75f);
+      }
+      const ImVec2 p0(X0 + (LEFT_W - w) * 0.5f, y + (BOX_H - h) * 0.5f);
+      dl->AddRectFilled(ImVec2(p0.x - 6, p0.y - 6), ImVec2(p0.x + w + 6, p0.y + h + 6), Rgba(0x000000, 0.45f * a), 10.0f);
+      dl->AddImage(ImTextureRef(cover), p0, ImVec2(p0.x + w, p0.y + h), ImVec2(0, 0), ImVec2(1, 1),
+                   IM_COL32(255, 255, 255, static_cast<int>(255 * a)));
+    }
+    else
+    {
+      dl->AddRectFilled(ImVec2(X0, y), ImVec2(X0 + LEFT_W, y + BOX_H), card, 12.0f);
+      const std::string none = PS4Lang::T(v.together ? "You choose a game together" : "No cover");
+      raw(m_font, 26, ImVec2(X0 + (LEFT_W - raw_w(m_font, 26, none)) * 0.5f, y + BOX_H * 0.5f - 14.0f), dim, none);
+    }
+    y += BOX_H + 22.0f;
+    const System* system = SystemByKey(v.game.console);
+    const std::string game_title = v.together ? PS4Lang::T("Choose Together") : v.game.title;
+    raw(m_bold, 34, ImVec2(X0, y), text, Fit(m_bold, 34, game_title, LEFT_W));
+    y += 46.0f;
+    if (system)
+    {
+      raw(m_font, 26, ImVec2(X0, y), dim, system->tab);
+      y += 40.0f;
+    }
+    else if (v.link)
+    {
+      raw(m_font, 26, ImVec2(X0, y), dim, std::string(PS4Lang::T("Link cable")) + " (Game Boy 1)");
+      y += 40.0f;
+    }
+    y += 10.0f;
+    for (const std::string& note : m_room_notes)
+    {
+      const bool warn = note.find("haven't") != std::string::npos || note.find("another version") != std::string::npos ||
+                        note.find("wants to join") != std::string::npos;
+      const std::string wrapped = WrapText(m_font, 26, PS4Lang::T(note), LEFT_W);
+      const float h = 34.0f * static_cast<float>(std::count(wrapped.begin(), wrapped.end(), '\n') + 1);
+      if (y + h > HELP_END - 3.0f * HELP_LINE - 12.0f)
+        break;  // (above the selected option's help: three lines at most)
+      dl->AddText(m_font, 26, ImVec2(X0, y), warn ? Rgba(AMBER, a) : Rgba(theme.text, 0.85f * a), wrapped.c_str());
+      y += h;
+    }
+  }
+
+  // ---- Middle: the players, then the options ----
+  float y = TOP;
+  Text(dl, m_bold, 30, ImVec2(MID_X, y), text, "Players");
+  y += 48.0f;
+  std::vector<Netplay::PlayerView> players = v.players;
+  std::stable_sort(players.begin(), players.end(), [](const Netplay::PlayerView& l, const Netplay::PlayerView& r) {
+    return l.asking != r.asking ? !l.asking : l.id < r.id;
+  });
+  // (01.05, the owner) A room with a game: each card says that player's file of it too - the same as the host's, another
+  // version, none - and its version as the file's name says it, under the nickname (its country beside it).
+  const bool with_game = !v.together && !v.watching;
+  // ((01.15) Every option on the screen: the options' columns' height first - RoomPlaces -, then the cards, smaller
+  // when they and the columns don't fit together (a room of 4 with a request to join).)
+  const std::vector<RoomPlace> places = RoomPlaces();
+  const int count = static_cast<int>(m_panel.options.size());
+  constexpr float OPT_H = 48.0f, SET_H = 64.0f, OPT_GAP = 8.0f, COL_GAP = 14.0f;
+  const float col_w = (MID_W - COL_GAP) * 0.5f, bottom = HELP_END - 90.0f;
+  float column_h[2] = {0.0f, 0.0f};
+  for (int i = 0; i < count && i < static_cast<int>(places.size()); i++)
+  {
+    const RoomPlace& place = places[static_cast<size_t>(i)];
+    if (place.column >= 0)
+      column_h[place.column] += (RoomSetting(m_online_actions[static_cast<size_t>(i)]) ? SET_H : OPT_H) + OPT_GAP;
+  }
+  const float grid_h = std::max(0.0f, std::max(column_h[0], column_h[1]) - OPT_GAP);
+  float cards_h = 0.0f;
+  for (const Netplay::PlayerView& p : players)
+    cards_h += (with_game && !p.asking ? 96.0f : 70.0f) + 10.0f;
+  const bool compact = y + cards_h + 14.0f + grid_h > bottom;
+  for (const Netplay::PlayerView& p : players)
+  {
+    const float CARD_H = with_game && !p.asking ? (compact ? 84.0f : 96.0f) : (compact ? 62.0f : 70.0f);
+    // (Its line's places: the nickname, the second line, the game's line - closer on a smaller card.)
+    const float NAME_Y = compact ? 2.0f : 6.0f, SECOND_Y = compact ? 34.0f : 40.0f, GAME_Y = compact ? 58.0f : 66.0f;
+    // ((01.15) A player's card is its option: its actions - mute, block, remove.)
+    int option = -1;
+    for (size_t i = 0; i < m_online_actions.size(); i++)
+    {
+      if (m_online_actions[i] == "player:" + std::to_string(p.id))
+        option = static_cast<int>(i);
+    }
+    const bool card_sel = option >= 0 && option == m_panel.selected;
+    dl->AddRectFilled(ImVec2(MID_X, y), ImVec2(MID_X + MID_W, y + CARD_H), card_sel ? Rgba(theme.wave, 0.30f * a) : card,
+                      10.0f);
+    if (card_sel)
+      dl->AddRect(ImVec2(MID_X, y), ImVec2(MID_X + MID_W, y + CARD_H), Rgba(theme.wave, 0.9f * a), 10.0f, 0, 2.0f);
+    if (p.id == 0)
+      dl->AddRectFilled(ImVec2(MID_X, y), ImVec2(MID_X + 6, y + CARD_H), Rgba(theme.wave, a), 3.0f);
+    std::string name = p.nick + (p.me ? PS4Lang::T(" (you)") : std::string());
+    const float tag_w = p.country.empty() ? 0.0f : raw_w(m_bold, 20, p.country) + 16.0f + 12.0f;
+    name = Fit(m_bold, 30, name, MID_W - 190 - tag_w);
+    raw(m_bold, 30, ImVec2(MID_X + 20, y + NAME_Y), p.asking ? Rgba(AMBER, a) : text, name);
+    DrawCountryTag(dl, MID_X + 20 + raw_w(m_bold, 30, name) + 12.0f, y + NAME_Y + 18.0f, p.country, 20, a);
+    if (with_game && !p.asking)
+    {
+      using NetProto::LobbyGame;
+      const std::string what = p.id == 0                         ? "The room's game" :
+                               p.game == LobbyGame::Same         ? "Same file" :
+                               p.game == LobbyGame::Different    ? "Another version" :
+                               p.game == LobbyGame::Asking       ? "Another version, choosing" :
+                               p.game == LobbyGame::Missing      ? (p.me ? "Not in your games" : "Hasn't got the game") :
+                                                                   "Looking for the game...";
+      const bool versioned = p.game != LobbyGame::Missing && p.game != LobbyGame::Looking && !p.version.empty();
+      const uint32_t color = p.id == 0                      ? theme.text :
+                             p.game == LobbyGame::Same      ? GREEN :
+                             p.game == LobbyGame::Missing   ? RED :
+                             p.game == LobbyGame::Looking   ? theme.text :
+                                                              AMBER;
+      const std::string line = PS4Lang::T(versioned ? what + ": " + p.version : what);
+      raw(m_font, 22, ImVec2(MID_X + 20, y + GAME_Y), Rgba(color, (color == theme.text ? 0.65f : 0.95f) * a),
+          Fit(m_font, 22, line, MID_W - 40));
+    }
+    std::string second = p.id == 0 ? PS4Lang::T("Host") : std::string();
+    if (!p.region.empty())
+      second += (second.empty() ? "" : "  \xC2\xB7  ") + p.region;
+    if (p.asking)
+      second = PS4Lang::T("wants to join");
+    else if (!p.me && p.blocked)
+      second += std::string(second.empty() ? "" : "  \xC2\xB7  ") + PS4Lang::T("blocked");
+    else if (!p.me && p.muted)
+      second += std::string(second.empty() ? "" : "  \xC2\xB7  ") + PS4Lang::T("muted");
+    else if (p.talking)
+      second += std::string(second.empty() ? "" : "  \xC2\xB7  ") + PS4Lang::T("talking");
+    else if (!p.voice_on)
+      second += std::string(second.empty() ? "" : "  \xC2\xB7  ") + PS4Lang::T("voice off");
+    raw(m_font, 22, ImVec2(MID_X + 20, y + SECOND_Y), p.talking ? Rgba(GREEN, a) : dim,
+        Fit(m_font, 22, second, MID_W - 190));
+    if (!p.me)
+    {
+      const std::string ping = p.ping_ms >= 0 ? std::to_string(p.ping_ms) + " ms" : std::string("...");
+      const uint32_t q = p.quality == 0 ? GREEN : p.quality == 1 ? AMBER : p.quality == 2 ? RED : theme.text;
+      const float ping_y = compact ? 12.0f : 18.0f;
+      raw(m_bold, 30, ImVec2(MID_X + MID_W - 20 - raw_w(m_bold, 30, ping), y + ping_y),
+          Rgba(q, p.quality < 0 ? 0.6f * a : a), ping);
+      if (p.relay)
+      {
+        const std::string relay = PS4Lang::T("relay");
+        raw(m_font, 20, ImVec2(MID_X + MID_W - 20 - raw_w(m_font, 20, relay), y + ping_y + 32.0f), dim, relay);
+      }
+    }
+    y += CARD_H + 10.0f;
+  }
+  // The options under the cards (at the same place for 1 to 4 players while they fit): the actions as buttons, the
+  // room's settings as their name, their value and a switch - Cross changes it. The selected one lit; its help under
+  // them, above the button hints.
+  const float grid_y = std::max(y + 4.0f, std::min(TOP + 48.0f + 4.0f * 80.0f + 14.0f, bottom - grid_h));
+  float column_y[2] = {grid_y, grid_y};
+  for (int i = 0; i < count && i < static_cast<int>(places.size()); i++)
+  {
+    const RoomPlace& place = places[static_cast<size_t>(i)];
+    if (place.column < 0)
+      continue;  // (a player's card: drawn above)
+    const std::string& action = m_online_actions[static_cast<size_t>(i)];
+    const bool sel = i == m_panel.selected, setting = RoomSetting(action);
+    const float x = MID_X + (place.column == 0 ? 0.0f : col_w + COL_GAP), top = column_y[place.column];
+    const float h = setting ? SET_H : OPT_H;
+    column_y[place.column] += h + OPT_GAP;
+    const ImVec2 r0(x, top), r1(x + col_w, top + h);
+    const std::string shown = PS4Lang::T(m_panel.options[static_cast<size_t>(i)]);
+    if (!setting)
+    {
+      // An action: a button.
+      dl->AddRectFilled(r0, r1, sel ? Rgba(theme.wave, 0.35f * a) : card, 10.0f);
+      if (sel)
+        dl->AddRect(r0, r1, Rgba(theme.wave, 0.9f * a), 10.0f, 0, 2.0f);
+      ImFont* font = sel ? m_bold : m_font;
+      const std::string label = Fit(font, 26, shown, col_w - 32.0f);
+      raw(font, 26, ImVec2(x + (col_w - raw_w(font, 26, label)) * 0.5f, top + 9.0f), text, label);
+      continue;
+    }
+    // A setting: its name small, its value ("Name: Value", translated) under it, a switch at the right - on: Yes,
+    // Free.
+    const bool on = action == "entry" ? v.free_entry : action == "late" ? v.late_allowed : v.watch_allowed;
+    const size_t split = shown.rfind(": ");
+    const std::string name = split == std::string::npos ? shown : shown.substr(0, split);
+    const std::string value = split == std::string::npos ? std::string() : shown.substr(split + 2);
+    dl->AddRectFilled(r0, r1, sel ? Rgba(theme.wave, 0.30f * a) : light ? Rgba(0x000000, 0.025f * a) :
+                                                                      Rgba(0xFFFFFF, 0.03f * a), 10.0f);
+    dl->AddRect(r0, r1, sel ? Rgba(theme.wave, 0.9f * a) : Rgba(theme.text, 0.22f * a), 10.0f, 0, sel ? 2.0f : 1.5f);
+    constexpr float SW_W = 46.0f, SW_H = 26.0f;
+    const float sw_x = x + col_w - 16.0f - SW_W, sw_y = top + (h - SW_H) * 0.5f;
+    raw(m_font, 20, ImVec2(x + 16.0f, top + 6.0f), dim, Fit(m_font, 20, name, sw_x - x - 26.0f));
+    raw(m_bold, 26, ImVec2(x + 16.0f, top + 29.0f), on ? Rgba(GREEN, a) : Rgba(theme.text, 0.85f * a),
+        Fit(m_bold, 26, value, sw_x - x - 26.0f));
+    dl->AddRectFilled(ImVec2(sw_x, sw_y), ImVec2(sw_x + SW_W, sw_y + SW_H),
+                      on ? Rgba(GREEN, 0.9f * a) : Rgba(theme.text, 0.25f * a), SW_H * 0.5f);
+    dl->AddCircleFilled(ImVec2(on ? sw_x + SW_W - SW_H * 0.5f : sw_x + SW_H * 0.5f, sw_y + SW_H * 0.5f),
+                        SW_H * 0.5f - 3.0f, Rgba(0xFFFFFF, a));
+  }
+  if (m_panel.selected >= 0 && m_panel.selected < count)
+  {
+    const size_t at = static_cast<size_t>(m_panel.selected);
+    const std::string help = at < m_panel.helps.size() && !m_panel.helps[at].empty() ? m_panel.helps[at] :
+                                                                                  OptionHelp(m_panel.options[at]);
+    if (!help.empty())
+    {
+      const std::string wrapped = WrapText(m_font, 25, PS4Lang::T(help), MID_X + MID_W - X0);
+      const float lines = static_cast<float>(std::count(wrapped.begin(), wrapped.end(), '\n') + 1);
+      dl->AddText(m_font, 25, ImVec2(X0, HELP_END - HELP_LINE * lines), Rgba(theme.text, 0.8f * a), wrapped.c_str());
+    }
+  }
+
+  // ---- Right: the chat ----
+  DrawChatBox(dl, v, CHAT_X, TOP, x1, HELP_END - 10.0f, a);
+  if (m_room_picker.open)
+    DrawRoomPicker(dl, a);
+}
+
+// The room's chat in a box: its lines, the newest at the bottom (older ones off its top), each with its player's
+// nickname (ours in the theme's colour); a quick phrase in this console's language, a line of text as it came
+// (filtered). Under it how to write, and that the lines go from console to console unencrypted, kept nowhere.
+void Menu::Impl::DrawChatBox(ImDrawList* dl, const Netplay::View& v, float x0, float y0, float x1, float y1, float a)
+{
+  const Theme& theme = CurrentTheme();
+  const bool light = theme.text != 0xFFFFFF;
+  const ImU32 dim = Rgba(theme.text, 0.6f * a);
+  Text(dl, m_bold, 30, ImVec2(x0, y0), Rgba(theme.text, a), "Chat");
+  // The note under the hints (its lines: the box ends higher for more).
+  // ((01.07, the owner) A server that keeps the room's chat: its notice - the lines go to it from then on.)
+  const std::string note = WrapText(
+      m_font, 20,
+      PS4Lang::T(v.chat_stored ? "The rooms' chat and the world chat are kept 30 days for moderation; your IP address "
+                                 "isn't kept. Voice isn't recorded." :
+                 v.chat_text   ? "From console to console, not encrypted; EmuSuNi's server keeps nothing." :
+                                 "The others' lines of text are hidden (Online Settings); their quick phrases show."),
+      x1 - x0);
+  if (v.chat_stored && !v.watching)
+    Netplay::RoomNoticeShown();
+  const float note_h = 24.0f * static_cast<float>(std::count(note.begin(), note.end(), '\n') + 1);
+  const float top = y0 + 48.0f, bottom = y1 - 56.0f - note_h, w = x1 - x0 - 36.0f;
+  dl->AddRectFilled(ImVec2(x0, top), ImVec2(x1, bottom), light ? Rgba(0x000000, 0.05f * a) : Rgba(0xFFFFFF, 0.05f * a),
+                    12.0f);
+  // Each player's colour: ours the theme's, the others' by member id.
+  static const uint32_t COLOURS[] = {0x62E6FF, 0xFFC870, 0x46F5AE, 0xFF8AC8};
+  float y = bottom - 14.0f;
+  dl->PushClipRect(ImVec2(x0, top + 6), ImVec2(x1, bottom - 6), true);
+  for (auto it = v.chat.rbegin(); it != v.chat.rend() && y > top; ++it)
+  {
+    if (it->notice)
+    {
+      // (01.06) A note of ours (a player of an older EmuSuNi, without the chat): dim, no nickname.
+      const std::string wrapped = WrapText(m_font, 24, PS4Lang::T(it->text), w);
+      y -= 30.0f * static_cast<float>(std::count(wrapped.begin(), wrapped.end(), '\n') + 1) + 6.0f;
+      dl->AddText(m_font, 24, ImVec2(x0 + 18, y), dim, wrapped.c_str());
+      continue;
+    }
+    const std::string body = it->phrase ? PS4Lang::ChatPhraseText(it->phrase, it->param) : it->text;
+    const std::string nick = it->mine ? PS4Lang::T("You") : it->nick;
+    // ((01.15) The nickname in bold and its colour, the words after it: NetplayUi::LayoutChatLine.)
+    const NetplayUi::ChatLine line = NetplayUi::LayoutChatLine(m_font, m_bold, 26, 34.0f, nick, body, w);
+    y -= line.height + 6.0f;
+    const ImU32 who = it->mine ? Rgba(theme.wave, a) : Rgba(COLOURS[std::clamp(it->from, 0, 3)], a);
+    NetplayUi::DrawChatLine(dl, m_font, m_bold, 26, 34.0f, line, ImVec2(x0 + 18, y), who,
+                            Rgba(theme.text, (it->phrase ? 0.95f : 0.9f) * a));
+  }
+  dl->PopClipRect();
+  if (v.watching)
+  {
+    // (01.05) A spectator neither reads nor writes the room's chat.
+    const std::string none = WrapText(m_font, 24, PS4Lang::T("Spectators watch without chat or voice."), w);
+    dl->AddText(m_font, 24, ImVec2(x0 + 18, top + 18), dim, none.c_str());
+    return;
+  }
+  if (v.chat.empty())
+  {
+    const std::string none = WrapText(m_font, 24, PS4Lang::T("No messages yet. L2: a quick phrase. R2: write one."), w);
+    dl->AddText(m_font, 24, ImVec2(x0 + 18, top + 18), dim, none.c_str());
+  }
+  // How to write, and what the chat is.
+  float hx = x0;
+  hx += PS4Glyphs::Draw(dl, m_bold, "L2", hx, bottom + 30.0f, 34, a) + 10.0f;
+  Text(dl, m_font, 26, ImVec2(hx, bottom + 14.0f), Rgba(theme.text, 0.85f * a), "Quick Phrase");
+  hx += TextWidth(m_font, 26, "Quick Phrase") + 34.0f;
+  hx += PS4Glyphs::Draw(dl, m_bold, "R2", hx, bottom + 30.0f, 34, a) + 10.0f;
+  Text(dl, m_font, 26, ImVec2(hx, bottom + 14.0f), Rgba(theme.text, 0.85f * a), "Write");
+  dl->AddText(m_font, 20, ImVec2(x0, bottom + 52.0f), dim, note.c_str());
+}
+
+// A picker over the room: its title, its items (the selected one lit).
+void Menu::Impl::DrawRoomPicker(ImDrawList* dl, float a)
+{
+  const Theme& theme = CurrentTheme();
+  const bool light = theme.text != 0xFFFFFF;
+  const RoomPicker& p = m_room_picker;
+  dl->AddRectFilled(ImVec2(0, 0), ImVec2(W, H), Rgba(0x000000, 0.55f * a));
+  constexpr float BOX_W = 720.0f, ITEM_H = 56.0f;
+  // ((01.07) 20 quick phrases: more than the screen's height - the ones about the selected, scrolling with it.)
+  const int count = static_cast<int>(p.items.size());
+  const int fits = std::max(1, static_cast<int>((H - 120.0f - 110.0f) / ITEM_H));
+  const int shown = std::min(count, fits);
+  const int first = std::clamp(p.selected - shown / 2, 0, std::max(0, count - shown));
+  const float box_h = 110.0f + ITEM_H * static_cast<float>(shown);
+  const float x0 = (W - BOX_W) * 0.5f, y0 = std::max(60.0f, (H - box_h) * 0.5f - 30.0f);
+  dl->AddRectFilled(ImVec2(x0, y0), ImVec2(x0 + BOX_W, y0 + box_h), light ? Rgba(0xFFFFFF, 0.97f * a) :
+                                                                          Rgba(0x0B0A14, 0.96f * a), 20.0f);
+  dl->AddRect(ImVec2(x0, y0), ImVec2(x0 + BOX_W, y0 + box_h), Rgba(theme.wave, 0.9f * a), 20.0f, 0, 2.5f);
+  Text(dl, m_bold, 34, ImVec2(x0 + 36, y0 + 26), Rgba(theme.wave, a), p.title);
+  // (More above or below: a small triangle at the box's right.)
+  const float tx = x0 + BOX_W - 48.0f;
+  if (first > 0)
+    dl->AddTriangleFilled(ImVec2(tx, y0 + 48.0f), ImVec2(tx + 20.0f, y0 + 48.0f), ImVec2(tx + 10.0f, y0 + 34.0f),
+                          Rgba(theme.text, 0.5f * a));
+  if (first + shown < count)
+    dl->AddTriangleFilled(ImVec2(tx, y0 + box_h - 34.0f), ImVec2(tx + 20.0f, y0 + box_h - 34.0f),
+                          ImVec2(tx + 10.0f, y0 + box_h - 20.0f), Rgba(theme.text, 0.5f * a));
+  float y = y0 + 86.0f;
+  for (size_t i = static_cast<size_t>(first); i < static_cast<size_t>(first + shown); i++, y += ITEM_H)
+  {
+    const bool sel = static_cast<int>(i) == p.selected;
+    if (sel)
+      dl->AddRectFilled(ImVec2(x0 + 20, y - 4), ImVec2(x0 + BOX_W - 20, y + ITEM_H - 8), Rgba(theme.wave, 0.30f * a),
+                        10.0f);
+    const std::string item = i < p.raw.size() && p.raw[i] ? p.items[i] : PS4Lang::T(p.items[i]);
+    dl->AddText(sel ? m_bold : m_font, 30, ImVec2(x0 + 44, y + 6), Rgba(theme.text, a), item.c_str());
+  }
+}
+
+bool Menu::Impl::RoomPickerInput(uint32_t pressed)
+{
+  RoomPicker& p = m_room_picker;
+  const int count = static_cast<int>(p.items.size());
+  if (pressed & BTN_CIRCLE)
+  {
+    p.open = false;
+    Play("back");
+    return true;
+  }
+  for (const uint32_t arrow : {BTN_UP, BTN_DOWN})
+  {
+    if ((pressed & arrow) && count > 0)
+    {
+      p.selected = MenuNav::Step(p.selected, arrow == BTN_UP ? -1 : 1, count, Fresh(arrow));
+      Play("move");
+    }
+  }
+  if ((pressed & BTN_CROSS) && p.selected >= 0 && p.selected < count)
+  {
+    const std::string action = p.actions[static_cast<size_t>(p.selected)];
+    p.open = false;
+    // ((01.07) Its actions are PickerAction's: until 01.06 only OnlineAction's were tried - which knows none of them -,
+    // so a quick phrase picked in the room, or a player's mute, block or removal, did nothing.)
+    if (!PickerAction(action))
+      OnlineAction(action);
+  }
+  return true;
+}
+
+// The picker's actions (the room's and (01.07) the world chat's); false: not one of them.
+bool Menu::Impl::PickerAction(const std::string& action)
+{
+  if (action.rfind("phrase:", 0) == 0)
+    ChatSaid(Netplay::SendChatPhrase(std::atoi(action.c_str() + 7)));
+  else if (action.rfind("mute:", 0) == 0 || action.rfind("unmute:", 0) == 0)
+  {
+    const bool mute = action[0] == 'm';
+    Netplay::SetPeerMuted(std::atoi(action.c_str() + (mute ? 5 : 7)), mute);
+    Play("confirm");
+  }
+  else if (action.rfind("block:", 0) == 0)
+  {
+    Netplay::BlockPeer(std::atoi(action.c_str() + 6));
+    ShowToast("Blocked on this PS4: you won't hear or read them again (Online Settings: Unblock All)", 0);
+    Play("confirm");
+  }
+  else if (action.rfind("kick:", 0) == 0)
+  {
+    Netplay::Kick(std::atoi(action.c_str() + 5));
+    Play("confirm");
+  }
+  else if (action.rfind("wphrase:", 0) == 0)  // (01.07) the world chat
+    WorldSaid(Netplay::WorldSayPhrase(std::atoi(action.c_str() + 8)));
+  else if (action.rfind("wmute:", 0) == 0)
+  {
+    Netplay::WorldMute(action.substr(6));
+    m_world_index = -1;
+    ShowToast("Muted in the world chat (Online Settings: Muted in the World Chat)", 0);
+    Play("confirm");
+  }
+  else if (action.rfind("wreport:", 0) == 0)
+  {
+    Netplay::WorldReport(static_cast<uint32_t>(std::strtoul(action.c_str() + 8, nullptr, 10)));
+    ShowToast("Reported to EmuSuNi's moderation", 0);
+    Play("confirm");
+  }
+  else
+    return false;
+  return true;
+}
+
+// ---- (01.07, the owner) The Online tab's pages and the world chat ----
+
+// The pages' tabs: L2, Rooms, Chat (its new lines' count while another page shows), Most Played, Players, R2 - the one
+// shown lit, as the tabs' bar lights its tab. ((01.08) L2 / R2, the pages' buttons; (01.09) the only ones.)
+void Menu::Impl::DrawOnlinePages(ImDrawList* dl, float alpha, float x0, float x1, float y)
+{
+  const Theme& theme = CurrentTheme();
+  const bool light = theme.text != 0xFFFFFF;
+  constexpr float CHIP_H = 38.0f, CHIP_FONT = 22.0f, GLYPH_H = 34.0f, BADGE = 18.0f;
+  const ImU32 plain = light ? Rgba(0xFFFFFF, alpha * 0.55f) : Rgba(0x000000, alpha * 0.22f);
+  const Netplay::WorldChatView world = Netplay::GetWorldChat();
+  static const char* const NAMES[] = {"Rooms", "Chat", "Most Played", "Players"};
+  float x = x0;
+  x += PS4Glyphs::Draw(dl, m_bold, "L2", x, y + CHIP_H * 0.5f, GLYPH_H, alpha) + 12.0f;
+  for (int i = 0; i < ONLINE_PAGES && x < x1; i++)
+  {
+    const bool on = i == m_online_page;
+    const int unread = i == PAGE_CHAT && !on && world.on ? std::min(world.unread, 99) : 0;
+    const std::string badge = unread > 0 ? std::to_string(unread) : std::string();
+    const float badge_w = badge.empty() ? 0.0f : TextWidth(m_bold, BADGE, badge) + 18.0f;
+    const float w = TextWidth(m_bold, CHIP_FONT, NAMES[i]) + 30.0f + (badge.empty() ? 0.0f : badge_w + 8.0f);
+    const ImVec2 p0(x, y), p1(x + w, y + CHIP_H);
+    if (on)
+    {
+      dl->AddRectFilled(p0, p1, Rgba(theme.wave, alpha * 0.45f), CHIP_H * 0.5f);
+      dl->AddRect(p0, p1, Rgba(theme.wave, alpha * 0.95f), CHIP_H * 0.5f, 0, 2.0f);
+    }
+    else
+    {
+      dl->AddRectFilled(p0, p1, plain, CHIP_H * 0.5f);
+      dl->AddRect(p0, p1, Rgba(theme.text, alpha * 0.18f), CHIP_H * 0.5f, 0, 1.5f);
+    }
+    Text(dl, m_bold, CHIP_FONT, ImVec2(x + 15.0f, y + (CHIP_H - CHIP_FONT) * 0.5f - 3.0f),
+         Rgba(theme.text, alpha * (on ? 1.0f : 0.65f)), NAMES[i], false);
+    if (!badge.empty())
+    {
+      const float bx = x + w - 15.0f - badge_w, by = y + (CHIP_H - 26.0f) * 0.5f;
+      dl->AddRectFilled(ImVec2(bx, by), ImVec2(bx + badge_w, by + 26.0f), Rgba(theme.wave, alpha), 13.0f);
+      dl->AddText(m_bold, BADGE, ImVec2(bx + 9.0f, by + 3.0f), Rgba(light ? 0xFFFFFF : 0x000000, alpha),
+                  badge.c_str());
+    }
+    x += w + 8.0f;
+  }
+  PS4Glyphs::Draw(dl, m_bold, "R2", x + 4.0f, y + CHIP_H * 0.5f, GLYPH_H, alpha);
+}
+
+// The world chat's page: its lines (the newest at the bottom; one selected, Up / Down, lit - Cross: mute its player or
+// report it), each "nickname [country]: text" in its player's colour (ours "You"); under them the notice - the
+// owner's: the lines kept 30 days for moderation, never the address - and how to write. Hidden (Online Settings), not
+// on the server, or no line yet: why.
+void Menu::Impl::DrawWorldChat(ImDrawList* dl, float alpha, float x0, float x1, float y, float bottom)
+{
+  const Theme& theme = CurrentTheme();
+  const bool light = theme.text != 0xFFFFFF;
+  const Netplay::WorldChatView world = Netplay::GetWorldChat();
+  const ImU32 dim = Rgba(theme.text, 0.6f * alpha);
+  const float w = x1 - x0;
+  const auto centered = [&](ImFont* font, float size, float at, ImU32 color, const std::string& english) {
+    const std::string wrapped = WrapText(font, size, PS4Lang::T(english), std::min(1100.0f, w - 80.0f));
+    std::stringstream lines(wrapped);
+    for (std::string line; std::getline(lines, line); at += size + 10.0f)
+      dl->AddText(font, size, ImVec2((x0 + x1 - TextWidth(font, size, line)) * 0.5f, at), color, line.c_str());
+  };
+  // The notice (its lines: the box ends higher for more): a server that keeps the lines says so before anything is
+  // said; the app sends nothing before it showed it (Netplay::WorldNoticeShown).
+  const std::string notice = WrapText(
+      m_font, 20,
+      PS4Lang::T(world.stored ? "The rooms' chat and the world chat are kept 30 days for moderation; your IP address "
+                                "isn't kept. Voice isn't recorded." :
+                                "The world chat's messages go through EmuSuNi's server; it doesn't keep them."),
+      w - 20.0f);
+  const float notice_h = 24.0f * static_cast<float>(std::count(notice.begin(), notice.end(), '\n') + 1);
+  const float top = y, box_bottom = bottom - notice_h - 18.0f;
+  dl->AddRectFilled(ImVec2(x0, top), ImVec2(x1, box_bottom),
+                    light ? Rgba(0x000000, 0.05f * alpha) : Rgba(0xFFFFFF, 0.05f * alpha), 12.0f);
+  if (world.on && world.answered)
+  {
+    dl->AddText(m_font, 20, ImVec2(x0 + 10.0f, box_bottom + 10.0f), dim, notice.c_str());
+    Netplay::WorldNoticeShown(world.stored);
+  }
+  const float cy = top + std::min(150.0f, (box_bottom - top) * 0.3f);
+  if (!world.on)
+  {
+    centered(m_bold, 28, cy, Rgba(theme.text, alpha * 0.85f), "The world chat is hidden (Online Settings)");
+    return;
+  }
+  if (!world.answered)
+  {
+    // (A server before 01.07 drops the question: said so after a few seconds.)
+    const bool long_wait = m_time - m_online_entered > 8.0f;
+    centered(m_bold, 28, cy, Rgba(theme.text, alpha * 0.85f),
+             long_wait ? "The world chat isn't on EmuSuNi's server yet" : "Connecting to the world chat...");
+    return;
+  }
+  if (world.lines.empty())
+  {
+    centered(m_font, 26, cy, dim, "No messages yet. Square: a quick phrase. Triangle: write one.");
+    return;
+  }
+  // Each player's colour by its code; ours the theme's.
+  static const uint32_t COLOURS[] = {0x62E6FF, 0xFFC870, 0x46F5AE, 0xFF8AC8, 0xB7A1FF, 0xFF9E6B, 0x9BE37A, 0x6FC3FF};
+  const auto colour_of = [](const std::string& code) {
+    uint32_t h = 2166136261u;
+    for (const char ch : code)
+      h = (h ^ static_cast<uint8_t>(ch)) * 16777619u;
+    return COLOURS[h % (sizeof(COLOURS) / sizeof(COLOURS[0]))];
+  };
+  const int n = static_cast<int>(world.lines.size());
+  int selected = -1;
+  for (int i = 0; i < n; i++)
+  {
+    if (static_cast<int64_t>(world.lines[static_cast<size_t>(i)].serial) == m_world_index)
+      selected = i;
+  }
+  // (The selected line a little above the bottom; none: the newest at the bottom.)
+  const int last = selected < 0 ? n - 1 : std::min(n - 1, selected + 2);
+  const float wrap_w = w - 36.0f;
+  float yy = box_bottom - 12.0f;
+  dl->PushClipRect(ImVec2(x0, top + 6.0f), ImVec2(x1, box_bottom - 6.0f), true);
+  for (int i = last; i >= 0 && yy > top; i--)
+  {
+    const Netplay::WorldChatLine& l = world.lines[static_cast<size_t>(i)];
+    std::string body = l.phrase ? PS4Lang::ChatPhraseText(l.phrase, l.param) : l.text;
+    const std::string who = (l.mine ? PS4Lang::T("You") : l.nick) + (l.country.empty() ? "" : " [" + l.country + "]");
+    // ((01.15) The nickname and country in bold and the player's colour, the words after them.)
+    const NetplayUi::ChatLine line = NetplayUi::LayoutChatLine(m_font, m_bold, 26, 34.0f, who, body, wrap_w);
+    yy -= line.height + 8.0f;
+    if (i == selected)
+      dl->AddRectFilled(ImVec2(x0 + 6.0f, yy - 4.0f), ImVec2(x1 - 6.0f, yy + line.height + 2.0f),
+                        Rgba(theme.wave, 0.28f * alpha), 8.0f);
+    NetplayUi::DrawChatLine(dl, m_font, m_bold, 26, 34.0f, line, ImVec2(x0 + 18.0f, yy),
+                            l.mine ? Rgba(theme.wave, alpha) : Rgba(colour_of(l.code), alpha),
+                            Rgba(theme.text, 0.92f * alpha));
+  }
+  dl->PopClipRect();
+}
+
+// (01.07, the owner) The players' ranking: its place, the player's nickname and country, its hours in matches and the
+// console it played most - the last 7 days or since ever (Triangle) -, the selected row lit; not answered (a server
+// before it): said after a few seconds.
+void Menu::Impl::DrawPlayersTable(ImDrawList* dl, float alpha, float x0, float x1, float y, float bottom)
+{
+  const Theme& theme = CurrentTheme();
+  const bool light = theme.text != 0xFFFFFF;
+  const Netplay::PlayersList list = Netplay::TopPlayers(m_players_days);
+  const auto raw = [dl](ImFont* font, float size, ImVec2 at, ImU32 color, const std::string& text) {
+    dl->AddText(font, size, at, color, text.c_str());
+  };
+  const std::string period = m_players_days ? "Last 7 days" : "Since ever";
+  Text(dl, m_bold, 26, ImVec2(x0 + 2.0f, y), Rgba(theme.wave, alpha), period);
+  const float pw = TextWidth(m_bold, 26, period);
+  PS4Glyphs::Draw(dl, m_bold, "Triangle", x0 + pw + 18.0f, y + 15.0f, 30.0f, alpha * 0.8f);
+  y += 50.0f;
+  const float cx = (x0 + x1) * 0.5f;
+  const auto centered = [&](ImFont* font, float size, float at, ImU32 color, const std::string& english) {
+    const std::string& shown = PS4Lang::T(english);
+    raw(font, size, ImVec2(cx - TextWidth(font, size, shown) * 0.5f, at), color, shown);
+  };
+  if (list.players.empty())
+  {
+    const float cy = y + std::min(150.0f, (bottom - y) * 0.3f);
+    DrawCategoryIcon(dl, Category::Online, ImVec2(cx, cy), 84.0f, Rgba(theme.text, alpha * 0.22f));
+    const bool waited = m_time - m_online_entered > 8.0f;
+    centered(m_bold, 28, cy + 62.0f, Rgba(theme.text, alpha * 0.85f),
+             list.answered ? "No one in the ranking yet: play a match online" :
+             waited        ? "The players' ranking isn't on EmuSuNi's server yet" :
+                             "Looking for the ranking...");
+    return;
+  }
+  const float w = x1 - x0;
+  const float col_player = x0 + 90.0f, col_hours = x0 + w * 0.58f, col_console = x0 + w * 0.76f;
+  const ImU32 head = Rgba(theme.text, alpha * 0.55f);
+  Text(dl, m_bold, 22, ImVec2(x0 + 22.0f, y), head, "#", false);
+  Text(dl, m_bold, 22, ImVec2(col_player, y), head, "Player", false);
+  Text(dl, m_bold, 22, ImVec2(col_hours, y), head, "Time Played", false);
+  Text(dl, m_bold, 22, ImVec2(col_console, y), head, "Console Played Most", false);
+  y += 32.0f;
+  dl->AddLine(ImVec2(x0, y), ImVec2(x1, y), Rgba(theme.text, alpha * 0.12f), 1.5f);
+  y += 10.0f;
+  constexpr float ROW_H = 58.0f;
+  const int n = static_cast<int>(list.players.size());
+  m_players_index = std::clamp(m_players_index, 0, n - 1);
+  const int visible = std::max(1, static_cast<int>((bottom - y) / ROW_H));
+  const int first = std::clamp(m_players_index - visible / 2, 0, std::max(0, n - visible));
+  for (int i = first; i < n && i < first + visible; i++, y += ROW_H)
+  {
+    const Netplay::TopPlayer& p = list.players[static_cast<size_t>(i)];
+    const bool sel = i == m_players_index;
+    const ImVec2 r0(x0, y), r1(x1, y + ROW_H - 8.0f);
+    dl->AddRectFilled(r0, r1, sel ? Rgba(theme.wave, alpha * 0.22f) :
+                                    light ? Rgba(0xFFFFFF, alpha * 0.5f) : Rgba(0x000000, alpha * 0.2f), 12.0f);
+    if (sel)
+      dl->AddRect(r0, r1, Rgba(theme.wave, alpha), 12.0f, 0, 2.0f);
+    const float ty = y + (ROW_H - 8.0f - 30.0f) * 0.5f;
+    const uint32_t medal = i == 0 ? 0xE0B030 : i == 1 ? 0xB8B8C8 : i == 2 ? 0xC8803C : theme.text;
+    raw(m_bold, 28, ImVec2(x0 + 22.0f, ty - 2.0f), Rgba(medal, alpha * (i < 3 ? 1.0f : 0.7f)), std::to_string(i + 1));
+    const std::string nick =
+        Fit(m_font, 28, p.nick.empty() ? std::string("-") : p.nick, col_hours - col_player - 90.0f);
+    raw(m_font, 28, ImVec2(col_player, ty - 2.0f), Rgba(theme.text, alpha), nick);
+    DrawCountryTag(dl, col_player + TextWidth(m_font, 28, nick) + 12.0f, ty + 15.0f, p.country, 18.0f, alpha);
+    const uint32_t minutes = p.seconds / 60;
+    raw(m_bold, 26, ImVec2(col_hours, ty), Rgba(theme.text, alpha * 0.9f),
+        minutes >= 60 ? std::to_string(minutes / 60) + " h " + std::to_string(minutes % 60) + " min" :
+                        std::to_string(minutes) + " min");
+    const bool gba_link = p.console == NetProto::GBALINK, gb_link = p.console == NetProto::GBLINK;
+    const System* system = gb_link || gba_link ? nullptr : SystemByKey(p.console);
+    const std::string console = gba_link ? std::string("GBA Link") : gb_link ? std::string("GB Link") :
+                                system      ? std::string(system->tab) : p.console;
+    if (system)
+    {
+      const float pill_w = TextWidth(m_bold, 22, console) + 24.0f;
+      dl->AddRectFilled(ImVec2(col_console, ty - 2.0f), ImVec2(col_console + pill_w, ty + 30.0f),
+                        Rgba(system->color, alpha * 0.95f), 16.0f);
+      Text(dl, m_bold, 22, ImVec2(col_console + 12.0f, ty), Rgba(0xFFFFFF, alpha), console, false);
+    }
+    else
+      raw(m_bold, 22, ImVec2(col_console, ty), Rgba(theme.text, alpha * 0.85f), console);
+  }
+}
+
+bool Menu::Impl::WorldChatInput(uint32_t pressed)
+{
+  const Netplay::WorldChatView world = Netplay::GetWorldChat();
+  const int n = static_cast<int>(world.lines.size());
+  int at = -1;
+  for (int i = 0; i < n; i++)
+  {
+    if (static_cast<int64_t>(world.lines[static_cast<size_t>(i)].serial) == m_world_index)
+      at = i;
+  }
+  if (pressed & (BTN_UP | BTN_DOWN))
+  {
+    // Up from none: the newest line; Down past the newest: none again (the chat follows its new lines).
+    if (n > 0)
+    {
+      const int to = at < 0 ? ((pressed & BTN_UP) ? n - 1 : -1) :
+                     (pressed & BTN_UP) ? std::max(0, at - 1) :
+                     at + 1 >= n        ? -1 :
+                                          at + 1;
+      if (to != at)
+      {
+        m_world_index = to < 0 ? -1 : static_cast<int>(world.lines[static_cast<size_t>(to)].serial);
+        Play("move");
+      }
+    }
+    return true;
+  }
+  if ((pressed & BTN_CIRCLE) && m_world_index >= 0)
+  {
+    m_world_index = -1;
+    Play("back");
+    return true;
+  }
+  if (pressed & BTN_CROSS)
+  {
+    if (at >= 0)
+      OpenWorldLine(at);
+    else
+      Play("error");
+    return true;
+  }
+  // ((01.08) Square a quick phrase, Triangle a line typed - until 01.07 L2 / R2, the room's own: they are the pages
+  // now. So on this page Square doesn't make a room nor Triangle join one by its code: the rooms' page does.)
+  if (pressed & (BTN_SQUARE | BTN_TRIANGLE))
+  {
+    if (!world.on || !world.answered)
+    {
+      ShowToast(!world.on ? "The world chat is hidden (Online Settings)" :
+                            "The world chat isn't on EmuSuNi's server yet",
+                0);
+      Play("error");
+    }
+    else if (pressed & BTN_SQUARE)
+      OpenWorldPhrases();
+    else
+      WriteWorldLine();
+    return true;
+  }
+  return false;
+}
+
+// The quick phrases for the world chat, in this console's language (they go as their number).
+void Menu::Impl::OpenWorldPhrases()
+{
+  RoomPicker& p = m_room_picker;
+  p = RoomPicker();
+  p.open = true;
+  p.title = "Quick Phrase";
+  const std::string country = Netplay::GetWorldChat().my_country;
+  for (int i = 1; i <= NetProto::CHAT_PHRASES; i++)
+  {
+    // ((01.07) "I'm from ...": with our country as the server shows it, only.)
+    const bool from = i == NetProto::PHRASE_FROM;
+    if (from && country.empty())
+      continue;
+    p.items.push_back(from ? PS4Lang::ChatPhraseText(i, country) : std::string(NetProto::ChatPhrase(i)));
+    p.actions.push_back("wphrase:" + std::to_string(i));
+    p.raw.push_back(from);
+  }
+  Play("menu");
+}
+
+// A line's actions: mute its player (this PS4's: Online Settings hears them again), report it to EmuSuNi's moderation.
+void Menu::Impl::OpenWorldLine(int index)
+{
+  const Netplay::WorldChatView world = Netplay::GetWorldChat();
+  if (index < 0 || index >= static_cast<int>(world.lines.size()))
+    return;
+  const Netplay::WorldChatLine& l = world.lines[static_cast<size_t>(index)];
+  if (l.mine)
+  {
+    ShowToast("That message is yours", 0);
+    Play("error");
+    return;
+  }
+  RoomPicker& p = m_room_picker;
+  p = RoomPicker();
+  p.open = true;
+  p.title = l.nick;
+  p.items = {"Mute This Player", "Report This Message"};
+  p.actions = {"wmute:" + l.code, "wreport:" + std::to_string(l.serial)};
+  p.raw = {false, false};
+  Play("menu");
+}
+
+void Menu::Impl::WriteWorldLine()
+{
+  AskText("Write a Message", "", [this](const std::string& typed) {
+    if (!typed.empty())
+      WorldSaid(Netplay::WorldSayText(typed));
+  }, static_cast<uint32_t>(NetProto::CHAT_LETTERS), TextKeyboard::Mode::Chat,
+          "Everyone on the Online tab reads it. One message every 3 seconds.");
+}
+
+// A line said: on its way (its answer is a toast then, or the confirm sound), or why not.
+void Menu::Impl::WorldSaid(Netplay::WorldSayResult result)
+{
+  using Netplay::WorldSayResult;
+  if (result == WorldSayResult::Sending)
+    return;
+  ShowToast(result == WorldSayResult::Busy     ? "The last message is still on its way" :
+            result == WorldSayResult::Empty    ? "Nothing to send" :
+            result == WorldSayResult::NoNotice ? "The world chat's notice must show first" :
+                                                 "The world chat isn't on EmuSuNi's server yet",
+            0);
+  Play("error");
+}
+
+// The quick phrases, in this console's language (they go as their number: each console shows them in its own).
+void Menu::Impl::OpenQuickPhrases()
+{
+  RoomPicker& p = m_room_picker;
+  p = RoomPicker();
+  p.open = true;
+  p.title = "Quick Phrase";
+  const std::string country = Netplay::GetView().my_country;
+  for (int i = 1; i <= NetProto::CHAT_PHRASES; i++)
+  {
+    // ((01.07) "I'm from ...": with our country as the room shows it, only.)
+    const bool from = i == NetProto::PHRASE_FROM;
+    if (from && country.empty())
+      continue;
+    p.items.push_back(from ? PS4Lang::ChatPhraseText(i, country) : std::string(NetProto::ChatPhrase(i)));
+    p.actions.push_back("phrase:" + std::to_string(i));
+    p.raw.push_back(from);
+  }
+  Play("menu");
+}
+
+// A player's actions: mute (its voice and its chat) or hear again, block on this PS4, (the host) remove.
+void Menu::Impl::OpenPlayerActions(int member)
+{
+  const Netplay::View v = Netplay::GetView();
+  for (const Netplay::PlayerView& pl : v.players)
+  {
+    if (pl.id != member || pl.me)
+      continue;
+    RoomPicker& p = m_room_picker;
+    p = RoomPicker();
+    p.open = true;
+    p.title = pl.nick;
+    const std::string id = std::to_string(member);
+    if (!pl.blocked)
+    {
+      p.items.push_back(pl.muted ? "Hear Again (Voice and Chat)" : "Mute (Voice and Chat)");
+      p.actions.push_back((pl.muted ? "unmute:" : "mute:") + id);
+      p.items.push_back("Block on This PS4");
+      p.actions.push_back("block:" + id);
+    }
+    if (v.host)
+    {
+      p.items.push_back("Remove from the Room");
+      p.actions.push_back("kick:" + id);
+    }
+    p.raw.assign(p.items.size(), false);
+    if (p.items.empty())
+      p.open = false;
+    else
+      Play("menu");
+    return;
+  }
+}
+
+// A line typed on the app's keyboard (its letters at most: the chat's).
+void Menu::Impl::WriteChatLine()
+{
+  AskText("Write a Message", "", [this](const std::string& typed) {
+    if (!typed.empty())
+      ChatSaid(Netplay::SendChatText(typed));
+  }, static_cast<uint32_t>(NetProto::CHAT_LETTERS), TextKeyboard::Mode::Chat,
+          "Everyone in the room reads it. One line every 2 seconds.");
+}
+
+void Menu::Impl::ChatSaid(Netplay::ChatResult result)
+{
+  if (result == Netplay::ChatResult::Sent)
+    Play("confirm");
+  else
+  {
+    ShowToast(result == Netplay::ChatResult::TooSoon   ? "One message every 2 seconds" :
+              result == Netplay::ChatResult::NotInRoom ? "Not in the room yet" :
+                                                         "Nothing to send",
+              0);
+    Play("error");
+  }
+}
+
 bool Menu::Impl::TogetherInput(uint32_t pressed)
 {
   TogetherScreen& t = m_together;
@@ -9360,14 +12727,13 @@ std::string Menu::Impl::OnlineSummary() const
   std::string line = now.empty() ? std::string() : PS4Lang::T(now);
   if (m_online_listed)
   {
-    // (00.92: a filter on - how many it leaves of them.)
     const int rooms = std::max(m_online_last_total, static_cast<int>(m_online_last.size()));
-    const bool filtered = m_online_filter_console != 0 || m_online_filter_type != 0;
     line += (line.empty() ? "" : "  \xC2\xB7  ") +
-            PS4Lang::T(filtered       ? std::to_string(m_online_shown) + " of " + std::to_string(m_online_others) +
-                                      (m_online_others == 1 ? " room shown" : " rooms shown") :
-                       rooms == 1 ? std::string("1 room") :
-                                    std::to_string(rooms) + " rooms");
+            PS4Lang::T(rooms == 1 ? std::string("1 room") : std::to_string(rooms) + " rooms");
+    // ((01.16) Refreshes the server didn't answer: the last list stays - said here; until 01.15 the table emptied.)
+    const Netplay::View v = Netplay::GetView();
+    if (v.phase == Netplay::Phase::Browsing && v.list_late > 0)
+      line += std::string("  \xC2\xB7  ") + PS4Lang::T("The server isn't answering: the list may be out of date");
   }
   return line.empty() ? PS4Lang::T("Play with friends anywhere") : line;
 }
@@ -9389,9 +12755,6 @@ void Menu::Impl::BuildOnlineTable()
   }
   const bool in_room =
       v.phase == Phase::Connecting || v.phase == Phase::Room || v.phase == Phase::Starting || v.phase == Phase::Playing;
-  const std::vector<std::string> consoles = OnlineConsoles();
-  m_online_filter_console = std::clamp(m_online_filter_console, 0, static_cast<int>(consoles.size()) - 1);
-  const std::string& console = consoles[static_cast<size_t>(m_online_filter_console)];
   std::vector<OnlineRow> rows;
   if (in_room)
   {
@@ -9437,7 +12800,6 @@ void Menu::Impl::BuildOnlineTable()
       my_region = p.region;
     }
   }
-  int others = 0, shown = 0;
   for (const Netplay::RoomView& r : m_online_last)
   {
     const NetProto::RoomEntry& room = r.room;
@@ -9447,16 +12809,7 @@ void Menu::Impl::BuildOnlineTable()
         room.game.console == (v.together ? std::string(NetProto::TOGETHER) : v.game.console) &&
         room.game.crc == (v.together ? 0u : v.game.crc) && room.game.size == (v.together ? 0u : v.game.size))
       continue;
-    others++;
     const bool together = room.game.console == NetProto::TOGETHER;
-    // (00.92, the owner: "the filters change nothing" - a Choose Together room was in every console's list, and with
-    // one or two rooms, ours on top and such a one, no filter took any away. Its games are any console's: it is in
-    // All's list only, its console "Any".)
-    if (!console.empty() && room.game.console != console)
-      continue;
-    if ((m_online_filter_type == 1 && !room.is_public) || (m_online_filter_type == 2 && room.is_public))
-      continue;
-    shown++;
     OnlineRow row;
     row.room = room;
     row.key = room.id != 0 ? "id:" + std::to_string(room.id) : "code:" + room.code;
@@ -9482,20 +12835,7 @@ void Menu::Impl::BuildOnlineTable()
     }
     rows.push_back(std::move(row));
   }
-  // (00.92) The filters and what they leave, in the log when either changes.
-  m_online_shown = shown;
-  m_online_others = others;
-  static const char* const TYPES[] = {"every type", "public", "private"};
-  const System* filter_system = console.empty() ? nullptr : SystemByKey(console);
-  const std::string said = std::string("online: the rooms' filters: console ") +
-                           (filter_system ? filter_system->tab : "All") + ", " +
-                           TYPES[std::clamp(m_online_filter_type, 0, 2)] + ": " + std::to_string(shown) + " of " +
-                           std::to_string(others) + " rooms" + (in_room ? " (ours on top)" : "");
-  if (m_online_listed && said != m_online_filter_said)
-  {
-    m_online_filter_said = said;
-    Log(said);
-  }
+  // ((01.07) No filters: every room; the list's counts are in the log - Netplay's RoomsDone.)
   const int c = static_cast<int>(Category::Online);
   const int count = static_cast<int>(rows.size());
   int at = -1;
@@ -9514,12 +12854,118 @@ void Menu::Impl::BuildOnlineTable()
   m_online_rows = std::move(rows);
 }
 
-// The tab's buttons (true: the press was its): Up / Down the rooms (the XMB's L1 / R1 five at a time), Cross joins the
-// selected one, Square makes a room, Triangle joins one by its code, Options opens Online Settings, L2 the next
-// console, R2 the next type. L1 / R1 (the Library's tabs), Left / Right (the XMB's columns) stay the menu's.
+// (01.08, the owner: "que L2 y R2 muevan entre las pestañas de adentro") L2 / R2: the Online tab's page before or after
+// (Rooms, Chat, Most Played, Players), in both styles; past the last page the first again, never the menu's tabs. (They
+// don't repeat held: each press one page.) (01.09, the owner: "debes deshabilitar cambiar de pestaña interna con l1 y
+// r1, debes dejar solo l2 y r2") Only them: L1 / R1, the pages from 01.07 to 01.08, are the Library's tabs again, and
+// nothing in the XMB's Online column (OnlineTabInput).
+bool Menu::Impl::OnlinePageInput(uint32_t pressed)
+{
+  if (!(pressed & (BTN_L2 | BTN_R2)))
+    return false;
+  const int to = (m_online_page + ((pressed & BTN_L2) ? -1 : 1) + ONLINE_PAGES) % ONLINE_PAGES;
+  m_online_page = to;
+  m_world_index = -1;
+  m_room_picker.open = false;
+  if (to == PAGE_TOP)
+  {
+    Netplay::WantTopGames();
+    BuildTopTable();
+  }
+  static const char* const NAMES[] = {"the rooms", "the world chat", "the games most played online", "the players"};
+  Log(std::string("online: ") + NAMES[to]);
+  Play("category");
+  return true;
+}
+
+// The tab's buttons (true: the press was its): (01.08) L2 / R2 its pages; in the rooms' Up / Down the rooms, Cross
+// joins the selected one, Square makes a room, Triangle joins one by its code, Options opens Online Settings. Left /
+// Right (the XMB's columns) and (01.09) the Library's L1 / R1 (its tabs) stay the menu's.
 bool Menu::Impl::OnlineTabInput(uint32_t pressed)
 {
   const int c = static_cast<int>(Category::Online);
+  // (01.07) A line's actions or a quick phrase over the world chat: its own buttons (on its page only - one left open
+  // by the room's screen is closed here).
+  if (m_room_picker.open && !m_panel.open)
+  {
+    if (m_online_page == PAGE_CHAT)
+      return RoomPickerInput(pressed);
+    m_room_picker.open = false;
+  }
+  if (OnlinePageInput(pressed))
+    return true;
+  // ((01.09) L1 / R1: the Library's tabs; in the XMB nothing here - its "five items" aren't this table's rows.)
+  if (pressed & (BTN_L1 | BTN_R1))
+    return !Library();
+  if (m_online_page == PAGE_CHAT && WorldChatInput(pressed))
+    return true;
+  // ((01.07) The players' ranking: Up / Down its rows, Triangle the last 7 days or since ever.)
+  if (m_online_page == PAGE_PLAYERS)
+  {
+    const int n = static_cast<int>(Netplay::TopPlayers(m_players_days).players.size());
+    if (pressed & (BTN_UP | BTN_DOWN))
+    {
+      const uint32_t button = (pressed & BTN_UP) ? BTN_UP : BTN_DOWN;
+      const int to = n == 0 ? 0 : MenuNav::Step(m_players_index, button == BTN_UP ? -1 : 1, n, Fresh(button));
+      if (to != m_players_index)
+      {
+        m_players_index = to;
+        Play("move");
+      }
+      return true;
+    }
+    if (pressed & BTN_TRIANGLE)
+    {
+      m_players_days = m_players_days ? 0 : NetProto::TOP_DAYS;
+      m_players_index = 0;
+      Netplay::WantTopPlayers(m_players_days);
+      Log(m_players_days ? "online: the players' ranking of the last 7 days" :
+                           "online: the players' ranking since ever");
+      Play("category");
+      return true;
+    }
+    if (pressed & (BTN_CROSS | BTN_CIRCLE))
+      return true;
+  }
+  // (01.05, the owner: "haz una tabla con los más jugados") The games most played online: Up / Down its games, Cross
+  // makes a room for the selected one when it is ours (Play Online's), Circle back to the rooms; Square, Triangle and
+  // Options as ever.
+  if (m_online_page == PAGE_TOP)
+  {
+    const int n = static_cast<int>(m_top_rows.size());
+    if (pressed & (BTN_UP | BTN_DOWN))
+    {
+      const uint32_t button = (pressed & BTN_UP) ? BTN_UP : BTN_DOWN;
+      const int to = n == 0 ? 0 : MenuNav::Step(m_top_index, button == BTN_UP ? -1 : 1, n, Fresh(button));
+      if (to != m_top_index)
+      {
+        m_top_index = to;
+        Play("move");
+      }
+      return true;
+    }
+    if (pressed & BTN_CIRCLE)
+    {
+      m_online_page = PAGE_ROOMS;
+      Play("back");
+      return true;
+    }
+    if (pressed & BTN_CROSS)
+    {
+      if (m_top_index >= 0 && m_top_index < n && m_top_rows[static_cast<size_t>(m_top_index)].game >= 0)
+      {
+        const TopRow& row = m_top_rows[static_cast<size_t>(m_top_index)];
+        OpenOnlineHost(row.game, row.link);
+        Play("menu");
+      }
+      else
+      {
+        ShowToast(n == 0 ? "No game selected" : "Not in your games", 0);
+        Play("error");
+      }
+      return true;
+    }
+  }
   const int count = static_cast<int>(m_online_rows.size());
   const auto select = [&](int to) {
     if (to == m_online_index || to < 0 || to >= count)
@@ -9531,6 +12977,9 @@ bool Menu::Impl::OnlineTabInput(uint32_t pressed)
     m_online_row_key = m_online_rows[static_cast<size_t>(to)].key;
     Play("move");
   };
+  if (m_online_page != PAGE_ROOMS && (pressed & (BTN_UP | BTN_DOWN | BTN_CROSS)))
+    return true;  // (another page's)
+  // ((01.07) Held Up / Down go on through the rooms, one at a time; the pages are (01.08) L2 / R2.)
   if (pressed & (BTN_UP | BTN_DOWN))
   {
     const uint32_t arrow = (pressed & BTN_UP) ? BTN_UP : BTN_DOWN;
@@ -9538,14 +12987,7 @@ bool Menu::Impl::OnlineTabInput(uint32_t pressed)
       select(MenuNav::Step(m_online_index, arrow == BTN_UP ? -1 : 1, count, Fresh(arrow)));
     return true;
   }
-  if (!Library() && (pressed & (BTN_L1 | BTN_R1)))
-  {
-    const uint32_t button = (pressed & BTN_L1) ? BTN_L1 : BTN_R1;
-    if (count > 0)
-      select(MenuNav::Jump(m_online_index, button == BTN_L1 ? -5 : 5, count, Fresh(button)));
-    return true;
-  }
-  if (pressed & (BTN_CROSS | BTN_SQUARE | BTN_TRIANGLE))
+  if ((pressed & (BTN_CROSS | BTN_SQUARE | BTN_TRIANGLE)) || ((pressed & BTN_TOUCHPAD) && m_online_page == PAGE_ROOMS))
   {
     // In a room whose panel something else closed (an error said at the menu's start): back to it, not out of it.
     // (00.86: the host's room open while the host is here is the table's own - Cross on it goes back to it, another
@@ -9582,22 +13024,22 @@ bool Menu::Impl::OnlineTabInput(uint32_t pressed)
     OpenSettingPanel(SET_OL_SETTINGS);
     return true;
   }
-  if (pressed & (BTN_L2 | BTN_R2))
+  if (pressed & BTN_TOUCHPAD)
   {
-    if (pressed & BTN_L2)
-      m_online_filter_console = (m_online_filter_console + 1) % static_cast<int>(OnlineConsoles().size());
-    else
-      m_online_filter_type = (m_online_filter_type + 1) % 3;
-    BuildOnlineTable();
-    Play("category");
+    // ((01.15, the owner) Watch the selected room's match as a spectator, a player's place left or not - a room whose
+    // host lets them. (01.07: Touchpad's Most Played is no more; the filters' L2 / R2 are (01.08) the pages.))
+    if (m_online_page == PAGE_ROOMS && m_online_index >= 0 && m_online_index < count &&
+        !m_online_rows[static_cast<size_t>(m_online_index)].mine)
+      JoinOnlineRow(m_online_rows[static_cast<size_t>(m_online_index)], true);
     return true;
   }
   return false;
 }
 
 // Cross on a room: a public one is joined at once (its code is in the list), a private one with its code - asked for,
-// as its host told it. One that can't be joined says why.
-void Menu::Impl::JoinOnlineRow(const OnlineRow& row)
+// as its host told it. One that can't be joined says why. ((01.15) `as_watcher`, the Touchpad: watched, a player's place
+// left or not.)
+void Menu::Impl::JoinOnlineRow(const OnlineRow& row, bool as_watcher)
 {
   using NetProto::LobbyGame;
   const NetProto::RoomEntry& room = row.room;
@@ -9608,8 +13050,25 @@ void Menu::Impl::JoinOnlineRow(const OnlineRow& row)
     return;
   }
   std::string why;
-  if (!room.app_version.empty() && room.app_version != App::VERSION)
-    why = "This room is for EmuSuNi " + room.app_version;
+  // (01.05) A match under way with a place left whose host lets one join: joined (it loads the game, then plays). Else a
+  // match started (or a room full) whose host lets spectators watch: watched instead.
+  const bool late = !as_watcher && room.playing && room.late && room.players < room.max_players;
+  const bool watch = as_watcher || (!late && room.watchable && room.watchers < NetProto::MAX_WATCHERS &&
+                                    (room.playing || room.players >= room.max_players));
+  // ((01.06) Another version's when this one plays its console's matches alike: Netplay::CanJoinVersion.)
+  if (!Netplay::CanJoinVersion(room))
+    why = "This room is for EmuSuNi " + room.app_version +
+          (Netplay::RoomIsOlder(room.app_version) ? ": its host needs to update" : "");
+  // ((01.15) Watched by choice: a room without spectators (its host's choice, or an EmuSuNi before 01.05), or with all
+  // of them, says so - the server's own words when it refuses.)
+  else if (as_watcher && (row.together || !room.watchable))
+    why = "That room's host doesn't let anyone watch";
+  else if (as_watcher && room.watchers >= NetProto::MAX_WATCHERS)
+    why = "That room has its spectators already";
+  else if ((watch || late) && row.found == LobbyGame::Missing)
+    why = "You haven't got this game";
+  else if (watch || late)
+    why = "";
   else if (room.playing)
     why = "This room's match has started";
   else if (room.players >= room.max_players)
@@ -9622,13 +13081,16 @@ void Menu::Impl::JoinOnlineRow(const OnlineRow& row)
     Play("error");
     return;
   }
-  if (AskCloseRoom(true, [this, row] { JoinOnlineRow(row); }))
+  if (AskCloseRoom(true, [this, row, as_watcher] { JoinOnlineRow(row, as_watcher); }))
     return;  // (00.86: our room first)
-  const auto join = [this](const std::string& code) {
+  const auto join = [this, watch](const std::string& code) {
     m_online_found = LobbyGame::Looking;
     m_online_game = -1;
     m_online_library_sent = false;
-    Netplay::Join(code, m_data_dir);
+    if (watch)
+      Netplay::Watch(code, m_data_dir);
+    else
+      Netplay::Join(code, m_data_dir);
     OpenOnlineRoom();
   };
   if (room.is_public && !room.code.empty())
@@ -9704,10 +13166,39 @@ void Menu::Impl::BuildOnlineSettingsRows()
   add("Hide My Address", hide ? "On" : "Off", "ol:hide",
       hide ? "Everything goes through EmuSuNi's server: the other player never sees your address (a little more delay)." :
              "Your connection goes straight to the other console when it can (the least delay).");
+  // (01.05, the owner) Our country beside our nickname, in the rooms and the Online tab's list.
+  add("Show My Country", Netplay::ShowCountry(m_data_dir) ? "Yes" : "No", "ol:country",
+      Netplay::ShowCountry(m_data_dir) ?
+          "The others see your country's two letters (CL, MX...) beside your nickname, from the next room. EmuSuNi's "
+          "server looks it up from your connection; your address is never shown or kept." :
+          "The others don't see your country, from the next room.");
   // (00.92) Each player's ping and connection, in the room and over the game.
   add("Latency Bar", Netplay::LatencyBar(m_data_dir) ? "On" : "Off", "ol:bar",
       "Each player's ping and connection - green good, amber fair, red bad - in the room and in the game's corner: it "
       "shows whose connection makes the match wait.");
+  // (01.05) The rooms' chat: the others' typed lines shown or not (their quick phrases always), the players blocked.
+  add("Others' Typed Messages", Netplay::ChatText(m_data_dir) ? "Shown" : "Hidden", "ol:chattext",
+      "In the rooms' chat: the other players' typed lines as they wrote them, or only their quick phrases. Messages go "
+      "from console to console, not encrypted; a server that keeps them (the room says so under its chat) keeps them "
+      "30 days for moderation, never your address.");
+  const int blocked = Netplay::BlockedCount(m_data_dir);
+  if (blocked > 0)
+    add("Unblock All", std::to_string(blocked), "ol:unblock",
+        "The players you blocked (a player's actions in a room) are heard and read again in the next rooms.");
+  // (01.07, the owner) The world chat (the Online tab's Chat): shown or hidden - hidden, nothing is asked of the server
+  // -, and the players muted in it.
+  add("World Chat", Netplay::WorldChatOn(m_data_dir) ? "Visible" : "Not Shown", "ol:world",
+      "Visible: the Online tab's Chat page shows the messages of every player on the Online tab, through EmuSuNi's "
+      "server. Not Shown: nothing is asked of the server, nothing is shown.");
+  const int world_muted = Netplay::WorldMutedCount(m_data_dir);
+  if (world_muted > 0)
+    add("Muted in the World Chat", std::to_string(world_muted), "ol:worldmuted",
+        "The players you muted in the world chat (a message's actions): Cross reads them again.");
+  // (01.07, the owner) The players' ranking (the Online tab's Players page).
+  add("Appear in the Ranking", Netplay::Ranked(m_data_dir) ? "Yes" : "No", "ol:ranking",
+      "Yes: EmuSuNi's server counts your time in online matches for the players' ranking (your nickname, your country "
+      "if you show it, the console you play most) - never your address. No: nothing of yours is counted, from the next "
+      "room.");
   add("Online Profile", profile.on ? "On" : "Off", "ol:profile",
       "On: EmuSuNi's server keeps your history (time played by game and console, sessions, online matches) and gives "
       "you a code that opens it on EmuSuNi's website. Off (the default): nothing of yours is kept.");
@@ -9723,6 +13214,11 @@ void Menu::Impl::BuildOnlineSettingsRows()
         "stay.");
   add("My Stats", MyStatsDetail(), "ol:stats",
       "This PS4's own numbers: time played, games, sessions, online matches. They are never sent.");
+  // (01.05, the owner: "Revisar mis juegos")
+  add("Check My Games", "", "ol:check",
+      "Which of your games are the standard versions (No-Intro's; FinalBurn Neo 1.0.0.03's for the Arcade), the files "
+      "most players have: a room finds the same game only with the same version. Your files are read once, in the "
+      "background.");
   m_panel.rows = std::move(rows);
   m_panel.selected = 0;
   for (size_t i = 0; i < m_panel.rows.size(); i++)
@@ -9733,11 +13229,12 @@ void Menu::Impl::BuildOnlineSettingsRows()
   m_online_signature = OnlineSettingsSignature();
 }
 
-// The table in a box (x0 to x1, top to bottom): the filters' chips (L2: the console, R2: every room, public or
-// private), the columns' names, then the rooms - each its game (its cover when it is one of ours, and whether it is),
-// console, host and time zone, players, type, status and ping -, scrolling with the selection; instead, when there are
-// none, why (looking, the server's answer, none yet: Square makes one). summary: the players and rooms line first (the
-// XMB's; the Library's page title has it). Its sizes are those the menus draw already (the font atlas's).
+// The table in a box (x0 to x1, top to bottom): (01.07) the pages' tabs (DrawOnlinePages: where the filters' chips
+// were), then the page - the rooms: the columns' names, then the rooms - each its game (its cover when it is one of
+// ours, and whether it is), console, host and time zone, players, type, status and ping -, scrolling with the
+// selection; instead, when there are none, why (looking, the server's answer, none yet: Square makes one); the world
+// chat (DrawWorldChat), the games most played (DrawTopTable), the players. summary: the players and rooms line first
+// (the XMB's; the Library's page title has it). Its sizes are those the menus draw already (the font atlas's).
 void Menu::Impl::DrawOnlineTable(ImDrawList* dl, float alpha, float x0, float x1, float top, float bottom,
                                  bool summary)
 {
@@ -9751,7 +13248,6 @@ void Menu::Impl::DrawOnlineTable(ImDrawList* dl, float alpha, float x0, float x1
   const bool light = theme.text != 0xFFFFFF;
   const uint32_t GREEN = light ? 0x1E7F46 : 0x5BD38A, AMBER = light ? 0x9A5C00 : 0xFFC870,
                  RED = light ? 0xB3261E : 0xFF8A80, BLUE = light ? 0x245FA8 : 0x5AA9FF;
-  const ImU32 plain = light ? Rgba(0xFFFFFF, alpha * 0.55f) : Rgba(0x000000, alpha * 0.22f);
   // (Players' and games' own words - nicknames, titles - drawn as they are, not looked up in the language file.)
   const auto raw = [dl](ImFont* font, float size, ImVec2 at, ImU32 color, const std::string& text) {
     dl->AddText(font, size, at, color, text.c_str());
@@ -9762,44 +13258,27 @@ void Menu::Impl::DrawOnlineTable(ImDrawList* dl, float alpha, float x0, float x1
     raw(m_bold, 26, ImVec2(x0 + 2, y), Rgba(theme.wave, alpha), OnlineSummary());
     y += 46.0f;
   }
-  // The filters: L2 and the consoles on the left, R2 and the types on the right; the chosen ones lit as the tabs' bar
-  // lights its tab.
-  constexpr float CHIP_H = 38.0f, CHIP_FONT = 22.0f, GLYPH_H = 34.0f;
-  const auto chip_w = [this](const std::string& label) { return TextWidth(m_bold, CHIP_FONT, label) + 30.0f; };
-  const auto chip = [&](float x, const std::string& label, bool on) {
-    const float w = chip_w(label);
-    const ImVec2 p0(x, y), p1(x + w, y + CHIP_H);
-    if (on)
-    {
-      dl->AddRectFilled(p0, p1, Rgba(theme.wave, alpha * 0.45f), CHIP_H * 0.5f);
-      dl->AddRect(p0, p1, Rgba(theme.wave, alpha * 0.95f), CHIP_H * 0.5f, 0, 2.0f);
-    }
-    else
-    {
-      dl->AddRectFilled(p0, p1, plain, CHIP_H * 0.5f);
-      dl->AddRect(p0, p1, Rgba(theme.text, alpha * 0.18f), CHIP_H * 0.5f, 0, 1.5f);
-    }
-    Text(dl, m_bold, CHIP_FONT, ImVec2(x + 15.0f, y + (CHIP_H - CHIP_FONT) * 0.5f - 3.0f),
-         Rgba(theme.text, alpha * (on ? 1.0f : 0.65f)), label, false);
-    return w;
-  };
-  const std::vector<std::string> consoles = OnlineConsoles();
-  float x = x0;
-  x += PS4Glyphs::Draw(dl, m_bold, "L2", x, y + CHIP_H * 0.5f, GLYPH_H, alpha) + 12.0f;
-  for (size_t i = 0; i < consoles.size(); i++)
+  // ((01.07, the owner) The pages' tabs (L2 / R2) where the console filter was; then the page.)
+  DrawOnlinePages(dl, alpha, x0, x1, y);
+  y += 38.0f + 22.0f;
+  if (m_online_page == PAGE_TOP)
   {
-    const System* system = consoles[i].empty() ? nullptr : SystemByKey(consoles[i]);
-    x += chip(x, system ? system->tab : "All", static_cast<int>(i) == m_online_filter_console) + 8.0f;
+    DrawTopTable(dl, alpha, x0, x1, y, bottom);
+    return;
   }
-  static const char* const TYPES[] = {"All", "Public", "Private"};
-  float types_w = PS4Glyphs::Width("R2", GLYPH_H) + 12.0f;
-  for (const char* type : TYPES)
-    types_w += chip_w(type) + 8.0f;
-  x = x1 - types_w + 8.0f;
-  x += PS4Glyphs::Draw(dl, m_bold, "R2", x, y + CHIP_H * 0.5f, GLYPH_H, alpha) + 12.0f;
-  for (int i = 0; i < 3; i++)
-    x += chip(x, TYPES[i], i == m_online_filter_type) + 8.0f;
-  y += CHIP_H + 22.0f;
+  if (m_online_page == PAGE_CHAT)
+  {
+    DrawWorldChat(dl, alpha, x0, x1, y, bottom);
+    if (m_room_picker.open && !m_panel.open)
+      DrawRoomPicker(dl, alpha);  // (a line's actions, a quick phrase)
+    return;
+  }
+  if (m_online_page == PAGE_PLAYERS)
+  {
+    DrawPlayersTable(dl, alpha, x0, x1, y, bottom);
+    return;
+  }
+  constexpr float GLYPH_H = 34.0f;
 
   // The columns: the game the widest, then console, host, players, type, status, and the ping at the right.
   const float w = x1 - x0;
@@ -9848,20 +13327,9 @@ void Menu::Impl::DrawOnlineTable(ImDrawList* dl, float alpha, float x0, float x1
       centered(m_font, 24, at + 10.0f, Rgba(theme.text, alpha * 0.6f), "Trying again in a moment...");
       return;
     }
-    const bool filtered = !m_online_last.empty();
-    centered(m_bold, 32, cy + 62.0f, Rgba(theme.text, alpha), filtered ? "No rooms match these filters" : "No rooms yet");
+    centered(m_bold, 32, cy + 62.0f, Rgba(theme.text, alpha), "No rooms yet");
     const float ly = cy + 116.0f;
     const ImU32 line = Rgba(theme.text, alpha * 0.8f);
-    if (filtered)
-    {
-      const std::string& text = PS4Lang::T("Change the filters");
-      const float glyphs = PS4Glyphs::Width("L2", GLYPH_H) + 8.0f + PS4Glyphs::Width("R2", GLYPH_H) + 12.0f;
-      float lx = cx - (glyphs + TextWidth(m_font, 26, text)) * 0.5f;
-      lx += PS4Glyphs::Draw(dl, m_bold, "L2", lx, ly + 16.0f, GLYPH_H, alpha) + 8.0f;
-      lx += PS4Glyphs::Draw(dl, m_bold, "R2", lx, ly + 16.0f, GLYPH_H, alpha) + 12.0f;
-      raw(m_font, 26, ImVec2(lx, ly), line, text);
-    }
-    else
     {
       // "Press [Square] to create one" (two pieces translated: the button between them).
       const std::string& before = PS4Lang::T("Press");
@@ -9898,10 +13366,18 @@ void Menu::Impl::DrawOnlineTable(ImDrawList* dl, float alpha, float x0, float x1
     const bool sel = i == m_online_index && !in_room;
     const float rh = ROW_H - GAP, cy = ry + rh * 0.5f;
     const ImVec2 r0(x0, ry), r1(x1, ry + rh);
-    const bool other_version = !room.app_version.empty() && room.app_version != App::VERSION;
+    // ((01.06) Another version's that plays its console's matches alike is as ours: Netplay::CanJoinVersion.)
+    const bool other_version = !Netplay::CanJoinVersion(room);
     const bool full = room.players >= room.max_players;
-    const bool joinable = !row.mine && !room.playing && !full && !other_version &&
-                          (row.together || row.found != LobbyGame::Missing);
+    // ((01.05) A match spectators may watch is as bright: Cross watches it.)
+    const bool watchable = !row.mine && !other_version && room.watchable && (room.playing || full) &&
+                           room.watchers < NetProto::MAX_WATCHERS && row.found != LobbyGame::Missing;
+    // ((01.05) One whose match takes a player more too.)
+    const bool late = !row.mine && !other_version && room.playing && room.late && !full &&
+                      row.found != LobbyGame::Missing;
+    const bool joinable = (!row.mine && !room.playing && !full && !other_version &&
+                           (row.together || row.found != LobbyGame::Missing)) ||
+                          watchable || late;
     // (A row half out of the list's box fades out at its edge.)
     const float edge = std::clamp(std::min((ry - list_top) / 36.0f, (bottom - ry - rh) / 36.0f) + 1.0f, 0.0f, 1.0f);
     const float ra = alpha * edge;
@@ -9922,8 +13398,11 @@ void Menu::Impl::DrawOnlineTable(ImDrawList* dl, float alpha, float x0, float x1
                         3.0f);
     // The game: its cover when it is one of ours (fit in the box, its own shape), else a tile in its console's
     // colour; a Choose Together room's two cards.
-    const bool link_room = room.game.console == NetProto::GBLINK;  // (00.95: a Game Boy link cable room)
-    const System* system = link_room ? &GetSystem(SystemId::GB) : SystemByKey(room.game.console);
+    // (00.95: a Game Boy link cable room; 01.04: a Game Boy Advance's)
+    const bool gba_link_room = room.game.console == NetProto::GBALINK;
+    const bool link_room = room.game.console == NetProto::GBLINK || gba_link_room;
+    const System* system = link_room ? &GetSystem(gba_link_room ? SystemId::GBA : SystemId::GB) :
+                                       SystemByKey(room.game.console);
     const ImVec2 b0(x0 + 22.0f, cy - 30.0f), b1(x0 + 68.0f, cy + 30.0f);
     float aspect = 0.7f;
     const ImTextureID cover =
@@ -9982,7 +13461,9 @@ void Menu::Impl::DrawOnlineTable(ImDrawList* dl, float alpha, float x0, float x1
     }
     else if (other_version)
     {
-      sub = "Needs EmuSuNi " + room.app_version;
+      // ((01.06) who updates: the host of an older one, else we)
+      sub = Netplay::RoomIsOlder(room.app_version) ? "EmuSuNi " + room.app_version + ": its host needs to update" :
+                                                     "Needs EmuSuNi " + room.app_version;
       sub_color = AMBER;
     }
     else if (row.together)
@@ -10000,13 +13481,30 @@ void Menu::Impl::DrawOnlineTable(ImDrawList* dl, float alpha, float x0, float x1
       sub = "Another version in your games";
       sub_color = AMBER;
     }
+    // ((01.05, the owner) the versions as the files' names say them: the same file - its one -, ours and the host's
+    // - the list's, a server before it says none -, the host's when we haven't the game)
+    if (!row.mine && !other_version && !row.together)
+    {
+      const std::string mine = OnlineVersionText(row.game);
+      if (row.found == LobbyGame::Same && !(mine.empty() && room.version.empty()))
+        sub += ": " + (mine.empty() ? room.version : mine);
+      else if (row.found == LobbyGame::Different && !mine.empty())
+        sub += ": " + mine + (room.version.empty() ? std::string() : " (the host's: " + room.version + ")");
+      else if ((row.found == LobbyGame::Different || row.found == LobbyGame::Missing) && !room.version.empty())
+        sub += " (the host's: " + room.version + ")";
+    }
+    // ((01.06) A room of another version we play with: its version after it.)
+    if (!row.mine && !other_version && !room.app_version.empty() && room.app_version != App::VERSION)
+      sub_after += "  \xC2\xB7  EmuSuNi " + room.app_version;
     raw(m_font, 22, ImVec2(tx, ry + 41.0f), Rgba(sub_color, a * (sub_color == theme.text ? 0.6f : 0.95f)),
         Fit(m_font, 22, PS4Lang::T(sub) + sub_after, title_w));
     // The console: a pill in its colour, its tab's name (a Choose Together room: any).
     if (row.together || system)
     {
-      const std::string label = row.together ? std::string("Any") : link_room ? std::string("GB Link") :
-                                                                                std::string(system->tab);
+      const std::string label = row.together  ? std::string("Any") :
+                                gba_link_room ? std::string("GBA Link") :
+                                link_room     ? std::string("GB Link") :
+                                                std::string(system->tab);
       const uint32_t pill = row.together ? 0x6A6F7D : system->color;
       const float pw = TextWidth(m_bold, 22, label) + 24.0f;
       const ImVec2 p0(col_console, cy - 16.0f), p1(col_console + pw, cy + 16.0f);
@@ -10014,10 +13512,16 @@ void Menu::Impl::DrawOnlineTable(ImDrawList* dl, float alpha, float x0, float x1
       dl->AddRect(p0, p1, Rgba(0xFFFFFF, a * 0.25f), 16.0f, 0, 1.5f);
       Text(dl, m_bold, 22, ImVec2(col_console + 12.0f, cy - 14.0f), Rgba(0xFFFFFF, a), label, false);
     }
-    // The host and its time zone.
+    // The host and its time zone. ((01.05, the owner) Its country beside its nickname, as a small tag.)
     const float host_w = col_players - col_host - 16.0f;
-    raw(m_font, 26, ImVec2(col_host, ry + 9.0f), Rgba(theme.text, a),
-        Fit(m_font, 26, room.host.empty() ? std::string("-") : room.host, host_w));
+    const std::string host_country = row.mine ? std::string() : room.country;
+    const auto raw_w = [](ImFont* font, float size, const std::string& text) {
+      return font->CalcTextSizeA(size, FLT_MAX, 0.0f, text.c_str()).x;
+    };
+    const float tag_w = host_country.empty() ? 0.0f : raw_w(m_bold, 18, host_country) + 14.4f + 10.0f;
+    const std::string host_name = Fit(m_font, 26, room.host.empty() ? std::string("-") : room.host, host_w - tag_w);
+    raw(m_font, 26, ImVec2(col_host, ry + 9.0f), Rgba(theme.text, a), host_name);
+    DrawCountryTag(dl, col_host + raw_w(m_font, 26, host_name) + 10.0f, ry + 25.0f, host_country, 18, a);
     if (!room.region.empty())
       raw(m_font, 22, ImVec2(col_host, ry + 42.0f), Rgba(theme.text, a * 0.55f), room.region);
     // The players: a figure for each place (lit: taken), and how many. (00.95: four smaller and closer, to fit.)
@@ -10052,8 +13556,24 @@ void Menu::Impl::DrawOnlineTable(ImDrawList* dl, float alpha, float x0, float x1
     const bool connecting = row.mine && v.phase == Netplay::Phase::Connecting;
     const char* status = connecting ? "Connecting..." : room.playing ? "Playing" : full ? "Full" : "Waiting";
     const uint32_t dot = connecting ? 0x8A90A0 : room.playing ? BLUE : full ? AMBER : GREEN;
-    dl->AddCircleFilled(ImVec2(col_status + 8.0f, cy), 7.0f, Rgba(dot, a), 16);
-    Text(dl, m_font, 24, ImVec2(col_status + 24.0f, cy - 15.0f), Rgba(theme.text, a), status, false);
+    // ((01.05, the owner) under it: a place left in the match under way, how many watch - or that it may be watched)
+    std::string status_more;
+    if (late)
+      status_more = PS4Lang::T("A place left");
+    if (room.watchers > 0)
+      status_more += (status_more.empty() ? "" : "  \xC2\xB7  ") + PS4Lang::T(std::to_string(room.watchers) + " watching");
+    else if (watchable && !late)
+      status_more = PS4Lang::T("Can be watched");
+    const float status_y = status_more.empty() ? cy - 15.0f : cy - 26.0f;
+    dl->AddCircleFilled(ImVec2(col_status + 8.0f, status_y + 15.0f), 7.0f, Rgba(dot, a), 16);
+    Text(dl, m_font, 24, ImVec2(col_status + 24.0f, status_y), Rgba(theme.text, a), status, false);
+    if (!status_more.empty())
+    {
+      const std::string ping_now = row.ping_ms > 0 ? "~" + std::to_string(row.ping_ms) + " ms" : "-";
+      const float room_w = ping_r - raw_w(m_bold, 24, ping_now) - 14.0f - (col_status + 24.0f);
+      raw(m_font, 20, ImVec2(col_status + 24.0f, cy + 4.0f), Rgba(theme.text, a * 0.7f),
+          Fit(m_font, 20, status_more, room_w));
+    }
     // The ping: estimated (the host's round trip to the server and ours) - in our room, the other player's own.
     const std::string ping = row.ping_ms > 0 ? (row.mine ? "" : "~") + std::to_string(row.ping_ms) + " ms" : "-";
     const uint32_t ping_color = row.ping_ms <= 0 ? theme.text : row.ping_ms < 90 ? GREEN : row.ping_ms < 170 ? AMBER : RED;
@@ -10091,6 +13611,49 @@ void Menu::Impl::UpdateOnline()
   m_online_tab_entered = on_tab;
   if (m_panel.open && m_panel.setting == SET_OL_SETTINGS && OnlineSettingsSignature() != m_online_signature)
     BuildOnlineSettingsRows();
+  // ((01.05) Check My Games as the files are read; the games most played online once the server's list comes)
+  if (m_panel.open && (m_panel.setting == SET_OL_CHECK || m_panel.setting == SET_OL_CHECK_LIST) &&
+      m_time - m_check_at > 0.5 && CheckSignature() != m_check_signature)
+  {
+    m_check_at = m_time;  // (twice a second at most while the files are read: a library of thousands)
+    BuildCheckRows();
+  }
+  if (m_online_page == PAGE_TOP && on_tab &&
+      (Netplay::TopGames().serial != m_top_serial || m_time - m_top_built > 2.0f))
+    BuildTopTable();
+  // ((01.07) The world chat asked for every 2 s while its page shows, every 10 s else; its answers said. The players'
+  // ranking while its page shows.)
+  Netplay::WorldChatShown(on_tab && m_online_page == PAGE_CHAT && !m_panel.open);
+  if (on_tab && m_online_page == PAGE_PLAYERS)
+    Netplay::WantTopPlayers(m_players_days);
+  if (on_tab)
+  {
+    const Netplay::WorldChatView world = Netplay::GetWorldChat();
+    if (world.said_serial != m_world_said_seen)
+    {
+      m_world_said_seen = world.said_serial;
+      using NetProto::WorldResult;
+      if (world.said == WorldResult::Sent)
+        Play("confirm");
+      else
+      {
+        const std::string wait = std::to_string(std::max(1, world.said_seconds));
+        ShowToast(world.said == WorldResult::TooSoon  ? "One message every 3 seconds: wait " + wait + " s" :
+                  world.said == WorldResult::TooMany  ? "Too many messages: wait " + wait + " s" :
+                  world.said == WorldResult::Busy     ? "The world chat is busy: try again in a moment" :
+                  world.said == WorldResult::Blocked  ? (world.said_seconds == 0xFFFF ?
+                                                             std::string("EmuSuNi's moderation blocked you from the "
+                                                                         "world chat") :
+                                                             "EmuSuNi's moderation blocked you from the world chat "
+                                                             "for " + std::to_string((world.said_seconds + 59) / 60) +
+                                                                 " min") :
+                  world.said == WorldResult::NoNotice ? "The world chat's notice must show first" :
+                                                        "The message couldn't be sent",
+                  0);
+        Play("error");
+      }
+    }
+  }
   const bool shown = m_panel.open && m_panel.setting == SET_ONLINE_ROOM;
   // (00.86) Our room ended while we were elsewhere (the server lost it; a game played alone that took long to load):
   // said once the menu shows (closed by us - Close Room, another room - nothing to say).
@@ -10216,6 +13779,8 @@ void Menu::Impl::UpdateOnline()
     m_online_found = FindOnlineGame(v.game, &m_online_game);
     if (m_online_found == LobbyGame::Different)
       m_online_found = LobbyGame::Asking;  // (the player says: Play Anyway)
+    // ((01.05) our file's version, for every player's card)
+    Netplay::SetGameVersion(m_online_found == LobbyGame::Missing ? std::string() : OnlineVersionText(m_online_game));
     Netplay::SetLobbyGame(m_online_found);
     Log(std::string("online: the room's game ") + v.game.title + ": " +
         (m_online_found == LobbyGame::Same     ? "the same file here" :
@@ -10241,7 +13806,14 @@ void Menu::Impl::UpdateOnline()
   }
   if (Netplay::TakeStart())
   {
-    if (m_online_game >= 0 && m_online_game < static_cast<int>(m_games.size()) && m_launch < 0)
+    // ((01.05) A spectator only with the host's very file: another version's frames would go otherwise each time.)
+    const bool watch_other = Netplay::GetView().watching && m_online_found != LobbyGame::Same;
+    if (watch_other)
+    {
+      Netplay::Leave();
+      ShowToast("Your file of this game isn't the host's: it can't be watched", 0);
+    }
+    else if (m_online_game >= 0 && m_online_game < static_cast<int>(m_games.size()) && m_launch < 0)
     {
       m_panel.open = false;
       m_launch = m_online_game;
@@ -10270,8 +13842,55 @@ bool Menu::Impl::OnlinePanelInput(uint32_t pressed)
   const int setting = m_panel.setting;
   if (setting != SET_ONLINE && setting != SET_ONLINE_HOST && setting != SET_ONLINE_ROOM && setting != SET_OL_SETTINGS &&
       setting != SET_OL_CREATE && setting != SET_OL_PROFILE && setting != SET_OL_PUBLIC && setting != SET_OL_CODE &&
-      setting != SET_OL_DELETE && setting != SET_MY_STATS && setting != SET_OL_REPLACE && setting != SET_OL_LINKGAME)
+      setting != SET_OL_DELETE && setting != SET_MY_STATS && setting != SET_OL_REPLACE && setting != SET_OL_LINKGAME &&
+      setting != SET_OL_CHECK && setting != SET_OL_CHECK_LIST)
     return false;
+  // (01.05) Check My Games: Up / Down its rows; Cross a console's games; Circle back (Check My Games to Online
+  // Settings, a console's games to Check My Games).
+  if (setting == SET_OL_CHECK || setting == SET_OL_CHECK_LIST)
+  {
+    if (pressed & BTN_CIRCLE)
+    {
+      if (setting == SET_OL_CHECK_LIST)
+        OpenCheckGames("", "check:" + m_check_console);
+      else
+        OpenOnlineSettings("ol:check");
+      Play("back");
+      return true;
+    }
+    if (pressed & (BTN_UP | BTN_DOWN))
+    {
+      MoveSettingRow((pressed & BTN_UP) ? -1 : 1, Fresh((pressed & BTN_UP) ? BTN_UP : BTN_DOWN));
+      Play("move");
+    }
+    if (setting == SET_OL_CHECK && (pressed & BTN_CROSS) && m_panel.selected >= 0 &&
+        m_panel.selected < static_cast<int>(m_panel.rows.size()))
+    {
+      const std::string key = m_panel.rows[static_cast<size_t>(m_panel.selected)].key;
+      if (key.rfind("check:", 0) == 0)
+      {
+        OpenCheckGames(key.substr(6));
+        Play("confirm");
+      }
+    }
+    return true;
+  }
+  // (01.05) The room screen's picker - a quick phrase, a player's actions - takes the buttons; L2 a quick phrase, R2 a
+  // line typed (in a room we are in: not while asking the host to join).
+  if (setting == SET_ONLINE_ROOM && m_room_picker.open)
+    return RoomPickerInput(pressed);
+  if (setting == SET_ONLINE_ROOM && (pressed & (BTN_L2 | BTN_R2)))
+  {
+    const Netplay::View v = Netplay::GetView();
+    if ((v.phase == Netplay::Phase::Room || v.phase == Netplay::Phase::Starting) && !v.waiting_host && !v.watching)
+    {
+      if (pressed & BTN_L2)
+        OpenQuickPhrases();
+      else
+        WriteChatLine();
+      return true;
+    }
+  }
   // (00.95) A link cable room's game for Game Boy 2: Circle back to the room.
   if (setting == SET_OL_LINKGAME && (pressed & BTN_CIRCLE))
   {
@@ -10344,12 +13963,29 @@ bool Menu::Impl::OnlinePanelInput(uint32_t pressed)
       OnlineAction("hide");
     else if (key == "ol:bar" && (pressed & (BTN_CROSS | BTN_LEFT | BTN_RIGHT)))
       OnlineAction("bar");
+    else if (key == "ol:chattext" && (pressed & (BTN_CROSS | BTN_LEFT | BTN_RIGHT)))
+      OnlineAction("chattext");  // (01.05)
+    else if (key == "ol:country" && (pressed & (BTN_CROSS | BTN_LEFT | BTN_RIGHT)))
+      OnlineAction("country");  // (01.05)
+    else if (key == "ol:unblock" && (pressed & BTN_CROSS))
+      OnlineAction("unblock");
+    else if (key == "ol:world" && (pressed & (BTN_CROSS | BTN_LEFT | BTN_RIGHT)))
+      OnlineAction("world");  // (01.07)
+    else if (key == "ol:ranking" && (pressed & (BTN_CROSS | BTN_LEFT | BTN_RIGHT)))
+      OnlineAction("ranking");
+    else if (key == "ol:worldmuted" && (pressed & BTN_CROSS))
+      OnlineAction("worldmuted");
     else if (!(pressed & BTN_CROSS))
       return true;
     else if (key == "ol:nick")
       OnlineAction("nick");
     else if (key == "ol:stats")
       OpenMyStats();
+    else if (key == "ol:check")
+    {
+      OpenCheckGames("");  // (01.05)
+      Play("confirm");
+    }
     else
       OpenSettingPanel(key == "ol:profile" ? SET_OL_PROFILE : key == "ol:public" ? SET_OL_PUBLIC :
                        key == "ol:code"    ? SET_OL_CODE :
@@ -10372,14 +14008,23 @@ bool Menu::Impl::OnlinePanelInput(uint32_t pressed)
     Play("move");
     return true;
   }
-  for (const uint32_t arrow : {BTN_UP, BTN_DOWN})
+  // ((01.15) The room screen: its options in columns under the cards - RoomPlaces.)
+  if (RoomScreenShown())
   {
-    const int next = count > 0 ? MenuNav::Step(m_panel.selected, arrow == BTN_UP ? -1 : 1, count, Fresh(arrow)) : 0;
-    if ((pressed & arrow) && next != m_panel.selected)
+    if (pressed & (BTN_UP | BTN_DOWN | BTN_LEFT | BTN_RIGHT))
+      MoveRoomSelection(pressed);
+  }
+  else
+  {
+    for (const uint32_t arrow : {BTN_UP, BTN_DOWN})
     {
-      m_panel.selected = next;
-      m_online_prefer.clear();  // (00.86: the player's choice from now on)
-      Play("move");
+      const int next = count > 0 ? MenuNav::Step(m_panel.selected, arrow == BTN_UP ? -1 : 1, count, Fresh(arrow)) : 0;
+      if ((pressed & arrow) && next != m_panel.selected)
+      {
+        m_panel.selected = next;
+        m_online_prefer.clear();  // (00.86: the player's choice from now on)
+        Play("move");
+      }
     }
   }
   if (!(pressed & BTN_CROSS) || m_panel.selected < 0 || m_panel.selected >= static_cast<int>(m_online_actions.size()))
@@ -10422,9 +14067,15 @@ bool Menu::Impl::OnlinePanelInput(uint32_t pressed)
     // (00.95) A Game Boy link cable room: its console the link's, two players.
     m_online_link_game = -1;
     m_online_link_said = false;
-    if (m_online_link)
-      info.console = NetProto::GBLINK;
+    if (m_online_link)  // (01.04: a GBA game's room is a Game Boy Advance link room)
+      info.console = m_games[static_cast<size_t>(m_online_game)].rom.system == SystemId::GBA ? NetProto::GBALINK :
+                                                                                             NetProto::GBLINK;
+    // ((01.06) Its whole file's CRC32 too: a player of v00.23 knows the game by it - not a link cable room's, which
+    // plays with its own version only.)
+    else
+      OnlineFileId(m_online_game, &info.file_crc, &info.file_size);
     Netplay::Host(info, action == "public", m_data_dir, m_online_link ? 2 : m_online_players);
+    Netplay::SetGameVersion(OnlineVersionText(m_online_game));  // ((01.05) with the room's Create: the list shows it)
     OpenOnlineRoom();
     Play("confirm");
   }
@@ -10436,10 +14087,15 @@ bool Menu::Impl::OnlinePanelInput(uint32_t pressed)
       Play("error");
     }
   }
-  else if (action.rfind("kick:", 0) == 0)
+  else if (action == "chat:phrase")  // (01.05) the chat
+    OpenQuickPhrases();
+  else if (action == "chat:text")
+    WriteChatLine();
+  else if (action.rfind("player:", 0) == 0)
+    OpenPlayerActions(std::atoi(action.c_str() + 7));
+  else if (PickerAction(action))
   {
-    Netplay::Kick(std::atoi(action.c_str() + 5));
-    Play("confirm");
+    // ((01.07) a quick phrase, a player's mute, block or removal: the picker's actions - PickerAction)
   }
   else if (action.rfind("accept:", 0) == 0)
   {
@@ -10978,10 +14634,12 @@ void Menu::Impl::OpenHelpPanel()
       lines.push_back((first ? "- " : "   ") + line);
   }
   lines.push_back("");
-  lines.push_back("emusuni.com");
   m_panel.lines = std::move(lines);
+  // (Each QR code under the lines, its name under it: DrawSidePanel.)
   if (m_help_qr == ImTextureID{})
     m_help_qr = LoadPngTexture(m_assets_dir + "/xmb/help-qr.png");
+  if (m_telegram_qr == ImTextureID{})
+    m_telegram_qr = LoadPngTexture(m_assets_dir + "/xmb/telegram-qr.png");  // (01.04)
 }
 
 // ---- Send Log (00.91, src/LogReport.h) ----
@@ -11030,6 +14688,9 @@ void Menu::Impl::BuildSendLogPanel()
     m_panel.title = "Log Sent";
     lines.clear();  // (under the code)
     add("This is its code: write it in your report on GitHub (Issues) or Telegram, with what happened.");
+    // (01.04, the owner) The group on Telegram as a QR code under it (DrawSidePanel).
+    if (m_telegram_qr == ImTextureID{})
+      m_telegram_qr = LoadPngTexture(m_assets_dir + "/xmb/telegram-qr.png");
     m_panel.options = {"OK"};
     m_panel.helps = {"Closes this. Settings -> Send Log sends a new one."};
   }
@@ -11421,7 +15082,23 @@ void Menu::Impl::TourCommand(const std::string& command)
   const std::string word = command.substr(0, space);
   const std::string rest = space == std::string::npos ? std::string() : command.substr(space + 1);
   const int games = static_cast<int>(Category::Games);
-  if (word == "select" || word == "play")
+  if (word == "play" && rest.empty())
+  {
+    // (01.05) The game selected on the page shown ("tab atarijaguar rayman", then "play": a title in several consoles
+    // - "play Rayman" starts the first in the whole library, the Game Boy Color's).
+    const int at = m_selected[m_category];
+    const int game = at >= 0 && at < static_cast<int>(m_items[m_category].size()) ? m_items[m_category][at].game : -1;
+    if (game < 0)
+    {
+      Log("tour: play: no game selected on this page");
+      return;
+    }
+    m_panel.open = false;
+    m_launch = game;
+    m_launch_time = 0.0f;
+    Play("launch");
+  }
+  else if (word == "select" || word == "play")
   {
     // The game whose title is the text (else the first that has it).
     const std::string wanted = Lower(rest);
@@ -12401,6 +16078,10 @@ void Menu::Impl::DrawItem(ImDrawList* dl, const Item& item, float y, bool select
                  Rgba(theme.text, alpha * 0.30f), alpha);
       sx += RatingWidth(R) + 18;
     }
+    // (01.05, the owner) Its file the standard version or not, right after the stars (under them is the next row): its
+    // word too for the game selected.
+    if (const int mark = StandardMark(game))
+      sx += DrawStandardMark(dl, ImVec2(sx, sub_y + 17), 10.0f, mark, alpha, selected) + 16;
     // RetroAchievements' mark (00.77): its achievements' "RA" after them.
     if (m_ra_marks && game.ra.state == Achievements::LibraryInfo::State::Known)
     {
@@ -12428,6 +16109,16 @@ void Menu::Impl::DrawSidePanel(ImDrawList* dl, float dt)
   {
     DrawTogetherScreen(dl, dt);
     return;
+  }
+  // (01.05, the owner) A room - waiting, starting -: the whole screen too.
+  if (m_panel.setting == SET_ONLINE_ROOM)
+  {
+    const Netplay::Phase phase = Netplay::GetView().phase;
+    if (phase == Netplay::Phase::Room || phase == Netplay::Phase::Starting)
+    {
+      DrawRoomScreen(dl, dt);
+      return;
+    }
   }
   const Theme& theme = CurrentTheme();
   const float width = m_panel.rows.empty() ? 640.0f : 880.0f;
@@ -12508,8 +16199,10 @@ void Menu::Impl::DrawSidePanel(ImDrawList* dl, float dt)
       if (!help.empty())
       {
         const std::string wrapped = WrapText(m_font, 25, PS4Lang::T(help), width - 100);
-        dl->AddText(m_font, 25, ImVec2(x0 + 50, H - 176.0f), Rgba(theme.text, 0.8f * m_panel.slide),
-                    wrapped.c_str());
+        // ((01.05) A long one higher: it ends above the button hints.)
+        const float lines = static_cast<float>(std::count(wrapped.begin(), wrapped.end(), '\n') + 1);
+        dl->AddText(m_font, 25, ImVec2(x0 + 50, std::min(H - 176.0f, HELP_END - HELP_LINE * lines)),
+                    Rgba(theme.text, 0.8f * m_panel.slide), wrapped.c_str());
       }
     }
   }
@@ -12530,19 +16223,39 @@ void Menu::Impl::DrawSidePanel(ImDrawList* dl, float dt)
     }
     y += line_step;
   }
+  // A QR code at its own size (205: sharp), its name under it (centered), clear of the button hints.
+  constexpr float QR = 205.0f, QR_LABEL = 36.0f;
+  const auto draw_qr = [&](ImTextureID qr, ImVec2 p0, const std::string& label) {
+    dl->AddImage(ImTextureRef(qr), p0, ImVec2(p0.x + QR, p0.y + QR), ImVec2(0, 0), ImVec2(1, 1),
+                 IM_COL32(255, 255, 255, static_cast<int>(255 * m_panel.slide)));
+    if (!label.empty())
+      Text(dl, m_bold, 26, ImVec2(p0.x + (QR - TextWidth(m_bold, 26, label)) * 0.5f, p0.y + QR + 6), text, label);
+  };
   if (m_panel.setting == SET_HELP && m_help_qr != ImTextureID{})
   {
-    // (00.90) How to Help: the project's page as a QR code, under its address, at its own size (205: sharp), clear of
-    // the button hints.
-    constexpr float QR = 205.0f;
-    const ImVec2 p0(x0 + 50, std::min(y + 8, H - 160 - QR));
-    dl->AddImage(ImTextureRef(m_help_qr), p0, ImVec2(p0.x + QR, p0.y + QR), ImVec2(0, 0), ImVec2(1, 1),
-                 IM_COL32(255, 255, 255, static_cast<int>(255 * m_panel.slide)));
+    // (00.90) How to Help: the project's website as a QR code; (01.04, the owner) the group on Telegram's beside it.
+    const ImVec2 p0(x0 + 50, std::min(y + 8, H - 160 - QR - QR_LABEL));
+    draw_qr(m_help_qr, p0, "emusuni.com");
+    if (m_telegram_qr != ImTextureID{})
+      draw_qr(m_telegram_qr, ImVec2(p0.x + QR + 50, p0.y), "Telegram");
+  }
+  if (m_panel.setting == SET_SEND_LOG && LogReport::GetStatus().state == LogReport::State::Sent &&
+      m_telegram_qr != ImTextureID{})
+  {
+    // (01.04) A log sent: the group on Telegram's QR code under the lines, what to tell there beside it.
+    const ImVec2 p0(x0 + 50, std::min(y + 8, H - 160 - QR - QR_LABEL));
+    draw_qr(m_telegram_qr, p0, "Telegram");
+    const std::string wrapped =
+        WrapText(m_font, 26, PS4Lang::T("Tell us what happened on Telegram, with this code."), width - 100 - QR - 30);
+    dl->AddText(m_font, 26, ImVec2(p0.x + QR + 30, p0.y + 20), text, wrapped.c_str());
   }
   if (!m_panel.rows.empty())
   {
-    // Settings list, scrolling with the selection; the setting's help text below it.
-    const float row_h = 58.0f, top = 220.0f, bottom = H - 200.0f;
+    // Settings list, scrolling with the selection; the setting's help text below it - (01.05) the list shorter when the
+    // text needs more than its room, so that the text ends above the button hints (HELP_END).
+    const float row_h = 58.0f, top = 220.0f;
+    const float bottom = std::max(top + 3.0f * row_h, std::min(H - 200.0f, HELP_END - 24.0f - HELP_LINE *
+                                                                              static_cast<float>(m_panel.help_lines)));
     const float visible = (bottom - top) / row_h;
     const float target =
         std::clamp(static_cast<float>(m_panel.selected) - visible * 0.5f + 1.0f, 0.0f,
@@ -12835,9 +16548,14 @@ void Menu::Impl::DrawSidePanel(ImDrawList* dl, float dt)
           shown += std::string("\n") + PS4Lang::T(choice->label) + ": " + PS4Lang::T(choice->help);
       }
       const std::string wrapped = WrapText(m_font, 25, shown, width - 100);
+      // (01.05) Its lines for the list's end next frame (a new selection: one frame at the old end, then there).
+      m_panel.help_lines =
+          static_cast<int>(std::count(wrapped.begin(), wrapped.end(), '\n')) + (wrapped.empty() ? 0 : 1);
       dl->AddText(m_font, 25, ImVec2(x0 + 50, bottom + 24), Rgba(theme.text, 0.8f * m_panel.slide),
                   wrapped.c_str());
     }
+    else
+      m_panel.help_lines = 0;
   }
 }
 
@@ -12923,16 +16641,39 @@ void Menu::Impl::DrawHints(ImDrawList* dl)
   }
   else if (m_category == static_cast<int>(Category::Online))
   {
-    // (00.85) The Online column's table.
+    // (00.85) The Online column's table. ((01.08) Its pages: L2 / R2, (01.09) the only ones.)
     hint("Online Settings", "Options");
+    hint("Page", "R2");
+    x += 32.0f - PS4Glyphs::Width("L2", 36);  // (L2 before R2: the Together screen's way)
+    PS4Glyphs::Draw(dl, m_bold, "L2", x, y, 36, 0.9f);
+    x -= 40.0f;
+    if (m_online_page == PAGE_TOP)
+    {
+      hint("Create Room", "Cross");
+      return;
+    }
+    if (m_online_page == PAGE_CHAT)
+    {
+      hint("Write", "Triangle");
+      hint("Quick Phrase", "Square");
+      if (m_world_index >= 0)
+        hint("Mute or Report", "Cross");
+      return;
+    }
+    if (m_online_page == PAGE_PLAYERS)
+    {
+      hint(m_players_days ? "Since Ever" : "Last 7 Days", "Triangle");  // ((01.07) the ranking's period)
+      return;
+    }
     hint("Join with Code", "Triangle");
     hint("Create Room", "Square");
-    hint("Room Type", "R2");
-    hint("Console", "L2");
     // (00.86: Cross on our own room goes back to it.)
     const bool mine = m_online_index >= 0 && m_online_index < static_cast<int>(m_online_rows.size()) &&
                       m_online_rows[static_cast<size_t>(m_online_index)].mine;
-    hint(mine ? "Go to Your Room" : "Join", "Cross");
+    // ((01.15) A room that takes spectators: the Touchpad watches it, a player's place left or not.)
+    if (!mine && OnlineRowCanWatch() && !OnlineRowWatch())
+      hint("Watch", "Touchpad");
+    hint(mine ? "Go to Your Room" : OnlineRowWatch() ? "Watch" : "Join", "Cross");
   }
   else
   {
@@ -12946,7 +16687,7 @@ void Menu::Impl::DrawHints(ImDrawList* dl)
       if (game)
         hint("Favorite", "L2");
       hint("Refresh", "Square");
-      hint("Sort", "Options");
+      hint("Order and Filters", "Options");  // ((01.18) until 01.17: Sort, the next order at once)
       if (m_ra_marks)
         hint("RA Filter", "Touchpad");  // (00.80)
     }
@@ -13228,6 +16969,10 @@ void Menu::Impl::Draw(float dt)
     // how to turn it off - not only in a toast when it changes.
     if (RaFilterOn() && IsGameList(c))
       Text(dl, m_font, 26, ImVec2(150.0f, H - 190.0f), Rgba(0xFFC83C, switch_alpha), RaFilterHiddenLine(c));
+    // ((01.18) Order and Filters' genre or players, the same way: above it when both are on.)
+    if (ViewFilterOn() && IsGameList(c))
+      Text(dl, m_font, 26, ImVec2(150.0f, H - (RaFilterOn() ? 224.0f : 190.0f)), Rgba(0xFFC83C, switch_alpha),
+           ViewFilterLine(c));
     DrawEmblem(dl, ImVec2(110, 90), 70, 0.9f);
     // The version under the emblem.
     const std::string version = std::string("v") + App::VERSION;
@@ -13568,13 +17313,27 @@ void Menu::Impl::DrawCover(ImDrawList* dl, int index, ImVec2 a, ImVec2 b, ImVec2
   // (27 pixels wide for the selected one) on its reflection's top, under the part of it in view (stars_x), following
   // its tilted bottom edge; gone while the search keyboard is up (the title is under the covers then).
   const float rating_alpha = alpha * (1.0f - m_keyboard_slide);
-  if (m_prefs.ratings && game.rating.half_stars >= 0 && rating_alpha > 0.01f)
+  const float star_r = std::clamp(h * 0.032f, 7.0f, 14.0f);
+  const float stars_at = stars_x >= 0.0f ? stars_x : (c.x + d.x) * 0.5f;
+  const float stars_edge =
+      c.x - d.x > 1.0f ? d.y + (c.y - d.y) * std::clamp((stars_at - d.x) / (c.x - d.x), 0.0f, 1.0f) : c.y;
+  const bool stars = m_prefs.ratings && game.rating.half_stars >= 0;
+  if (stars && rating_alpha > 0.01f)
+    DrawRating(dl, m_star, ImVec2(stars_at, stars_edge + 9.0f + star_r), star_r, game.rating.half_stars,
+               Rgba(theme.text, rating_alpha * 0.30f), rating_alpha);
+  // (01.05, the owner: "una marca debajo de las estrellas") Its file the standard version or not, under the stars (where
+  // they would be, without them), centred as they are; its word too on the cover selected. Gone with the stars under
+  // the keyboard.
+  if (rating_alpha > 0.01f)
   {
-    const float r = std::clamp(h * 0.032f, 7.0f, 14.0f);
-    const float x = stars_x >= 0.0f ? stars_x : (c.x + d.x) * 0.5f;
-    const float edge = c.x - d.x > 1.0f ? d.y + (c.y - d.y) * std::clamp((x - d.x) / (c.x - d.x), 0.0f, 1.0f) : c.y;
-    DrawRating(dl, m_star, ImVec2(x, edge + 9.0f + r), r, game.rating.half_stars, Rgba(theme.text, rating_alpha * 0.30f),
-               rating_alpha);
+    if (const int mark = StandardMark(game))
+    {
+      const float mr = std::max(6.0f, star_r * 0.75f);
+      const float my = stars_edge + 9.0f + (stars ? star_r * 2.0f + 6.0f : 0.0f) + mr;
+      const bool label = focus == 2;
+      DrawStandardMark(dl, ImVec2(stars_at - StandardMarkWidth(mr, mark, label) * 0.5f, my), mr, mark, rating_alpha,
+                       label);
+    }
   }
   // RetroAchievements' mark (00.77): "RA" in the cover's bottom right corner for a game with achievements (gold when
   // completed), as big as the cover (30 pixels tall for the selected one).
@@ -13741,6 +17500,9 @@ void Menu::Impl::DrawLibraryGames(ImDrawList* dl, float alpha, int c)
     sub = "0 games";
   else
     sub = favorites ? "No favorites yet" : m_reading_shown >= 0 ? "Reading your games..." : "No games yet";
+  // ((01.18) Order and Filters' genre or players: first, with how many they hide.)
+  if (ViewFilterOn() && (any || m_view_emptied[c]))
+    sub = ViewFilterLine(c) + "  -  " + (m_view_emptied[c] ? "0 games  -  " + SortName() : sub);
   if (!m_search.empty())
     sub += "  -  Search: " + m_search;
   if (m_dl_thread.joinable() && !m_dl_done)
@@ -13763,11 +17525,17 @@ void Menu::Impl::DrawLibraryGames(ImDrawList* dl, float alpha, int c)
   {
     std::string line1;
     std::vector<std::string> lines;  // smaller, under it
-    if (reading >= 0 && m_search.empty() && !m_all_covered[c] && !m_ra_emptied[c] && !favorites)
+    if (reading >= 0 && m_search.empty() && !m_all_covered[c] && !m_ra_emptied[c] && !m_view_emptied[c] && !favorites)
     {
       line1 = "Reading your games...";
       if (reading > 0)
         lines = {std::to_string(reading) + " found so far"};
+    }
+    else if (m_view_emptied[c])
+    {
+      // (01.18) Order and Filters' genre or players left none here.
+      line1 = "No games of that genre or players here";
+      lines = {"Options shows every game again"};
     }
     else if (m_all_covered[c])
     {
@@ -14415,12 +18183,37 @@ void Menu::Impl::DrawLibraryHints(ImDrawList* dl)
     const bool mine = m_online_index >= 0 && m_online_index < static_cast<int>(m_online_rows.size()) &&
                       m_online_rows[static_cast<size_t>(m_online_index)].mine;
     left("D-Pad", "Browse");
-    left("Cross", mine ? "Go to Your Room" : "Join");
+    // ((01.08) Its pages: L2 / R2, (01.09) the only ones - the Library's L1 / R1 are its tabs.)
+    x += PS4Glyphs::Draw(dl, m_bold, "L2", x, y, 36, 0.9f) + 8;
+    left("R2", "Page");
+    // ((01.05) the games most played online: Cross makes a room for the selected one, when it is ours)
+    if (m_online_page == PAGE_TOP)
+    {
+      left("Cross", "Create Room");
+      right("Options", "Online Settings");
+      return;
+    }
+    if (m_online_page == PAGE_CHAT)
+    {
+      if (m_world_index >= 0)
+        left("Cross", "Mute or Report");
+      right("Options", "Online Settings");
+      right("Triangle", "Write");
+      right("Square", "Quick Phrase");
+      return;
+    }
+    if (m_online_page == PAGE_PLAYERS)
+    {
+      right("Options", "Online Settings");
+      right("Triangle", m_players_days ? "Since Ever" : "Last 7 Days");  // ((01.07) the ranking's period)
+      return;
+    }
+    left("Cross", mine ? "Go to Your Room" : OnlineRowWatch() ? "Watch" : "Join");
+    if (!mine && OnlineRowCanWatch() && !OnlineRowWatch())
+      left("Touchpad", "Watch");  // ((01.15) a spectator's, a player's place left or not)
     right("Options", "Online Settings");
     right("Triangle", "Join with Code");
     right("Square", "Create Room");
-    right("R2", "Room Type");
-    right("L2", "Console");
     return;
   }
   const bool games = IsGameList(m_category);
@@ -14434,7 +18227,7 @@ void Menu::Impl::DrawLibraryHints(ImDrawList* dl)
     left("Circle", "Clear Search");
   if (games)
   {
-    right("Options", "Sort");
+    right("Options", "Order and Filters");  // ((01.18) until 01.17: Sort, the next order at once)
     // (00.80) RetroAchievements' filter: with the marks on (not beside a search's Clear Search: no room).
     if (m_ra_marks && m_search.empty())
       right("Touchpad", "RA Filter");
@@ -14455,12 +18248,16 @@ bool Menu::Impl::Run(Library::Game* result)
   int user = 0;
   sceUserServiceGetInitialUser(&user);
   ImGuiIO& io = ImGui::GetIO();
+  g_start_step = "the menu: its pictures, fonts and sounds";
   LoadAssets();
   m_audio.Start();
   m_input.Open(user);
+  g_start_step = "the menu: the saves";
   LoadSaves();
+  g_start_step = "the menu: its lists";
   ApplyPreferences();
   BuildItems();
+  g_start_step = "the menu: the rest before its first frame";
   m_launch = -1;
   m_launch_time = 0.0f;
   m_fade = 1.0f;
@@ -14507,10 +18304,12 @@ bool Menu::Impl::Run(Library::Game* result)
   m_rating_download.Pause(false);
   // Star ratings: LaunchBox's, downloaded in the background when there are none or they are 60 days old (once a
   // session; Settings -> Star Ratings Off: never), paused while a game runs.
-  if (m_prefs.ratings && !m_rating_download_tried && Ratings::CopyOld(m_rating_copy))
+  if (m_prefs.ratings && !m_rating_download_tried && !m_safe_start && Ratings::CopyOld(m_rating_copy))
   {
     Log(std::string("ratings: downloading LaunchBox's ratings in the background (") +
-        (m_rating_copy.there ? "the copy of " + m_rating_copy.date + " is 60 days old" : std::string("none yet")) + ")");
+        (!m_rating_copy.there ? std::string("none yet") :
+         !m_rating_copy.meta  ? "the copy of " + m_rating_copy.date + " has no genres and players: before 01.18" :
+                                "the copy of " + m_rating_copy.date + " is 60 days old") + ")");
     StartRatingsDownload();
   }
   // (00.85) The read waits while a game runs (Library::ScanProgress::pause), and goes on now; the missing covers are
@@ -14522,7 +18321,7 @@ bool Menu::Impl::Run(Library::Game* result)
   // lost) goes on in the background when the menu first opens.
   m_bezel_download.Pause(false);
   NetplayLibrary::Pause(false);  // (00.23: the games' files hashed again, if any is left)
-  if (!m_bezel_resume_tried)
+  if (!m_bezel_resume_tried && !m_safe_start)  // ((01.11) a safe start's next start goes on with it)
   {
     m_bezel_resume_tried = true;
     const std::vector<std::string> pending = BezelProject::Downloader::Pending(UserDir());
@@ -14541,7 +18340,8 @@ bool Menu::Impl::Run(Library::Game* result)
     if (!m_stats_waiting)
       UsageStats::Start(m_data_dir, App::VERSION);
     // (00.91) EmuSuNi closed by itself last time (crash.log grew, or the start watchdog restarted it): ask to send it.
-    m_report_ask = LogReport::CrashToAsk(m_data_dir, StartGuard::Restarted());
+    // (01.11: or the start-up watchdog closed it - a safe start now: SafeStart)
+    m_report_ask = LogReport::CrashToAsk(m_data_dir, StartGuard::Restarted() || m_safe_start);
   }
   // The first start (no language chosen yet): the language list first, on the PS4's own language.
   {
@@ -14586,6 +18386,13 @@ bool Menu::Impl::Run(Library::Game* result)
     }
     m_pending_error.clear();
   }
+  // (01.22) Back from a game its in-game menu closed to install or remove something: that game's panel on it (its own
+  // confirmation), Start the Game at its top.
+  {
+    GameExtras::AfterGame after;
+    if (GameExtras::TakeAfterGame(&after) && !m_panel.open)
+      OpenAfterGame(after);
+  }
   // (00.23) Back from a Choose Together match: its room again, the games both have to pick another. (00.86) Back from
   // a game played alone while our room stayed open: the room again only when someone is in it or asks to join (the
   // in-game menu's Accept Player ends the game for that) - else the menu as it was.
@@ -14594,7 +18401,10 @@ bool Menu::Impl::Run(Library::Game* result)
     bool other = false;
     for (const Netplay::PlayerView& p : v.players)
       other = other || !p.me;
-    if (!m_panel.open && v.phase == Netplay::Phase::Room && (!v.host || other))
+    // ((01.23) Back from a match of any room: its room again, the host's alone too - Back to the Room.)
+    const bool back = m_online_back;
+    m_online_back = false;
+    if (!m_panel.open && v.phase == Netplay::Phase::Room && (!v.host || other || back))
     {
       OpenOnlineRoom();
       if (v.host && v.asking < 0)
@@ -14602,6 +18412,7 @@ bool Menu::Impl::Run(Library::Game* result)
     }
   }
 
+  g_start_step = "the menu: its first frames";
   auto last = Clock::now();
   bool picked = false;
   for (;;)
@@ -14662,6 +18473,21 @@ bool Menu::Impl::Run(Library::Game* result)
     UpdateRatings();
     UpdateCoverDownload();
     UpdateBezelDownload();  // (Game Bezels, 00.80)
+    // (01.11) The bezels there, counted from their records once the menu has shown itself (BezelsDetail; a safe start:
+    // when their page opens).
+    if (!m_bezels_counted && !m_safe_start && !m_bezel_download.Busy() &&
+        g_display_frames.load(std::memory_order_relaxed) >= 3)
+    {
+      for (Item& item : m_items[static_cast<int>(Category::Settings)])
+      {
+        if (item.setting == SET_BEZELS)
+          item.detail = BezelsDetail();
+      }
+    }
+#ifdef EMUSUNI_3DS
+    Update3dsInstall();  // ((01.09) a CIA's install as it goes)
+#endif
+    UpdatePatchedCopy();  // ((01.22) an Arcade game's patched romset's copy as it goes)
     UpdateCheatFinder();
     UpdateAchievements(dt);  // (RetroAchievements, 00.73: the login as it goes, rc_client's waiting work)
     // (00.23) Voice Chat: Test Microphone's progress and level meter while its panel shows; it stops when it closes.
@@ -14700,6 +18526,7 @@ bool Menu::Impl::Run(Library::Game* result)
     {
       if (m_launch_online && Netplay::LinkRoom())
         SetGbLinkMatch();  // (00.95: the Game Boy link cable's two games, src/GbLink.h)
+      TellInstallFolders(m_games[m_launch].rom.system);  // ((01.22) for its in-game menu's Updates, DLC and Mods)
       *result = m_games[m_launch].rom;
       picked = true;
       break;
@@ -14755,6 +18582,11 @@ bool Menu::DefaultGame(Library::Game* game)
 bool Menu::FindGame(const std::string& path, Library::Game* game)
 {
   return m_impl->FindGame(path, game);
+}
+
+void Menu::SafeStart()
+{
+  m_impl->SafeStart();
 }
 
 ImFont* Menu::RegularFont() const

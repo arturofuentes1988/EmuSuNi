@@ -11,6 +11,9 @@ One program, the Python standard library only (Ubuntu 20.04's Python 3.8), besid
   export    a report as a tar.gz on stdout (the owner's PC: local/herramientas/scripts-pc/bajar-reporte.py).
   purge     the reports past their days deleted now (serve does it every hour).
   (00.92) The owner's panel in a browser, on the same HTTPS (everything but POST /report): server/reports_panel.py.
+  (01.04) emusuni.com's visits (Visits): POST /v from each page of the site (CORS for --visit-origin only) counts it
+            and answers the total, GET /v only the total; by day, page and country in <dir>/visits/visits.db (the
+            panel's Visits), never the address.
   admin-setup    its password and TOTP (asked here, never elsewhere: emusuni-reports admin-setup in a terminal).
   acme issue     a certificate from Let's Encrypt for the server's IP and the reports' key (server/reports_acme.py;
                  --agree-tos the first time, --staging to try), which serve renews by itself: --http-port 80 answers
@@ -54,12 +57,15 @@ import os
 import re
 import secrets
 import shutil
+import signal
 import socket
+import sqlite3
 import ssl
 import sys
 import tarfile
 import threading
 import time
+import urllib.parse
 import zlib
 
 ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ"  # the rooms' (src/NetplayProtocol.h: no 0/O, 1/I/L)
@@ -73,6 +79,11 @@ SEND_SECONDS = 20
 DISK_CAP = 1024 * 1024 * 1024
 KEEP_DAYS = 90
 PLAIN_AT_ONCE, PLAIN_SECONDS = 8, 10  # (00.92) the plain HTTP's (port 80)
+# (01.04) emusuni.com's visits (Visits): its pages, the site's address (CORS), what one visitor and a day count at most.
+VISIT_PAGES = ("home", "stats", "compat")
+VISIT_ORIGIN = "https://emusuni.com"
+VISITS_PER_VISITOR, VISITS_PER_DAY, VISITORS_A_DAY = 300, 200000, 200000
+VISIT_BODY = 256
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
@@ -338,6 +349,114 @@ class Limits:
             return True
 
 
+# ---- (01.04) emusuni.com's visits ----
+class Visits:
+    """The website's page views (site/common.js: POST /v on each page shown), for the owner's panel (Visits) and the
+    site's public total. Kept in <dir>/visits/visits.db (SQLite): views by day, page and country, and each day's
+    unique visitors by country - numbers only. The address is used in memory only - its country, and the day's unique
+    visitors as a hash of it and the browser's User-Agent with a salt new each day (UTC), forgotten with the day - and
+    never kept or written. The counts wait in memory and are written every minute (flush) and when the server stops.
+    A restart in the middle of a day counts its visitors once more as unique ones (their hashes are gone)."""
+
+    def __init__(self, folder):
+        os.makedirs(folder, 0o750, exist_ok=True)
+        self.path = os.path.join(folder, "visits.db")
+        self.lock = threading.Lock()
+        db = self.open()
+        try:
+            db.executescript(
+                "CREATE TABLE IF NOT EXISTS visit_day(date TEXT, page TEXT, country TEXT, views INT,"
+                " PRIMARY KEY(date, page, country)) WITHOUT ROWID;"
+                "CREATE TABLE IF NOT EXISTS visit_unique(date TEXT, country TEXT, visitors INT,"
+                " PRIMARY KEY(date, country)) WITHOUT ROWID;")
+            self.total = db.execute("SELECT COALESCE(SUM(views), 0) FROM visit_day").fetchone()[0]
+        finally:
+            db.close()
+        self.day = None
+        self.base = {}      # the day's unique visitors by country already in the file (a restart's: kept, never less)
+        self.salt = b""
+        self.visitors = {}  # the day's: hash -> [country, views]
+        self.views_today = 0
+        self.pending = {}   # (date, page, country) -> views not written yet
+
+    def open(self):
+        db = sqlite3.connect(self.path, timeout=10)
+        db.execute("PRAGMA journal_mode=WAL")
+        db.execute("PRAGMA synchronous=NORMAL")
+        return db
+
+    def new_day(self, day, db=None):
+        """(The lock held.) The day's sets forgotten; its uniques already in the file read again (a restart's)."""
+        self.day, self.salt, self.visitors, self.views_today = day, secrets.token_bytes(32), {}, 0
+        own = db is None
+        db = db or self.open()
+        try:
+            self.base = {c: n for c, n in db.execute("SELECT country, visitors FROM visit_unique WHERE date = ?",
+                                                     (day,))}
+            self.views_today = db.execute("SELECT COALESCE(SUM(views), 0) FROM visit_day WHERE date = ?",
+                                          (day,)).fetchone()[0]
+        finally:
+            if own:
+                db.close()
+
+    def hit(self, address, agent, page, country, now=None):
+        """A page shown. True: counted (a visitor's VISITS_PER_VISITOR a day, VISITS_PER_DAY in all)."""
+        day = time.strftime("%Y-%m-%d", time.gmtime(time.time() if now is None else now))
+        with self.lock:
+            if day != self.day:
+                if self.day is not None:
+                    self.flush_locked()
+                self.new_day(day)
+            who = hmac.new(self.salt, address.encode() + b"\0" + agent[:256].encode("utf-8", "replace"),
+                           hashlib.sha256).digest()[:16]
+            entry = self.visitors.get(who)
+            if entry is None:
+                if len(self.visitors) >= VISITORS_A_DAY:
+                    return False
+                entry = self.visitors[who] = [country, 0]
+            if entry[1] >= VISITS_PER_VISITOR or self.views_today >= VISITS_PER_DAY:
+                return False
+            entry[1] += 1
+            self.views_today += 1
+            key = (day, page, country)
+            self.pending[key] = self.pending.get(key, 0) + 1
+            self.total += 1
+            return True
+
+    def flush_locked(self):
+        if not self.pending and self.day is None:
+            return
+        uniques = dict(self.base)
+        for country, _ in self.visitors.values():
+            uniques[country] = uniques.get(country, 0) + 1
+        db = self.open()
+        try:
+            with db:
+                for (date, page, country), views in self.pending.items():
+                    db.execute("INSERT INTO visit_day(date, page, country, views) VALUES (?, ?, ?, ?) "
+                               "ON CONFLICT(date, page, country) DO UPDATE SET views = views + excluded.views",
+                               (date, page, country, views))
+                if self.day is not None:
+                    for country, n in uniques.items():
+                        db.execute("INSERT INTO visit_unique(date, country, visitors) VALUES (?, ?, ?) "
+                                   "ON CONFLICT(date, country) DO UPDATE SET visitors = MAX(visitors, excluded.visitors)",
+                                   (self.day, country, n))
+        finally:
+            db.close()
+        self.pending = {}
+
+    def flush(self):
+        with self.lock:
+            try:
+                self.flush_locked()
+            except sqlite3.Error as e:
+                say("visits not written: %s" % type(e).__name__)
+
+    def views(self):
+        with self.lock:
+            return self.total
+
+
 class Handler(http.server.BaseHTTPRequestHandler):
     server_version = "EmuSuNi"
     sys_version = ""
@@ -356,7 +475,67 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(body)
         self.close_connection = True
 
+    # ---- (01.04) emusuni.com's visits: POST /v counts a page shown, GET /v only says the total ----
+    def visit_answer(self, status, payload, cache=False):
+        body = (json.dumps(payload) + "\n").encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Access-Control-Allow-Origin", self.server.visit_origin)
+        self.send_header("Vary", "Origin")
+        self.send_header("Cache-Control", "public, max-age=60" if cache else "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.wfile.write(body)
+        self.close_connection = True
+
+    def visit(self, method):
+        srv = self.server
+        if method == "OPTIONS":
+            self.send_response(204)
+            self.send_header("Access-Control-Allow-Origin", srv.visit_origin)
+            self.send_header("Access-Control-Allow-Methods", "GET, POST")
+            self.send_header("Access-Control-Max-Age", "86400")
+            self.send_header("Vary", "Origin")
+            self.send_header("Content-Length", "0")
+            self.send_header("Connection", "close")
+            self.end_headers()
+            self.close_connection = True
+            return
+        if method == "GET":
+            return self.visit_answer(200, {"views": srv.visits.views()}, cache=True)
+        try:
+            length = int(self.headers.get("Content-Length", "-1"))
+        except ValueError:
+            length = -1
+        if length < 0 or length > VISIT_BODY:
+            if VISIT_BODY < length <= 65536:
+                self.rfile.read(length)  # (read first: a connection closed with it unread is cut before the answer)
+            return self.visit_answer(413 if length > VISIT_BODY else 411, {"error": "size"})
+        body = self.rfile.read(length)
+        if len(body) != length:
+            return None
+        # (Only the site's own pages, from a browser - a cross-site POST always says its Origin -: anything else,
+        # a bot's or another site's, is not counted.)
+        if self.headers.get("Origin") != srv.visit_origin:
+            return self.visit_answer(403, {"error": "origin"})
+        fields = urllib.parse.parse_qs(body.decode("utf-8", "replace"))
+        page = (fields.get("page") or [""])[0]
+        if page not in VISIT_PAGES:
+            return self.visit_answer(400, {"error": "page"})
+        address = self.client_address[0]
+        srv.visits.hit(address, self.headers.get("User-Agent", ""), page, srv.countries.of(address))
+        return self.visit_answer(200, {"views": srv.visits.views()})
+
+    def do_OPTIONS(self):
+        if self.path.split("?")[0] == "/v" and self.server.visits:
+            return self.visit("OPTIONS")
+        self.answer(404, "not here")
+
     def do_GET(self):
+        if self.path.split("?")[0] == "/v" and self.server.visits:
+            return self.visit("GET")
         # (00.92) The owner's panel.
         if self.server.panel:
             return self.server.panel.handle(self, "GET")
@@ -364,6 +543,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def do_POST(self):
         srv = self.server
+        if self.path.split("?")[0] == "/v" and srv.visits:
+            return self.visit("POST")
         if self.path != "/report":
             if srv.panel:
                 return srv.panel.handle(self, "POST")
@@ -406,6 +587,7 @@ class Server(http.server.ThreadingHTTPServer):
     def __init__(self, bind, port, context, store, countries):
         self.context, self.store, self.countries = context, store, countries
         self.panel = None
+        self.visits, self.visit_origin = None, VISIT_ORIGIN  # (01.04)
         self.limits = Limits()
         self.slots = threading.BoundedSemaphore(AT_ONCE)
         super().__init__((bind, port), Handler)
@@ -645,6 +827,9 @@ def serve(args):
     certs = Certs(args.cert, args.key, acme_dir, names)
     server = Server(args.bind, args.port, certs.context(args.cert), store, countries)
     certs.refresh(server)
+    # (01.04) emusuni.com's visits: counted in memory, written every minute and when the server stops.
+    server.visits = Visits(os.path.join(args.dir, "visits"))
+    server.visit_origin = args.visit_origin
 
     def canonical():
         """The panel's address to send a browser to: its name once its certificate is valid (None: any of them)."""
@@ -660,6 +845,11 @@ def serve(args):
             if gone:
                 say("purge: %d report(s) deleted" % gone)
             time.sleep(3600)
+
+    def minutely():
+        while True:
+            time.sleep(args.visits_every)
+            server.visits.flush()
 
     def certificates():
         # Every minute the certificates to use; every 6 hours (each hour after a failure) a new one when due - (00.95)
@@ -687,6 +877,7 @@ def serve(args):
                     due[identity] = time.time() + 3600
 
     threading.Thread(target=hourly, daemon=True).start()
+    threading.Thread(target=minutely, daemon=True).start()
     threading.Thread(target=certificates, daemon=True).start()
     if args.http_port:
         fallback = hosts[-1] if hosts else args.bind
@@ -696,7 +887,16 @@ def serve(args):
     say("emusuni-reports: HTTPS on port %d%s%s, %d report(s) kept in %s" % (
         args.port, ", HTTP on port %d (ACME, to HTTPS)" % args.http_port if args.http_port else "",
         ", the panel for %s" % " and ".join(hosts) if hosts else "", len(store.codes()), args.dir))
-    server.serve_forever()
+
+    def stop(signum, frame):
+        raise SystemExit(0)  # (systemd's stop: the visits written first, below)
+
+    signal.signal(signal.SIGTERM, stop)
+    try:
+        server.serve_forever()
+    finally:
+        server.visits.flush()
+        say("emusuni-reports: stopped (%d visit(s) in all)" % server.visits.views())
 
 
 # ---- The owner's commands ----
@@ -809,6 +1009,8 @@ def main():
     p.add_argument("--stats-dir", default="/var/lib/emusuni-netd/stats")
     p.add_argument("--titles", default="/var/lib/emusuni-netd/titles.txt")
     p.add_argument("--repo", default="arturofuentes1988/EmuSuNi")
+    p.add_argument("--visit-origin", default=VISIT_ORIGIN, help="(01.04) the website whose visits are counted (CORS)")
+    p.add_argument("--visits-every", type=float, default=60.0, help="(01.04) seconds between writes of the visits")
     p = sub.add_parser("list")
     p.add_argument("--days", type=int, default=0)
     p = sub.add_parser("show")

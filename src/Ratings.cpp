@@ -142,6 +142,77 @@ int HalfStars(double rating)
   return std::clamp(static_cast<int>(rating * 2.0 + 0.5), 0, 10);
 }
 
+// (01.18) LaunchBox's genres, in its names (their order: the bits of Rating::genres - never changed, a new one at the
+// end).
+constexpr const char* GENRES[GENRE_COUNT] = {
+    "Action",       "Adventure",        "Beat 'em Up", "Board Game", "Casino",   "Compilation",
+    "Construction and Management Simulation", "Education", "Fighting", "Flight Simulator", "Horror",
+    "Life Simulation", "MMO",           "Music",       "Party",      "Pinball",  "Platform",
+    "Puzzle",       "Quiz",             "Racing",      "Role-Playing", "Sandbox", "Shooter",
+    "Sports",       "Stealth",          "Strategy",    "Vehicle Simulation", "Visual Novel"};
+
+// "Action; Platform" -> the bits of its genres (one LaunchBox doesn't list: none).
+uint32_t GenreBits(const std::string& genres)
+{
+  uint32_t bits = 0;
+  for (size_t start = 0; start <= genres.size();)
+  {
+    size_t end = genres.find(';', start);
+    if (end == std::string::npos)
+      end = genres.size();
+    size_t a = start, b = end;
+    while (a < b && genres[a] == ' ')
+      a++;
+    while (b > a && genres[b - 1] == ' ')
+      b--;
+    const int genre = GenreOf(genres.substr(a, b - a));
+    if (genre >= 0)
+      bits |= 1u << genre;
+    start = end + 1;
+  }
+  return bits;
+}
+
+// (01.18) The copy's column of a game's genres and players: "<genres' bits in hex>.<players>.<1 cooperative +
+// 2 adults>" ("10005.2.1"); "" of a copy before it.
+std::string MetaText(const Rating& r)
+{
+  char text[32];
+  snprintf(text, sizeof(text), "%x.%u.%u", static_cast<unsigned>(r.genres), static_cast<unsigned>(r.players),
+           (r.coop ? 1u : 0u) | (r.adult ? 2u : 0u));
+  return text;
+}
+
+void ReadMeta(const std::string& text, Rating* r)
+{
+  unsigned genres = 0, players = 0, flags = 0;
+  if (std::sscanf(text.c_str(), "%x.%u.%u", &genres, &players, &flags) != 3)
+    return;
+  r->genres = genres & ((1u << GENRE_COUNT) - 1);
+  r->players = static_cast<uint8_t>(std::min(players, 255u));
+  r->coop = (flags & 1) != 0;
+  r->adult = (flags & 2) != 0;
+}
+}  // namespace
+
+const char* GenreName(int genre)
+{
+  return genre >= 0 && genre < GENRE_COUNT ? GENRES[genre] : "";
+}
+
+int GenreOf(const std::string& name)
+{
+  for (int i = 0; i < GENRE_COUNT; i++)
+  {
+    if (name == GENRES[i])
+      return i;
+  }
+  return -1;
+}
+
+namespace
+{
+
 // The copy (CopyPath): each game's platform, rating and names (its own first), by its LaunchBox id.
 struct CopyGame
 {
@@ -159,10 +230,13 @@ void ReadCopyData(const std::string& path, CopyData* copy)
 {
   std::ifstream in(path);
   std::string line;
+  bool meta = false;  // ((01.18) "# meta: ..." in its head: each line's genres and players after its votes)
   while (std::getline(in, line))
   {
     if (!line.empty() && line.back() == '\r')
       line.pop_back();
+    if (line.rfind("# meta: ", 0) == 0)
+      meta = true;
     if (line.empty() || line[0] == '#')
       continue;
     std::vector<std::string> fields;
@@ -174,18 +248,24 @@ void ReadCopyData(const std::string& path, CopyData* copy)
         break;
       start = tab + 1;
     }
-    if (fields.size() < 5)
+    if (fields.size() < (meta ? 6u : 5u))
       continue;
     const uint32_t id = static_cast<uint32_t>(std::strtoul(fields[0].c_str(), nullptr, 10));
     CopyGame game;
     game.platform = fields[1];
     game.rating.half_stars = std::atoi(fields[2].c_str());
     game.rating.votes = std::max(0, std::atoi(fields[3].c_str()));
+    if (meta)
+      ReadMeta(fields[4], &game.rating);
     // (00.83: a copy of 00.80 to 00.82 also has the games of the consoles gone since - the Sega CD's, the 32X's, the PC
-    // Engine CD's, the Neo Geo Pockets', the WonderSwans' -: left out.)
-    if (id == 0 || game.rating.half_stars < 0 || game.rating.half_stars > 10 || !WantedPlatform(game.platform))
+    // Engine CD's, the Neo Geo Pockets', the WonderSwans' -: left out. (01.18) A game without a rating: -1, in a copy
+    // with the genres only - its genres and players.)
+    if (id == 0 || game.rating.half_stars < (meta ? -1 : 0) || game.rating.half_stars > 10 ||
+        !WantedPlatform(game.platform))
       continue;
-    game.names.assign(fields.begin() + 4, fields.end());
+    if (game.rating.half_stars < 0)
+      game.rating.votes = 0;
+    game.names.assign(fields.begin() + (meta ? 5 : 4), fields.end());
     copy->by_id.emplace(id, copy->games.size());
     copy->games.push_back(std::move(game));
   }
@@ -535,14 +615,19 @@ Copy ReadCopy(const std::string& data_dir)
   copy.there = true;
   copy.made = static_cast<int64_t>(st.st_mtime);
   // Its second line: "# LaunchBox Metadata.xml of 2026-10-22: 34190 rated games" (Extract's); its fourth (00.80) the
-  // platforms it was made for.
+  // platforms it was made for; its fifth (01.18) that the genres and players are in it.
   std::ifstream in(path);
   std::string line;
-  for (int i = 0; i < 4 && std::getline(in, line); i++)
+  for (int i = 0; i < 5 && std::getline(in, line); i++)
   {
     if (line.rfind("# platforms: ", 0) == 0)
     {
       copy.platforms = line.substr(13);
+      continue;
+    }
+    if (line.rfind("# meta: ", 0) == 0)
+    {
+      copy.meta = true;
       continue;
     }
     const size_t at = line.find("Metadata.xml of ");
@@ -561,7 +646,8 @@ bool CopyOld(const Copy& copy)
   // (00.80: also a copy made for fewer consoles - the Sega CD's and the 32X's games weren't kept before -: made again.
   // 00.83: a copy made for more - 00.80's to 00.82's, with the consoles gone since - is kept: every platform of this
   // version's is in it.)
-  if (!copy.there || copy.games == 0 || std::time(nullptr) - copy.made > MAX_AGE)
+  // ((01.18) A copy before the genres and players: downloaded again - once: the new one has them.)
+  if (!copy.there || copy.games == 0 || std::time(nullptr) - copy.made > MAX_AGE || !copy.meta)
     return true;
   const std::string has = "|" + copy.platforms + "|";
   const std::string wanted = PlatformsLine();
@@ -618,6 +704,10 @@ bool Extract(const std::string& zip_path, const std::string& path, std::string* 
     Alternate,
   } in = In::Nothing;
   std::string name, platform, id_text, rating_text, votes_text, value;
+  // ((01.18) And its genres, most players, cooperative play, ESRB rating: the games without a rating that have the
+  // first two are kept too - their genres and players, no stars.)
+  std::string genres_text, players_text, coop_text, esrb_text;
+  int unrated = 0;
   bool alternates = false, done = false;
   auto line = [&](const char* begin, const char* end) {
     while (begin < end && (*begin == ' ' || *begin == '\t'))
@@ -636,6 +726,10 @@ bool Extract(const std::string& zip_path, const std::string& path, std::string* 
         id_text.clear();
         rating_text.clear();
         votes_text.clear();
+        genres_text.clear();
+        players_text.clear();
+        coop_text.clear();
+        esrb_text.clear();
       }
       else if (Is(begin, end, "<GameAlternateName>"))
       {
@@ -657,15 +751,35 @@ bool Extract(const std::string& zip_path, const std::string& path, std::string* 
         in = In::Nothing;
         const int votes = std::atoi(votes_text.c_str());
         const uint32_t id = static_cast<uint32_t>(std::strtoul(id_text.c_str(), nullptr, 10));
-        if (id != 0 && !rating_text.empty() && votes > 0 && !Blank(name) && WantedPlatform(platform))
+        const bool rated = !rating_text.empty() && votes > 0;
+        Rating rating;
+        if (rated)
         {
-          Game game{id, platform, {HalfStars(std::strtod(rating_text.c_str(), nullptr)), votes}, {Clean(name)}};
+          rating.half_stars = HalfStars(std::strtod(rating_text.c_str(), nullptr));
+          rating.votes = votes;
+        }
+        rating.genres = GenreBits(genres_text);
+        rating.players = static_cast<uint8_t>(std::clamp(std::atoi(players_text.c_str()), 0, 255));
+        rating.coop = coop_text == "true";
+        rating.adult = esrb_text.rfind("AO", 0) == 0;  // ("AO - Adults Only": none in 2026's data)
+        if (id != 0 && (rated || rating.genres != 0 || rating.players != 0) && !Blank(name) && WantedPlatform(platform))
+        {
+          unrated += rated ? 0 : 1;
+          Game game{id, platform, rating, {Clean(name)}};
           by_id.emplace(id, games.size());
           games.push_back(std::move(game));
         }
       }
       else if (Element(begin, end, "Name", &value))
         name = value;
+      else if (Element(begin, end, "Genres", &value))
+        genres_text = value;
+      else if (Element(begin, end, "MaxPlayers", &value))
+        players_text = value;
+      else if (Element(begin, end, "Cooperative", &value))
+        coop_text = value;
+      else if (Element(begin, end, "ESRB", &value))
+        esrb_text = value;
       else if (Element(begin, end, "Platform", &value))
         platform = value;
       else if (Element(begin, end, "DatabaseID", &value))
@@ -679,8 +793,9 @@ bool Extract(const std::string& zip_path, const std::string& path, std::string* 
     if (Is(begin, end, "</GameAlternateName>"))
     {
       in = In::Nothing;
+      // ((01.18) A game without a rating keeps its own name only: LaunchBox's names are matched for the rated ones.)
       const auto it = by_id.find(static_cast<uint32_t>(std::strtoul(id_text.c_str(), nullptr, 10)));
-      if (it != by_id.end() && !Blank(name))
+      if (it != by_id.end() && !Blank(name) && games[it->second].rating.half_stars >= 0)
         games[it->second].names.push_back(Clean(name));
     }
     else if (Element(begin, end, "AlternateName", &value))
@@ -740,7 +855,8 @@ bool Extract(const std::string& zip_path, const std::string& path, std::string* 
   unzClose(zip);
   if (failed)
     return false;
-  if (games.empty())
+  const int rated = static_cast<int>(games.size()) - unrated;
+  if (rated == 0)
   {
     *error = "no rated game of the app's consoles in Metadata.xml";
     return false;
@@ -750,12 +866,15 @@ bool Extract(const std::string& zip_path, const std::string& path, std::string* 
     std::ofstream out(part, std::ios::binary | std::ios::trunc);
     out << "# EmuSuNi star ratings: the LaunchBox Games Database's community ratings of the app's consoles "
            "(src/Ratings.h), from "
-        << URL << "\n# LaunchBox Metadata.xml of " << date << ": " << games.size()
-        << " rated games\n# id<TAB>platform<TAB>half stars (0-10)<TAB>votes<TAB>name<TAB>other names...\n"
-        << "# platforms: " << PlatformsLine() << "\n";
+        << URL << "\n# LaunchBox Metadata.xml of " << date << ": " << rated << " rated games, " << unrated
+        << " more with genres or players only\n"
+        << "# id<TAB>platform<TAB>half stars (0-10, -1 none)<TAB>votes<TAB>meta<TAB>name<TAB>other names...\n"
+        << "# platforms: " << PlatformsLine() << "\n"
+        << "# meta: genres (bits in hex: src/Ratings.cpp's GENRES).most players.1 cooperative + 2 adults (01.18)\n";
     for (const Game& game : games)
     {
-      out << game.id << '\t' << game.platform << '\t' << game.rating.half_stars << '\t' << game.rating.votes;
+      out << game.id << '\t' << game.platform << '\t' << game.rating.half_stars << '\t' << game.rating.votes << '\t'
+          << MetaText(game.rating);
       for (const std::string& each : game.names)
         out << '\t' << each;
       out << '\n';
@@ -774,7 +893,7 @@ bool Extract(const std::string& zip_path, const std::string& path, std::string* 
     *error = "the copy couldn't be written";
     return false;
   }
-  *count = static_cast<int>(games.size());
+  *count = rated;
   return true;
 }
 
@@ -952,6 +1071,56 @@ void Downloader::Run()
 }
 
 // ---- A game's rating ----
+namespace
+{
+// (01.18) The arcade sets' genres by their category (xmb/ratings/arcade-genres.tsv, scripts/make-arcade-genres.py): a
+// line a genre - LaunchBox's name, or "Adult" - then its sets' names apart with spaces. Read on the matcher's thread
+// when an arcade game is matched (8 000 names: about half a MB there, given back with the run's end).
+constexpr uint32_t ADULT_BIT = 1u << 31;
+using ArcadeGenres = std::unordered_map<std::string, uint32_t>;
+
+void ReadArcadeGenres(const std::string& path, ArcadeGenres* out)
+{
+  std::string text;
+  AssetPack::Read(path, &text);
+  std::istringstream in(text);
+  std::string line;
+  while (std::getline(in, line))
+  {
+    if (line.empty() || line[0] == '#')
+      continue;
+    const size_t tab = line.find('\t');
+    if (tab == std::string::npos)
+      continue;
+    const std::string what = line.substr(0, tab);
+    const int genre = GenreOf(what);
+    const uint32_t bit = what == "Adult" ? ADULT_BIT : genre >= 0 ? 1u << genre : 0u;
+    if (bit == 0)
+      continue;
+    std::istringstream names(line.substr(tab + 1));
+    for (std::string name; names >> name;)
+      (*out)[name] |= bit;
+  }
+}
+
+// An arcade game's genres (LaunchBox's first: its category's when it has none) and its mark for adults - by its set's
+// name, else its parent's.
+void ArcadeGenre(const ArcadeGenres& table, const Library::Game& game, Rating* rating)
+{
+  auto it = table.find(Lower(game.id));
+  if (it == table.end())
+  {
+    if (const Arcade::Driver* driver = Arcade::Find(game.id); driver && !driver->parent.empty())
+      it = table.find(Lower(driver->parent));
+  }
+  if (it == table.end())
+    return;
+  if (rating->genres == 0)
+    rating->genres = it->second & ~ADULT_BIT;
+  rating->adult = rating->adult || (it->second & ADULT_BIT) != 0;
+}
+}  // namespace
+
 std::vector<std::pair<std::string, Rating>> Names(SystemId system, const std::string& index_dir,
                                                   const std::string& copy)
 {
@@ -988,7 +1157,9 @@ std::unordered_map<std::string, Rating> Match(const std::vector<Library::Game>& 
     }
     return file;
   };
-  int rated = 0;
+  int rated = 0, genres = 0, players = 0;
+  ArcadeGenres arcade;
+  bool arcade_read = false;
   for (const Library::Game& game : games)
   {
     while (pause && *pause && !(cancel && *cancel))
@@ -997,10 +1168,22 @@ std::unordered_map<std::string, Rating> Match(const std::vector<Library::Game>& 
       break;
     File& file = file_of(game.system);
     const size_t line = IsRomsetSystem(game.system) ? RomsetLine(file, game) : GameLine(file, game);
-    out[game.key] = line == NONE ? Rating{} : file.ratings[line];
+    Rating rating = line == NONE ? Rating{} : file.ratings[line];
+    if (game.system == SystemId::ARCADE)
+    {
+      if (!arcade_read)
+      {
+        arcade_read = true;
+        ReadArcadeGenres(index_dir + "/arcade-genres.tsv", &arcade);
+      }
+      ArcadeGenre(arcade, game, &rating);
+    }
     if (line != NONE && matched)
       (*matched)[game.key] = file.names[line];
-    rated += line == NONE ? 0 : 1;
+    rated += rating.half_stars >= 0 ? 1 : 0;
+    genres += rating.genres != 0 ? 1 : 0;
+    players += rating.players != 0 ? 1 : 0;
+    out[game.key] = rating;
   }
   const long ms = static_cast<long>(
       std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count());
@@ -1010,7 +1193,8 @@ std::unordered_map<std::string, Rating> Match(const std::vector<Library::Game>& 
     read += (read.empty() ? "" : ", ") + std::to_string(file.names.size()) + " " +
             (system == SystemId::GB ? std::string("GB+GBC") : std::string(GetSystem(system).tab));
   }
-  Log(std::to_string(rated) + " of " + std::to_string(out.size()) + " games rated (" + std::to_string(ms) + " ms; " +
+  Log(std::to_string(rated) + " of " + std::to_string(out.size()) + " games rated, " + std::to_string(genres) +
+      " with genres, " + std::to_string(players) + " with players (" + std::to_string(ms) + " ms; " +
       (data_read ? std::to_string(data.games.size()) + " rated games in the copy" : std::string("no copy read")) +
       "; names: " + (read.empty() ? std::string("none") : read) + ")");
   return out;

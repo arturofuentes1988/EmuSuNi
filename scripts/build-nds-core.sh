@@ -68,8 +68,11 @@
 #     answer never looks anything up (musl's resolver would wait seconds); its printf of addresses gone.
 #     The DS reaches only public IPv4 addresses: libslirp's one way out refuses the home network, the
 #     PS4's loopback (and melonDS's host address, 10.64.0.1) and IPv6, and counts them. No libpcap
-#     (direct mode), no HTTP (only DSiWare's metadata download, DSi mode, used it; it throws). A log
-#     line every ~10 s while the DS uses the network: its time per frame, polls, packets, refusals.
+#     (direct mode), no HTTP (only DSiWare's metadata download, DSi mode, used it; it throws). The
+#     PS4's sockets polled every 4th time melonDS asks for a packet (01.04: 0.7 ms a frame in 01.00's
+#     world search, the PS4's poll() dearer with every socket). A log line every ~10 s while the DS
+#     uses the network: its time per frame, polls (poll()'s own time, its sockets), packets, refusals;
+#     and one at each GameSpy login (the DS online: its first data to port 29900, no address).
 #     (NDS_CORE_NET=off builds it without networking: melonDS DS's network state then does nothing;
 #     its own guards are incomplete, completed here.)
 #   - melonDS's thread_local console pointer declared constant-initialised (no weak reference to
@@ -403,7 +406,9 @@ patch(melonds, 'src/net/Net.h',
       '// EmuSuNi: the network\'s time (TSC ticks) and counters since melonDS DS last logged them (its Run,\n'
       '// every ~10 s, which then zeroes them); the emulation thread\'s.\n'
       'namespace EmuSuNiNet\n{\n'
-      'extern u64 Ticks, Calls, Polls, PacketsOut, PacketsIn;\n'
+      'extern u64 Ticks, Calls, Polls, PacketsOut, PacketsIn, PollTicks, PollSockets, PollSocketsMost;\n'
+      '// GameSpy logins since the game started, and the DS\'s port of the last one\'s connection (never logged).\n'
+      'extern u64 GameSpyLogins, GameSpyPort;\n'
       '}\n'
       '#endif\n\n'
       'class Net\n')
@@ -411,7 +416,10 @@ patch(melonds, 'src/net/Net.cpp',
       'int Net::SendPacket(u8* data, int len, int inst)\n{\n    if (!Driver)\n        return 0;\n\n'
       '    return Driver->SendPacket(data, len);\n}\n',
       '#ifdef EMUSUNI_PORT\n'
-      'namespace EmuSuNiNet\n{\nu64 Ticks = 0, Calls = 0, Polls = 0, PacketsOut = 0, PacketsIn = 0;\n}\n\n'
+      'namespace EmuSuNiNet\n{\n'
+      'u64 Ticks = 0, Calls = 0, Polls = 0, PacketsOut = 0, PacketsIn = 0, PollTicks = 0, PollSockets = 0, PollSocketsMost = 0;\n'
+      'u64 GameSpyLogins = 0, GameSpyPort = 0;\n'
+      '}\n\n'
       'int Net::SendPacket(u8* data, int len, int inst)\n{\n    if (!Driver)\n        return 0;\n\n'
       '    const u64 t0 = __builtin_ia32_rdtsc();\n'
       '    const int sent = Driver->SendPacket(data, len);\n'
@@ -443,8 +451,55 @@ patch(melonds, 'src/net/Net_Slirp.cpp',
       '    Net_Slirp& self = *static_cast<Net_Slirp*>(opaque);\n    if (self.Callback)\n')
 patch(melonds, 'src/net/Net_Slirp.cpp',
       '        int res = poll(PollList, PollListSize, timeout);\n',
+      '#ifdef EMUSUNI_PORT\n        const u64 emusuniT0 = __builtin_ia32_rdtsc();\n#endif\n'
       '        int res = poll(PollList, PollListSize, timeout);\n'
-      '#ifdef EMUSUNI_PORT\n        EmuSuNiNet::Polls++;\n#endif\n')
+      '#ifdef EMUSUNI_PORT\n'
+      '        EmuSuNiNet::PollTicks += __builtin_ia32_rdtsc() - emusuniT0;\n'
+      '        EmuSuNiNet::Polls++;\n'
+      '        EmuSuNiNet::PollSockets += PollListSize;\n'
+      '        if ((u64)PollListSize > EmuSuNiNet::PollSocketsMost)\n'
+      '            EmuSuNiNet::PollSocketsMost = PollListSize;\n'
+      '#endif\n')
+#   - The PS4's sockets polled every 4th time melonDS asks for a packet (every 2 ms of the DS's time:
+#     ~490 polls a second, not ~1950). Each poll() asks the PS4's kernel about every socket libslirp
+#     keeps open, and costs more with each: ~6 us at rest, ~21 us in 01.00's world search (0.7 ms a
+#     frame; the PC keeps up to 11 sockets then: DNS, GameSpy's, a TCP connection). The packets already
+#     received still come one a call; the 2 ms at most it adds is nothing next to the internet's.
+#   - A GameSpy login, for the log (01.04: "nds: Wi-Fi: GameSpy login", which src/UsageStats.cpp counts):
+#     the DS's first data on a new TCP connection to GameSpy's port 29900 (gpcm, the online session's,
+#     opened only once Nintendo's login gave the DS its token; a connection test never reaches it).
+#     Counted, the DS's port of that connection kept to tell a new one; no address anywhere. One line for
+#     the logins of a minute (Mario Kart DS logs in twice, ~4 s apart, the second on a new connection).
+patch(melonds, 'src/net/Net_Slirp.cpp',
+      '    if (ethertype == 0x800)\n    {\n        u8 protocol = data[0x17];\n',
+      '    if (ethertype == 0x800)\n    {\n        u8 protocol = data[0x17];\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '        // EmuSuNi: a GameSpy login, the DS\'s first data on a new connection to port 29900 (build-nds-core.sh)\n'
+      '        if (protocol == 0x06)\n'
+      '        {\n'
+      '            const int ipLength = (data[0xE] & 0xF) * 4;\n'
+      '            const int tcp = 0xE + ipLength;\n'
+      '            if (ipLength >= 20 && tcp + 20 <= len && ntohs(*(u16*)&data[tcp + 2]) == 29900)\n'
+      '            {\n'
+      '                const int payload = ntohs(*(u16*)&data[0x10]) - ipLength - (data[tcp + 12] >> 4) * 4;\n'
+      '                const u16 port = ntohs(*(u16*)&data[tcp]);\n'
+      '                if (payload > 0 && port != EmuSuNiNet::GameSpyPort)\n'
+      '                {\n'
+      '                    EmuSuNiNet::GameSpyPort = port;\n'
+      '                    EmuSuNiNet::GameSpyLogins++;\n'
+      '                }\n'
+      '            }\n'
+      '        }\n'
+      '#endif\n')
+patch(melonds, 'src/net/Net_Slirp.cpp',
+      'void Net_Slirp::RecvCheck() noexcept\n{\n    if (!Ctx) return;\n',
+      'void Net_Slirp::RecvCheck() noexcept\n{\n    if (!Ctx) return;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '    // EmuSuNi: the sockets every 4th call, every 2 ms of the DS\'s time (scripts/build-nds-core.sh)\n'
+      '    static unsigned emusuniCalls = 0;\n'
+      '    if (++emusuniCalls % 4 != 0)\n'
+      '        return;\n'
+      '#endif\n')
 
 # --- The JIT's code buffer: one 16 MiB part of the app's JIT arena, else the interpreter.
 patch(melonds, 'src/ARMJIT_Global.h',
@@ -1301,6 +1356,20 @@ patch(core, 'src/libretro/core/core.cpp',
       '    static uint64_t frames = 0, lastTsc = 0, everyFrames = 0;\n'
       '    static std::chrono::steady_clock::time_point lastTime;\n'
       '    const auto now = std::chrono::steady_clock::now();\n'
+      '#ifdef HAVE_NETWORKING\n'
+      '    // EmuSuNi: a GameSpy login (melonDS\'s Net_Slirp: build-nds-core.sh) in the log at once, no address;\n'
+      '    // one line for the logins of a minute (Mario Kart DS logs in twice, seconds apart).\n'
+      '    static uint64_t loginsBefore = 0;\n'
+      '    static bool loginLogged = false;\n'
+      '    static std::chrono::steady_clock::time_point loginTime;\n'
+      '    if (melonDS::EmuSuNiNet::GameSpyLogins != loginsBefore) {\n'
+      '        loginsBefore = melonDS::EmuSuNiNet::GameSpyLogins;\n'
+      '        if (!loginLogged || now - loginTime >= std::chrono::seconds(60))\n'
+      '            retro::info("nds: Wi-Fi: GameSpy login");\n'
+      '        loginLogged = true;\n'
+      '        loginTime = now;\n'
+      '    }\n'
+      '#endif\n'
       '    if (lastTsc == 0) {\n'
       '        const char* every = getenv("NDS_TIMING_FRAMES");\n'
       '        everyFrames = every ? strtoull(every, nullptr, 10) : 0;\n'
@@ -1340,10 +1409,14 @@ patch(core, 'src/libretro/core/core.cpp',
       '        static unsigned long refusedBefore = 0;\n'
       '        if (melonDS::EmuSuNiNet::Calls) {\n'
       '            retro::info("nds: Wi-Fi: network {:.3f} ms per frame ({} calls, {} polls); {} packets out, {} in; "\n'
-      '                        "{} connections to the local network or the PS4 refused",\n'
+      '                        "{} connections to the local network or the PS4 refused; poll() {:.3f} ms per frame, "\n'
+      '                        "{:.1f} sockets a poll (most {})",\n'
       '                        ms(melonDS::EmuSuNiNet::Ticks), melonDS::EmuSuNiNet::Calls, melonDS::EmuSuNiNet::Polls,\n'
       '                        melonDS::EmuSuNiNet::PacketsOut, melonDS::EmuSuNiNet::PacketsIn,\n'
-      '                        emusuni_slirp_refused - refusedBefore);\n'
+      '                        emusuni_slirp_refused - refusedBefore, ms(melonDS::EmuSuNiNet::PollTicks),\n'
+      '                        melonDS::EmuSuNiNet::Polls\n'
+      '                            ? double(melonDS::EmuSuNiNet::PollSockets) / double(melonDS::EmuSuNiNet::Polls) : 0.0,\n'
+      '                        melonDS::EmuSuNiNet::PollSocketsMost);\n'
       '            if (emusuni_slirp_socket_failed || emusuni_slirp_send_failed || emusuni_slirp_connect_failed)\n'
       '                retro::info("nds: Wi-Fi: failed since the game started: {} sockets (errno {}), {} datagrams sent "\n'
       '                            "(errno {}), {} connections (errno {})",\n'
@@ -1358,6 +1431,7 @@ patch(core, 'src/libretro/core/core.cpp',
       '#ifdef HAVE_NETWORKING\n'
       '    melonDS::EmuSuNiNet::Ticks = melonDS::EmuSuNiNet::Calls = melonDS::EmuSuNiNet::Polls = 0;\n'
       '    melonDS::EmuSuNiNet::PacketsOut = melonDS::EmuSuNiNet::PacketsIn = 0;\n'
+      '    melonDS::EmuSuNiNet::PollTicks = melonDS::EmuSuNiNet::PollSockets = melonDS::EmuSuNiNet::PollSocketsMost = 0;\n'
       '#endif\n'
       '    Turns = 0;\n'
       '    IdleTurns = 0;\n'
