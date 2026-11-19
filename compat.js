@@ -159,11 +159,8 @@
       return v.players ? E.fmt("cp_logs_ver_p", v.version, E.num(v.reports), E.num(v.players), day)
         : E.fmt("cp_logs_ver", v.version, E.num(v.reports), day);
     });
-    // (v00.24) And the team's own logs (its tests' versions), apart.
-    var team = users && users.team;
-    var ours = team ? E.fmt("cp_logs_team", E.num(team.runs), team.from || "", team.to || "") : "";
-    p.hidden = !parts.length && !ours;
-    p.textContent = parts.length || ours ? E.fmt("cp_logs_note", parts.join("; "), ours) : "";
+    p.hidden = !parts.length;
+    p.textContent = parts.length ? E.fmt("cp_logs_note", parts.join("; ")) : "";
   }
 
   var HEADS = ["cp_h_game", "cp_h_region", "cp_h_rating", "cp_h_speed", "cu_h_logs", "cu_h_median", "cu_h_full",
@@ -248,7 +245,7 @@
         if (r) {
           var fromLogs = E.el("span", "cp-tested");
           fromLogs.appendChild(E.el("span", "cp-ver", r.version || ""));
-          fromLogs.appendChild(E.el("span", null, E.t(r.source === "team" ? "cp_by_teamlogs" : "cp_by_logs")));
+          fromLogs.appendChild(E.el("span", null, E.t("cp_by_logs")));
           ver.appendChild(fromLogs);
         }
         cell("cp_h_version", ver, "cp-when");
