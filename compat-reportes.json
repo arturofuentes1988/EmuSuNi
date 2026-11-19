@@ -1,12 +1,25 @@
 {
- "updated": "2026-11-11",
- "version": "v00.23",
- "reports": 265,
- "note": "Speed only, from players' logs of v00.23 (the team's own reports left out). A game is listed with 2 or more logs and 10 or more speed readings; good: median >= 97% and >= 85% of readings at 95% or more; slow: median below 85%.",
- "good": [
+ "updated": "2026-11-19",
+ "note": "Speed only, from the app's logs. Players' logs: a game is listed with 2 or more logs (v00.24: 2 or more different players) and 10 or more speed readings; good: median >= 97% and >= 85% of readings at 95% or more, and (from v00.24) no closing in its sessions; slow: median below 85%. v00.24: 130 of its 132 logs (98 players); the 2 left out are one player's whose every game ran at 75% with the core well under its time. The team's logs (\"source\": \"team\"): its own tests' logs, each start of the app counted once, the same thresholds with starts of the app instead of players. A game with several shows the newest version.",
+ "versions": [
+  {
+   "version": "v00.23",
+   "reports": 265,
+   "updated": "2026-11-11"
+  },
+  {
+   "version": "v00.24",
+   "reports": 130,
+   "players": 98,
+   "updated": "2026-11-19"
+  }
+ ],
+ "games": [
   {
    "console": "3ds",
    "title": "The Legend of Zelda: A Link Between Worlds",
+   "version": "v00.23",
+   "verdict": "good",
    "reports": 22,
    "median": 100,
    "full": 96
@@ -14,6 +27,8 @@
   {
    "console": "3ds",
    "title": "The Legend of Zelda: Ocarina of Time 3D",
+   "version": "v00.23",
+   "verdict": "good",
    "reports": 10,
    "median": 100,
    "full": 99
@@ -21,6 +36,8 @@
   {
    "console": "3ds",
    "title": "Super Mario 3D Land",
+   "version": "v00.23",
+   "verdict": "good",
    "reports": 4,
    "median": 100,
    "full": 97
@@ -28,6 +45,8 @@
   {
    "console": "n64",
    "title": "Super Mario 64",
+   "version": "v00.23",
+   "verdict": "good",
    "reports": 4,
    "median": 100,
    "full": 100
@@ -35,6 +54,8 @@
   {
    "console": "snes",
    "title": "Super Mario World",
+   "version": "v00.23",
+   "verdict": "good",
    "reports": 4,
    "median": 100,
    "full": 90
@@ -42,6 +63,8 @@
   {
    "console": "arcade",
    "title": "1941: Counter Attack",
+   "version": "v00.23",
+   "verdict": "good",
    "reports": 3,
    "median": 100,
    "full": 100
@@ -49,6 +72,8 @@
   {
    "console": "arcade",
    "title": "DoDonPachi",
+   "version": "v00.23",
+   "verdict": "good",
    "reports": 3,
    "median": 100,
    "full": 99
@@ -56,6 +81,8 @@
   {
    "console": "3ds",
    "title": "Mario Kart 7",
+   "version": "v00.23",
+   "verdict": "good",
    "reports": 3,
    "median": 100,
    "full": 95
@@ -63,6 +90,8 @@
   {
    "console": "3ds",
    "title": "The Legend of Zelda: Majora's Mask 3D",
+   "version": "v00.23",
+   "verdict": "good",
    "reports": 3,
    "median": 100,
    "full": 98
@@ -70,6 +99,8 @@
   {
    "console": "n64",
    "title": "The Legend of Zelda: Ocarina of Time",
+   "version": "v00.23",
+   "verdict": "good",
    "reports": 3,
    "median": 100,
    "full": 100
@@ -77,6 +108,8 @@
   {
    "console": "saturn",
    "title": "Akumajou Dracula X: Gekka no Yasoukyoku",
+   "version": "v00.23",
+   "verdict": "good",
    "reports": 2,
    "median": 99,
    "full": 93
@@ -84,6 +117,8 @@
   {
    "console": "ps1",
    "title": "Crash Bash",
+   "version": "v00.23",
+   "verdict": "good",
    "reports": 2,
    "median": 100,
    "full": 100
@@ -91,6 +126,8 @@
   {
    "console": "n64",
    "title": "Diddy Kong Racing",
+   "version": "v00.23",
+   "verdict": "good",
    "reports": 2,
    "median": 100,
    "full": 100
@@ -98,6 +135,8 @@
   {
    "console": "saturn",
    "title": "Exhumed",
+   "version": "v00.23",
+   "verdict": "good",
    "reports": 2,
    "median": 100,
    "full": 100
@@ -105,6 +144,8 @@
   {
    "console": "psp",
    "title": "God of War: Chains of Olympus",
+   "version": "v00.23",
+   "verdict": "good",
    "reports": 2,
    "median": 100,
    "full": 97
@@ -112,6 +153,8 @@
   {
    "console": "psp",
    "title": "God of War: Ghost of Sparta",
+   "version": "v00.23",
+   "verdict": "good",
    "reports": 2,
    "median": 100,
    "full": 99
@@ -119,6 +162,8 @@
   {
    "console": "snes",
    "title": "Killer Instinct",
+   "version": "v00.23",
+   "verdict": "good",
    "reports": 2,
    "median": 100,
    "full": 100
@@ -126,6 +171,8 @@
   {
    "console": "nds",
    "title": "New Super Mario Bros.",
+   "version": "v00.23",
+   "verdict": "good",
    "reports": 2,
    "median": 100,
    "full": 89
@@ -133,6 +180,8 @@
   {
    "console": "3ds",
    "title": "New Super Mario Bros. 2",
+   "version": "v00.23",
+   "verdict": "good",
    "reports": 2,
    "median": 100,
    "full": 91
@@ -140,6 +189,8 @@
   {
    "console": "3ds",
    "title": "Pokémon X",
+   "version": "v00.23",
+   "verdict": "good",
    "reports": 2,
    "median": 100,
    "full": 89
@@ -147,6 +198,8 @@
   {
    "console": "3ds",
    "title": "Poochy & Yoshi's Woolly World",
+   "version": "v00.23",
+   "verdict": "good",
    "reports": 2,
    "median": 100,
    "full": 97
@@ -154,6 +207,8 @@
   {
    "console": "ps1",
    "title": "Resident Evil 2: Dual Shock Ver.",
+   "version": "v00.23",
+   "verdict": "good",
    "reports": 2,
    "median": 100,
    "full": 100
@@ -161,6 +216,8 @@
   {
    "console": "arcade",
    "title": "Street Fighter II: The World Warrior",
+   "version": "v00.23",
+   "verdict": "good",
    "reports": 2,
    "median": 100,
    "full": 92
@@ -168,6 +225,8 @@
   {
    "console": "md",
    "title": "Streets of Rage 2",
+   "version": "v00.23",
+   "verdict": "good",
    "reports": 2,
    "median": 100,
    "full": 100
@@ -175,15 +234,17 @@
   {
    "console": "arcade",
    "title": "Super Sidekicks 2: The World Championship",
+   "version": "v00.23",
+   "verdict": "good",
    "reports": 2,
    "median": 100,
    "full": 100
-  }
- ],
- "slow": [
+  },
   {
    "console": "3ds",
    "title": "Castlevania: Lords of Shadow – Mirror of Fate",
+   "version": "v00.23",
+   "verdict": "slow",
    "reports": 4,
    "median": 36,
    "full": 4
@@ -191,9 +252,216 @@
   {
    "console": "3ds",
    "title": "Luigi's Mansion 2",
+   "version": "v00.23",
+   "verdict": "slow",
    "reports": 2,
    "median": 54,
-   "full": 0
+   "full": 0,
+   "aka": "Luigi's Mansion: Dark Moon"
+  },
+  {
+   "console": "ps1",
+   "title": "Resident Evil 2: Dual Shock Ver.",
+   "version": "v00.24",
+   "verdict": "good",
+   "reports": 2,
+   "median": 100,
+   "full": 100
+  },
+  {
+   "console": "n64",
+   "title": "Super Mario 64",
+   "version": "v00.24",
+   "verdict": "good",
+   "reports": 2,
+   "median": 100,
+   "full": 100
+  },
+  {
+   "console": "3ds",
+   "title": "Castlevania: Lords of Shadow – Mirror of Fate",
+   "version": "v01.68",
+   "verdict": "slow",
+   "reports": 39,
+   "median": 84,
+   "full": 38,
+   "source": "team"
+  },
+  {
+   "console": "nds",
+   "title": "Mario Kart DS",
+   "version": "v01.14",
+   "verdict": "good",
+   "reports": 8,
+   "median": 100,
+   "full": 100,
+   "source": "team"
+  },
+  {
+   "console": "3ds",
+   "title": "The Legend of Zelda: Ocarina of Time 3D",
+   "version": "v01.45",
+   "verdict": "good",
+   "reports": 8,
+   "median": 100,
+   "full": 94,
+   "source": "team"
+  },
+  {
+   "console": "3ds",
+   "title": "Xenoblade Chronicles 3D",
+   "version": "v01.68",
+   "verdict": "slow",
+   "reports": 6,
+   "median": 82,
+   "full": 27,
+   "source": "team"
+  },
+  {
+   "console": "3ds",
+   "title": "Pokémon Ultra Sun",
+   "version": "v01.22",
+   "verdict": "good",
+   "reports": 6,
+   "median": 100,
+   "full": 85,
+   "source": "team"
+  },
+  {
+   "console": "3ds",
+   "title": "New Super Mario Bros. 2",
+   "version": "v01.63",
+   "verdict": "good",
+   "reports": 5,
+   "median": 100,
+   "full": 96,
+   "source": "team"
+  },
+  {
+   "console": "atarijaguar",
+   "title": "Doom",
+   "version": "v00.95",
+   "verdict": "slow",
+   "reports": 5,
+   "median": 84,
+   "full": 0,
+   "source": "team"
+  },
+  {
+   "console": "3ds",
+   "title": "Hey! Pikmin",
+   "version": "v01.47",
+   "verdict": "good",
+   "reports": 3,
+   "median": 100,
+   "full": 87,
+   "source": "team"
+  },
+  {
+   "console": "atarijaguar",
+   "title": "Tempest 2000",
+   "version": "v00.97",
+   "verdict": "slow",
+   "reports": 3,
+   "median": 60,
+   "full": 17,
+   "source": "team"
+  },
+  {
+   "console": "3ds",
+   "title": "Persona Q: Shadow of the Labyrinth",
+   "version": "v00.23",
+   "verdict": "good",
+   "reports": 2,
+   "median": 100,
+   "full": 96,
+   "source": "team"
+  },
+  {
+   "console": "ps1",
+   "title": "Bust a Groove",
+   "version": "v00.23",
+   "verdict": "good",
+   "reports": 2,
+   "median": 100,
+   "full": 100,
+   "source": "team"
+  },
+  {
+   "console": "psp",
+   "title": "MotorStorm: Arctic Edge",
+   "version": "v01.02",
+   "verdict": "good",
+   "reports": 2,
+   "median": 100,
+   "full": 100,
+   "source": "team"
+  },
+  {
+   "console": "arcade",
+   "title": "Cadillacs and Dinosaurs",
+   "version": "v00.94",
+   "verdict": "good",
+   "reports": 2,
+   "median": 101,
+   "full": 94,
+   "source": "team"
+  },
+  {
+   "console": "arcade",
+   "title": "Marvel vs. Capcom: Clash of Super Heroes",
+   "version": "v00.23",
+   "verdict": "good",
+   "reports": 2,
+   "median": 101,
+   "full": 93,
+   "source": "team"
+  },
+  {
+   "console": "snes",
+   "title": "Super Mario Kart",
+   "version": "v01.40",
+   "verdict": "good",
+   "reports": 2,
+   "median": 100,
+   "full": 93,
+   "source": "team"
+  },
+  {
+   "console": "3ds",
+   "title": "Sonic Generations",
+   "version": "v00.98",
+   "verdict": "good",
+   "reports": 2,
+   "median": 99,
+   "full": 88,
+   "source": "team"
+  },
+  {
+   "console": "arcade",
+   "title": "Garou: Mark of the Wolves",
+   "version": "v00.23",
+   "verdict": "good",
+   "reports": 2,
+   "median": 100,
+   "full": 86,
+   "source": "team"
+  },
+  {
+   "console": "arcade",
+   "title": "Street Fighter II': Champion Edition",
+   "version": "v01.35",
+   "verdict": "good",
+   "reports": 2,
+   "median": 100,
+   "full": 100,
+   "source": "team"
   }
- ]
+ ],
+ "team": {
+  "runs": 83,
+  "from": "v00.23",
+  "to": "v01.71",
+  "updated": "2026-11-19"
+ }
 }

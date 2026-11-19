@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>EmuSuNi compatibility</title>
-  <meta name="description" content="Which games EmuSuNi plays well on a PS4, console by console: tested games, their region, a rating and the recommended settings.">
+  <meta name="description" content="Which games EmuSuNi plays well on a PS4, console by console: tested games, their region, a rating, the recommended settings and the speed in players' logs.">
   <meta name="color-scheme" content="light dark">
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="style.css">
@@ -33,13 +33,6 @@
     <section class="band">
       <h1 class="page-title" data-i18n="cp_title">Compatibility</h1>
       <p class="note" data-i18n="cp_sub">The games we have played on a PS4 with EmuSuNi, console by console.</p>
-      <ul class="cp-legend" aria-label="Ratings">
-        <li><span class="cp-badge perfect" data-i18n="cp_r_perfect">Perfect</span><span data-i18n="cp_d_perfect">Plays as on the console.</span></li>
-        <li><span class="cp-badge playable" data-i18n="cp_r_playable">Playable</span><span data-i18n="cp_d_playable">Can be finished, with small issues.</span></li>
-        <li><span class="cp-badge boots" data-i18n="cp_r_boots">Boots</span><span data-i18n="cp_d_boots">Opens, with serious issues.</span></li>
-        <li><span class="cp-badge broken" data-i18n="cp_r_broken">Doesn't work</span><span data-i18n="cp_d_broken">Doesn't open, or closes.</span></li>
-      </ul>
-      <div class="cp-summary" id="cp-summary" aria-live="polite"></div>
       <div class="cp-tools">
         <label class="cp-search">
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
@@ -53,11 +46,17 @@
       </div>
       <p class="note notice" id="cp-state" data-i18n="cp_loading">Loading…</p>
       <div id="cp-list" class="cp-list"></div>
-      <section class="cp-users" id="cp-users" hidden aria-labelledby="cu-title">
-        <h2 id="cu-title" data-i18n="cu_title">From players' reports</h2>
-        <p class="note" id="cu-sub"></p>
-        <div id="cu-lists" class="cp-list"></div>
-      </section>
+      <div class="cp-key">
+        <ul class="cp-legend" aria-label="Ratings">
+          <li><span class="cp-badge perfect" data-i18n="cp_r_perfect">Perfect</span><span data-i18n="cp_d_perfect">Plays as on the console.</span></li>
+          <li><span class="cp-badge playable" data-i18n="cp_r_playable">Playable</span><span data-i18n="cp_d_playable">Can be finished, with small issues.</span></li>
+          <li><span class="cp-badge boots" data-i18n="cp_r_boots">Boots</span><span data-i18n="cp_d_boots">Opens, with serious issues.</span></li>
+          <li><span class="cp-badge broken" data-i18n="cp_r_broken">Doesn't work</span><span data-i18n="cp_d_broken">Doesn't open, or closes.</span></li>
+          <li><span class="cp-badge logfast" data-i18n="cp_r_logfast">Good speed</span><span data-i18n="cp_d_logfast">players' logs: almost always at full speed.</span></li>
+          <li><span class="cp-badge logslow" data-i18n="cp_r_logslow">Slow</span><span data-i18n="cp_d_logslow">players' logs: below 85% of the speed most of the time.</span></li>
+        </ul>
+        <p class="note cp-logs-note" id="cp-logs-note" hidden></p>
+      </div>
       <div class="cp-help">
         <h2 data-i18n="cp_help_title">Tried a game?</h2>
         <p data-i18n="cp_help">Play it a while, then send your log from the app: Settings → Send Log. Tell us its code on Telegram or GitHub, with how it went, and we will add it here.</p>

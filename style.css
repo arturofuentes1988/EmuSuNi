@@ -432,112 +432,160 @@ section[id], .panel[id] { scroll-margin-top: 100px; }
 .maker-list li span { color: var(--muted); font-size: 12px; }
 @media (min-width: 900px) { .makers { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 359px) { .maker-list { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-/* ---- (v00.23) The compatibility page (compat.html): the ratings' colours, a summary, filters, a table per console
-   that turns into cards on phones. ---- */
-:root { --r-perfect: #1d8a4b; --r-playable: #9a6f00; --r-boots: #c25a12; --r-broken: #c53030; }
+/* ---- The compatibility page (compat.html), v3 (v00.24): the whole width of the screen; the search and the filters on
+   top (prettier chips: a count bubble, a dot of each rating's colour, a row that slides sideways on phones); a table
+   per console from 1200 px, cards below (two or more a row from 640 px); the legend under the tables; no summary. ---- */
+:root { --r-perfect: #1d8a4b; --r-playable: #9a6f00; --r-boots: #c25a12; --r-broken: #c53030;
+  --r-logfast: #1b7a9c; --r-logslow: #7d55b8; }
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) { --r-perfect: #4cc47f; --r-playable: #e3b341; --r-boots: #f0884a; --r-broken: #f06b6b; }
+  :root:not([data-theme="light"]) { --r-perfect: #4cc47f; --r-playable: #e3b341; --r-boots: #f0884a; --r-broken: #f06b6b;
+    --r-logfast: #5cc3e6; --r-logslow: #b897f2; }
 }
-:root[data-theme="dark"] { --r-perfect: #4cc47f; --r-playable: #e3b341; --r-boots: #f0884a; --r-broken: #f06b6b; }
+:root[data-theme="dark"] { --r-perfect: #4cc47f; --r-playable: #e3b341; --r-boots: #f0884a; --r-broken: #f06b6b;
+  --r-logfast: #5cc3e6; --r-logslow: #b897f2; }
+.perfect, .r-perfect { --rc: var(--r-perfect); } .playable, .r-playable { --rc: var(--r-playable); }
+.boots, .r-boots { --rc: var(--r-boots); } .broken, .r-broken { --rc: var(--r-broken); }
+.logfast, .r-logfast { --rc: var(--r-logfast); } .logslow, .r-logslow { --rc: var(--r-logslow); }
+.compat-page .band { max-width: none; padding: 28px clamp(12px, 3vw, 48px) 40px; }
+.compat-page .band > .note { max-width: 110ch; }
 .cp-badge { display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px 2px 8px; border-radius: 999px;
   font-size: 13px; font-weight: 700; white-space: nowrap; color: var(--rc); background: color-mix(in srgb, var(--rc) 14%, transparent);
   border: 1px solid color-mix(in srgb, var(--rc) 35%, transparent); }
 .cp-badge::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--rc); }
-.perfect { --rc: var(--r-perfect); } .playable { --rc: var(--r-playable); } .boots { --rc: var(--r-boots); } .broken { --rc: var(--r-broken); }
-.cp-legend { list-style: none; margin: 0 0 18px; padding: 0; display: grid; gap: 8px; grid-template-columns: minmax(0, 1fr); }
-.cp-legend li { display: flex; align-items: center; gap: 10px; color: var(--text-2); font-size: 14px; }
-.cp-legend .cp-badge { min-width: 112px; justify-content: flex-start; }
-@media (min-width: 760px) { .cp-legend { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-.cp-summary { margin: 0 0 18px; }
-.cp-tiles { display: grid; gap: 8px; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-bottom: 10px; }
-.cp-tile { display: flex; flex-direction: column; padding: 12px 14px; border-radius: 14px; background: var(--card);
-  border: 1px solid var(--line); box-shadow: var(--shadow); min-width: 0; }
-.cp-tile b { font-size: 28px; line-height: 1.1; font-variant-numeric: tabular-nums; color: var(--rc, var(--text)); }
-.cp-tile span { color: var(--text-2); font-size: 13px; }
-.cp-tile.total { grid-column: 1 / -1; }
-@media (min-width: 760px) { .cp-tiles { grid-template-columns: 1.6fr repeat(4, minmax(0, 1fr)); } .cp-tile.total { grid-column: auto; } }
 .cp-bar { display: flex; height: 8px; border-radius: 999px; overflow: hidden; background: var(--track); gap: 2px; }
 .cp-bar span { display: block; min-width: 4px; background: var(--rc); }
-.cp-tools { display: grid; gap: 10px; margin: 0 0 16px; }
-.cp-tools .sys-filters { margin: 0; }
-.sys-filter.r-perfect.on, .sys-filter.r-playable.on, .sys-filter.r-boots.on, .sys-filter.r-broken.on { background: var(--rc); border-color: var(--rc); color: var(--bg); }
-.sys-filter.r-perfect { --rc: var(--r-perfect); } .sys-filter.r-playable { --rc: var(--r-playable); }
-.sys-filter.r-boots { --rc: var(--r-boots); } .sys-filter.r-broken { --rc: var(--r-broken); }
-.cp-search { display: flex; align-items: center; gap: 8px; padding: 0 14px; height: 44px; border-radius: 12px;
-  background: var(--card); border: 1px solid var(--line); }
+
+/* The search and the filters. */
+.cp-tools { display: grid; gap: 10px; margin: 18px 0 20px; }
+.cp-search { display: flex; align-items: center; gap: 8px; padding: 0 14px; height: 46px; border-radius: 14px;
+  background: var(--card); border: 1px solid var(--line); box-shadow: var(--shadow); }
 .cp-search:focus-within { border-color: var(--accent); outline: 2px solid color-mix(in srgb, var(--accent) 35%, transparent); }
 .cp-search svg { flex: none; width: 18px; height: 18px; fill: none; stroke: var(--muted); stroke-width: 2; stroke-linecap: round; }
 .cp-search input { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--text); font: inherit; font-size: 16px; outline: none; }
-.cp-list { display: grid; gap: 16px; }
-.cp-group { background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); overflow: hidden; min-width: 0; }
-.cp-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; padding: 14px 16px; }
+.cp-filters { display: grid; gap: 0; padding: 6px 16px; border-radius: 16px; background: var(--card); border: 1px solid var(--line);
+  box-shadow: var(--shadow); }
+.cp-frow { display: grid; grid-template-columns: 120px minmax(0, 1fr); align-items: start; gap: 12px; padding: 12px 0; }
+.cp-frow + .cp-frow { border-top: 1px solid var(--line); }
+.cp-flabel { padding-top: 8px; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.cp-filters .sys-filters { margin: 0; gap: 8px; }
+.cp-filters .sys-filter { gap: 8px; padding: 6px 6px 6px 14px; border-color: var(--line); background: var(--bg-2); color: var(--text);
+  font-size: 14px; font-weight: 600; transition: background-color .15s, border-color .15s, box-shadow .15s, transform .15s; }
+.cp-filters .sys-filter:hover { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); transform: translateY(-1px);
+  box-shadow: 0 3px 10px color-mix(in srgb, var(--accent) 18%, transparent); }
+.cp-filters .sys-filter .n { min-width: 24px; padding: 1px 8px; border-radius: 999px; background: var(--card); color: var(--text-2);
+  font-size: 12px; font-weight: 700; text-align: center; font-variant-numeric: tabular-nums; }
+.cp-filters .sys-filter.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink);
+  box-shadow: 0 3px 12px color-mix(in srgb, var(--accent) 35%, transparent); }
+.cp-filters .sys-filter.on .n { background: color-mix(in srgb, var(--accent-ink) 22%, transparent); color: inherit; opacity: 1; }
+/* A rating chip: a dot of its colour; pressed, the colour itself. */
+.cp-filters #cp-ratings .sys-filter::before { content: ""; width: 9px; height: 9px; margin-left: -2px; border-radius: 50%; background: var(--rc); }
+.cp-filters #cp-ratings .sys-filter:hover { border-color: var(--rc); box-shadow: 0 3px 10px color-mix(in srgb, var(--rc) 25%, transparent); }
+.cp-filters #cp-ratings .sys-filter.on { background: var(--rc); border-color: var(--rc); color: var(--bg);
+  box-shadow: 0 3px 12px color-mix(in srgb, var(--rc) 35%, transparent); }
+.cp-filters #cp-ratings .sys-filter.on::before { background: var(--bg); }
+.cp-filters #cp-ratings .sys-filter.on .n { background: color-mix(in srgb, var(--bg) 25%, transparent); }
+.cp-clear { justify-self: start; margin: 2px 0 12px; padding: 5px 12px; border-radius: 999px; border: 1px solid var(--line);
+  background: transparent; color: var(--text-2); font: inherit; font-size: 13px; cursor: pointer; }
+.cp-clear:hover { color: var(--text); border-color: var(--accent); }
+@media (prefers-reduced-motion: reduce) { .cp-filters .sys-filter { transition: none; } .cp-filters .sys-filter:hover { transform: none; } }
+
+/* A console: its head, then its games. */
+.cp-list { display: grid; gap: 18px; }
+.cp-group { background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); overflow: hidden; min-width: 0; }
+.cp-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; padding: 14px 18px; }
 .cp-names { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 .cp-names h2 { margin: 0; font-size: 20px; }
 .cp-names .emu { color: var(--muted); font-size: 13px; }
 .cp-meta { display: flex; align-items: center; gap: 10px; min-width: 160px; }
 .cp-meta .cp-count { color: var(--text-2); font-size: 13px; white-space: nowrap; }
 .cp-meta .cp-bar { flex: 1; min-width: 80px; }
+.cp-scroll { overflow-x: auto; }
 .cp-t { width: 100%; border-collapse: collapse; font-size: 14px; }
-.cp-t th { text-align: left; padding: 8px 12px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
-  color: var(--muted); background: var(--bg-2); border-top: 1px solid var(--line); }
-.cp-t td { padding: 10px 12px; border-top: 1px solid var(--line); vertical-align: top; color: var(--text-2); }
-.cp-t th:first-child, .cp-t td:first-child { padding-left: 16px; }
+.cp-t th { text-align: left; padding: 8px 10px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em;
+  color: var(--muted); background: var(--bg-2); border-top: 1px solid var(--line); vertical-align: bottom; }
+.cp-t td { padding: 10px; border-top: 1px solid var(--line); vertical-align: top; color: var(--text-2); }
+.cp-t th:first-child, .cp-t td:first-child { padding-left: 18px; }
+.cp-t th:last-child, .cp-t td:last-child { padding-right: 18px; }
+.cp-t tbody tr:hover td { background: color-mix(in srgb, var(--accent) 4%, transparent); }
+.cp-t th.cp-num, .cp-t td.cp-num { text-align: right; }
+.cp-t td.cp-num { width: 1%; }
+.cp-t td.cp-none { color: var(--muted); }
 .cp-game b { display: block; color: var(--text); font-size: 15px; }
 .cp-note { display: block; margin-top: 2px; color: var(--muted); font-size: 13px; }
 .cp-region { white-space: nowrap; font-weight: 600; }
 .cp-speed { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.cp-online { color: var(--muted); }
+.cp-online.yes { color: var(--text); }
+.cp-vers { display: flex; flex-direction: column; gap: 6px; }
 .cp-tested { display: flex; flex-direction: column; font-size: 13px; }
 .cp-ver { font-weight: 700; color: var(--text); }
 .cp-date { color: var(--muted); }
-.cp-help { margin-top: 24px; padding: 18px; border-radius: 14px; border: 1px dashed color-mix(in srgb, var(--accent) 50%, var(--line));
+.cp-badge-m { display: none; }
+@media (min-width: 1200px) {
+  .cp-t td.cp-game { min-width: 170px; }
+  .cp-t td.cp-on { min-width: 130px; }
+  .cp-t td.cp-settings { min-width: 130px; }
+  .cp-t td.cp-when { min-width: 100px; }
+  .cp-t td.cp-speed:not(.cp-num) { white-space: normal; min-width: 96px; }
+}
+@media (min-width: 1500px) { .cp-t td.cp-speed:not(.cp-num) { white-space: nowrap; } .cp-t td.cp-game { min-width: 240px; } }
+
+/* Below 1200 px each game is a card (the column names as labels): one a row on phones, more from 640 px. The rating
+   goes beside the title (a copy of it in the title's cell) and the cells with nothing are left out. */
+@media (max-width: 1199px) {
+  .cp-scroll { overflow: visible; }
+  .cp-t thead { display: none; }
+  .cp-t, .cp-t tbody, .cp-t tr, .cp-t td { display: block; width: 100%; }
+  /* The cards' lines: each its right and bottom one; the group cuts the last ones (1 px wider, its overflow hidden). */
+  .cp-t tbody { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
+    width: calc(100% + 1px); margin-bottom: -1px; border-top: 1px solid var(--line); }
+  .cp-t tr { padding: 14px 16px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 12px;
+    align-content: start; box-shadow: inset -1px 0 var(--line), inset 0 -1px var(--line); }
+  .cp-t tbody tr:hover td { background: none; }
+  .cp-t td { border: 0; padding: 0 !important; }
+  .cp-t td[data-label]::before { content: attr(data-label); display: block; font-size: 11px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  .cp-t td.cp-game { grid-column: 1 / -1; }
+  .cp-t td.cp-game::before { display: none; }
+  .cp-t td.cp-rating { display: none; }
+  .cp-t .cp-game .cp-badge-m { display: inline-flex; float: right; margin: 0 0 4px 10px; }
+  .cp-t td.cp-region { grid-column: 1; }
+  .cp-t td.cp-speed:not(.cp-logs) { grid-column: 2 / -1; }
+  .cp-t td.cp-none { display: none; }
+  .cp-t td.cp-num { width: 100%; text-align: left; }
+  .cp-t td.cp-logs { white-space: normal; }
+  .cp-t td.cp-logs1 { grid-column: 1; }
+  .cp-t td.cp-logs3 { grid-column: 3 / -1; }
+  .cp-t td.cp-on, .cp-t td.cp-settings, .cp-t td.cp-when { grid-column: 1 / -1; }
+  .cp-vers { flex-direction: row; flex-wrap: wrap; gap: 0 16px; }
+  .cp-tested { flex-direction: row; flex-wrap: wrap; gap: 0 8px; }
+}
+@media (max-width: 759px) {
+  .cp-meta { width: 100%; }
+  .cp-frow { grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 10px 0; }
+  .cp-flabel { padding-top: 0; }
+  /* The chips in one row that slides sideways, fading at the edge. */
+  .cp-filters .sys-filters { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding: 2px 16px 4px 0;
+    margin-right: -16px; -webkit-mask-image: linear-gradient(90deg, #000 85%, transparent);
+    mask-image: linear-gradient(90deg, #000 85%, transparent); }
+  .cp-filters .sys-filters::-webkit-scrollbar { display: none; }
+  .cp-filters .sys-filter { flex: none; padding: 5px 5px 5px 12px; font-size: 13px; }
+  .cp-filters .sys-filter:hover { transform: none; }
+}
+
+/* Under the tables: the legend, and where the logs' numbers come from; then how to send a game. */
+.cp-key { margin-top: 24px; padding: 18px; border-radius: 16px; background: var(--card); border: 1px solid var(--line); box-shadow: var(--shadow); }
+.cp-legend { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px 24px; grid-template-columns: minmax(0, 1fr); }
+.cp-legend li { display: flex; align-items: center; gap: 10px; color: var(--text-2); font-size: 14px; }
+.cp-legend .cp-badge { flex: none; min-width: 128px; justify-content: flex-start; }
+@media (min-width: 760px) { .cp-legend { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 1300px) { .cp-legend { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.cp-logs-note { margin: 14px 0 0; padding-top: 12px; border-top: 1px solid var(--line); font-size: 13px; }
+.cp-help { margin-top: 16px; padding: 18px; border-radius: 16px; border: 1px dashed color-mix(in srgb, var(--accent) 50%, var(--line));
   background: color-mix(in srgb, var(--accent) 7%, var(--card)); }
 .cp-help h2 { font-size: 20px; margin: 0 0 6px; }
 .cp-help p { margin: 0; color: var(--text-2); }
 .cp-help .note.small { margin-top: 10px; }
-/* Phones: each game a card (the column names as labels). */
-@media (max-width: 759px) {
-  .cp-t thead { display: none; }
-  .cp-t, .cp-t tbody, .cp-t tr, .cp-t td { display: block; width: 100%; }
-  .cp-t tr { padding: 12px 14px; border-top: 1px solid var(--line); display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; }
-  .cp-t td { border: 0; padding: 0 !important; }
-  .cp-t td.cp-game { grid-column: 1; }
-  .cp-t td.cp-rating { grid-column: 2; grid-row: 1; justify-self: end; }
-  .cp-t td.cp-rating::before { display: none; }
-  .cp-t td[data-label]::before { content: attr(data-label); display: block; font-size: 11px; font-weight: 700;
-    text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
-  .cp-t td.cp-region, .cp-t td.cp-speed { grid-column: auto; }
-  .cp-t td.cp-settings, .cp-t td.cp-when { grid-column: 1 / -1; }
-  .cp-tested { flex-direction: row; flex-wrap: wrap; gap: 0 8px; }
-  .cp-meta { width: 100%; }
-}
-@media (max-width: 759px) { .cp-t td.cp-rating[data-label]::before { display: none; } }
-/* (v00.23) Compatibility, v2: the filters on two labelled rows with a line between them; the online column. */
-.cp-filters { display: grid; gap: 0; padding: 4px 14px; border-radius: 14px; background: var(--card); border: 1px solid var(--line); }
-.cp-frow { display: grid; grid-template-columns: 110px minmax(0, 1fr); align-items: start; gap: 10px; padding: 10px 0; }
-.cp-frow + .cp-frow { border-top: 1px solid var(--line); }
-.cp-flabel { padding-top: 6px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
-.cp-clear { justify-self: start; margin: 0 0 10px; padding: 5px 12px; border-radius: 999px; border: 1px solid var(--line);
-  background: transparent; color: var(--text-2); font: inherit; font-size: 13px; cursor: pointer; }
-.cp-clear:hover { color: var(--text); border-color: var(--accent); }
-.cp-online { color: var(--muted); }
-.cp-online.yes { color: var(--text); }
-@media (max-width: 759px) {
-  .cp-frow { grid-template-columns: minmax(0, 1fr); gap: 6px; }
-  .cp-flabel { padding-top: 0; }
-  .cp-t td.cp-on { grid-column: 1 / -1; }
-}
-@media (min-width: 760px) { .cp-t td.cp-game { min-width: 180px; } .cp-t td.cp-when { min-width: 104px; } .cp-t td.cp-on { min-width: 150px; } }
-/* (v00.23) Compatibility: «From players' reports», the speed in the players' own logs, apart from our tests. */
-.cp-users { margin-top: 32px; }
-.cp-users > h2 { font-size: 24px; margin: 0 0 6px; }
-.cp-users > .note { margin: 0 0 14px; max-width: 72ch; }
-.cp-names h3 { margin: 0; font-size: 18px; }
-.cu-t td.cp-speed { width: 1%; }
-@media (max-width: 759px) {
-  .cu-t tr { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .cu-t td.cp-game { grid-column: 1 / -1; }
-  .cu-t td.cp-speed { width: auto; white-space: normal; }
-}
 /* ---- (v00.24) What's new: a "New" tag on the new features' cards; the home page's four live numbers and the rooms
    open; the statistics page's eight numbers (two rows of four from 640 px). ---- */
 .ft .ft-new { display: inline-block; margin: 0 0 6px; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 800;
