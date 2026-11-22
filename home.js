@@ -40,16 +40,20 @@
     atari7800: { on: "friends", ra: 1, st: 1, ch: 0, bios: "opt", pl: 2, files: ".a78", zip: 1 },
     atarijaguar: { on: "", ra: 1, st: 1, ch: 1, bios: "opt", pl: 2, files: ".j64 .jag .abs .cof", zip: 1, note: "n_jaguar" },
     arcade: { on: "friends", ra: 1, st: 1, ch: 0, bios: "neogeo", pl: 4, files: ".zip .7z", note: "n_arcade" },
-    openbor: { on: "", ra: 0, st: 0, ch: 0, bios: "no", pl: 4, files: ".pak", note: "n_openbor" }
+    openbor: { on: "", ra: 0, st: 0, ch: 0, bios: "no", pl: 4, files: ".pak", note: "n_openbor" },
+    // (v00.25) The PS Vita, experimental: Vita3K, with the player's own firmware 3.74 and vita-keys.txt (src/Vita.cpp);
+    // no achievements, states nor cheats (Achievements.cpp, IngameMenu.cpp); a .vpk or a decrypted dump's .zip.
+    psvita: { on: "", ra: 0, st: 0, ch: 0, bios: "vita", pl: 1, files: ".vpk .zip", note: "n_vita" }
   };
   var ONLINE = { friends: "on_friends", link: "on_link", wfc: "on_wfc", psp: "on_psp", dcnet: "on_dcnet" };
   // (v2) The online badge's server, short; "own" EmuSuNi's server, "comm" the community's.
   var SERVER = { friends: ["srv_emusuni", "own"], link: ["srv_emusuni", "own"], wfc: ["srv_wfc", "comm"],
                  psp: ["srv_psp", "comm"], dcnet: ["srv_dcnet", "comm"] };
-  var BIOS = { no: "bios_no", yes: "bios_yes", opt: "bios_opt", neogeo: "bios_neogeo", fds: "bios_fds" };
+  var BIOS = { no: "bios_no", yes: "bios_yes", opt: "bios_opt", neogeo: "bios_neogeo", fds: "bios_fds",
+               vita: "bios_vita" };
   // (v2) The filters: each console's maker.
   var MAKER = { snes: "nintendo", nes: "nintendo", n64: "nintendo", gb: "nintendo", gbc: "nintendo", gba: "nintendo",
-                nds: "nintendo", "3ds": "nintendo", ps1: "sony", psp: "sony", dc: "sega", naomi: "sega",
+                nds: "nintendo", "3ds": "nintendo", ps1: "sony", psp: "sony", psvita: "sony", dc: "sega", naomi: "sega",
                 atomiswave: "sega", sg1000: "sega", sms: "sega", gg: "sega", md: "sega", saturn: "sega",
                 atari2600: "atari", atari7800: "atari", atarijaguar: "atari", pce: "other", arcade: "other",
                 openbor: "other" };

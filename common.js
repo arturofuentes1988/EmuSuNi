@@ -28,7 +28,7 @@ var EmuSuNi = (function () {
     ["snes", "Super Nintendo", "Snes9x"], ["nes", "NES", "FCEUmm"], ["n64", "Nintendo 64", "Mupen64Plus-Next"],
     ["gb", "Game Boy", "mGBA"], ["gbc", "Game Boy Color", "mGBA"], ["gba", "Game Boy Advance", "mGBA"],
     ["ps1", "PlayStation", "SwanStation"], ["nds", "Nintendo DS", "melonDS DS"], ["3ds", "Nintendo 3DS", "Azahar"],
-    ["psp", "PSP", "PPSSPP"], ["dc", "Dreamcast", "Flycast"], ["naomi", "NAOMI", "Flycast"],
+    ["psp", "PSP", "PPSSPP"], ["psvita", "PS Vita", "Vita3K"], ["dc", "Dreamcast", "Flycast"], ["naomi", "NAOMI", "Flycast"],
     ["atomiswave", "Atomiswave", "Flycast"], ["sg1000", "SG-1000", "Genesis Plus GX"],
     ["sms", "Master System", "Genesis Plus GX"], ["gg", "Game Gear", "Genesis Plus GX"],
     ["md", "Genesis / Mega Drive", "Genesis Plus GX"], ["saturn", "Saturn", "YabaSanshiro"],

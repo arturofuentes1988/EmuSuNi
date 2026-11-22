@@ -591,6 +591,9 @@ section[id], .panel[id] { scroll-margin-top: 100px; }
 .ft .ft-new { display: inline-block; margin: 0 0 6px; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 800;
   line-height: 1.6; letter-spacing: .05em; text-transform: uppercase; background: var(--accent); color: var(--accent-ink); }
 .ft.is-new { border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); }
+/* (v00.25) A new feature as a row of its own across the grid (the PS Vita's card). */
+.ft.full { grid-column: 1 / -1; }
+.bento .ft.full { flex-direction: row; gap: 14px; }
 @media (min-width: 1000px) { .ft.is-new:not(.wide) .ft-new { margin-bottom: 0; } }
 @media (min-width: 640px) { .live .tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
 @media (max-width: 639px) { .live .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
