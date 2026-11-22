@@ -367,7 +367,7 @@ Varsayılan ISO'yu kaldır
 Artık hiçbir oyun kendiliğinden başlamaz.
 Dolphin açılınca başlar.
 Bunun yerine menüyü açmak için
-Dolphin açılırken L1'i basılı tut.
+bunun yerine menü açılır.
 Dolphin açılınca başlar
 # --- JIT
 Bu konsol Dolphin'in hızlı CPU modunu (JIT) desteklemiyor: oyunlar yavaş çalışır.

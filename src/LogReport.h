@@ -5,7 +5,10 @@
 // - What goes: data_dir's emusuni.log (this session), emusuni-1.log (the one before: the one that closed, after a
 //   crash) and the end of crash.log (its last 256 KiB: the newest crashes; after them, 01.05, xmb-trace-1.log when the
 //   start before this one closed before its log began - a crash before main(): at most 64 KiB, only the program's own
-//   start, under "=== xmb-trace-1.log: ..."), with the app's version, made smaller
+//   start, under "=== xmb-trace-1.log: ..."; then, 01.24, Mesa's /data/DolphinPS4/gpu-hang.txt when this session or the
+//   one before wrote it - its log says "writing /data/DolphinPS4/gpu-hang.txt" - and it is newer than emusuni-2.log:
+//   its first 512 KiB, the GPU's command buffers of the drawing that hung, under "=== gpu-hang.txt: ..."; a crash.log's
+//   part of its own when there is no crash.log), with the app's version, made smaller
 //   (zlib). First the player's own RetroAchievements user name and online nickname are taken out of them (each becomes
 //   "<ra-user>" / "<player>"); the server takes out the rest - the other players' nicknames, addresses, room codes,
 //   the PS4's user ids (server/emusuni-reports.py) - and keeps only the country, never the address, for 90 days.
@@ -46,9 +49,15 @@ struct Ask
   std::string data_dir;
   std::vector<std::pair<std::string, std::string>> names;  // a name to take out, what it becomes ("<player>")
   std::function<std::string()> server;  // the server's address ("host" or "host:port": the host is taken), on the thread
+  // (01.24) Mesa's GPU hang report (its PS4 port, ac_ps4_drm.c: written once a session, at the first hang).
+  std::string gpu_hang = "/data/DolphinPS4/gpu-hang.txt";
 };
 // Sends the logs on a thread (one under way: nothing more).
 void Send(const Ask& ask);
+// (01.25) The folder of this session's log when it isn't the data folder (main.cpp: /data/EmuSuNi couldn't be written -
+// a PS5's? - and the log went to a USB drive's top folder): its emusuni.log and emusuni-1.log are sent from there when
+// the data folder hasn't them.
+void SetLogDir(const std::string& dir);
 Status GetStatus();
 
 // At the menu's start: whether to ask about a crash. The crash counts as asked about once answered (CrashAnswered) or

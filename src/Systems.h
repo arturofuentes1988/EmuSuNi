@@ -59,10 +59,21 @@ enum class SystemId
 #ifdef EMUSUNI_OPENBOR
   OPENBOR = 23,     // OpenBOR's games (.pak): zanac's multi-engine core (builds with EMUSUNI_OPENBOR, with-openbor)
 #endif
+#ifdef EMUSUNI_VITA
+  VITA = 24,        // the PS Vita (experimental): Vita3K (builds with EMUSUNI_VITA, with-vita; 24 with or without OpenBOR)
+#endif
+#ifdef EMUSUNI_MUGEN
+  MUGEN = 25,       // (01.27) MUGEN (experimental): Ikemen GO game folders (EMUSUNI_MUGEN, with-mugen; 25 with or without
+                    // OpenBOR and the PS Vita)
+#endif
 };
 // The most there can be: Systems() has those of this build (at most 32: the settings' console masks are 32-bit,
 // Settings.h FOR_ALL).
-#ifdef EMUSUNI_OPENBOR
+#if defined(EMUSUNI_MUGEN)
+constexpr int SYSTEM_COUNT = 26;
+#elif defined(EMUSUNI_VITA)
+constexpr int SYSTEM_COUNT = 25;
+#elif defined(EMUSUNI_OPENBOR)
 constexpr int SYSTEM_COUNT = 24;
 #else
 constexpr int SYSTEM_COUNT = 23;
@@ -131,6 +142,15 @@ inline bool IsRomsetSystem(SystemId id)
 inline bool IsAtari(SystemId id)
 {
   return id == SystemId::A2600 || id == SystemId::A7800 || id == SystemId::JAGUAR;
+}
+// The PS Vita (with-vita; never in a build without it).
+inline bool IsVita([[maybe_unused]] SystemId id)
+{
+#ifdef EMUSUNI_VITA
+  return id == SystemId::VITA;
+#else
+  return false;
+#endif
 }
 // The console whose ROM files have this name's extension (nullptr: none, or a .zip).
 const System* SystemOfFile(const std::string& name);

@@ -110,6 +110,14 @@ struct Source
   };
   int part_count = 0;
   Part parts[2];
+  // (01.72) The colours (Graphics: Brightness, Gamma, Saturation), drawn by the last pass of every mode but Tube TV
+  // (which has a look of its own): brightness and saturation as factors, gamma above 1 lighter dark parts. 1, 1, 1:
+  // the picture's own.
+  float brightness = 1.0f, gamma = 1.0f, saturation = 1.0f;
+  // (01.72) HD Sharpen's pass without sharpening, read smooth (linear) or sharp (nearest): the GPU Upscaler being Off,
+  // the pass only draws the colours above.
+  bool plain = false, plain_smooth = true;
+  bool Graded() const { return brightness != 1.0f || gamma != 1.0f || saturation != 1.0f; }
 };
 
 // DrawPicture: this frame's picture through the mode's passes, the last one into the screen at

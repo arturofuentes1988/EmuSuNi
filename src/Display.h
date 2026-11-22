@@ -58,8 +58,9 @@ public:
   VkImageView GameView() const;
   // V-Sync off: the flips happen at the next line instead of the next TV refresh.
   void SetVsync(bool on);
-  // The time spent waiting for the TV and the GPU since the last call (ms).
-  double TakeWaitMs();
+  // The time spent waiting for the TV and the GPU since the last call (ms); (01.39) flip_ms: the TV's part of it
+  // (EndFrame's wait for its image off screen).
+  double TakeWaitMs(double* flip_ms = nullptr);
   // ---- Frame pacing (Emulator.cpp, src/Pacing.h) ----
   // The TV's refresh rate as VideoOut reports it (59.94 Hz when it doesn't say).
   double RefreshHz() const;
@@ -95,9 +96,14 @@ public:
   VkDevice Device() const;
   VkQueue Queue() const;
   uint32_t QueueFamily() const;
-  // Every use of the queue holds this lock (the core submits from its own threads).
-  void LockQueue();
+  // Every use of the queue holds this lock (the core submits from its own threads). (01.87) where: the core's code
+  // that takes it, for the "gpu:" line's longest hold.
+  void LockQueue(const void* where = nullptr);
   void UnlockQueue();
+  // ((01.86) The GPU's "shared queue") Two "gpu:" lines in the log since the last call: the submissions to the GPU
+  // (the driver's numbers: what each costs the thread that submits, the kernel's call, the submission thread's queue
+  // when gpu-submitthread-on is on) and the queue lock (who held it, how long; who waited, how long).
+  void LogGpuSubmissions();
   // The frame EndFrame draws next (0..2) and all of them, as bits; WaitSyncIndex() waits until
   // the GPU is done with that frame's last use (its resources can be used again).
   uint32_t SyncIndex() const;

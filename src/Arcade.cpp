@@ -9,6 +9,7 @@
 #include <map>
 #include <mutex>
 #include <set>
+#include <strings.h>
 
 #include "Log.h"
 
@@ -17,6 +18,8 @@
 #endif
 
 #ifdef EMUSUNI_ARCADE
+// ((01.91) scripts/build-arcade-core.sh: the folders above the game's, '\n' between them, for the next load.)
+extern "C" void fbneo_emusuni_folders(const char* list);
 // scripts/build-arcade-core.sh: every driver of the core, one call of `add` each.
 extern "C" unsigned fbneo_emusuni_list(void (*add)(void* user, const char* name, const char* title,
                                                    const char* parent, const char* bios, const char* year,
@@ -224,22 +227,81 @@ std::string CoverName(const std::string& title)
   return name;
 }
 
-std::vector<std::string> Missing(const Driver& driver, const std::string& folder, const std::string& system_dir)
+namespace
 {
-  return Missing(driver, folder, system_dir, FileExists);
+// A folder's path without the '/' at its end.
+std::string Tidy(std::string path)
+{
+  while (path.size() > 1 && path.back() == '/')
+    path.pop_back();
+  return path;
 }
 
-std::vector<std::string> Missing(const Driver& driver, const std::string& folder, const std::string& system_dir,
-                                 const std::function<bool(const std::string&)>& exists)
+bool SameFolder(const std::string& a, const std::string& b)
+{
+  return a.size() == b.size() && strncasecmp(a.c_str(), b.c_str(), a.size()) == 0;
+}
+}  // namespace
+
+std::vector<std::string> FoldersAbove(const std::string& folder, const std::string& root)
+{
+  std::vector<std::string> above;
+  std::string dir = Tidy(folder);
+  const std::string top = Tidy(root);
+  if (!top.empty() && dir.size() > top.size() && dir[top.size()] == '/' && SameFolder(dir.substr(0, top.size()), top))
+  {
+    // (Each one as the game's path spells it: on a USB drive the letters' case may differ from the root's.)
+    while (dir.size() > top.size())
+    {
+      dir.resize(dir.find_last_of('/'));
+      above.push_back(dir);
+    }
+    return above;
+  }
+  // ((01.36, a player: roms/arcade/hacks) No root: a game in a folder named "hacks", the folder above it too.)
+  const size_t slash = dir.find_last_of('/');
+  if (slash != std::string::npos && slash > 0 && strcasecmp(dir.c_str() + slash + 1, "hacks") == 0)
+    above.push_back(dir.substr(0, slash));
+  return above;
+}
+
+void SetCoreFolders(const std::vector<std::string>& folders)
+{
+#ifdef EMUSUNI_ARCADE
+  std::string list;
+  for (const std::string& folder : folders)
+    list += (list.empty() ? "" : "\n") + folder;
+  fbneo_emusuni_folders(list.c_str());
+#else
+  (void)folders;
+#endif
+}
+
+std::vector<std::string> Missing(const Driver& driver, const std::string& folder, const std::vector<std::string>& above,
+                                 const std::string& system_dir)
+{
+  return Missing(driver, folder, above, system_dir, FileExists);
+}
+
+std::vector<std::string> Missing(const Driver& driver, const std::string& folder, const std::vector<std::string>& above,
+                                 const std::string& system_dir, const std::function<bool(const std::string&)>& exists)
 {
   std::vector<std::string> missing;
+  // (Where the core's locate_archive looks - scripts/build-arcade-core.sh -: the game's folder, (01.91) the folders
+  // above it up to the console's - (01.36) a "hacks" folder's parent -, system/fbneo, system.)
+  std::vector<std::string> dirs = {folder};
+  dirs.insert(dirs.end(), above.begin(), above.end());
+  dirs.push_back(system_dir + "/fbneo");
+  dirs.push_back(system_dir);
   for (const std::string& set : {driver.bios, driver.parent})
   {
     if (set.empty())
       continue;
     bool found = false;
-    for (const std::string& dir : {folder, system_dir + "/fbneo", system_dir})
+    for (const std::string& dir : dirs)
     {
+      if (dir.empty())
+        continue;
       for (const char* extension : {".zip", ".7z"})
         found = found || exists(dir + "/" + set + extension);
     }
@@ -256,7 +318,8 @@ std::string LoadError(const std::string& core_text, const std::vector<std::strin
 }
 
 std::string LoadError(const std::string& core_text, const std::vector<std::string>& not_found,
-                      const std::string& system_dir, const std::string& game_path)
+                      const std::string& system_dir, const std::string& game_path,
+                      const std::vector<std::string>& above)
 {
   const auto has = [&](const char* part) { return core_text.find(part) != std::string::npos; };
   std::string error;
@@ -348,6 +411,8 @@ std::string LoadError(const std::string& core_text, const std::vector<std::strin
           continue;
         for (const std::string& dir : {folder, system_dir + "/fbneo", system_dir})
           AddZipNames(dir + "/" + zip_set + ".zip", &names);
+        for (const std::string& dir : above)  // ((01.91) the folders above the game's, where the core looks too)
+          AddZipNames(dir + "/" + zip_set + ".zip", &names);
       }
     }
     size_t other = 0;
@@ -368,7 +433,8 @@ std::string LoadError(const std::string& core_text, const std::vector<std::strin
     std::string zips;
     for (const std::string& zip : not_found)
       zips += (zips.empty() ? "" : ", ") + zip;
-    error += "\nZips not found:\n" + zips + "\nCopy the zips next to the game, or to:\n" + system_dir + "/fbneo";
+    error += "\nZips not found:\n" + zips + "\nCopy the zips next to the game,\nin a folder above it, or to:\n" +
+             system_dir + "/fbneo";  // ((01.91) a folder above it too, up to Roms/arcade)
   }
   if (!verify.empty())
     error += "\nRomsets to verify:\n" + verify;

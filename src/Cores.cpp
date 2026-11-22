@@ -99,6 +99,12 @@ DECLARE_CORE(vjaguar)
 #ifdef EMUSUNI_OPENBOR
 DECLARE_CORE(openbor)
 #endif
+#ifdef EMUSUNI_VITA
+DECLARE_CORE(vita3k)
+#endif
+#ifdef EMUSUNI_MUGEN
+DECLARE_CORE(mugen)
+#endif
 
 namespace Cores
 {
@@ -154,5 +160,11 @@ const CoreApi VIRTUAL_JAGUAR = CORE_TABLE(vjaguar, "Virtual Jaguar");
 #endif
 #ifdef EMUSUNI_OPENBOR
 const CoreApi OPENBOR = CORE_TABLE(openbor, "OpenBOR");
+#endif
+#ifdef EMUSUNI_VITA
+const CoreApi VITA3K = CORE_TABLE(vita3k, "Vita3K");
+#endif
+#ifdef EMUSUNI_MUGEN
+const CoreApi IKEMEN = CORE_TABLE(mugen, "Ikemen GO");
 #endif
 }  // namespace Cores

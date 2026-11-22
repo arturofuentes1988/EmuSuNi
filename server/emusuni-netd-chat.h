@@ -21,6 +21,12 @@
 // line"), nor a line from an app that didn't show the notice (WORLD_NOTICE_SEEN).
 // The log has counts only, never a line's text.
 //
+// (01.24, the owner: "el historial del chat mundial es muy corto, quiero que haya más historial") At the start the last
+// WORLD_KEPT world lines of chat_log are read again (LoadWorldHistory: a restart forgot them all); a kept line's number
+// is its chat_log row, so it keeps it after a restart (an app's "since" still right), the new ones after the highest
+// row. An app scrolling up asks for the lines before its oldest (WorldChat's `before`): the memory's, then chat_log's -
+// its 30 days. A player blocked now: its lines left out of those read.
+//
 // The owner's panel (server/reports_panel.py) reads chat_log; its blocks come back in --chat-blocks FILE, read again
 // when it changes: "code CODE UNTIL" and "ip HASH SALT UNTIL" lines (UNTIL a Unix time, 0 always; a hash's block lasts
 // as long as its salt at most). A report marks its line (chat_log.reported), nothing of who reported.
@@ -28,9 +34,11 @@
 constexpr double WORLD_EVERY = 3.0;        // s between a player's lines
 constexpr double WORLD_MINUTE = 20.0;      // a player's lines a minute
 constexpr double WORLD_ALL_RATE = 10.0;    // the server's lines a second
-constexpr double WORLD_ASK_RATE = 1.0, WORLD_ASK_BURST = 4.0;  // an address's questions
+// ((01.24) 2 and 6, 1 and 4 before: the older lines' questions too.)
+constexpr double WORLD_ASK_RATE = 2.0, WORLD_ASK_BURST = 6.0;  // an address's questions
 constexpr double WORLD_REPORT_RATE = 5.0 / 3600.0, WORLD_REPORT_BURST = 5.0;  // an address's reports
-constexpr int WORLD_FIRST = 20;            // the lines a question since 0 gets (the newest ones)
+constexpr int WORLD_FIRST = 50;            // the lines a question since 0 gets (the newest ones; (01.24) 20 before)
+constexpr int WORLD_OLDER_READ = 40;       // ((01.24) chat_log's lines read for a question of older ones)
 constexpr int CHAT_LOG_DAYS = 30, CHAT_SALT_DAYS = 30;
 constexpr int MAX_WORLD_PHRASE = 64;       // (a newer app's phrase numbers: its own to show)
 
@@ -51,8 +59,11 @@ std::unordered_map<std::string, WorldPlayer> s_world_players;  // by code
 Bucket s_world_all;
 struct WorldCounts
 {
-  uint64_t lines = 0, refused = 0, reports = 0, asks = 0, room_copies = 0;
+  uint64_t lines = 0, refused = 0, reports = 0, asks = 0, room_copies = 0, older = 0;
 } s_world_counts;
+// ((01.24) The chat_log rows sent as older lines: a report of one of them marks its row - only those, never a number
+// an app had from a server before 01.24's.)
+std::unordered_set<uint32_t> s_world_older_rows;
 
 std::string s_chat_salt_dir, s_chat_blocks_path;
 struct ChatSalt
@@ -221,8 +232,65 @@ int64_t StoreChatLine(const std::string& place, const WorldLine& line, const std
   Stmt q(s_stats.db, "INSERT INTO chat_log(at, place, nick, code, country, version, phrase, param, text, ip_hash, salt)"
                      " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
   q.Int(1, WallNow()).Text(2, place).Text(3, line.nick).Text(4, line.code).Text(5, line.country).Text(6, version);
-  q.Int(7, line.phrase).Text(8, line.param).Text(9, line.text).Text(10, hash).Int(11, salt).Run();
-  return sqlite3_last_insert_rowid(s_stats.db);
+  q.Int(7, line.phrase).Text(8, line.param).Text(9, line.text).Text(10, hash).Int(11, salt);
+  return q.Run() ? sqlite3_last_insert_rowid(s_stats.db) : 0;  // ((01.24) 0: not written)
+}
+
+// (01.24) chat_log's world lines before the row `before` (0: the newest), at most `most`, the oldest first, each as
+// the memory keeps it: its number its row, its time from the line's; a line of a player blocked now (or not readable)
+// left out.
+void StoredWorldLines(uint32_t before, int most, std::vector<WorldEntry>* out)
+{
+  out->clear();
+  if (!s_stats.on || !s_stats.db || most <= 0)
+    return;
+  const double now = Now();
+  const int64_t wall = WallNow();
+  Stmt q(s_stats.db, "SELECT id, at, nick, code, country, phrase, param, text, ip_hash, salt FROM chat_log"
+                     " WHERE place = 'world' AND id < ? AND at >= ? ORDER BY id DESC LIMIT ?");
+  q.Int(1, before ? int64_t{before} : INT64_MAX).Int(2, wall - int64_t{CHAT_LOG_DAYS} * 86400);
+  q.Int(3, int64_t{most} * 4 + 50);
+  while (static_cast<int>(out->size()) < most && q.Row())
+  {
+    const int64_t row = q.ColInt(0), phrase = q.ColInt(5);
+    if (row <= 0 || row > 0xFFFFFFFFll || phrase < 0 || phrase > MAX_WORLD_PHRASE)
+      continue;
+    WorldEntry e;
+    e.row = row;
+    e.at = now - static_cast<double>(std::max<int64_t>(0, wall - q.ColInt(1)));
+    e.line.serial = static_cast<uint32_t>(row);
+    e.line.nick = CleanNick(q.ColText(2));
+    e.line.code = q.ColText(3);
+    e.line.country = CleanCountry(q.ColText(4));
+    e.line.phrase = static_cast<uint8_t>(phrase);
+    if (phrase)
+      e.line.param = CleanText(q.ColText(6), MAX_PHRASE_PARAM, "");
+    else
+      e.line.text = CleanChat(q.ColText(7));
+    if ((phrase == 0 && e.line.text.empty()) || e.line.code.size() != PLAYER_CODE_SIZE ||
+        BlockedSeconds(e.line.code, q.ColText(8), q.ColInt(9)) >= 0)
+      continue;
+    out->push_back(std::move(e));
+  }
+  std::reverse(out->begin(), out->end());
+}
+
+// (01.24) At the start (after --stats-dir and the salt's folder): the newest lines' numbers after every chat_log row,
+// the last WORLD_KEPT world lines read again.
+void LoadWorldHistory()
+{
+  if (s_relay_only || !s_stats.on || !s_stats.db)
+    return;
+  {
+    Stmt q(s_stats.db, "SELECT MAX(id) FROM chat_log");
+    if (q.Row())
+      s_world_serial = static_cast<uint32_t>(std::clamp<int64_t>(q.ColInt(0), 0, 0xFFFFFFF0ll));
+  }
+  std::vector<WorldEntry> lines;
+  StoredWorldLines(0, WORLD_KEPT, &lines);
+  s_world.assign(lines.begin(), lines.end());
+  std::printf("world chat: %zu lines of before read again (chat_log), the next number after %u\n", s_world.size(),
+              s_world_serial);
 }
 
 // A player's code from its chat key (the world chat's and the rooms' copies': the same player, the same code).
@@ -293,6 +361,8 @@ void OnWorldChat(Reader& r, const sockaddr_in& from, size_t size, AddressState& 
   if (!CheckCookie(r, from, size, &nonce))
     return;
   const uint32_t since = r.U32();
+  // ((01.24) A newer app's question for the lines before its oldest: `before` after `since`.)
+  const uint32_t before = r.Ok() && r.Left() >= 4 ? r.U32() : 0;
   const double now = Now();
   if (!r.Ok() || !state.world_asks.Take(now, WORLD_ASK_RATE, WORLD_ASK_BURST))
     return;
@@ -302,34 +372,90 @@ void OnWorldChat(Reader& r, const sockaddr_in& from, size_t size, AddressState& 
   w.Header(Type::WorldLines);
   w.U32(nonce);
   w.U32(s_world_serial);
-  w.U8(ChatStored() ? WORLD_STORED : 0);
+  w.U8(static_cast<uint8_t>((ChatStored() ? WORLD_STORED : 0) | (before ? WORLD_OLDER : 0)));
   NetCaps shows;
   shows.caps = CAP_COUNTRY;
-  w.Str(ShownCountry(from, 0, shows), COUNTRY_SIZE);  // ((01.07) its "I'm from ..." - the app offers it with one only)
+  w.Str(ShownCountry(from, 0, shows), COUNTRY_SIZE);  // ((01.07) its "I'm from ...", the app offers it with one only)
   const size_t count_at = w.Size();
   w.U8(0);
-  size_t first = 0;
-  if (since == 0 || since > s_world_serial)
-    first = s_world.size() > static_cast<size_t>(WORLD_FIRST) ? s_world.size() - WORLD_FIRST : 0;
+  // The lines that may go, the oldest first: those since `since` - as many as fit from the first -, or the last
+  // WORLD_FIRST (since 0) - the newest of them that fit: one answer, (01.24) its newest line ours at once -, or (01.24)
+  // those before `before` - the memory's, else chat_log's: the newest of them that fit.
+  std::vector<const WorldEntry*> lines;
+  std::vector<WorldEntry> stored;
+  const bool latest = !before && (since == 0 || since > s_world_serial);
+  if (before)
+  {
+    s_world_counts.older++;
+    for (const WorldEntry& e : s_world)
+    {
+      if (e.line.serial < before)
+        lines.push_back(&e);
+    }
+    if (lines.empty())
+    {
+      StoredWorldLines(before, WORLD_OLDER_READ, &stored);
+      for (const WorldEntry& e : stored)
+      {
+        lines.push_back(&e);
+        if (s_world_older_rows.size() > 50000)
+          s_world_older_rows.clear();
+        s_world_older_rows.insert(e.line.serial);
+      }
+    }
+  }
   else
   {
-    while (first < s_world.size() && s_world[first].line.serial <= since)
-      first++;
+    size_t first = 0;
+    if (latest)
+      first = s_world.size() > static_cast<size_t>(WORLD_FIRST) ? s_world.size() - WORLD_FIRST : 0;
+    else
+    {
+      while (first < s_world.size() && s_world[first].line.serial <= since)
+        first++;
+    }
+    for (size_t i = first; i < s_world.size(); i++)
+      lines.push_back(&s_world[i]);
   }
-  int count = 0;
-  for (size_t i = first; i < s_world.size() && count < 255; i++)
-  {
-    WorldLine line = s_world[i].line;
-    line.age = static_cast<uint16_t>(std::clamp(now - s_world[i].at, 0.0, 65535.0));
+  const auto encode = [now](const WorldEntry& e, Writer& o) {
+    WorldLine line = e.line;
+    line.age = static_cast<uint16_t>(std::clamp(now - e.at, 0.0, 65535.0));
+    WriteWorldLine(o, line);
+  };
+  const auto size_of = [&encode](const WorldEntry& e) {
     uint8_t one[MAX_PACKET];
     Writer o(one, sizeof(one));
-    WriteWorldLine(o, line);
-    if (!o.Ok() || w.Size() + o.Size() > MAX_PACKET)
-      break;  // (asked again from the last one sent)
-    w.Bytes(one, o.Size());
-    count++;
+    encode(e, o);
+    return o.Ok() ? o.Size() : MAX_PACKET;
+  };
+  const size_t room = MAX_PACKET - w.Size();
+  size_t from_i = 0, to_i = 0, used = 0;
+  if (before || latest)
+  {
+    from_i = to_i = lines.size();
+    for (size_t i = lines.size(); i-- > 0 && to_i - i <= 255;)
+    {
+      const size_t one = size_of(*lines[i]);
+      if (used + one > room)
+        break;
+      used += one;
+      from_i = i;
+    }
   }
-  buf[count_at] = static_cast<uint8_t>(count);
+  else
+  {
+    for (size_t i = 0; i < lines.size() && i < 255; i++)
+    {
+      const size_t one = size_of(*lines[i]);
+      if (used + one > room)
+        break;  // (asked again from the last one sent)
+      used += one;
+      to_i = i + 1;
+    }
+  }
+  for (size_t i = from_i; i < to_i; i++)
+    encode(*lines[i], w);
+  buf[count_at] = static_cast<uint8_t>(to_i - from_i);
   if (w.Ok())
     Send(from, buf, w.Size());
 }
@@ -414,12 +540,16 @@ void OnWorldSay(Reader& r, const sockaddr_in& from, size_t size, AddressState& s
     SendWorldSaid(from, nonce, WorldResult::Bad, 0, 0, reply);
     return;
   }
-  line.serial = ++s_world_serial;
   WorldEntry entry;
-  entry.line = line;
   entry.at = now;
   if (stored)
     entry.row = StoreChatLine("world", line, version, hash, salt->period);
+  // ((01.24) Its number its chat_log row when kept - the same after a restart: LoadWorldHistory -, else the next one.)
+  line.serial = entry.row > static_cast<int64_t>(s_world_serial) && entry.row <= 0xFFFFFFF0ll ?
+                    static_cast<uint32_t>(entry.row) :
+                    s_world_serial + 1;
+  s_world_serial = line.serial;
+  entry.line = line;
   s_world.push_back(std::move(entry));
   while (s_world.size() > static_cast<size_t>(WORLD_KEPT))
     s_world.pop_front();
@@ -446,6 +576,13 @@ void OnWorldReport(Reader& r, const sockaddr_in& from, size_t size, AddressState
       q.Int(1, e.row).Run();
     }
     return;
+  }
+  // ((01.24) An older line, sent from chat_log: its number is its row.)
+  if (s_world_older_rows.count(serial) && s_stats.on && s_stats.db)
+  {
+    s_world_counts.reports++;
+    Stmt q(s_stats.db, "UPDATE chat_log SET reported = reported + 1 WHERE id = ? AND place = 'world'");
+    q.Int(1, serial).Run();
   }
 }
 
@@ -494,7 +631,8 @@ std::string WorldLogText()
 {
   std::string text = "; world chat: " + std::to_string(s_world_counts.lines) + " lines, " +
                      std::to_string(s_world_counts.refused) + " refused, " + std::to_string(s_world_counts.reports) +
-                     " reported, " + std::to_string(s_world_counts.asks) + " questions; rooms' chat: " +
+                     " reported, " + std::to_string(s_world_counts.asks) + " questions (" +
+                     std::to_string(s_world_counts.older) + " for older lines); rooms' chat: " +
                      std::to_string(s_world_counts.room_copies) + " lines kept";
   s_world_counts = WorldCounts();
   return text;

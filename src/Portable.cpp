@@ -43,6 +43,11 @@ struct State
   std::string warning;
   std::map<std::string, std::string> answers;  // data id -> home, yes, no, off
   std::map<std::string, std::string> writers;  // data id -> the library cache's last writer word (this PS4's)
+  // (01.27) The data on a USB drive by itself (Start's Local).
+  bool automatic = false;
+  std::string reason;   // "unwritable", "emptied"
+  std::string notice;   // for the menu, once
+  std::string witness;  // a witness written at a fresh start, deleted at the next kept one: "<its id> <its time>"
 };
 
 State& S()
@@ -66,6 +71,8 @@ std::string LocalText(const State& s)
     text += "drive." + id + "=" + answer + "\n";
   for (const auto& [id, word] : s.writers)
     text += "cache." + id + "=" + word + "\n";
+  if (!s.witness.empty())
+    text += "witness=" + s.witness + "\n";  // (01.27)
   return text;
 }
 
@@ -473,7 +480,11 @@ void Lose(const std::string& why)
     s.lost = true;
     s.active = false;
     s.user = s.local + "/portable-fallback/" + s.id;
-    s.warning = "The USB drive with your data was removed: saving to this PS4 until EmuSuNi starts again with it";
+    // ((01.27) The data put on the drive by itself: this console's storage doesn't keep it.)
+    s.warning = s.automatic ? "The USB drive with your data was removed: what you save now is lost when EmuSuNi "
+                              "closes. Put it back and restart EmuSuNi." :
+                              "The USB drive with your data was removed: saving to this PS4 until EmuSuNi starts again "
+                              "with it";
     user = s.user;
     folder = s.folder;
   }
@@ -515,11 +526,360 @@ void ReconcileFallback(const std::string& local, const std::string& id, const st
       LogF("portable: %s kept as %s", fallback.c_str(), aside.c_str());
   }
 }
+
+// ---- (01.27) The data on a USB drive by itself (Start's Local) ----
+
+constexpr int64_t WITNESS_DAYS = 30;  // an older witness says nothing
+
+// A "key=value" line's value in a file's text ("" none).
+std::string ValueOf(const std::string& text, const std::string& key)
+{
+  for (size_t at = 0; at < text.size();)
+  {
+    const size_t end = std::min(text.find('\n', at), text.size());
+    std::string line = text.substr(at, end - at);
+    at = end + 1;
+    while (!line.empty() && (line.back() == '\r' || line.back() == ' '))
+      line.pop_back();
+    if (line.size() > key.size() && line.compare(0, key.size(), key) == 0 && line[key.size()] == '=')
+      return line.substr(key.size() + 1);
+  }
+  return {};
+}
+
+// portable.ini's text for a new id (MarkDrive's, MarkAuto's).
+std::string MarkerText(const std::string& id)
+{
+  return "# EmuSuNi's data on this USB drive (Settings -> Keep My Data on the USB Drive): saves, states, settings, "
+         "controls,\n# cheats, bezels, covers, themes, favorites and the game list. Another PS4 with EmuSuNi asks once "
+         "whether to use it.\n# Your own BIOS files can go in the folder system here: any PS4 reads them from it (they "
+         "are never copied by the app).\nid=" +
+         id + "\nversion=" + App::VERSION + "\n";
+}
+
+// A drive as the start's look found it.
+struct Drive
+{
+  std::string root;
+  std::string id;      // its portable data's ("" none)
+  std::string reason;  // its portable.ini's "auto=" ("" not put there by itself)
+  std::string witness;  // its witness's id ("" none)
+  int64_t witness_time = 0;
+};
+
+// The drives (a mount point without one is an empty folder: as Library::UsbDrives), on a thread given `wait_ms`
+// (false: they didn't answer in time - nothing then).
+bool LookAt(const std::string& usb_root, int wait_ms, std::vector<Drive>* drives)
+{
+  struct Probe
+  {
+    std::mutex mutex;
+    std::condition_variable done_cv;
+    bool done = false;
+    std::vector<Drive> found;
+  };
+  auto probe = std::make_shared<Probe>();
+  std::thread([probe, usb_root] {
+    std::vector<Drive> found;
+    for (int i = 0; i < 8; i++)
+    {
+      Drive d;
+      d.root = usb_root + "/usb" + std::to_string(i);
+      std::error_code ec;
+      if (!IsDir(d.root) || std::filesystem::directory_iterator(d.root, ec) == std::filesystem::directory_iterator())
+        continue;
+      d.id = DriveDataId(d.root);
+      if (!d.id.empty())
+        d.reason = CleanId(ValueOf(ReadTextFile(FolderOf(d.root) + "/" + MARKER), "auto"));
+      const std::string witness = ReadTextFile(d.root + "/" + WITNESS);
+      d.witness = CleanId(ValueOf(witness, "id"));
+      d.witness_time = std::atoll(ValueOf(witness, "since").c_str());
+      found.push_back(std::move(d));
+    }
+    std::lock_guard lock(probe->mutex);
+    probe->found = std::move(found);
+    probe->done = true;
+    probe->done_cv.notify_all();
+  }).detach();
+  std::unique_lock lock(probe->mutex);
+  if (!probe->done_cv.wait_for(lock, std::chrono::milliseconds(wait_ms), [&probe] { return probe->done; }))
+    return false;
+  *drives = probe->found;
+  return true;
+}
+
+bool Witnessed(const Drive& d, int64_t now)
+{
+  return !d.witness.empty() && d.witness_time <= now + 86400 && now - d.witness_time <= WITNESS_DAYS * 86400;
+}
+
+std::string Day(int64_t time)
+{
+  const std::time_t t = static_cast<std::time_t>(time);
+  std::tm local = {};
+  localtime_r(&t, &local);
+  char text[32] = {};
+  std::strftime(text, sizeof(text), "%Y-%m-%d %H:%M", &local);
+  return text;
+}
+
+// The drive's portable.ini marked as put there by itself ("auto=<reason>"): its data's id kept (its lines too), else
+// a new one. The id ("" it couldn't be written).
+std::string MarkAuto(const std::string& root, const std::string& reason)
+{
+  const std::string folder = FolderOf(root), path = folder + "/" + MARKER;
+  std::string id = DriveDataId(root), text;
+  if (id.empty())
+  {
+    id = NewId();
+    text = MarkerText(id);
+  }
+  else
+  {
+    const std::string old = ReadTextFile(path);
+    for (size_t at = 0; at < old.size();)
+    {
+      const size_t end = std::min(old.find('\n', at), old.size());
+      const std::string line = old.substr(at, end - at);
+      at = end + 1;
+      if (line.rfind("auto=", 0) != 0 && line.rfind("# auto:", 0) != 0)
+        text += line + "\n";
+    }
+  }
+  text += std::string("# auto: EmuSuNi put its data here by itself: the console's own storage ") +
+          (reason == "unwritable" ? "couldn't be written" : "didn't keep it between starts") +
+          " (a PS5's?)\nauto=" + reason + "\n";
+  std::string error;
+  MakeDirs(folder);
+  if (!WriteWhole(path, text, true, &error))
+  {
+    LogF("data: %s couldn't be written: %s", path.c_str(), error.c_str());
+    return {};
+  }
+  return id;
+}
+
+// A fresh start's witness on the drive: its id ("" it couldn't be written).
+std::string WriteWitness(const std::string& root, int64_t now)
+{
+  const std::string id = NewId();
+  const std::string text =
+      "# EmuSuNi: written at its first start on this console, and deleted by its next start once the console's own\n# "
+      "storage kept its data. If the next start finds that storage empty again (a PS5's?), EmuSuNi keeps your\n# "
+      "settings, game folders, saves and states on this drive instead (its folder EmuSuNi-Portable).\nid=" +
+      id + "\nsince=" + std::to_string(static_cast<long long>(now)) + "\n";
+  std::string error;
+  if (!WriteWhole(root + "/" + WITNESS, text, true, &error))
+  {
+    LogF("data: %s/%s couldn't be written: %s", root.c_str(), WITNESS, error.c_str());
+    return {};
+  }
+  return id;
+}
+
+void SetNotice(const std::string& notice)
+{
+  std::lock_guard lock(S().mutex);
+  S().notice = notice;
+}
+
+// Start's part for a data folder that isn't kept: true when a drive's data is in use from now on.
+bool StartAuto(const std::string& local_dir, const std::string& usb_root, int wait_ms, Local local)
+{
+  const bool unwritable = local == Local::Unwritable;
+  const std::string reason = unwritable ? "unwritable" : "emptied";
+  const std::string lost_lines = "EmuSuNi can't save in this console's storage (/data/EmuSuNi).\nYour settings, game "
+                                 "folders and saves are lost when EmuSuNi closes.\nConnect a USB drive (exFAT or "
+                                 "FAT32) and start EmuSuNi again to keep them on it.";
+  const auto start = std::chrono::steady_clock::now();
+  std::vector<Drive> drives;
+  if (!LookAt(usb_root, wait_ms, &drives))
+  {
+    LogF("data: the USB drives didn't answer in %.1f s: %s", wait_ms / 1000.0,
+         unwritable ? "nothing of the player's can be kept this session" : "the data folder as always");
+    if (unwritable)
+      SetNotice(lost_lines);
+    return false;
+  }
+  const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+  const int64_t now = static_cast<int64_t>(std::time(nullptr));
+  for (const Drive& d : drives)
+  {
+    LogF("data: %s: %s%s%s", d.root.c_str(), d.id.empty() ? "no portable data" : ("portable data " + d.id).c_str(),
+         d.reason.empty() ? "" : (", put there by itself (" + d.reason + ")").c_str(),
+         d.witness.empty() ? "" :
+                             (", a witness of a first start from " + Day(d.witness_time) +
+                              (Witnessed(d, now) ? "" : " (too old: not counted)"))
+                                 .c_str());
+  }
+  if (drives.empty())
+    LogF("data: no USB drive connected (looked in %.0f ms)", ms);
+  // The drive: one with data put there by itself before (this console's, from a start like this one); else, when the
+  // data folder can't be written or a witness says it was emptied since the last start, one with portable data (the
+  // player's), the witness's, then any that takes it.
+  const Drive* chosen = nullptr;
+  for (const Drive& d : drives)
+  {
+    if (!d.reason.empty())
+    {
+      chosen = &d;
+      break;
+    }
+  }
+  const Drive* witness = nullptr;
+  for (const Drive& d : drives)
+  {
+    if (Witnessed(d, now))
+    {
+      witness = &d;
+      break;
+    }
+  }
+  std::string id = chosen ? chosen->id : std::string(), how = "its data put there by itself before";
+  if (!chosen && (unwritable || witness))
+  {
+    std::vector<const Drive*> order;
+    for (const Drive& d : drives)
+    {
+      if (!d.id.empty())
+        order.push_back(&d);
+    }
+    if (witness && witness->id.empty())
+      order.push_back(witness);
+    for (const Drive& d : drives)
+    {
+      if (d.id.empty() && &d != witness)
+        order.push_back(&d);
+    }
+    for (const Drive* d : order)
+    {
+      id = MarkAuto(d->root, reason);
+      if (!id.empty())
+      {
+        chosen = d;
+        how = d->id.empty() ? "its folder made now" : "the player's portable data there, marked";
+        break;
+      }
+    }
+  }
+  if (!chosen)
+  {
+    if (unwritable || witness)
+    {
+      LogF("data: %s %s and no USB drive takes the player's data (%zu looked at): nothing of theirs is kept this "
+           "session",
+           local_dir.c_str(), unwritable ? "can't be written" : "was emptied since the last start", drives.size());
+      SetNotice(unwritable ? lost_lines :
+                             "This console's storage lost EmuSuNi's data since the last start." +
+                                 lost_lines.substr(lost_lines.find('\n')));
+      return false;
+    }
+    // A first start (or the first of these): a witness on the first drive that takes it, for the next start.
+    for (const Drive& d : drives)
+    {
+      const std::string written = WriteWitness(d.root, now);
+      if (written.empty())
+        continue;
+      std::string path, text;
+      {
+        std::lock_guard lock(S().mutex);
+        S().witness = written + " " + std::to_string(static_cast<long long>(now));
+        path = LocalFile(local_dir);
+        text = LocalText(S());
+      }
+      WriteTextFile(path, text);
+      LogF("data: %s/%s written (%s): the next start deletes it when %s kept its files - and keeps the player's data "
+           "on that drive when it didn't",
+           d.root.c_str(), WITNESS, written.c_str(), local_dir.c_str());
+      return false;
+    }
+    LogF("data: a first start here and no USB drive for its witness: %s as always", local_dir.c_str());
+    return false;
+  }
+  const std::string folder = FolderOf(chosen->root);
+  const bool told = !chosen->reason.empty();  // (said at the start that put it there)
+  {
+    std::lock_guard lock(S().mutex);
+    State& s = S();
+    s.root = chosen->root;
+    s.id = id;
+    s.folder = folder;
+    s.user = folder;
+    s.active = true;
+    s.automatic = true;
+    s.reason = reason;
+  }
+  LogF("data: the player's data this session: %s (data %s, %s; looked in %.0f ms) - %s", folder.c_str(), id.c_str(),
+       how.c_str(), ms,
+       unwritable ? (local_dir + " can't be written").c_str() :
+       witness    ? (local_dir + " was emptied since the last start (the witness of " + witness->root +
+                  ": this console started EmuSuNi on " + Day(witness->witness_time) + ")")
+                     .c_str() :
+                    (local_dir + " has nothing of a session before, and the drive's data was put there by itself").c_str());
+  // The witnesses have done their work.
+  for (const Drive& d : drives)
+  {
+    if (!d.witness.empty() && std::remove((d.root + "/" + WITNESS).c_str()) == 0)
+      LogF("data: %s/%s deleted", d.root.c_str(), WITNESS);
+  }
+  if (!unwritable)
+    Remember(id, "yes");  // (a folder that keeps it after all - a first start here: the drive's data at the next too)
+  if (!told)
+  {
+    SetNotice(std::string(unwritable ? "EmuSuNi can't save in this console's storage (/data/EmuSuNi)." :
+                                       "This console's storage lost EmuSuNi's data since the last start.") +
+              "\nYour settings, game folders, saves and states are kept on this USB drive instead:\n" + folder +
+              "\nKeep this USB drive connected when you use EmuSuNi.");
+  }
+  return true;
+}
+
+// A kept data folder: the witness its first start wrote, deleted (or looked for again at the next start).
+void ClearWitness(const std::string& local_dir, const std::string& usb_root, int wait_ms)
+{
+  std::string pending;
+  {
+    std::lock_guard lock(S().mutex);
+    pending = S().witness;
+  }
+  const size_t space = pending.find(' ');
+  const std::string id = CleanId(pending.substr(0, space));
+  const int64_t since = space == std::string::npos ? 0 : std::atoll(pending.c_str() + space + 1);
+  const int64_t now = static_cast<int64_t>(std::time(nullptr));
+  bool done = id.empty() || now - since > WITNESS_DAYS * 86400;
+  std::vector<Drive> drives;
+  if (!done && LookAt(usb_root, wait_ms, &drives))
+  {
+    for (const Drive& d : drives)
+    {
+      if (d.witness == id && std::remove((d.root + "/" + WITNESS).c_str()) == 0)
+      {
+        LogF("data: %s kept its files since its first start: %s/%s deleted", local_dir.c_str(), d.root.c_str(),
+             WITNESS);
+        done = true;
+      }
+    }
+  }
+  if (!done)
+  {
+    LogF("data: the witness of the first start (%s) isn't on a connected drive: looked for again at the next start",
+         id.c_str());
+    return;
+  }
+  std::string path, text;
+  {
+    std::lock_guard lock(S().mutex);
+    S().witness.clear();
+    path = LocalFile(local_dir);
+    text = LocalText(S());
+  }
+  WriteTextFile(path, text);
+}
 }  // namespace
 
 // ---- The start ----
 
-void Start(const std::string& local_dir, const std::string& usb_root, int wait_ms)
+void Start(const std::string& local_dir, const std::string& usb_root, int wait_ms, Local local)
 {
   {
     std::lock_guard lock(S().mutex);
@@ -533,6 +893,10 @@ void Start(const std::string& local_dir, const std::string& usb_root, int wait_m
     s.warning.clear();
     s.answers.clear();
     s.writers.clear();
+    s.automatic = false;
+    s.reason.clear();
+    s.notice.clear();
+    s.witness.clear();
   }
   // This PS4's answers.
   const std::string text = ReadTextFile(LocalFile(local_dir));
@@ -561,7 +925,25 @@ void Start(const std::string& local_dir, const std::string& usb_root, int wait_m
       {
         S().writers[key.substr(6)] = value;
       }
+      else if (key == "witness")
+      {
+        S().witness = value;  // (01.27)
+      }
     }
+  }
+  // (01.27) A data folder that can't be written, or has nothing of a session before: the data on a USB drive by
+  // itself when one says so. A kept one: its first start's witness deleted.
+  if (local != Local::Kept && StartAuto(local_dir, usb_root, wait_ms, local))
+    return;
+  if (local == Local::Kept)
+  {
+    bool pending = false;
+    {
+      std::lock_guard lock(S().mutex);
+      pending = !S().witness.empty();
+    }
+    if (pending)
+      ClearWitness(local_dir, usb_root, wait_ms);
   }
   if (!any_yes)
   {
@@ -623,6 +1005,21 @@ void Start(const std::string& local_dir, const std::string& usb_root, int wait_m
   {
     LogF("portable: this PS4's data (%s): no USB drive with data used here is connected (looked in %.0f ms)",
          local_dir.c_str(), ms);
+    // ((01.78, a player's report: with Keep My Data on the USB Drive on, a start without the drive showed "nothing
+    // saved", and he thought he had lost it all) The drive turned on here (home) not connected: said on the screen,
+    // at every such start. Nothing saved is changed: this PS4's data this session, as before. (A drive only used here -
+    // yes, a friend's - gone is no news.)
+    bool home = false;
+    {
+      std::lock_guard lock(S().mutex);
+      for (const auto& [data, said] : S().answers)
+        home = home || said == "home";
+      if (home)
+        S().warning = "The USB drive with your data isn't connected (Keep My Data on the USB Drive is on). Nothing "
+                      "was lost: connect it and open EmuSuNi again. Until then, this PS4's own data is used.";
+    }
+    if (home)
+      LogF("portable: the drive with the data turned on here isn't connected: said on the screen");
     return;
   }
   const std::string folder = FolderOf(root);
@@ -688,6 +1085,26 @@ std::string TakeWarning()
   std::string warning;
   warning.swap(S().warning);
   return warning;
+}
+
+bool Automatic()
+{
+  std::lock_guard lock(S().mutex);
+  return S().automatic;
+}
+
+std::string AutomaticReason()
+{
+  std::lock_guard lock(S().mutex);
+  return S().automatic ? S().reason : std::string();
+}
+
+std::string TakeNotice()
+{
+  std::lock_guard lock(S().mutex);
+  std::string notice;
+  notice.swap(S().notice);
+  return notice;
 }
 
 std::string ToStored(const std::string& path)
@@ -976,12 +1393,7 @@ std::string MarkDrive(const std::string& drive_root)
   if (!id.empty())
     return id;
   id = NewId();
-  const std::string text =
-      "# EmuSuNi's data on this USB drive (Settings -> Keep My Data on the USB Drive): saves, states, settings, "
-      "controls,\n# cheats, bezels, covers, themes, favorites and the game list. Another PS4 with EmuSuNi asks once "
-      "whether to use it.\n# Your own BIOS files can go in the folder system here: any PS4 reads them from it (they "
-      "are never copied by the app).\nid=" +
-      id + "\nversion=" + App::VERSION + "\n";
+  const std::string text = MarkerText(id);
   std::string error;
   MakeDirs(FolderOf(drive_root));
   if (!WriteWhole(FolderOf(drive_root) + "/" + MARKER, text, true, &error))

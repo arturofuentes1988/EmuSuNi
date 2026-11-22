@@ -104,6 +104,9 @@
 #   - Dreamcast online with DCNet (the app's Dreamcast Online: reicast_dcnet, reicast_emulate_bba): no C++
 #     exceptions on its way, dcnet.flyca.st looked up with the PS4's resolver, Off really off (no picoTCP), its
 #     lines in the log without addresses (the section "Dreamcast online", below).
+#   - (01.26) Cheats: retro_cheat_reset and retro_cheat_set (upstream's libretro does nothing with them) into Flycast's
+#     own engine, GameShark / CodeBreaker words; a code it can't take left out without C++ exceptions, its engine's
+#     list behind a lock (the section "Dreamcast cheats", below).
 #   - PGO: scripts/dc-core.profdata.xz (below).
 #   - Threads: every thread Flycast names ("Flycast-emu", the emulation with threaded rendering, a
 #     new one at every start: game start, reset, save state loaded; "CustomTexLoader", "PicoTCP"...)
@@ -152,7 +155,9 @@
 #   - The arcade boards (00.63, the app's NAOMI and Atomiswave tabs): flycast_emusuni_arcade_list gives the
 #     app every game Flycast's list has (set, parent, full name, BIOS zip, board, GD-ROM image, flags); the
 #     NAOMI printer's fonts are in the program again (a few NAOMI games print). flycast_emusuni_check_set
-#     (00.65) says what would make a set's start fail, before the core starts and without an exception.
+#     (00.65) says what would make a set's start fail, before the core starts and without an exception. (01.91)
+#     A game in a folder below the console's finds its BIOS zip, its parent's zip and its parent's GD-ROM image in
+#     the folders above it, up to Roms/naomi or Roms/atomiswave (the app's EMUSUNI_FOLDERS_ABOVE).
 #   - The console's frames per picture, for the app's pacing (00.68): every message of the renderer's queue
 #     carries the emulation's frame count of when it was sent, a picture presented keeps its own, and
 #     flycast_emusuni_vblanks gives the app the last picture's (a 30 FPS game, Frame Skip: 2 to 4 frames a
@@ -672,6 +677,145 @@ patch('core/hw/naomi/naomi_cart.cpp',
       '#endif\n'
       '\t\tstd::vector<u8> gdromDigest;\n\t\tCurrentCartridge->Init(progress, config::GGPOEnable ? &gdromDigest : nullptr);\n')
 
+# --- (01.91, the owner: "¿funcionará para todas las consolas?") A NAOMI's or Atomiswave's game in a folder below the
+# console's (Roms/naomi/Clones/..., at any depth): its BIOS zip (naomi.zip, naomi2.zip, awbios.zip), a clone's parent
+# zip and a clone's parent's GD-ROM image are looked for in each folder above its own too, nearest first, up to the
+# console's Roms/naomi or Roms/atomiswave (or the folder chosen for it in Game Folders), that one included and none
+# above it - after the places Flycast looks in. The app gives those folders before each start in the environment's
+# EMUSUNI_FOLDERS_ABOVE, '\n' between them (src/Library.cpp FoldersAbove, the same list src/Naomi.cpp's Missing uses):
+# findNaomiBios, naomi_cart_LoadBios's and loadMameRom's parent, the GD-ROM's and the System SP's parent image, and
+# flycast_emusuni_check_set (below) the same way.
+patch('core/oslib/oslib.h',
+      '\tstd::string findNaomiBios(const std::string& name);\n',
+      '\tstd::string findNaomiBios(const std::string& name);\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t// EmuSuNi (scripts/build-dc-core.sh): the folders above the game\'s, up to the console\'s Roms/naomi (or\n'
+      '\t// Roms/atomiswave), nearest first: the app\'s EMUSUNI_FOLDERS_ABOVE.\n'
+      '\tstd::vector<std::string> emusuniFoldersAbove();\n'
+      '#endif\n')
+# (The libretro core's own findNaomiBios: Flycast's system/dc, then the game's folder - shell/libretro/oslib.cpp.)
+patch('shell/libretro/oslib.cpp',
+      '\t\tbasepath = g_roms_dir + name;\n\t\tif (!file_exists(basepath))\n\t\t\treturn "";\n\t}\n\treturn basepath;\n}\n',
+      '\t\tbasepath = g_roms_dir + name;\n\t\tif (!file_exists(basepath))\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\t{\n'
+      '\t\t\t// EmuSuNi: then the folders above the game\'s, up to the console\'s (emusuniFoldersAbove).\n'
+      '\t\t\tfor (const std::string& dir : emusuniFoldersAbove())\n'
+      '\t\t\t\tif (file_exists((dir + PATH_DEFAULT_SLASH() + name).c_str()))\n'
+      '\t\t\t\t\treturn dir + PATH_DEFAULT_SLASH() + name;\n'
+      '\t\t\treturn "";\n'
+      '\t\t}\n'
+      '#else\n'
+      '\t\t\treturn "";\n'
+      '#endif\n'
+      '\t}\n\treturn basepath;\n}\n\n'
+      '#ifdef EMUSUNI_PORT\n'
+      'std::vector<std::string> emusuniFoldersAbove()\n'
+      '{\n'
+      '\tstd::vector<std::string> folders;\n'
+      '\tconst char *list = std::getenv("EMUSUNI_FOLDERS_ABOVE");\n'
+      '\tfor (const char *start = list; start != nullptr && *start != 0;)\n'
+      '\t{\n'
+      '\t\tconst char *end = std::strchr(start, \'\\n\');\n'
+      '\t\tconst size_t length = end != nullptr ? (size_t)(end - start) : std::strlen(start);\n'
+      '\t\tif (length > 0)\n'
+      '\t\t\tfolders.emplace_back(start, length);\n'
+      '\t\tstart = end != nullptr ? end + 1 : start + length;\n'
+      '\t}\n'
+      '\treturn folders;\n'
+      '}\n'
+      '#endif\n')
+patch('shell/libretro/oslib.cpp',
+      '#include "oslib/i18n.h"\n',
+      '#include "oslib/i18n.h"\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '#include <cstdlib>\n'
+      '#include <cstring>\n'
+      '#endif\n')
+# naomi_cart_LoadBios's parent (its BIOS's files may be in it) and loadMameRom's.
+patch('core/hw/naomi/naomi_cart.cpp',
+      '\t\t\tparent_archive.reset(OpenArchive(parentPath));\n\t\t} catch (const FlycastException& e) {\n\t\t}\n\t}\n\n'
+      '\tconst char *bios = "naomi";\n',
+      '\t\t\tparent_archive.reset(OpenArchive(parentPath));\n\t\t} catch (const FlycastException& e) {\n\t\t}\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\t// EmuSuNi: else in the folders above the game\'s, up to the console\'s (hostfs::emusuniFoldersAbove)\n'
+      '\t\tfor (const std::string& dir : hostfs::emusuniFoldersAbove())\n'
+      '\t\t{\n'
+      '\t\t\tif (parent_archive != nullptr)\n'
+      '\t\t\t\tbreak;\n'
+      '\t\t\ttry {\n'
+      '\t\t\t\tparent_archive.reset(OpenArchive(hostfs::storage().getSubPath(dir, game->parent_name)));\n'
+      '\t\t\t} catch (const FlycastException& e) {\n'
+      '\t\t\t}\n'
+      '\t\t}\n'
+      '#endif\n'
+      '\t}\n\n'
+      '\tconst char *bios = "naomi";\n')
+patch('core/hw/naomi/naomi_cart.cpp',
+      '\t\t\tparent_archive.reset(OpenArchive(parentPath));\n\t\t} catch (const FlycastException& e) {\n\t\t}\n'
+      '\t\tif (parent_archive != nullptr)\n\t\t\tINFO_LOG(NAOMI, "Opened %s", game->parent_name);\n',
+      '\t\t\tparent_archive.reset(OpenArchive(parentPath));\n\t\t} catch (const FlycastException& e) {\n\t\t}\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\t// EmuSuNi: else in the folders above the game\'s, up to the console\'s (hostfs::emusuniFoldersAbove)\n'
+      '\t\tfor (const std::string& dir : hostfs::emusuniFoldersAbove())\n'
+      '\t\t{\n'
+      '\t\t\tif (parent_archive != nullptr)\n'
+      '\t\t\t\tbreak;\n'
+      '\t\t\ttry {\n'
+      '\t\t\t\tparent_archive.reset(OpenArchive(hostfs::storage().getSubPath(dir, game->parent_name)));\n'
+      '\t\t\t\tif (parent_archive != nullptr)\n'
+      '\t\t\t\t\tNOTICE_LOG(NAOMI, "EmuSuNi: the parent %s found in %s, a folder above the game\'s", game->parent_name, dir.c_str());\n'
+      '\t\t\t} catch (const FlycastException& e) {\n'
+      '\t\t\t}\n'
+      '\t\t}\n'
+      '#endif\n'
+      '\t\tif (parent_archive != nullptr)\n\t\t\tINFO_LOG(NAOMI, "Opened %s", game->parent_name);\n')
+# A clone's GD-ROM image of its parent's (<parent>/<image>.chd), and the System SP's CompactFlash image the same way.
+patch('core/hw/naomi/gdcartridge.cpp',
+      '#include "oslib/i18n.h"\n#include <algorithm>\n',
+      '#include "oslib/i18n.h"\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '#include "oslib/oslib.h"  // EmuSuNi: hostfs::emusuniFoldersAbove\n'
+      '#endif\n'
+      '#include <algorithm>\n')
+patch('core/hw/naomi/gdcartridge.cpp',
+      '\t\t\t\t\tWARN_LOG(NAOMI, "Opening parent chd failed: %s", e.what());\n\t\t\t\t}\n\t\t\t}\n'
+      '\t\t\tif (gdrom == nullptr)\n',
+      '\t\t\t\t\tWARN_LOG(NAOMI, "Opening parent chd failed: %s", e.what());\n\t\t\t\t}\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\t\t\t// EmuSuNi: else its parent\'s folder in the folders above the game\'s (hostfs::emusuniFoldersAbove)\n'
+      '\t\t\t\tfor (const std::string& dir : hostfs::emusuniFoldersAbove())\n'
+      '\t\t\t\t{\n'
+      '\t\t\t\t\tif (gdrom != nullptr)\n'
+      '\t\t\t\t\t\tbreak;\n'
+      '\t\t\t\t\ttry {\n'
+      '\t\t\t\t\t\tstd::string above = hostfs::storage().getSubPath(dir, std::string(gdrom_parent_name) + "/" + gdrom_name);\n'
+      '\t\t\t\t\t\tgdrom = std::unique_ptr<Disc>(OpenDisc(above + ".chd", digest));\n'
+      '\t\t\t\t\t} catch (const FlycastException& e) {\n'
+      '\t\t\t\t\t}\n'
+      '\t\t\t\t}\n'
+      '#endif\n'
+      '\t\t\t}\n'
+      '\t\t\tif (gdrom == nullptr)\n')
+patch('core/hw/naomi/systemsp.cpp',
+      '\t\t\t\tchd = openChd(gdrom_parent_path);\n\t\t\t} catch (const FlycastException& e) {\n\t\t\t}\n\t\t}\n'
+      '\t\tif (chd == nullptr)\n',
+      '\t\t\t\tchd = openChd(gdrom_parent_path);\n\t\t\t} catch (const FlycastException& e) {\n\t\t\t}\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t\t\t// EmuSuNi: else its parent\'s folder in the folders above the game\'s (hostfs::emusuniFoldersAbove)\n'
+      '\t\t\tfor (const std::string& dir : hostfs::emusuniFoldersAbove())\n'
+      '\t\t\t{\n'
+      '\t\t\t\tif (chd != nullptr)\n'
+      '\t\t\t\t\tbreak;\n'
+      '\t\t\t\ttry {\n'
+      '\t\t\t\t\tchd = openChd(hostfs::storage().getSubPath(dir, std::string(parentName) + "/" + std::string(mediaName) + ".chd"));\n'
+      '\t\t\t\t} catch (const FlycastException& e) {\n'
+      '\t\t\t\t}\n'
+      '\t\t\t}\n'
+      '#endif\n'
+      '\t\t}\n'
+      '\t\tif (chd == nullptr)\n')
+
 # --- What would make a board's start fail, found before it starts (00.65): flycast_emusuni_check_set, which
 # src/Emulator.cpp asks before it starts the core (Naomi::CheckSet). It looks for what loadMameRom would refuse the
 # set for, in its order and where it and loadBios look, without reading or loading anything and without a C++
@@ -792,6 +936,16 @@ patch('core/hw/naomi/naomi_cart.cpp',
       '\t\t\tparentArchive.reset(OpenArchive(parentPath));\n'
       '\t\t} catch (const FlycastException& e) {\n'
       '\t\t}\n'
+      '\t\t// (01.91) Else in the folders above the game\'s, as loadMameRom looks.\n'
+      '\t\tfor (const std::string& dir : hostfs::emusuniFoldersAbove())\n'
+      '\t\t{\n'
+      '\t\t\tif (parentArchive != nullptr)\n'
+      '\t\t\t\tbreak;\n'
+      '\t\t\ttry {\n'
+      '\t\t\t\tparentArchive.reset(OpenArchive(hostfs::storage().getSubPath(dir, game->parent_name)));\n'
+      '\t\t\t} catch (const FlycastException& e) {\n'
+      '\t\t\t}\n'
+      '\t\t}\n'
       '\t}\n'
       '\tif (archive == nullptr && parentArchive == nullptr)\n'
       '\t{\n'
@@ -822,6 +976,16 @@ patch('core/hw/naomi/naomi_cart.cpp',
       '\t\t\t\tchildParentArchive.reset(OpenArchive(parentPath));\n'
       '\t\t\t} catch (const FlycastException& e) {\n'
       '\t\t\t}\n'
+      '\t\t\t// (01.91) Else in the folders above the game\'s, as naomi_cart_LoadBios looks.\n'
+      '\t\t\tfor (const std::string& dir : hostfs::emusuniFoldersAbove())\n'
+      '\t\t\t{\n'
+      '\t\t\t\tif (childParentArchive != nullptr)\n'
+      '\t\t\t\t\tbreak;\n'
+      '\t\t\t\ttry {\n'
+      '\t\t\t\t\tchildParentArchive.reset(OpenArchive(hostfs::storage().getSubPath(dir, game->parent_name)));\n'
+      '\t\t\t\t} catch (const FlycastException& e) {\n'
+      '\t\t\t\t}\n'
+      '\t\t\t}\n'
       '\t\t}\n'
       '\t\t// findNaomiBios: <name>.zip in Flycast\'s system/dc, else beside the game; then <name>.7z the same way.\n'
       '\t\tconst std::string archName(bios->filename != nullptr ? bios->filename : biosName);\n'
@@ -833,6 +997,10 @@ patch('core/hw/naomi/naomi_cart.cpp',
       '\t\t\t\tbiosPath = systemDir + "/" + archName + ext;\n'
       '\t\t\telse if (hostfs::storage().exists(romsDir + archName + ext))\n'
       '\t\t\t\tbiosPath = romsDir + archName + ext;\n'
+      '\t\t\t// (01.91) then the folders above the game\'s, up to the console\'s (findNaomiBios the same)\n'
+      '\t\t\tfor (const std::string& dir : hostfs::emusuniFoldersAbove())\n'
+      '\t\t\t\tif (biosPath.empty() && hostfs::storage().exists(dir + "/" + archName + ext))\n'
+      '\t\t\t\t\tbiosPath = dir + "/" + archName + ext;\n'
       '\t\t\tif (!biosPath.empty())\n'
       '\t\t\t\tbreak;\n'
       '\t\t}\n'
@@ -4102,6 +4270,9 @@ patch('core/rend/vulkan/vk_context_lr.h',
       '#include "overlay.h"\n'
       '#ifdef EMUSUNI_PORT\n'
       '#include "emusuni_timing.h"\n'
+      '// (01.87, gpu-waitfence-on) A wait for the GPU without the frontend\'s queue lock held through it\n'
+      '// (vk_context_lr.cpp); false: the switch is off (or no fence), wait as before.\n'
+      'bool EmuSuNiWaitOnFence(const retro_hw_render_interface_vulkan *ri, vk::Device device, vk::Queue queue);\n'
       '#endif\n')
 patch('core/rend/vulkan/vk_context_lr.h',
       '\tvoid SubmitCommandBuffers(const std::vector<vk::CommandBuffer> &buffers, vk::Fence fence) {\n'
@@ -4806,9 +4977,12 @@ patch('core/rend/vulkan/vk_context_lr.cpp',
       '\tif (device)\n\t{\n\t\tdevice.waitIdle();\n',
       '\tif (device)\n\t{\n'
       '#ifdef EMUSUNI_PORT\n'
+      '\t\tif (!EmuSuNiWaitOnFence(retro_render_if, device, queue))  // (01.87, gpu-waitfence-on)\n'
+      '\t\t{\n'
       '\t\tretro_render_if->lock_queue(retro_render_if->handle);  // EmuSuNi: the menus\' queue too\n'
       '\t\tdevice.waitIdle();\n'
       '\t\tretro_render_if->unlock_queue(retro_render_if->handle);\n'
+      '\t\t}\n'
       '#else\n'
       '\t\tdevice.waitIdle();\n'
       '#endif\n')
@@ -4824,6 +4998,8 @@ patch('core/rend/vulkan/vk_context_lr.h',
       '\tu32 GetSwapChainSize() const { return EMUSUNI_IMAGES; }\n'
       '\tint GetCurrentImageIndex() const { return (int)emusuniImage; }\n\n'
       '\tvoid WaitIdle() const {\n'
+      '\t\tif (EmuSuNiWaitOnFence(retro_render_if, device, queue))  // (01.87, gpu-waitfence-on)\n'
+      '\t\t\treturn;\n'
       '\t\tretro_render_if->lock_queue(retro_render_if->handle);  // EmuSuNi: the menus\' queue too\n'
       '\t\tqueue.waitIdle();\n'
       '\t\tretro_render_if->unlock_queue(retro_render_if->handle);\n'
@@ -5286,7 +5462,8 @@ vk::UniqueShaderModule ShaderCompiler::Compile(vk::ShaderStageFlagBits shaderSta
 # made, at most every 600 frames: what the PS4's driver compiled slowly isn't lost if the app closes.
 patch('core/rend/vulkan/vk_context_lr.cpp',
       '#include <set>\n',
-      '#include <set>\n#include "emusuni_timing.h"\n')
+      '#include <set>\n#include "emusuni_timing.h"\n'
+      '#include <atomic>\n#include <cstdlib>\n#include <unistd.h>  // (01.87, gpu-waitfence-on)\n')
 patch('core/rend/vulkan/vk_context_lr.cpp',
       'static void EmuSuNiAdoptDevice(const retro_hw_render_interface_vulkan *ri)\n{\n'
       '\tVULKAN_HPP_DEFAULT_DISPATCHER.init(ri->get_instance_proc_addr);\n'
@@ -5319,6 +5496,49 @@ patch('core/rend/vulkan/vk_context_lr.cpp',
       '\temusuni::ScopeTime time(emusuni::timing.gpuWaitNs);\n'
       '\temusuni::timing.idleWaits++;\n'
       '\treturn emusuniDeviceWaitIdle(device);\n'
+      '}\n\n'
+      '// (01.87, the switch gpu-waitfence-on, OFF: the file /data/EmuSuNi/gpu-waitfence-on on the PS4,\n'
+      '// EMUSUNI_GPU_WAITFENCE on the PC) A wait for the GPU without the frontend\'s queue lock held through it\n'
+      '// (WaitIdle, term): Vulkan wants the queue\'s lock for as long as vkQueueWaitIdle / vkDeviceWaitIdle wait,\n'
+      '// and the frontend and the other cores could not submit meanwhile. Here the lock is held only for an\n'
+      '// empty submission with a fence of its own, signalled once everything submitted before it is done (one\n'
+      '// in-order queue: the same work as the idle wait\'s); the fence is waited for after the lock is let go.\n'
+      '// The raw functions (no exceptions): a fence that can\'t be made, or a submission that fails, says false\n'
+      '// and the caller waits as before.\n'
+      'bool EmuSuNiWaitOnFence(const retro_hw_render_interface_vulkan *ri, vk::Device device, vk::Queue queue)\n'
+      '{\n'
+      '\tstatic const bool on = [] {\n'
+      '#if defined(__ORBIS__)\n'
+      '\t\treturn access("/data/EmuSuNi/gpu-waitfence-on", F_OK) == 0;\n'
+      '#else\n'
+      '\t\treturn getenv("EMUSUNI_GPU_WAITFENCE") != nullptr;\n'
+      '#endif\n'
+      '\t}();\n'
+      '\tif (!on || ri == nullptr || !device || !queue)\n'
+      '\t\treturn false;\n'
+      '\tstatic std::atomic<unsigned> waits{0};\n'
+      '\tstatic std::atomic<int64_t> waitedNs{0};\n'
+      '\tauto &d = VULKAN_HPP_DEFAULT_DISPATCHER;\n'
+      '\tVkFenceCreateInfo info{};\n'
+      '\tinfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;\n'
+      '\tVkFence fence = VK_NULL_HANDLE;\n'
+      '\tif (d.vkCreateFence == nullptr || d.vkCreateFence((VkDevice)device, &info, nullptr, &fence) != VK_SUCCESS)\n'
+      '\t\treturn false;\n'
+      '\tconst int64_t start = emusuni::nowNs();\n'
+      '\tri->lock_queue(ri->handle);\n'
+      '\tVkResult res = d.vkQueueSubmit((VkQueue)queue, 0, nullptr, fence);\n'
+      '\tri->unlock_queue(ri->handle);\n'
+      '\tif (res == VK_SUCCESS)\n'
+      '\t\tres = d.vkWaitForFences((VkDevice)device, 1, &fence, VK_TRUE, UINT64_MAX);  // (EmuSuNiWaitForFences: timed)\n'
+      '\td.vkDestroyFence((VkDevice)device, fence, nullptr);\n'
+      '\tif (res != VK_SUCCESS)\n'
+      '\t\treturn false;\n'
+      '\tconst unsigned n = ++waits;\n'
+      '\tconst int64_t all = waitedNs += emusuni::nowNs() - start;\n'
+      '\tif (n <= 3 || n % 100 == 0)\n'
+      '\t\tNOTICE_LOG(RENDERER, "EmuSuNi: gpu-waitfence: a wait for the GPU on a fence of its own, the queue lock held "\n'
+      '\t\t\t\"only for its submission (%u waits so far, %.1f ms waiting in all)", n, all / 1e6);\n'
+      '\treturn true;\n'
       '}\n\n'
       'void EmuSuNiSaveSpirvCache();  // compiler.cpp\n\n'
       'static void EmuSuNiSavePipelineCache(vk::Device device, vk::PipelineCache cache)\n'
@@ -6539,6 +6759,173 @@ patch('asio/include/asio/detail/config.hpp',
       '# elif defined(_POSIX_VERSION) && !(defined(EMUSUNI_PORT) && defined(__ORBIS__))\n'
       '#  if (_POSIX_VERSION >= 200809L)\n#   define ASIO_HAS_MSG_NOSIGNAL 1\n',
       repo=root + '/core/deps/asio')
+
+# --- Dreamcast cheats (01.26): the app's codes (src/Cheats.cpp: libretro's collection, its address-and-value entries
+# turned into the pairs below) into Flycast's own engine (cheats.cpp: CheatManager, at each vblank on the emulation
+# thread; upstream's libretro left retro_cheat_set and retro_cheat_reset empty).
+#  1. retro_cheat_set(index, enabled, code): GameShark / CodeBreaker words of 8 hex digits, "0SAAAAAA VVVVVVVV" (S: 0,
+#     1, 2 for 8, 16, 32 bits) and the engine's other kinds, several with '+', spaces or line ends between them; on or
+#     off as enabled. retro_cheat_reset: the player's cheats taken off; the core's own (a game's fixes) and the
+#     widescreen hack stay.
+#  2. No C++ exceptions (on the PS4 their catch is never reached: the app ends): the words checked first; what the
+#     engine refuses (a master code, a kind it doesn't know, a value missing) undone, as its catch did, and said in the
+#     log with the code ("EmuSuNi: cheat N left out (why)").
+#  3. The list behind a lock: retro_cheat_set comes from the app's thread while apply() reads it at the vblank. The
+#     vblank listened to once, at the first game's load (reset, before the emulation thread runs), never let go:
+#     EventManager has no lock of its own (listen while it broadcasts: its vector moved under it).
+#  4. Online (DCNet: settings.network.online from the dial to the hang-up) the player's cheats still aren't applied
+#     (upstream's apply()).
+patch('core/cheats.h',
+      '#include <vector>\n',
+      '#include <vector>\n#ifdef EMUSUNI_PORT\n#include <mutex>\n#endif\n')
+patch('core/cheats.h',
+      '\tvoid addGameSharkCheat(const std::string& name, const std::string& s);\n',
+      '\tvoid addGameSharkCheat(const std::string& name, const std::string& s);\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t// EmuSuNi (scripts/build-dc-core.sh, "Dreamcast cheats"): libretro\'s retro_cheat_reset, retro_cheat_set\n'
+      '\tvoid emusuniReset();\n'
+      '\tbool emusuniAdd(unsigned index, bool enabled, const std::string& code);\n'
+      '#endif\n')
+patch('core/cheats.h',
+      '\tbool active = false;\n',
+      '\tbool active = false;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\tstd::mutex emusuniLock;\t// the list: the app\'s thread (retro_cheat_set) and the emulation\'s (apply, at the vblank)\n'
+      '\tstd::string emusuniWhy;\t// why addGameSharkCheat refused a code (it doesn\'t throw)\n'
+      '#endif\n')
+patch('core/cheats.cpp',
+      'void CheatManager::setActive(bool active)\n{\n\tthis->active = active;\n'
+      '\tif (active || widescreen_cheat != nullptr)\n\t\tEventManager::listen(Event::VBlank, vblankCallback, this);\n'
+      '\telse\n\t\tEventManager::unlisten(Event::VBlank, vblankCallback, this);\n}\n',
+      'void CheatManager::setActive(bool active)\n{\n\tthis->active = active;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\t// EmuSuNi: listened to once, at the first game\'s load, and never let go (EventManager has no lock; this comes\n'
+      '\t// from the app\'s thread too). apply() does nothing while nothing is active.\n'
+      '\tstatic bool listening;\n'
+      '\tif (!listening)\n\t{\n\t\tEventManager::listen(Event::VBlank, vblankCallback, this);\n\t\tlistening = true;\n\t}\n'
+      '#else\n'
+      '\tif (active || widescreen_cheat != nullptr)\n\t\tEventManager::listen(Event::VBlank, vblankCallback, this);\n'
+      '\telse\n\t\tEventManager::unlisten(Event::VBlank, vblankCallback, this);\n'
+      '#endif\n}\n')
+patch('core/cheats.cpp',
+      'void CheatManager::reset(const std::string& gameId)\n{\n\twidescreen_cheat = nullptr;\n',
+      'void CheatManager::reset(const std::string& gameId)\n{\n'
+      '#ifdef EMUSUNI_PORT\n\tstd::lock_guard<std::mutex> emusuniGuard(emusuniLock);\n#endif\n'
+      '\twidescreen_cheat = nullptr;\n')
+patch('core/cheats.cpp',
+      'void CheatManager::apply()\n{\n',
+      'void CheatManager::apply()\n{\n'
+      '#ifdef EMUSUNI_PORT\n\tstd::lock_guard<std::mutex> emusuniGuard(emusuniLock);\n#endif\n')
+patch('core/cheats.cpp',
+      'static std::vector<u32> parseCodes(const std::string& s)\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '// EmuSuNi (scripts/build-dc-core.sh, "Dreamcast cheats"): no C++ exceptions. A code parseCodes can\'t read is no\n'
+      '// codes; one addGameSharkCheat refuses is undone, its reason kept for emusuniAdd\'s line in the log.\n'
+      '#include <algorithm>\n'
+      '#define EMUSUNI_PARSE_FAIL(why) return {}\n'
+      '#define EMUSUNI_CHEAT_FAIL(why) do { emusuniWhy = (why); goto emusuniFail; } while (0)\n'
+      '#else\n'
+      '#define EMUSUNI_PARSE_FAIL(why) throw FlycastException(why)\n'
+      '#define EMUSUNI_CHEAT_FAIL(why) throw FlycastException(why)\n'
+      '#endif\n'
+      'static std::vector<u32> parseCodes(const std::string& s)\n')
+patch('core/cheats.cpp',
+      '\t} catch (...) {\n\t\tcheats.erase(cheats.begin() + prevSize, cheats.end());\n\t\tthrow;\n\t}\n}\n\n',
+      '\t} catch (...) {\n\t\tcheats.erase(cheats.begin() + prevSize, cheats.end());\n\t\tthrow;\n\t}\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\treturn;\n'
+      'emusuniFail:\t// (EMUSUNI_CHEAT_FAIL: what its catch did)\n'
+      '\tcheats.erase(cheats.begin() + prevSize, cheats.end());\n'
+      '#endif\n'
+      '}\n\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '// EmuSuNi (scripts/build-dc-core.sh, "Dreamcast cheats"): libretro\'s cheats. The player\'s codes go; the core\'s own\n'
+      '// (builtIn: a game\'s fixes) and the widescreen hack stay.\n'
+      'void CheatManager::emusuniReset()\n'
+      '{\n'
+      '\tstd::lock_guard<std::mutex> guard(emusuniLock);\n'
+      '\tconst size_t before = cheats.size();\n'
+      '\tcheats.erase(std::remove_if(cheats.begin(), cheats.end(), [](const Cheat& c) { return !c.builtIn; }), cheats.end());\n'
+      '\tsetActive(!cheats.empty());\n'
+      '\tif (cheats.size() != before)\n'
+      '\t\tNOTICE_LOG(COMMON, "EmuSuNi: cheats: %d of the player\'s taken off", (int)(before - cheats.size()));\n'
+      '}\n\n'
+      '// The app\'s cheat: words of 8 hex digits ("0SAAAAAA VVVVVVVV", several with \'+\', spaces or line ends between).\n'
+      '// One the engine can\'t take (not such words, a master code, a kind it doesn\'t know, a value missing) is left out,\n'
+      '// with a line in the log; what it had added of it undone.\n'
+      'bool CheatManager::emusuniAdd(unsigned index, bool enabled, const std::string& code)\n'
+      '{\n'
+      '\tconst std::string shown = code.size() > 60 ? code.substr(0, 57) + "..." : code;\n'
+      '\tsize_t words = 0, digits = 0;\n'
+      '\tbool ok = !code.empty() && code.size() <= 16384;\n'
+      '\tfor (size_t i = 0; ok && i <= code.size(); i++)\n'
+      '\t{\n'
+      '\t\tif (i < code.size() && std::isxdigit((u8)code[i]))\n'
+      '\t\t{\n'
+      '\t\t\tdigits++;\n'
+      '\t\t\tcontinue;\n'
+      '\t\t}\n'
+      '\t\tif (digits != 0)\n'
+      '\t\t{\n'
+      '\t\t\tok = digits == 8;\n'
+      '\t\t\twords++;\n'
+      '\t\t\tdigits = 0;\n'
+      '\t\t}\n'
+      '\t}\n'
+      '\tif (!ok || words < 2)\n'
+      '\t{\n'
+      '\t\tNOTICE_LOG(COMMON, "EmuSuNi: cheat %u left out (not words of 8 hex digits in pairs): \\"%s\\"", index, shown.c_str());\n'
+      '\t\treturn false;\n'
+      '\t}\n'
+      '\tstd::lock_guard<std::mutex> guard(emusuniLock);\n'
+      '\tconst size_t before = cheats.size();\n'
+      '\temusuniWhy.clear();\n'
+      '\taddGameSharkCheat("cheat " + std::to_string(index), code);\n'
+      '\tif (!emusuniWhy.empty() || cheats.size() <= before)\n'
+      '\t{\n'
+      '\t\tcheats.erase(cheats.begin() + std::min(before, cheats.size()), cheats.end());\n'
+      '\t\tsetActive(!cheats.empty());\n'
+      '\t\tNOTICE_LOG(COMMON, "EmuSuNi: cheat %u left out (%s): \\"%s\\"", index,\n'
+      '\t\t\t\temusuniWhy.empty() ? "no code the engine knows" : emusuniWhy.c_str(), shown.c_str());\n'
+      '\t\treturn false;\n'
+      '\t}\n'
+      '\tfor (size_t i = before; i < cheats.size(); i++)\n'
+      '\t\tcheats[i].enabled = enabled;\n'
+      '\tNOTICE_LOG(COMMON, "EmuSuNi: cheat %u: %d codes, %s", index, (int)(cheats.size() - before), enabled ? "on" : "off");\n'
+      '\treturn true;\n'
+      '}\n'
+      '#endif\n\n')
+# The 16 throws of parseCodes and addGameSharkCheat (2 and 14), through the macros above.
+_key = (root, 'core/cheats.cpp')
+_text = patched[_key]
+_p = _text.index('static std::vector<u32> parseCodes(const std::string& s)\n')
+_a = _text.index('void CheatManager::addGameSharkCheat(const std::string& name, const std::string& s)\n')
+_e = _text.index('emusuniFail:')
+assert _text[_p:_a].count('throw FlycastException(') == 2, _text[_p:_a].count('throw FlycastException(')
+assert _text[_a:_e].count('throw FlycastException(') == 14, _text[_a:_e].count('throw FlycastException(')
+patched[_key] = (_text[:_p] + _text[_p:_a].replace('throw FlycastException(', 'EMUSUNI_PARSE_FAIL(') +
+                 _text[_a:_e].replace('throw FlycastException(', 'EMUSUNI_CHEAT_FAIL(') + _text[_e:])
+patch('shell/libretro/libretro.cpp',
+      'void retro_cheat_reset()\n{\n   // Nothing to do here\n}\n'
+      'void retro_cheat_set(unsigned unused, bool unused1, const char* unused2)\n{\n   // Nothing to do here\n}\n',
+      'void retro_cheat_reset()\n{\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '   // EmuSuNi (scripts/build-dc-core.sh, "Dreamcast cheats"): the player\'s cheats taken off (the core\'s own and the\n'
+      '   // widescreen hack stay)\n'
+      '   cheatManager.emusuniReset();\n'
+      '#else\n'
+      '   // Nothing to do here\n'
+      '#endif\n'
+      '}\n'
+      'void retro_cheat_set(unsigned index, bool enabled, const char* code)\n{\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '   // EmuSuNi: the app\'s code, words of 8 hex digits in pairs (cheats.cpp, emusuniAdd)\n'
+      '   if (code != nullptr)\n'
+      '      cheatManager.emusuniAdd(index, enabled, code);\n'
+      '#else\n'
+      '   (void)index;\n   (void)enabled;\n   (void)code;\n'
+      '#endif\n'
+      '}\n')
 
 written = 0
 for (repo, path), text in patched.items():

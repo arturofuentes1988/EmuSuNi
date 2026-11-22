@@ -282,7 +282,7 @@ std::vector<std::string> ExtraFonts(const std::string& assets_dir, bool bold)
     const char* name = code == "ja" ? "NotoSansJP" : code == "zh" ? "NotoSansSC" : "NotoSansKR";
     const std::string path =
         assets_dir + "/xmb/fonts/" + name + (bold ? "-Bold" : "-Regular") + ".ttf";
-    if (std::ifstream(path).good())
+    if (AssetPack::Exists(path))  // (01.27) loose or in xmb/assets.zip
       fonts.push_back(path);
   }
   return fonts;

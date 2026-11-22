@@ -56,6 +56,18 @@ inline int ColdMiB(const std::string& console)
   if (console == "saturn")
     return 11;
 #endif
+#ifdef EMUSUNI_VITA
+  // The PS Vita (with-vita; not measured on the PS4 yet): Vita3K's own threads at the default size (the renderer's,
+  // the display's and the sound's, the load's: about ten). The guest's threads have 1 MiB stacks: OwnStacksMiB.
+  if (console == "psvita")
+    return 24;
+#endif
+#ifdef EMUSUNI_MUGEN
+  // (01.27) MUGEN (with-mugen; not measured on the PS4 yet): Go's threads (about ten, 256 KiB stacks each) and its
+  // runtime's small tables; its heap is direct memory (src/MugenGo.cpp), its pictures the GPU's.
+  if (console == "mugen")
+    return 8;
+#endif
   // The PC Engine (00.82: Beetle PCE Fast): no threads of its own: the others' 3.
   if (console == "pce")
     return 3;
@@ -75,6 +87,12 @@ inline int ColdMiB(const std::string& console)
 // games left (the DS's: Mario Kart DS 24 -> 21 MiB free with about 60 MiB of 2 MiB stacks kept).
 inline int OwnStacksMiB(const std::string& console)
 {
+#ifdef EMUSUNI_VITA
+  // (with-vita) Each thread of a PS Vita game is a thread of the app with a 1 MiB stack (scripts/build-vita-core.sh):
+  // the first game tried had more than 30 at once. Not measured on the PS4 yet.
+  if (console == "psvita")
+    return 40;
+#endif
   return console == "nds" ? 3 : 0;
 }
 

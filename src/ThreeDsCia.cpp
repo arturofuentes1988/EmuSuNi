@@ -73,6 +73,11 @@ __attribute__((weak)) int emusuni_3ds_cia_version(void)
 {
   return 0;
 }
+// (01.46) What the core does of the app's extras switches (ThreeDsCia::Caps' bits): none in a core before it.
+__attribute__((weak)) int emusuni_3ds_extras_caps(void)
+{
+  return 0;
+}
 }
 
 namespace ThreeDsCia
@@ -489,5 +494,131 @@ bool HasMods(const std::string& save_dir, uint64_t game_title_id)
   if (!std::filesystem::is_directory(folder, ec))
     return false;
   return std::filesystem::directory_iterator(folder, ec) != std::filesystem::directory_iterator();
+}
+
+// ---- (01.46) Each of them one by one ----
+namespace
+{
+// What Azahar reads of a mods folder (scripts/build-3ds-core.sh's ncch_container.cpp: LayeredFS, the patches, the
+// overrides).
+const char* const MOD_PARTS[] = {"romfs",    "romfs_ext", "exefs",      "code.ips",   "code.bps",
+                                 "code.bin", "icon.bin",  "banner.bnr", "logo.bcma.lz", "exheader.bin"};
+
+bool HasModParts(const std::string& folder)
+{
+  std::error_code ec;
+  for (const char* part : MOD_PARTS)
+  {
+    if (std::filesystem::exists(folder + "/" + part, ec))
+      return true;
+  }
+  return false;
+}
+
+// settings.ini's list `key` (items split by `separator`): whether it has `item`; with or without it.
+bool ListHas(const char* key, const std::string& item, char separator)
+{
+  std::stringstream in(Settings::Get(key));
+  for (std::string entry; std::getline(in, entry, separator);)
+  {
+    if (entry == item)
+      return true;
+  }
+  return false;
+}
+
+void ListSet(const char* key, const std::string& item, char separator, bool in_it)
+{
+  std::stringstream in(Settings::Get(key));
+  std::string list;
+  for (std::string entry; std::getline(in, entry, separator);)
+  {
+    if (!entry.empty() && entry != item)
+      list += (list.empty() ? "" : std::string(1, separator)) + entry;
+  }
+  if (in_it)
+    list += (list.empty() ? "" : std::string(1, separator)) + item;
+  Settings::Set(key, list);  // (saved by it)
+}
+}  // namespace
+
+std::vector<Mod> ListMods(const std::string& save_dir, uint64_t game_title_id)
+{
+  std::vector<Mod> mods;
+  const std::string folder = ModsFolder(save_dir, game_title_id);
+  std::error_code ec;
+  if (!std::filesystem::is_directory(folder, ec))
+    return mods;
+  if (HasModParts(folder))
+    mods.push_back({"", folder, true});
+  std::vector<Mod> own;
+  for (auto it = std::filesystem::directory_iterator(folder, ec); !ec && it != std::filesystem::directory_iterator();
+       it.increment(ec))
+  {
+    std::error_code type_error;
+    const std::string name = it->path().filename().string();
+    if (!it->is_directory(type_error) ||
+        std::any_of(std::begin(MOD_PARTS), std::end(MOD_PARTS), [&](const char* part) { return name == part; }) ||
+        name.find('|') != std::string::npos || !HasModParts(it->path().string()))
+      continue;
+    own.push_back({name, it->path().string(), false});
+  }
+  std::sort(own.begin(), own.end(), [](const Mod& a, const Mod& b) { return LowerText(a.name) < LowerText(b.name); });
+  mods.insert(mods.end(), own.begin(), own.end());
+  return mods;
+}
+
+bool ModOn(uint64_t game_title_id, const Mod& mod)
+{
+  return mod.main ? ModsOn(game_title_id) : !ListHas("3ds_mod_off", Hex(game_title_id) + "/" + mod.name, '|');
+}
+
+void SetModOn(uint64_t game_title_id, const Mod& mod, bool on)
+{
+  if (mod.main)
+  {
+    SetModsOn(game_title_id, on);
+    return;
+  }
+  ListSet("3ds_mod_off", Hex(game_title_id) + "/" + mod.name, '|', !on);
+  LogF("3ds cia: the mod %s %s for %s", mod.name.c_str(), on ? "on" : "off", Hex(game_title_id).c_str());
+}
+
+std::string ModFolders(const std::string& save_dir, uint64_t game_title_id)
+{
+  std::string folders;
+  for (const Mod& mod : ListMods(save_dir, game_title_id))
+  {
+    if (!mod.main && ModOn(game_title_id, mod))
+      folders += (folders.empty() ? "" : "|") + mod.folder;
+  }
+  return folders;
+}
+
+bool UpdateOn(uint64_t game_title_id)
+{
+  return !ListHas("3ds_update_off", Hex(game_title_id), ',');
+}
+
+void SetUpdateOn(uint64_t game_title_id, bool on)
+{
+  ListSet("3ds_update_off", Hex(game_title_id), ',', !on);
+  LogF("3ds cia: the update %s for %s", on ? "on" : "off", Hex(game_title_id).c_str());
+}
+
+bool DlcOn(uint64_t game_title_id)
+{
+  return !ListHas("3ds_dlc_off", Hex(game_title_id), ',');
+}
+
+void SetDlcOn(uint64_t game_title_id, bool on)
+{
+  ListSet("3ds_dlc_off", Hex(game_title_id), ',', !on);
+  LogF("3ds cia: the DLC %s for %s", on ? "on" : "off", Hex(game_title_id).c_str());
+}
+
+int ExtrasCaps()
+{
+  return emusuni_3ds_extras_caps();
 }
 }  // namespace ThreeDsCia

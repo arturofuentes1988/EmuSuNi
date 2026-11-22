@@ -8,8 +8,12 @@
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <cerrno>
+#include <cpuid.h>
 #include <fcntl.h>
 #include <filesystem>
+#include <sys/stat.h>
+#include <sys/sysctl.h>
 #include <string>
 #include <thread>
 #include <unistd.h>
@@ -23,13 +27,16 @@
 #include <orbis/libkernel.h>
 
 #include "Achievements.h"
+#include "AppSession.h"
 #include "Controls.h"
 #include "Display.h"
 #include "Emulator.h"
 #include "Library.h"
 #include "Log.h"
+#include "LogReport.h"
 #include "Menu.h"
 #include "PS4Lang.h"
+#include "Platform.h"
 #include "Portable.h"
 #include "Saves.h"
 #include "Settings.h"
@@ -48,6 +55,10 @@ extern "C" int ps4_exec_probe();  // port/ps4_runtime.cpp
 extern "C" void emusuni_jit_window_probe(void);  // port/ps4_n64.c
 #endif
 extern "C" int emusuni_enable_dmem_aliasing(char* text, size_t size);  // port/ps4_runtime.cpp
+extern "C" int emusuni_describe_mount(const char* path, char* out, size_t size);  // (01.25) port/ps4_diskfree.c
+// (01.27) libSceSystemService's status (the SDK's SceSystemServiceStatus: an int32 of events waiting, then the bools
+// isSystemUiOverlaid and isInBackgroundExecution...; 136 bytes): the header declares it without its argument.
+extern "C" int32_t emusuni_system_status(void* status) __asm__("sceSystemServiceGetStatus");
 
 namespace
 {
@@ -75,9 +86,100 @@ void StartWatchdog(const std::string& data_dir)
       fsync(fd);
       close(fd);
     }
+    AppSession::Closing("the start watchdog: no picture 20 s after the start");  // (01.27)
     sceSystemServiceLoadExec("exit", nullptr);
     _exit(1);
   }).detach();
+}
+
+// (01.27) The console's start (Unix time; 0: not known), for the session before's line (src/AppSession.h).
+int64_t BootTime()
+{
+  struct timeval boot = {};
+  size_t size = sizeof(boot);
+  if (sysctlbyname("kern.boottime", &boot, &size, nullptr, 0) == 0 && boot.tv_sec > 0)
+    return static_cast<int64_t>(boot.tv_sec);
+  timespec up = {};
+  if (clock_gettime(CLOCK_MONOTONIC, &up) == 0 && up.tv_sec > 0)
+    return static_cast<int64_t>(std::time(nullptr)) - static_cast<int64_t>(up.tv_sec);
+  return 0;
+}
+
+// (01.27, a PS5 player: "after leaving the app, it won't open again until the console restarts") The PS4's own screen
+// over EmuSuNi and back (sceSystemServiceGetStatus every half second): "system:" lines, the log through to the disk
+// while it is behind, the session's file (src/AppSession.h) - and the session's heartbeat every minute. 200 lines at
+// most a session.
+void WatchSystem()
+{
+  std::thread([] {
+    bool overlaid = false, background = false, failed = false;
+    int lines = 0;
+    for (unsigned tick = 1;; tick++)
+    {
+      sceKernelUsleep(500000);
+      if (tick % 120 == 0)
+        AppSession::Seen();
+      if (failed)
+        continue;
+      alignas(8) unsigned char status[256] = {};
+      const int32_t result = emusuni_system_status(status);
+      if (result != 0)
+      {
+        LogF("system: the PS4's status can't be read (%#x): no \"system:\" lines", static_cast<unsigned>(result));
+        failed = true;
+        continue;
+      }
+      const bool now_overlaid = status[4] != 0, now_background = status[5] != 0;
+      if (now_overlaid == overlaid && now_background == background)
+        continue;
+      overlaid = now_overlaid;
+      background = now_background;
+      AppSession::Front(!overlaid && !background);
+      if (lines >= 200)
+        continue;
+      lines++;
+      LogF("system: %s (%s)",
+           background ? "EmuSuNi runs behind the PS4's own screen (the home screen in front)" :
+           overlaid   ? "the PS4's own screen over EmuSuNi (the PS button's menu, a notice)" :
+                        "EmuSuNi in front again",
+           AppSession::DoingNow().c_str());
+      if (overlaid || background)
+        LogSync();
+    }
+  }).detach();
+}
+
+// (01.27) The player's data on a USB drive by itself (src/Portable.h's Local): this session's log there too, its lines
+// so far copied (the data folder can't be written, or doesn't keep it: Send Log sends it from there, and the next
+// start finds this one's as emusuni-1.log). The log stays where it is when the drive doesn't take it.
+void LogToFolder(const std::string& folder, std::string* log_dir)
+{
+  const std::string before = *log_dir + "/emusuni.log";
+  RotateLogs(folder + "/emusuni", 4);
+  const std::string text = ReadTextFile(before);
+  const int fd = open((folder + "/emusuni.log").c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0666);
+  if (fd < 0)
+  {
+    LogF("data: %s/emusuni.log can't be written (%s): this log stays %s", folder.c_str(), std::strerror(errno),
+         before.c_str());
+    return;
+  }
+  size_t done = 0;
+  while (done < text.size())
+  {
+    const ssize_t wrote = write(fd, text.data() + done, text.size() - done);
+    if (wrote <= 0)
+      break;
+    done += static_cast<size_t>(wrote);
+  }
+  dup2(fd, STDOUT_FILENO);
+  dup2(fd, STDERR_FILENO);
+  close(fd);
+  std::remove(before.c_str());  // (copied: Send Log takes the data folder's first)
+  LogF("data: this log is %s/emusuni.log from here on (its lines before copied from %s)", folder.c_str(),
+       before.c_str());
+  *log_dir = folder;
+  LogReport::SetLogDir(folder);
 }
 
 // (01.11) Gabriel's PS4 (9 725 bezels on a USB drive): the menu's first frame came after the watchdog's 20 s, every
@@ -97,6 +199,65 @@ std::string SafeStartStep(const std::string& data_dir)
   LogLine("start: the last start showed no picture in 20 s (its step: " + step +
           "): a safe start, without the bezels' count, the star ratings' match or the covers' and bezels' downloads");
   return step;
+}
+
+// (01.25, the owner: "¿en este registro viene la versión de hackeo?") The start's "platform:" line (src/Platform.h): the
+// console, its system software, its jailbreak's folder and the modules in this process - read without asking the
+// jailbreak anything (a call a HEN lacks could close the app), with libkernel's own calls every PS4 game may make;
+// nothing of the player's.
+void LogPlatform()
+{
+  Platform::Facts f;
+  unsigned a = 0, b = 0, c = 0, d = 0;
+  if (__get_cpuid(1, &a, &b, &c, &d))
+    f.cpuid_eax1 = a;
+  if (__get_cpuid(0x80000000, &a, &b, &c, &d) && a >= 0x80000004)
+  {
+    char brand[49] = {};
+    for (unsigned i = 0; i < 3; i++)
+    {
+      unsigned r[4] = {};
+      __get_cpuid(0x80000002 + i, &r[0], &r[1], &r[2], &r[3]);
+      std::memcpy(brand + i * 16, r, 16);
+    }
+    f.cpu_brand = brand;
+    while (!f.cpu_brand.empty() && f.cpu_brand.back() == ' ')
+      f.cpu_brand.pop_back();
+    while (!f.cpu_brand.empty() && f.cpu_brand.front() == ' ')
+      f.cpu_brand.erase(0, 1);
+  }
+  f.neo = sceKernelIsNeoMode() ? 1 : 0;
+  OrbisKernelSwVersion version = {};
+  const uint64_t version_size = sizeof(version);
+  std::memcpy(version.padding, &version_size, sizeof(version_size));
+  if (sceKernelGetSystemSwVersion(&version) == 0)
+    f.sw_version = version.i_version;
+  const int cpu_hz = sceKernelGetCpuFrequency();
+  f.cpu_hz = cpu_hz > 0 ? static_cast<uint64_t>(cpu_hz) : 0;
+  f.tsc_hz = sceKernelGetTscFrequency();
+  char model[128] = {};
+  size_t model_size = sizeof(model) - 1;
+  if (sysctlbyname("hw.model", model, &model_size, nullptr, 0) == 0)
+    f.hw_model = std::string(model, strnlen(model, sizeof(model) - 1));
+  for (const char* folder : {"GoldHEN", "etaHEN", "mira", "HEN"})
+  {
+    struct stat st = {};
+    if (stat((std::string("/data/") + folder).c_str(), &st) == 0 && S_ISDIR(st.st_mode))
+      f.folders.push_back(folder);
+  }
+  OrbisKernelModule handles[256] = {};
+  size_t count = 0;
+  if (sceKernelGetModuleList(handles, 256, &count) == 0)
+  {
+    for (size_t i = 0; i < count && i < 256; i++)
+    {
+      OrbisKernelModuleInfo info = {};
+      info.size = sizeof(info);
+      if (sceKernelGetModuleInfo(handles[i], &info) == 0)
+        f.modules.emplace_back(info.name, strnlen(info.name, sizeof(info.name)));
+    }
+  }
+  LogLine("platform: " + Platform::Line(f));
 }
 
 void LoadSystemModules()
@@ -229,7 +390,25 @@ int main()
   // that went wrong is still there after EmuSuNi was opened again (xmb-trace.log the same: port/ps4_crashlog.cpp).
   RotateLogs(data_dir + "/emusuni", 4);
   // stdout/stderr go nowhere on PS4: to a file, unbuffered so it survives a crash.
-  const int log_fd = open((data_dir + "/emusuni.log").c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0666);
+  int log_fd = open((data_dir + "/emusuni.log").c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0666);
+  // (01.25, the owner: "más compatible con ps5" - players on a PS5 saw /data/EmuSuNi never made) The data folder can't
+  // be written: the log on a USB drive's top folder instead (emusuni.log, the session before's emusuni-1.log), so it
+  // says why and Send Log still has it (LogReport::SetLogDir).
+  std::string log_dir = data_dir;
+  const int log_error = log_fd < 0 ? errno : 0;
+  if (log_fd < 0)
+  {
+    for (const char* drive : {"/usb0", "/usb1", "/mnt/usb0", "/mnt/usb1"})
+    {
+      RotateLogs(std::string(drive) + "/emusuni", 1);
+      log_fd = open((std::string(drive) + "/emusuni.log").c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0666);
+      if (log_fd >= 0)
+      {
+        log_dir = drive;
+        break;
+      }
+    }
+  }
   if (log_fd >= 0)
   {
     dup2(log_fd, STDOUT_FILENO);
@@ -239,6 +418,39 @@ int main()
   setvbuf(stdout, nullptr, _IONBF, 0);
   setvbuf(stderr, nullptr, _IONBF, 0);
   LogF("%s %s starting", App::NAME, App::VERSION);
+  if (log_dir != data_dir)
+  {
+    LogF("log: %s/emusuni.log can't be written (%s): this log is %s/emusuni.log", data_dir.c_str(),
+         std::strerror(log_error), log_dir.c_str());
+    LogReport::SetLogDir(log_dir);
+  }
+  // ((01.25) The data folder as the PS4 - or the PS5 - gives it: Log.h's CheckDataDir, and the mounts of /data and of
+  // the folder: port/ps4_diskfree.c.)
+  DataDirCheck data_check;
+  for (const std::string& line : CheckDataDir(data_dir, &data_check))
+    LogLine("data: " + line);
+  // ((01.27) What that says for the player's data (src/Portable.h's Local): kept - as always -, can't be written, or
+  // nothing of a session before (no start counted, no log of one, no settings: a first start, or a folder emptied).)
+  const Portable::Local data_local =
+      !data_check.writable ? Portable::Local::Unwritable :
+      data_check.starts_before == 0 && !FileExists(data_dir + "/emusuni-1.log") &&
+              !FileExists(data_dir + "/xmb.ini") && !FileExists(data_dir + "/settings.ini") ?
+                             Portable::Local::Fresh :
+                             Portable::Local::Kept;
+  LogF("data: %s", data_local == Portable::Local::Kept ? "the data folder keeps its files: the player's data as always" :
+                   data_local == Portable::Local::Unwritable ?
+                                                         "the data folder can't be written: a USB drive for the "
+                                                         "player's data (src/Portable.h)" :
+                                                         "nothing of a session before in the data folder (a first "
+                                                         "start, or emptied since the last one): the USB drives asked");
+  {
+    char mount[512] = {}, own[512] = {};
+    emusuni_describe_mount("/data", mount, sizeof(mount));
+    emusuni_describe_mount(data_dir.c_str(), own, sizeof(own));
+    LogF("data: /data's mount: %s", mount);
+    if (std::strcmp(mount, own) != 0)
+      LogF("data: %s's mount: %s", data_dir.c_str(), own);
+  }
   // The stack a thread gets by default: what each thread alive at once takes of the regular flexible memory.
   LogThreadDefaults();
   // Direct memory aliasing for the whole process, before the first mapping of direct memory (the GPU's,
@@ -258,6 +470,7 @@ int main()
     sceSystemServiceParamGetInt(ORBIS_SYSTEM_SERVICE_PARAM_ID_ENTER_BUTTON_ASSIGN, &enter);
     LogF("enter button: %s", enter == 0 ? "Circle" : enter == 1 ? "Cross" : "unknown");
   }
+  LogPlatform();  // ((01.25) the console, its system and its jailbreak: src/Platform.h)
   // The start watchdog (src/StartGuard.h): what the process before left - a game's start that didn't finish, a game
   // to start again at once (it restarted EmuSuNi for it), a failure to show - and its thread.
   std::string again_path, again_message;
@@ -280,7 +493,19 @@ int main()
   // My Data on the USB Drive), looked for only when this PS4 used one, else /data/EmuSuNi as always. The settings,
   // controls, saves, states, cheats, bezels, covers, themes, favorites and the game list are read from there; the logs,
   // the logins, the statistics and the caches stay in data_dir. A write to a drive taken out goes to this PS4 instead.
-  Portable::Start(data_dir);
+  // (01.27) A data folder that can't be written or doesn't keep its files (a PS5's?): the data on a USB drive by itself
+  // when one says so (data_local), and this log with it.
+  Portable::Start(data_dir, {}, 8000, data_local);
+  if (Portable::Automatic())
+    LogToFolder(Portable::DataFolder(), &log_dir);
+  // ((01.92, Lei on a PS5 in portable mode: where do the BIOS go?) The BIOS folder made, empty, where the app reads them -
+  // this PS4's, and the portable data's when it is in use (Portable::SystemDir) -: nothing is ever put in it.
+  MakeDirs(data_dir + "/system");
+  if (Portable::Active())
+    MakeDirs(Portable::DataFolder() + "/system");
+  // (01.27) How the session before ended, this one's file and the PS4's own screen over EmuSuNi (src/AppSession.h).
+  AppSession::Begin(log_dir + "/emusuni-session.ini", BootTime());
+  WatchSystem();
   SetWriteRedirect(Portable::Redirect);
   const std::string user_dir = Portable::UserDir();
   for (SystemId board : {SystemId::ARCADE, SystemId::NAOMI, SystemId::ATOMISWAVE})
@@ -308,6 +533,20 @@ int main()
   io.LogFilename = nullptr;
   io.DisplaySize = ImVec2(static_cast<float>(Display::WIDTH), static_cast<float>(Display::HEIGHT));
   StartWatchdog(data_dir);
+  // (01.39, the 3DS specialist's 3ds-0137 test: Super Mario 3D Land hangs the PS4's GPU and gpu-hang.txt can't tell
+  // which draw) RADV's trace, off unless /data/EmuSuNi/gpu-trace is there. Mesa reads RADV_PS4_TRACE (any value) as
+  // the device is made (radv_device.c, ac_ps4_drm.c): the GPU writes an id after each draw - gpu-hang.txt's execution
+  // check then has one "done" among them, the draw it stopped on - and its flight recorder copies every submission
+  // to /data/DolphinPS4/flight (a ring of 8 files, and progress.log). Mesa makes flight/ only: its folder first.
+  const bool gpu_trace = FileExists(data_dir + "/gpu-trace");
+  if (gpu_trace)
+  {
+    mkdir("/data/DolphinPS4", 0777);
+    setenv("RADV_PS4_TRACE", "1", 1);
+  }
+  LogF("gpu: RADV_PS4_TRACE %s", gpu_trace ? "on (/data/EmuSuNi/gpu-trace): a trace id after each draw, the flight "
+                                             "recorder in /data/DolphinPS4/flight" :
+                                             "off");
   g_start_step = "the display's set-up";
   Display display;
   if (!display.Initialize())
@@ -348,9 +587,11 @@ int main()
     menu.GameEnded(again_message);  // (the menu shows it as it opens)
   for (;;)
   {
+    AppSession::Doing("the menu");  // ((01.27) a change only)
     if (!start_now && !menu.Run(&game))
       continue;
     start_now = false;
+    AppSession::Doing("a game: " + game.key);
     std::string error;
     Emulator::Result result = Emulator::Run(display, game, regular, bold, &error);
     if (result == Emulator::Result::Retry)
@@ -362,6 +603,15 @@ int main()
       if (result == Emulator::Result::Retry)
         result = Emulator::Result::Failed;  // (not reached: a second attempt fails instead)
     }
+    // ((01.57) The N64 Resolution changed while it ran: the same game again, from its state kept apart.)
+    for (int again = 0; result == Emulator::Result::Restart && again < 8; again++)
+    {
+      AppSession::Doing("a game started again: " + game.key);
+      error.clear();
+      result = Emulator::Run(display, game, regular, bold, &error);
+    }
+    if (result == Emulator::Result::Restart)
+      result = Emulator::Result::Menu;
     menu.GameEnded(result == Emulator::Result::Failed ? error : std::string());
   }
 }

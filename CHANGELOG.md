@@ -12,6 +12,146 @@ version 00.23.
 **Public release v00.24 (2026-11-12)** gathers the test builds 01.04 to 01.23 (the section below), packaged as version
 00.24.
 
+**Public release v00.25 (2026-11-22)** gathers the test builds 01.24 to 01.93 (the section below), packaged as version 00.25.
+
+## 00.25 (public release, 2026-11-22)
+
+The first public release since 00.24: **the test builds 01.24 to 01.93** (01.24: Room Settings during a match, the 3DS
+right stick as a D-pad, the world chat's history, the 12 languages complete; 01.26: Settings in groups, the cheats of
+the Dreamcast, the 3DS and the Arcade, Watch in the Arcade, the PS Vita; 01.27: the data on a USB drive by itself, the
+sticks' sensitivity and dead zone, the 3DS motion sensor; 01.29: the Vita's firmware from the player's own files, DS
+games of 256 and 512 MiB; 01.31: L3 for the next screen layout; 01.36: the 3DS's New 3DS Mode and right eye chosen by
+the game, deleting a cheat, HACKS; 01.37 to 01.47: Super Mario 3D Land's start, Luigi's Mansion 2's rooms, the 3DS JIT,
+texture packs, a 3DS game's updates, DLC and mods one by one; 01.50: Castlevania's GPU time; 01.51 to 01.58:
+subfolders as folders, the keyboard's cursor, a cover from a file, the N64's Controller Pak, cheats and widescreen;
+01.58 to 01.68: the 3DS's native routines, 2 MiB pages and Xenoblade; 01.65 to 01.86: the PS Vita's recompiler,
+God of War, Uncharted, touch and pictures; 01.76: the GPU cores' picture opaque; 01.82: Rename Files With My Names,
+OpenBOR's bezel; 01.84: better covers, LaunchBox; 01.88 to 01.90: the Vita's motion sensor, Choose Together's
+suggestion, Import Cheats; 01.91: the ELO ranking, a spectator who joins, 30 days / since ever, the folders above;
+01.92: a Vita game after others; 01.93: the portable mode's cheats and BIOS folders). Built with `with-saturn`,
+`with-gblink`, `with-openbor` and `with-vita-nokeys`: no PS Vita keys inside, the player's own `vita-keys.txt`.
+No console's online level changed: v00.24 and v00.25 play together wherever v00.24 played online with itself (Choose
+Together and the link cables need the same version, as before).
+
+- **PS Vita (experimental), new** (01.26 to 01.93; WizzardSK's vita3k-libretro, scripts/build-vita-core.sh,
+  port/ps4_vita_*.c / .cpp, src/Vita.h, .cpp). A PS Vita tab; games are a `.vpk` or a `.zip` of a decrypted dump in
+  `Roms/psvita`, installed in the core's own storage the first time (a loading screen with the core's steps, 01.66).
+  - **The player's firmware and keys** (01.29, 01.27, 01.72): the three `.PUP` files of firmware 3.74 and
+    `vita-keys.txt` in `/data/EmuSuNi/system/vita3k`; **Settings -> Consoles and Games -> PS Vita Firmware -> Copy the
+    Firmware** takes the `.PUP` files under any name from `Roms/psvita` (by size and SHA-256) and its panel says what
+    they are and each one's state. Nothing is downloaded: the app has no Sony address and the Vita's games have no
+    network (port/ps4_vita_nonet.c). The first game installs the firmware once (its own folder deletion: libc++'s
+    `remove_all` fails on the PS4, 01.30).
+  - **The recompiler** (01.65): its optimizations and fast memory were never on in the libretro port (block linking,
+    fast memory). Fast floating point, 64 MiB of code a thread,
+    hints that don't end a block, file names looked up folder by folder (01.34); fast atomics, the 64-bit exclusive
+    stores through the monitor (01.74: Street Fighter X Tekken's fights 48 -> 56-57 pictures a second, Uncharted
+    loads); the image queue as long as the game asks (01.74; MotorStorm RC kept at its old one, 01.82).
+  - **Games**: God of War Collection's threads tied to one Vita core run one at a time (01.73, 01.74: its FIOS
+    deadlock; the first game at 30); shaders' `!p2` predicate, loops cut at 4096 turns, numbers clamped before small
+    integers (01.75); vertices an odd number of bytes apart padded (01.70); a ZIP's compressed files read from marks
+    (01.71: SFxT's wait before a fight 90 -> 32 s); the picture read opaque (01.76: God of War black and Uncharted dark
+    without a scaler); a surface made again replaces its memory watch instead of piling another (01.86: a scene's
+    cost no longer grows with play time; Uncharted 28-30 FPS in its common scenes, 22-24 in the heaviest); the colours
+    of Resistance: Burning Skies (01.79); MotorStorm RC past its tutorial (01.67) and without stray shapes (01.82);
+    Rayman Legends' crash as the third Vita game of a session (01.92: the memory watch's line walked the game
+    before's freed memory).
+  - **Controls** (01.66 to 01.91): the DualShock 4's touchpad as a trackpad (slide moves, a click touches; 01.69), L3
+    a pointer moved by the left stick, Cross touches (01.66); **PS Vita Motion Sensor** (Off / DualShock 4: its
+    gyroscope and accelerometer are the Vita's; 01.88), in L3 + R3 -> Game Settings and Triangle -> Game Settings,
+    applied at once (01.91).
+  - The game in the app's language (01.67), **PS Vita Language** per game, Japanese and Asian games in English unless
+    the menus are Asian (01.72); covers by title ID from HexFlow-Covers when libretro has none (01.69, 01.81); the
+    picture always with Smooth Edges, no Quality or scaler rows (01.78); its FPS counter counts the game's new
+    pictures (01.72, 01.78). No save states and no cheats.
+- **3DS: Super Mario 3D Land, Castlevania, Luigi's Mansion 2, Xenoblade** (01.37 to 01.68; scripts/build-3ds-core.sh).
+  (01.42) A draw that asks no upload of the vertex shaders' uniforms compares them with their last upload and uploads
+  a change the mark missed: Super Mario 3D Land's start no longer hangs the GPU (yellow and white screens, then blue,
+  and the PS4 closing the app); a top screen of one colour in the first minute has the uniforms uploaded fresh (01.38).
+  (01.50) Castlevania: Mirror of Fate's GPU time at 150 per cent of Azahar's estimate: its heavy parts at full speed,
+  fewer pictures drawn, the game's time the same; (01.37) its right eye drawn again (the mountains that came and went).
+  (01.37, 01.40) Luigi's Mansion: Dark Moon with Castlevania's bigger JIT cache, and a draw whose pipeline lacks only
+  its fragment part skipped until a worker makes it (the stalls of 40-90 ms at each new room). (01.65, 01.68)
+  Xenoblade: the CPU's reads of pages the GPU cache holds read straight, the framebuffer memo no longer emptied by
+  every draw's marking.
+- **3DS: a faster JIT** (01.41 to 01.65; scripts/3ds-jit-patches.py). The RVCT runtime's division and `memcpy` done
+  natively (01.43; 01.44 the signed division's two entries); the cycles left in a register (01.45); a conditional
+  branch ends the block before it, conditional ALU instructions as selections (01.48, 01.49); a native library of
+  the games' common routines, exact to the bit (01.58 to 01.63: division, strlen, CRC-32, CRC-16, Yaz0 and its
+  streaming variants, LZ10 / LZ11: shorter loads); the 3DS's memory and fast memory in
+  2 MiB pages where they can (01.65); a draw that reuses the framebuffer and textures of the one before while the
+  surfaces' cache is unchanged (01.32).
+- **3DS: updates, DLC, mods and textures** (01.42 to 01.47; src/ThreeDsCia.h, .cpp, new src/ThreeDsTextures.h, .cpp).
+  Triangle -> Updates, DLC and Mods shows four sections on every 3DS game, each with the folder its files go in: the
+  update and each DLC on or off (the core leaves the update alone or hides the DLC title), each mod in a folder of its
+  own in `saves/3ds/Azahar/load/mods/<title ID>/<name>/` on or off (`romfs`, `exefs`, `code.ips`, `code.bps`,
+  `code.bin`; the first by name on top), and a **Texture Pack**: **Install Textures** from `Roms/3ds/textures/<title
+  ID>` on a USB drive (only its PNG and `pack.json`, each picture at most 4 times its texture and 2048 a side), on or
+  off per game (off by default), Remove; loaded at first use on one thread, at most 256 MiB on the GPU, the game
+  started without it when the direct memory is short.
+- **3DS: cheats, controls, options** (01.24 to 01.36). Cheats reach Azahar's Gateway / Action Replay engine (01.26),
+  **Find Cheats Online** looks in iSharingan's CTRPF-AR-CHEAT-CODES by title ID (nothing of it in the package or on
+  the server); **3DS Motion Sensor** per game, the DualShock 4's gyroscope and accelerometer (01.27); **3DS Right
+  Stick: D-Pad** for the games that turn the camera or aim with it (01.24; GitHub #74, #67, #57); a short L3 shows the
+  next Screen Layout on the DS and 3DS, held still the microphone or SELECT (01.31). (01.36) New 3DS Mode, Accurate
+  Multiplication and the right eye left the menu: New 3DS from the game's SMDH (a game refused with error 13 starts as
+  a New 3DS the next time), the right eye drawn only for the games known to need it, the multiplication automatic.
+- **3DS: fixes**: a system save data the PS4 won't make (one PS4 on 13.09, every 3DS game stopped at its start: CECD
+  and NEWS answer "not found", CFG in memory; 01.24); the grey start of Yo-kai Watch Blasters (01.30); the notice for
+  Miitopia and Tomodachi Life without a real 3DS's Mii data (01.29, #69); a game ended early no longer crashes at its
+  end (01.46); a cheat loop whose condition is false no longer holds the emulation for good, and a save folder that
+  can't be made is said once (01.78).
+- **Cheats** (01.26 to 01.90; src/Cheats.cpp, src/CheatDownload.cpp): the Dreamcast takes cheats (Flycast, libretro's
+  lists); the Arcade takes FinalBurn Neo's own (its options; Find Cheats Online in the in-game menu downloads the
+  game's file from FBNeo-cheats); **Import Cheats** (Triangle -> Cheats) copies a `.cht` from a USB drive or the
+  internal storage under the game's name, on the 3DS also Azahar's / CTRPF's `.txt` or a `.cht` of Gateway codes,
+  everything off (01.88 to 01.90); Square twice deletes a cheat (01.36); on the Genesis the codes come in 5 s after
+  the start and after each Reset (Streets of Rage's red screen with cheats: the cartridge's checksum; 01.36).
+- **Online** (01.24 to 01.91; src/Netplay.cpp, src/Menu.cpp, src/NetplayProtocol.h, server/, new src/Elo.h, .cpp,
+  server/emusuni-netd-elo.h). **ELO Ranking** (01.91): the 10 one-against-one games most played online (Killer
+  Instinct, Ultimate Mortal Kombat 3, Super Mario Kart and Mortal Kombat II on the Super Nintendo; Mortal Kombat,
+  Mortal Kombat II, KOF '97, '98, 2002 and SF II' CE in the Arcade), the winner read from the game's memory by both
+  consoles and counted when both say the same; 1000 at the start, K 32, a place after 5 matches, at most 20 a day
+  between the same two players; kept by the player's code, never an address. **Join the Match** (01.91): a spectator
+  is told when a player's place is free and joins as a late player. **Most Played** and **Players** over the last 30
+  days at first, Triangle 7 days or since ever (01.91). Choose Together: the host gets a notice of the guest's
+  suggestion, first in the list (01.88). **Room Settings** in the in-game menu: entry, spectators and late joining
+  changed during the match (01.24). Watch in the Arcade (01.26). The world chat keeps 200 lines and gives older ones
+  when scrolled up (01.24). The PSP's online asks for no Sony domain (only the names `infra-dns.json` pins to a fans'
+  server; 01.30).
+- **Library and menus** (01.26 to 01.91): Settings in six groups (Consoles and Games, Covers and Bezels, Appearance,
+  Sound, Online and Accounts, System) with Tabs Shown (two boxes, 01.28), Console Icons (console, controller, none),
+  Icon Size and Help Boxes (01.26); Triangle on a game with the in-game menu's rows (Load State...; 01.27); the
+  sticks' sensitivity and dead zone per console or game (01.27); the HACKS badge for a game in a `hacks` folder
+  (01.36); **Show Subfolders as Folders** (01.51); the keyboard's cursor (Up reaches the text, Left / Right move it
+  by letters; 01.54); **Cover From a File** with a picture browser (01.56); covers by CRC, by the GBA / DS / Genesis
+  header code, without translation marks, Spanish to English, and from LaunchBox last (**LaunchBox Covers**, on;
+  01.84); **Rename Files With My Names** (cover, saves, states, cheats and favorites follow; an undo file; 01.82); a
+  clone, a BIOS or a GD-ROM in any folder above the game, up to the console's root, for the Arcade, NAOMI,
+  Atomiswave and Saturn (01.36 for `hacks`, 01.91 any folder).
+- **PS5 and the portable mode** (01.27, 01.78, 01.92, 01.93; src/Portable.cpp): a `/data` that can't be written or
+  lost its data puts everything on `EmuSuNi-Portable` of the USB drive by itself, with a notice at each start without
+  the drive; the cheat collection saved in the drive's cache and its real reason said when it can't; the `system`
+  folders made, the BIOS notices with their real path, Information's **BIOS Folder**.
+- **Picture** (01.72 to 01.91; src/Emulator.cpp, src/GpuFilter.cpp): every GPU core's picture read opaque where the
+  menu draws it (the PS1's mask bit and the N64's coverage in its alpha; 01.76); **Brightness** and **Saturation**
+  per console or game (01.72; Gamma left out in 01.76); the FPS counter counts the core's new pictures once a second
+  (PS Vita, PSP, Dreamcast, N64; 01.72, 01.78); notices last their own time, a core's two-line message 6 s (01.78,
+  01.91).
+- **Nintendo 64** (01.58; scripts/build-n64-core.sh, port/ps4_n64.c): Controller Pak (Players 2-4); cheats by the
+  cartridge's CRC and region from Mupen64Plus's `mupencheat.txt`; N64 Resolution changed in a game goes on where it
+  was; **N64 Widescreen** 16:9 (experimental) for Ocarina of Time (USA, Rev 2) and the European Super Mario 64, Mario
+  Kart 64, Majora's Mask and Banjo-Kazooie (the game's own code changed).
+- **Other consoles**: DS games of 256 and 512 MiB in direct memory (Pokémon White 2 and Black 2; 01.29); the PS1's
+  controllers (a notice when one can't open, "Player N connected"; 01.27); OpenBOR's **Bezel** (Night Street by
+  default, TV, six frames, Your Own; 01.82).
+- **A lighter package** (01.26, 01.27): the eboot's duplicate relocations left out (-18.9 MB, ~18 MiB more memory),
+  then packed as RELR (-19.25 MB); assets.zip compressed, PPSSPP's files and the fonts zipped.
+- **Logs and languages**: Send Log adds `gpu-hang.txt` (01.24); emusuni.log and xmb-trace.log stop at 64 MiB (01.66);
+  the 12 languages complete and the CJK fonts cut to their characters again (01.24).
+- THIRD_PARTY_NOTICES.md: HexFlow-Covers (CC BY-NC-SA 4.0), LaunchBox's box art, libretro-database's no-intro data
+  for the covers' header codes.
+
 ## 00.24 (public release, 2026-11-12)
 
 The first public release since 00.23: **the test builds 01.04 to 01.23** (01.04: 3DS crash fixes, the Game Boy

@@ -30,6 +30,32 @@ std::atomic<const char*> g_start_step{"the app's set-up"};
 // Mesa's GNM winsys (DolphinPS4 port/mesa/ac_ps4_drm.c): queues a flip behind the work submitted
 // so far.
 extern "C" int ac_ps4_submit_flip(int video, unsigned buffer, unsigned mode, int64_t arg);
+// ((01.86) EmuSuNi's patch of it) Its submissions' numbers since the start, in this order (times in ns); weak: a Mesa
+// without the patch leaves it null.
+extern "C" unsigned ac_ps4_get_submit_stats(uint64_t* out, unsigned count) __attribute__((weak));
+enum
+{
+  SS_ON,         // 1: the submission thread is on (the file /data/EmuSuNi/gpu-submitthread-on)
+  SS_SUBMITS,    // submissions, flips included
+  SS_FLIPS,
+  SS_CALLER_NS,  // the thread that submits: time in the driver's submit (or flip) function
+  SS_LOCK_NS,    // of it, waiting for the driver's own lock
+  SS_CALL_NS,    // the kernel's call (sceGnmSubmitCommandBuffers / ...AndFlip...), wherever made
+  SS_DONES,      // sceGnmSubmitDone calls
+  SS_DONE_NS,
+  SS_QUEUED_NS,  // (the thread) from queued to its call
+  SS_DEPTH_MAX,  // (the thread) the most queued at once
+  SS_FULL,       // (the thread) a submitter waited for room
+  SS_FAILED,
+  // ((01.87) the patch's second part)
+  SS_VQ_CALLS,      // the IB-chain check's sceKernelVirtualQuery calls
+  SS_VQ_SAVED,      // (gpu-ibcheckcache-on) the links its cache answered
+  SS_TAILS,         // the tail checks (every 256 submissions; gpu-lighttails-on: each one, a slice)
+  SS_TAILS_NS,
+  SS_TAILS_MAX_NS,  // the longest since the last call
+  SS_SWITCHES,      // 1 the submission thread, 2 gpu-ibcheckcache-on, 4 gpu-lighttails-on
+  SS_COUNT
+};
 
 // VideoOut's count of vertical blanks since sceVideoOutOpen (libSceVideoOut exports it; OpenOrbis
 // declares it without parameters). The layout is the one shadPS4 and fpPS4 both found (count,
@@ -133,11 +159,82 @@ std::vector<VkSemaphore> s_wait_semaphores;
 std::vector<VkPipelineStageFlags> s_wait_stages;
 VkSemaphore s_signal_semaphore = VK_NULL_HANDLE;
 
+// ((01.86) The GPU's "shared queue") The queue lock's numbers for the "gpu:" lines (LogGpuSubmissions, every 10 s of
+// play): how often it was taken, how long it was held and how long the takers waited for it - by the cores (LockQueue:
+// libretro's lock_queue, around their submissions), by the frame (EndFrame's submission and flip) and by the rest (the
+// menus' and ImGui's uploads, the waits for the GPU to be idle). TSC ticks; atomics, the cores take it from their own
+// threads. Taking it costs a try_lock and two TSC reads more.
+enum QueueTaker
+{
+  QUEUE_CORE,
+  QUEUE_FRAME,
+  QUEUE_OTHER,
+  QUEUE_TAKERS
+};
+struct QueueLockStats
+{
+  std::atomic<uint64_t> takes{0}, waits{0}, wait_ticks{0}, wait_max{0}, hold_ticks{0}, hold_max{0};
+};
+QueueLockStats s_queue_stats[QUEUE_TAKERS];
+uint64_t s_queue_taken_at = 0;   // (written and read under the lock)
+QueueTaker s_queue_holder = QUEUE_OTHER;
+// ((01.87) Who holds it longest) The core's code that took it (libretro's lock_queue: Emulator.cpp's VulkanLockQueue
+// passes its return address), and that of the longest hold by a core since the last line.
+const void* s_queue_where = nullptr;   // (under the lock)
+std::atomic<const void*> s_core_longest_where{nullptr};
+
+void AtomicMax(std::atomic<uint64_t>& to, uint64_t value)
+{
+  uint64_t now = to.load(std::memory_order_relaxed);
+  while (value > now && !to.compare_exchange_weak(now, value, std::memory_order_relaxed))
+  {
+  }
+}
+
+void TakeQueue(QueueTaker who, const void* where = nullptr)
+{
+  QueueLockStats& stats = s_queue_stats[who];
+  if (!s_queue_mutex.try_lock())
+  {
+    const uint64_t from = __builtin_ia32_rdtsc();
+    s_queue_mutex.lock();
+    const uint64_t waited = __builtin_ia32_rdtsc() - from;
+    stats.waits.fetch_add(1, std::memory_order_relaxed);
+    stats.wait_ticks.fetch_add(waited, std::memory_order_relaxed);
+    AtomicMax(stats.wait_max, waited);
+  }
+  stats.takes.fetch_add(1, std::memory_order_relaxed);
+  s_queue_holder = who;
+  s_queue_where = where;
+  s_queue_taken_at = __builtin_ia32_rdtsc();
+}
+
+void GiveQueue()
+{
+  QueueLockStats& stats = s_queue_stats[s_queue_holder];
+  const uint64_t held = __builtin_ia32_rdtsc() - s_queue_taken_at;
+  stats.hold_ticks.fetch_add(held, std::memory_order_relaxed);
+  if (s_queue_holder == QUEUE_CORE && held > stats.hold_max.load(std::memory_order_relaxed))
+    s_core_longest_where.store(s_queue_where, std::memory_order_relaxed);
+  AtomicMax(stats.hold_max, held);
+  s_queue_mutex.unlock();
+}
+
+class QueueGuard
+{
+public:
+  explicit QueueGuard(QueueTaker who) { TakeQueue(who); }
+  ~QueueGuard() { GiveQueue(); }
+  QueueGuard(const QueueGuard&) = delete;
+  QueueGuard& operator=(const QueueGuard&) = delete;
+};
+
 int s_video = -1;
 int s_buffer_set = -1;
 // Time spent waiting (for the TV, for the GPU) since TakeWaitMs: the speed line's drawing time
 // minus this is the work.
 double s_wait_ms = 0.0;
+double s_flip_wait_ms = 0.0;  // ((01.39) its part waiting for the image off screen: the TV's)
 // The TV's refresh rate (ReadRefreshRate).
 double s_refresh_hz = 59.94;
 
@@ -213,19 +310,19 @@ VKAPI_ATTR void VKAPI_CALL UnusedVulkanFunction()
 VKAPI_ATTR VkResult VKAPI_CALL LockedQueueSubmit(VkQueue queue, uint32_t count, const VkSubmitInfo* submits,
                                                  VkFence fence)
 {
-  std::lock_guard lock(s_queue_mutex);
+  QueueGuard lock(QUEUE_OTHER);
   return vkQueueSubmit(queue, count, submits, fence);
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL LockedQueueWaitIdle(VkQueue queue)
 {
-  std::lock_guard lock(s_queue_mutex);
+  QueueGuard lock(QUEUE_OTHER);
   return vkQueueWaitIdle(queue);
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL LockedDeviceWaitIdle(VkDevice device)
 {
-  std::lock_guard lock(s_queue_mutex);
+  QueueGuard lock(QUEUE_OTHER);
   return vkDeviceWaitIdle(device);
 }
 
@@ -864,7 +961,7 @@ void EndOneTimeCommands(VkCommandBuffer commands)
   submit.commandBufferCount = 1;
   submit.pCommandBuffers = &commands;
   {
-    std::lock_guard lock(s_queue_mutex);
+    QueueGuard lock(QUEUE_OTHER);
     vkQueueSubmit(s_queue, 1, &submit, s_upload_fence);
   }
   vkWaitForFences(s_device, 1, &s_upload_fence, VK_TRUE, UINT64_MAX);
@@ -1098,14 +1195,107 @@ uint32_t Display::QueueFamily() const
   return s_queue_family;
 }
 
-void Display::LockQueue()
+void Display::LockQueue(const void* where)
 {
-  s_queue_mutex.lock();
+  TakeQueue(QUEUE_CORE, where);
 }
 
 void Display::UnlockQueue()
 {
-  s_queue_mutex.unlock();
+  GiveQueue();
+}
+
+void Display::LogGpuSubmissions()
+{
+  static double us_per_tick = 0.0;
+  if (us_per_tick == 0.0)
+  {
+    const uint64_t hz = sceKernelGetTscFrequency();
+    us_per_tick = hz ? 1.0e6 / static_cast<double>(hz) : 1.0e-3;
+  }
+  static uint64_t last_at = 0;
+  const uint64_t now = __builtin_ia32_rdtsc();
+  const double seconds = last_at ? static_cast<double>(now - last_at) * us_per_tick / 1.0e6 : 0.0;
+  last_at = now;
+
+  // The driver's numbers (since the last line).
+  static uint64_t before[SS_COUNT] = {};
+  uint64_t total[SS_COUNT] = {};
+  const unsigned counted = ac_ps4_get_submit_stats ? ac_ps4_get_submit_stats(total, SS_COUNT) : 0;
+  if (counted > SS_FAILED)
+  {
+    uint64_t d[SS_COUNT];
+    for (int i = 0; i < SS_COUNT; i++)
+      d[i] = total[i] - before[i];
+    std::copy(total, total + SS_COUNT, before);
+    const double n = d[SS_SUBMITS] ? static_cast<double>(d[SS_SUBMITS]) : 1.0;
+    const bool thread = total[SS_ON] != 0;
+    char queue[192] = "";
+    if (thread)
+      snprintf(queue, sizeof(queue),
+               "; in the submission thread's queue %.0f us each (at most %llu queued since the start, full %llu "
+               "times)",
+               static_cast<double>(d[SS_QUEUED_NS]) / 1.0e3 / n, static_cast<unsigned long long>(total[SS_DEPTH_MAX]),
+               static_cast<unsigned long long>(d[SS_FULL]));
+    char span[48] = "since the start";
+    if (seconds > 0.0)
+      snprintf(span, sizeof(span), "in %.1f s (%.0f a second", seconds, static_cast<double>(d[SS_SUBMITS]) / seconds);
+    LogF("gpu: %llu submissions %s%s %llu of them flips), the submission thread %s: %.0f us each in the thread that "
+         "submits (%.0f of them waiting for the driver's lock); the kernel's call %.0f us each, %s; SubmitDone %llu "
+         "times, %.0f us each%s; %llu failed",
+         static_cast<unsigned long long>(d[SS_SUBMITS]), span, seconds > 0.0 ? "," : " (",
+         static_cast<unsigned long long>(d[SS_FLIPS]), thread ? "on" : "off",
+         static_cast<double>(d[SS_CALLER_NS]) / 1.0e3 / n, static_cast<double>(d[SS_LOCK_NS]) / 1.0e3 / n,
+         static_cast<double>(d[SS_CALL_NS]) / 1.0e3 / n, thread ? "made by it" : "made there",
+         static_cast<unsigned long long>(d[SS_DONES]),
+         d[SS_DONES] ? static_cast<double>(d[SS_DONE_NS]) / 1.0e3 / static_cast<double>(d[SS_DONES]) : 0.0, queue,
+         static_cast<unsigned long long>(d[SS_FAILED]));
+    // ((01.87) the patch's second part) The driver's own checks on each submission, under its lock and the queue lock:
+    // the IB chains' kernel calls (gpu-ibcheckcache-on: their cache), the tail checks (gpu-lighttails-on: spread).
+    if (counted == SS_COUNT)
+      LogF("gpu: the driver's checks: the IB chains asked the kernel %llu times, %llu links answered by its cache "
+           "(gpu-ibcheckcache-on %s); %llu tail checks, %.0f us each, the longest %.2f ms (gpu-lighttails-on %s)",
+           static_cast<unsigned long long>(d[SS_VQ_CALLS]), static_cast<unsigned long long>(d[SS_VQ_SAVED]),
+           total[SS_SWITCHES] & 2 ? "on" : "off", static_cast<unsigned long long>(d[SS_TAILS]),
+           d[SS_TAILS] ? static_cast<double>(d[SS_TAILS_NS]) / 1.0e3 / static_cast<double>(d[SS_TAILS]) : 0.0,
+           static_cast<double>(total[SS_TAILS_MAX_NS]) / 1.0e6, total[SS_SWITCHES] & 4 ? "on" : "off");
+  }
+  else
+  {
+    LogF("gpu: the driver doesn't count its submissions (a Mesa without EmuSuNi's patch of its PS4 winsys)");
+  }
+
+  // The queue lock (since the last line).
+  static uint64_t lock_before[QUEUE_TAKERS][4] = {};
+  static const char* const NAMES[QUEUE_TAKERS] = {"the cores", "the frame", "the rest"};
+  char part[QUEUE_TAKERS][176];
+  for (int t = 0; t < QUEUE_TAKERS; t++)
+  {
+    QueueLockStats& s = s_queue_stats[t];
+    const uint64_t got[4] = {s.takes.load(std::memory_order_relaxed), s.waits.load(std::memory_order_relaxed),
+                             s.wait_ticks.load(std::memory_order_relaxed),
+                             s.hold_ticks.load(std::memory_order_relaxed)};
+    const uint64_t takes = got[0] - lock_before[t][0], waits = got[1] - lock_before[t][1];
+    const uint64_t wait_ticks = got[2] - lock_before[t][2], hold_ticks = got[3] - lock_before[t][3];
+    std::copy(got, got + 4, lock_before[t]);
+    const uint64_t wait_max = s.wait_max.exchange(0, std::memory_order_relaxed);
+    const uint64_t hold_max = s.hold_max.exchange(0, std::memory_order_relaxed);
+    snprintf(part[t], sizeof(part[t]),
+             "%s took it %llu times, held it %.0f us each (most %.2f ms), waited %llu times, %.0f us each (most %.2f "
+             "ms)",
+             NAMES[t], static_cast<unsigned long long>(takes),
+             takes ? static_cast<double>(hold_ticks) * us_per_tick / static_cast<double>(takes) : 0.0,
+             static_cast<double>(hold_max) * us_per_tick / 1.0e3, static_cast<unsigned long long>(waits),
+             waits ? static_cast<double>(wait_ticks) * us_per_tick / static_cast<double>(waits) : 0.0,
+             static_cast<double>(wait_max) * us_per_tick / 1.0e3);
+  }
+  // ((01.87) Who holds it longest) The core's code of its longest hold: an address of the eboot, named from the build's
+  // ELF by TakeQueue's own address beside it (the eboot loads anywhere).
+  char where[112] = "";
+  if (const void* at = s_core_longest_where.exchange(nullptr, std::memory_order_relaxed))
+    snprintf(where, sizeof(where), " (the cores' longest from %p; Display.cpp's TakeQueue at %p)", at,
+             reinterpret_cast<const void*>(&TakeQueue));
+  LogF("gpu: the queue lock: %s%s; %s; %s", part[QUEUE_CORE], where, part[QUEUE_FRAME], part[QUEUE_OTHER]);
 }
 
 uint32_t Display::SyncIndex() const
@@ -1261,7 +1451,7 @@ void Display::Shutdown()
 {
   if (s_device != VK_NULL_HANDLE)
   {
-    std::lock_guard lock(s_queue_mutex);
+    QueueGuard lock(QUEUE_OTHER);
     vkDeviceWaitIdle(s_device);
   }
   GpuFilter::Shutdown();
@@ -1347,10 +1537,12 @@ void Display::UploadGameFrame(const void* pixels, uint32_t width, uint32_t heigh
   frame.upload_row = row;
 }
 
-double Display::TakeWaitMs()
+double Display::TakeWaitMs(double* flip_ms)
 {
   const double ms = s_wait_ms;
-  s_wait_ms = 0.0;
+  if (flip_ms)
+    *flip_ms = std::min(s_flip_wait_ms, ms);
+  s_wait_ms = s_flip_wait_ms = 0.0;
   return ms;
 }
 
@@ -1476,6 +1668,7 @@ void Display::EndFrame()
   s_current = (s_current + 1) % IMAGES;
   const auto wait = std::chrono::steady_clock::now();
   WaitForImageOffScreen();
+  s_flip_wait_ms += MsSince(wait);
   Frame& frame = s_frames[s_current];
   vkWaitForFences(s_device, 1, &frame.fence, VK_TRUE, UINT64_MAX);
   s_wait_ms += MsSince(wait);
@@ -1537,7 +1730,7 @@ void Display::EndFrame()
   const int64_t arg = static_cast<int64_t>(s_flips + 1);
   int result;
   {
-    std::lock_guard lock(s_queue_mutex);
+    QueueGuard lock(QUEUE_FRAME);
     vkQueueSubmit(s_queue, 1, &submit, frame.fence);
     result = ac_ps4_submit_flip(s_video, s_current, static_cast<unsigned>(s_flip_mode), arg);
   }
@@ -1652,7 +1845,7 @@ void Display::DestroyTexture(ImTextureID id)
     if (reinterpret_cast<ImTextureID>(it->set) != id)
       continue;
     {
-      std::lock_guard lock(s_queue_mutex);
+      QueueGuard lock(QUEUE_OTHER);
       vkDeviceWaitIdle(s_device);
     }
     ImGui_ImplVulkan_RemoveTexture(it->set);

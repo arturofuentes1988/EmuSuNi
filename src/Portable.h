@@ -43,11 +43,33 @@ inline constexpr const char* FOLDER = "EmuSuNi-Portable";
 inline constexpr const char* MARKER = "portable.ini";
 
 // ---- The start (main.cpp) ----
+// (01.27, the owner: "más compatible con ps5" - PS5 players saw /data/EmuSuNi never made, or their Game Folders lost at
+// every start) The data folder as the start's check found it (Log.h's CheckDataDir):
+enum class Local
+{
+  Kept,        // a file is written there and the folder has a session before's: as always (a PS4's)
+  Unwritable,  // a file can't be made there
+  Fresh,       // writable, nothing of a session before: a first start - or a folder emptied since the last start
+};
 // Decides where the player's data lives this session. local_dir: /data/EmuSuNi. usb_root: before "/usb0"... ("" on the
 // PS4; a test's folder on the PC). The drives are looked at only when this PS4 said yes to one, on a thread given
 // `wait_ms` (a drive that doesn't answer leaves this PS4's data for this session). A drive in use: what a session
 // without it wrote in the fallback folder is copied to it first.
-void Start(const std::string& local_dir, const std::string& usb_root = {}, int wait_ms = 8000);
+// (01.27) Only when the data folder isn't Kept, the data on a USB drive by itself (Automatic):
+// - Unwritable: on the drive with data EmuSuNi put there by itself (its portable.ini's "auto=" line), else one with
+//   portable data, else the first drive that takes it (its EmuSuNi-Portable made, marked "auto=unwritable");
+// - Fresh: the same when a drive says this console started EmuSuNi before - its auto data, or its witness
+//   (WITNESS: the start count's copy, written on the first drive that takes it at a fresh start that finds none, and
+//   deleted at the next start that finds the data folder kept: on a PS4, one file for one start). Else, as always.
+// What happened is said once on the screen (TakeNotice), and in the log's "data:" lines.
+void Start(const std::string& local_dir, const std::string& usb_root = {}, int wait_ms = 8000,
+           Local local = Local::Kept);
+inline constexpr const char* WITNESS = "emusuni-data-check.ini";  // (01.27) at a drive's top folder
+// (01.27) The data put on a USB drive by itself this session (Start's Local); its reason ("unwritable", "emptied").
+bool Automatic();
+std::string AutomaticReason();
+// (01.27) What the start did by itself, for the menu to show once ("": nothing): lines, "\n" between them.
+std::string TakeNotice();
 
 std::string LocalDir();   // /data/EmuSuNi
 std::string UserDir();    // the player's data now: the drive's folder, this PS4's, or (the drive gone) the fallback one

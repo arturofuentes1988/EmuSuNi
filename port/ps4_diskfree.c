@@ -126,3 +126,62 @@ int emusuni_disk_space_known(const char* path, int64_t* out)
   close(fd);
   return known;
 }
+
+// (01.25, the owner: "más compatible con ps5") The mount that has `path`, as the kernel describes it, into `out`
+// (main.cpp's "data:" lines - players on a PS5 saw /data/EmuSuNi never made, or its folders lost at every start): its
+// file system, where it is mounted and from what, read-only or not, its size and free space. The kernel's struct statfs
+// (FreeBSD's, version 0x20030518, 2344 bytes): f_flags at 8, f_bsize 16, f_blocks 32, f_bavail 48, f_fstypename 280
+// (16 bytes), f_mntfromname 296 and f_mntonname 1320 (1024 bytes each; a kernel of 88-byte names: at 384). Nothing of
+// the player's: system paths only. 1 when it could be read, else 0 (`out` says why).
+// The kernel's struct as read (`got`: fstatfs's result) into those words - apart, for the PC's test.
+int emusuni_describe_statfs(const unsigned char* buf, int got, char* out, size_t size);
+
+int emusuni_describe_mount(const char* path, char* out, size_t size)
+{
+  const int fd = open(path, O_RDONLY);
+  if (fd < 0)
+  {
+    snprintf(out, size, "can't be opened");
+    return 0;
+  }
+  unsigned char buf[4096];
+  memset(buf, 0, sizeof(buf));
+  const int got = fstatfs(fd, (struct statfs*)buf);
+  close(fd);
+  return emusuni_describe_statfs(buf, got, out, size);
+}
+
+int emusuni_describe_statfs(const unsigned char* buf, int got, char* out, size_t size)
+{
+  enum { FREEBSD_STATFS_VERSION = 0x20030518, MNT_READ_ONLY = 0x1 };
+  uint32_t version = 0;
+  memcpy(&version, buf, sizeof(version));
+  if (got != 0 || version != FREEBSD_STATFS_VERSION)
+  {
+    snprintf(out, size, "statfs unreadable (%d, version %#x)", got, (unsigned)version);
+    return 0;
+  }
+  uint64_t flags = 0, bsize = 0, blocks = 0;
+  int64_t bavail = 0;
+  memcpy(&flags, buf + 8, sizeof(flags));
+  memcpy(&bsize, buf + 16, sizeof(bsize));
+  memcpy(&blocks, buf + 32, sizeof(blocks));
+  memcpy(&bavail, buf + 48, sizeof(bavail));
+  char type[17], from[96], on[96];
+  memcpy(type, buf + 280, 16);
+  type[16] = '\0';
+  memcpy(from, buf + 296, sizeof(from) - 1);
+  from[sizeof(from) - 1] = '\0';
+  memcpy(on, buf + 1320, sizeof(on) - 1);
+  on[sizeof(on) - 1] = '\0';
+  if (on[0] != '/')
+  {
+    memcpy(on, buf + 384, sizeof(on) - 1);  // (88-byte names)
+    on[sizeof(on) - 1] = '\0';
+  }
+  snprintf(out, size, "%s on %s from %s, %s, %llu MiB, %lld MiB free (flags %#llx)", type[0] ? type : "?",
+           on[0] ? on : "?", from[0] ? from : "?", (flags & MNT_READ_ONLY) ? "read-only" : "writable",
+           (unsigned long long)((blocks * bsize) >> 20), (long long)((bavail * (int64_t)bsize) >> 20),
+           (unsigned long long)flags);
+  return 1;
+}

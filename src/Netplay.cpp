@@ -45,6 +45,7 @@ int sceNetResolverStartNtoa(int rid, const char* hostname, uint32_t* addr, int t
 #include <netdb.h>
 #endif
 
+#include "Elo.h"  // ((01.91) the ELO ranking: who won, from the game's memory)
 #include "Log.h"
 #include "NetplayLibrary.h"
 #include "UsageStats.h"
@@ -871,6 +872,7 @@ struct Peer
   // `acked` the newest it has every input of).
   bool watch_started = false, watch_options = false, watch_wants = false;
   int32_t watch_from = NO_FRAME;
+  int seat_said = -1;  // ((01.91) the Seat told it last: -1 none yet)
   // (01.05) Its file of the room's game as it said it (GameVersion): whether it has it, its version; the last of ours it
   // got (S.version_serial: none yet 0).
   LobbyGame said_game = LobbyGame::Looking;
@@ -1076,6 +1078,10 @@ struct Session
   NetProto::LibraryGame suggested;
   bool has_suggestion = false;
   int suggested_by = -1;  // (00.95) whose suggestion (a member id)
+  // ((01.88, the owner: the host never saw it) A number that changes with each new suggestion - another game, or another
+  // player's -, never reset: the host's notice, once each (Menu.cpp UpdateOnline); whose nickname.)
+  uint32_t suggestion_serial = 0;
+  std::string suggested_nick;
   // (00.95) A Game Boy link cable room: a guest's own game for Game Boy 2, its title and battery save (packed), whether
   // they went to the host; whether the host has that game (its own lookup: the host; what it said: a guest).
   NetProto::LibraryGame link_game;
@@ -1123,7 +1129,17 @@ struct Session
   double watch_asked = -100.0;
   bool watch_running = false;
   int watch_waits = 0, watch_states = 0;
+  // (01.26, the owner: Arcade's spectators - a heavy board may fall behind) The log's line every WINDOW s while
+  // watching (WatchLog): since when, the frame then, the extra frames run to catch up, the most behind.
+  double watch_logged_at = 0.0;
+  int32_t watch_logged_frame = 0;
+  int watch_extra = 0;
+  double watch_most_behind = 0.0;
   std::string watch_offer;
+  // ((01.91, the owner) A spectator: the host said a player's place is free in the match under way (Seat); the room to
+  // join as a player when this game ends (JoinAfterWatching: its code, the data folder).
+  bool seat_open = false;
+  std::string rejoin_code, rejoin_dir;
   // (01.05) A player joining the match under way. The host: whether it lets one (late_allowed; told to the server),
   // the one coming in and the ports it gets. Every player: the frame the match stops at for it (join_at; NO_FRAME:
   // none), whose (the notice), since when; one that couldn't go back to that frame (its frames past it: a resync after).
@@ -1163,6 +1179,9 @@ const CoreApi* s_real_core = nullptr;
 // What the screen shows, for any thread.
 std::mutex s_status_mutex;
 Status s_status;
+
+// ((01.91) GameEnded began a spectator's join as a player: the menu shows its room (TakeJoinedFromWatching).)
+bool s_joined_from_watching = false;
 
 void ResetSession()
 {
@@ -2431,6 +2450,37 @@ void WatchTakeState(const std::vector<uint8_t>& raw)
 // A spectator's frames this pass: none until WATCH_DELAY s of inputs are in, then as the pacing wants - a frame more
 // now and then when it falls behind, one less when it comes too close (the host's frame: the newest it said, a moment
 // on at most).
+// (01.26, the owner: "sí enciende el modo espectador para arcade" - a CPS2's or Neo Geo's frames cost more) A
+// spectator's line every WINDOW s: how far behind the host now and at most (the target WATCH_DELAY), the frames run
+// against the game's speed, the extra ones run to catch up, the passes without a frame (its inputs ran out), the waits
+// for the host's inputs, the core's time a frame. A spectator falling behind shows here.
+void WatchLog(double behind_s)
+{
+  const double now = Now();
+  S.watch_most_behind = std::max(S.watch_most_behind, behind_s);
+  if (S.watch_logged_at <= 0.0)
+  {
+    S.watch_logged_at = now;
+    S.watch_logged_frame = S.frame;
+    S.second = Session::Second();
+    return;
+  }
+  const double seconds = now - S.watch_logged_at;
+  if (seconds < WINDOW)
+    return;
+  const int frames = S.frame - S.watch_logged_frame;
+  LogF("netplay: watching: %.0f s at frame %d: %d frames (%.0f%% of the game's speed, %d extra to catch up), %.1f s "
+       "behind the host (%.1f at most; the aim %.1f), no frame in %d passes of %d, %d wait(s) for the host's inputs "
+       "so far, the core %.1f ms a frame",
+       seconds, S.frame, frames, frames * 100.0 / (std::max(S.fps, 1.0) * seconds), S.watch_extra, behind_s,
+       S.watch_most_behind, WATCH_DELAY, S.second.stalls, S.second.passes, S.watch_waits, S.core_ms);
+  S.watch_logged_at = now;
+  S.watch_logged_frame = S.frame;
+  S.watch_extra = 0;
+  S.watch_most_behind = 0.0;
+  S.second = Session::Second();
+}
+
 int WatchFrames(int frames)
 {
   if (S.over || S.match != Match::Running)
@@ -2442,6 +2492,8 @@ int WatchFrames(int frames)
   const double host_now = S.watch_host_frame + std::min(Now() - S.watch_host_at, 0.5) * fps;
   const double behind = host_now - S.frame;
   const double target = WATCH_DELAY * fps;
+  if (S.watch_running)
+    WatchLog(behind / fps);
   if (have <= 0)
   {
     if (S.watch_running)
@@ -2468,7 +2520,9 @@ int WatchFrames(int frames)
     run = frames + (S.frame % 2 == 0 ? 1 : 0);
   else if (behind < target - 0.4 * fps && frames > 0 && S.frame % 3 == 0)
     run = frames - 1;
-  return std::clamp(std::min(run, static_cast<int>(have)), 0, 8);
+  const int now_run = std::clamp(std::min(run, static_cast<int>(have)), 0, 8);
+  S.watch_extra += std::max(0, now_run - frames);  // ((01.26) the frames more than the pace: catching up)
+  return now_run;
 }
 
 // A spectator's frame: its checksum (as the host makes it: before the frame, from its state or its memory), the
@@ -2566,6 +2620,20 @@ bool OldPlayerIn()
 bool LateOpen()
 {
   return S.late_allowed && !OldPlayerIn();
+}
+
+// ((01.91, the owner: "alguien cuando entra de espectador pueda unirse a una partida cuando haya una plaza abierta") The
+// host: a player's place is free in the match under way - late joining on, no one joining now, a member's place and a
+// controller port left (as BeginJoin wants) -: its spectators are told so (Seat).
+bool SeatFree()
+{
+  if (!S.host || S.phase != Phase::Playing || S.over || S.match != Match::Running || !LateRoom() || !LateOpen() ||
+      S.join_member >= 0 || S.total_ports >= MAX_PORTS)
+    return false;
+  int players = 1;
+  for (const Peer& p : S.peers)
+    players += p.present ? 1 : 0;
+  return players < S.max_members;
 }
 
 // (01.14, the owner) The match's Reset: the host's, while the match runs - no reset or join under way -, when every
@@ -3441,6 +3509,10 @@ void BackToRoom()
   S.watch_asked = -100.0;
   S.watch_running = false;
   S.watch_waits = S.watch_states = 0;
+  S.watch_logged_at = 0.0;
+  S.watch_logged_frame = 0;
+  S.watch_extra = 0;
+  S.watch_most_behind = 0.0;
   for (Peer& w : S.watchers)
   {
     if (!w.present)
@@ -4219,6 +4291,7 @@ void OnRooms(Reader& r)
 struct TopState
 {
   TopList list;
+  int days = NetProto::TOP_DAYS_MONTH;  // ((01.91) the period asked for: WantTopGames)
   double asked_at = -1e9;
   uint32_t nonce = 0;
   int tries = 0;
@@ -4241,7 +4314,7 @@ void AskTopGames()
   w.Header(Type::TopGames);
   w.Bytes(S.cookie, NetProto::COOKIE_SIZE);
   w.U32(s_top.nonce);
-  w.U8(static_cast<uint8_t>(NetProto::TOP_DAYS));
+  w.U8(static_cast<uint8_t>(s_top.days));
   if (w.Ok())
     SendRaw(S.server, buf, w.Size());
   s_top.list.asked = true;
@@ -4268,12 +4341,14 @@ void OnTopGamesList(Reader& r)
   s_top.list.days = days;
   s_top.list.answered = true;
   s_top.list.serial++;
-  LogF("netplay: the games most played online: %zu (the last %d days)", s_top.list.games.size(), days);
+  LogF("netplay: the games most played online: %zu (%s)", s_top.list.games.size(),
+       days ? ("the last " + std::to_string(days) + " days").c_str() : "since ever");
 }
 
 // ---- (01.07, the owner: "un chat mundial") The world chat (Netplay.h): kept while the app runs, outside the session
 constexpr double WORLD_ASK_SHOWN = 2.0, WORLD_ASK_HIDDEN = 10.0, WORLD_SAY_AGAIN = 1.5;
-constexpr size_t WORLD_LINES_KEPT = 100;
+constexpr size_t WORLD_LINES_KEPT = 300;  // ((01.24, the owner: "más historial") 100 before)
+constexpr double WORLD_OLDER_AGAIN = 2.0;  // ((01.24) an older lines' question without an answer: asked again after)
 constexpr size_t WORLD_MUTED_MOST = 200;
 struct WorldState
 {
@@ -4290,6 +4365,13 @@ struct WorldState
   double asked_at = -1e9;
   uint32_t ask_nonce = 0;
   bool ask_more = false;  // (the answer was full: asked again at once)
+  // (01.24, the owner: "quiero que haya más historial") The lines before our oldest, asked as the chat scrolls up
+  // (WorldWantOlder): wanted, the question on its way (its nonce, when), the number they come before (the oldest one
+  // that came, shown or not: 0 the oldest line's), none left (the server's, ours full, or a server before 01.24).
+  bool older_wanted = false, older_done = false;
+  uint32_t older_nonce = 0, older_before = 0;
+  double older_at = -1e9;
+  int older_in = 0;  // (the log's count)
   // The line on its way: its request (sent again with the same nonce: the server answers it once), its tries.
   std::vector<uint8_t> say;
   uint32_t say_nonce = 0;
@@ -4415,6 +4497,26 @@ void PumpWorld()
       s_world.say_tries++;
     }
   }
+  // ((01.24) The lines before our oldest: one question at a time, again when its answer was lost. Its `since` ours: a
+  // server before 01.24 answers it as the usual question.)
+  if (s_world.older_wanted && !s_world.older_done && s_world.answered && !s_world.lines.empty() &&
+      (s_world.older_nonce == 0 || now - s_world.older_at >= WORLD_OLDER_AGAIN))
+  {
+    s_world.older_wanted = false;
+    s_world.older_at = now;
+    s_world.older_nonce = static_cast<uint32_t>(RandomNumber()) | 1u;
+    const uint32_t oldest = s_world.lines.front().serial;
+    uint8_t buf[64];
+    Writer w(buf, sizeof(buf));
+    w.Header(Type::WorldChat);
+    w.Bytes(S.cookie, NetProto::COOKIE_SIZE);
+    w.U32(s_world.older_nonce);
+    w.U32(s_world.newest);
+    w.U32(s_world.older_before ? std::min(s_world.older_before, oldest) : oldest);
+    if (w.Ok())
+      SendRaw(S.server, buf, w.Size());
+    s_world.asks++;
+  }
   const double every = s_world.shown ? WORLD_ASK_SHOWN : WORLD_ASK_HIDDEN;
   if (!s_world.ask_more && now - s_world.asked_at < every)
     return;
@@ -4434,9 +4536,9 @@ void PumpWorld()
   if (now - s_world.logged_at >= 600.0 && (s_world.lines_in > 0 || s_world.sent > 0 || s_world.refused > 0))
   {
     s_world.logged_at = now;
-    LogF("netplay: world chat: %d lines came, %d sent, %d refused, %d questions", s_world.lines_in, s_world.sent,
-         s_world.refused, s_world.asks);
-    s_world.lines_in = s_world.sent = s_world.refused = s_world.asks = 0;
+    LogF("netplay: world chat: %d lines came (%d older ones), %d sent, %d refused, %d questions", s_world.lines_in,
+         s_world.older_in, s_world.sent, s_world.refused, s_world.asks);
+    s_world.lines_in = s_world.older_in = s_world.sent = s_world.refused = s_world.asks = 0;
   }
 }
 
@@ -4504,8 +4606,273 @@ void OnTopPlayersList(Reader& r)
   list.answered_at = Now();
   list.serial++;
   s_players.tries = 0;
+  // ((01.91) A server before it answers 30 days with TOP_DAYS's: that list for the period asked too - its days said.)
+  if (s_players.wanted >= 0 && s_players.wanted != days)
+    s_players.lists[s_players.wanted] = list;
   LogF("netplay: the players' ranking: %zu players (%s)", list.players.size(),
        days ? (std::to_string(days) + " days").c_str() : "since ever");
+}
+
+// ---- (01.91, the owner: "un ranking ELO de los 10 juegos más jugados en línea") The ELO ranking ----
+// A ranked match's game (src/Elo.h: one of NetProto::ELO_GAMES, known by its content's standard name or the room's
+// title) has its memory read after every frame the match runs; its end - who won - is told once to the main server
+// (EloResult), which counts it when the other player's console says the same and answers both (EloCounted). The
+// Online tab's "ELO Ranking" asks for each game's list (EloTop), with our own place.
+struct EloState
+{
+  Elo::Detector detector;
+  bool tried = false;                    // the match's game looked at (again at each game loaded online: WrapCore)
+  std::string nick1, nick2;              // the last result's players (port 1, port 2), for the log
+  std::map<std::string, EloList> lists;  // by game
+  std::string wanted;                    // the game asked for ("": none)
+  double asked_at = -1e9;
+  uint32_t nonce = 0;
+  int tries = 0;
+  EloNotice notice;  // the server's last answer about one of our matches
+  uint32_t notice_serial = 0;
+} s_elo;
+
+// The match's game, at its first frame: ranked or not (why not, in the log).
+void EloStart()
+{
+  s_elo.tried = true;
+  s_elo.detector.Stop();
+  if (!S.core || S.watching || S.my_id >= MAX_MEMBERS)
+    return;
+  bool console_ranked = false;
+  for (int i = 0; i < Elo::GameCount(); i++)
+    console_ranked = console_ranked || S.game.console == Elo::GameAt(i).console;
+  if (!console_ranked)
+    return;
+  const std::string standard = NetplayLibrary::StandardName(S.game.console, S.game.crc, S.game.size);
+  const int game = Elo::Identify(S.game.console, S.game.crc, S.game.size, S.game.title, standard);
+  if (game < 0)
+    return;
+  const Elo::Game& g = Elo::GameAt(game);
+  if (!S.config.ranked)
+  {
+    LogF("elo: %s is a ranked game, but this console doesn't appear in the ranking (Online: Appear in the Ranking)",
+         g.title);
+    return;
+  }
+  if (!S.core->get_memory_data || !S.core->get_memory_size ||
+      !s_elo.detector.Start(game, S.core->get_memory_data, S.core->get_memory_size))
+  {
+    LogF("elo: %s: its memory can't be read: no result will be told", g.title);
+    return;
+  }
+  LogF("elo: %s (%s, %s): ranked - who wins is read from the game's memory", g.title, g.key,
+       standard.empty() ? "known by its title" : standard.c_str());
+}
+
+// The member at a port of the match (-1: none).
+int EloMemberAt(int port)
+{
+  for (int m = 0; m < MAX_MEMBERS; m++)
+  {
+    if ((m == S.my_id || InMatch(S.peers[m])) && port >= S.first_port[m] && port < S.first_port[m] + S.ports[m])
+      return m;
+  }
+  return -1;
+}
+
+std::string EloNick(int member)
+{
+  if (member == S.my_id)
+    return S.nick;
+  return member >= 0 && member < MAX_MEMBERS ? S.peers[member].info.nick : std::string("?");
+}
+
+// After every frame the match runs (RunFrame: the newest, after any rollback).
+void EloFrame()
+{
+  if (!s_elo.tried)
+    EloStart();
+  if (!s_elo.detector.On())
+    return;
+  const int won = s_elo.detector.Frame();
+  if (won == 0)
+    return;
+  const Elo::Game& g = Elo::GameAt(s_elo.detector.GameIndex());
+  const int m1 = EloMemberAt(0), m2 = EloMemberAt(1);
+  s_elo.nick1 = EloNick(m1);
+  s_elo.nick2 = EloNick(m2);
+  const std::string& winner = won == 1 ? s_elo.nick1 : s_elo.nick2;
+  const std::string& loser = won == 1 ? s_elo.nick2 : s_elo.nick1;
+  if (m1 < 0 || m2 < 0 || m1 == m2 || (S.my_id != m1 && S.my_id != m2))
+  {
+    LogF("elo: %s: the match is over at frame %d, port %d won - not ranked: ports 1 and 2 aren't two consoles' "
+         "(one console plays both, or this one plays neither)",
+         g.title, S.frame, won);
+    return;
+  }
+  uint8_t buf[96];
+  Writer w(buf, sizeof(buf));
+  ServerAuth(w, Type::EloResult);
+  w.U8(NetProto::ELO_VERSION);
+  w.Str(g.key, NetProto::MAX_ELO_GAME);
+  w.U32(static_cast<uint32_t>(S.frame));
+  w.U8(static_cast<uint8_t>(won - 1));
+  w.U8(static_cast<uint8_t>(m1));
+  w.U8(static_cast<uint8_t>(m2));
+  if (w.Ok())
+    SendRaw(S.server, buf, w.Size());
+  LogF("elo: %s: the match is over at frame %d - port %d won (%s beat %s): told the server", g.title, S.frame, won,
+       winner.c_str(), loser.c_str());
+}
+
+void OnEloCounted(Reader& r)
+{
+  const std::string game = r.Str(NetProto::MAX_ELO_GAME);
+  const uint8_t outcome = r.U8();
+  const uint16_t r1 = r.U16();
+  const int16_t d1 = r.I16();
+  const uint16_t r2 = r.U16();
+  const int16_t d2 = r.I16();
+  const int index = Elo::GameByKey(game);
+  if (!r.Ok() || index < 0)
+    return;
+  const char* title = Elo::GameAt(index).title;
+  EloNotice n;
+  n.game = game;
+  n.outcome = outcome;
+  n.nick1 = s_elo.nick1;
+  n.nick2 = s_elo.nick2;
+  n.rating1 = r1;
+  n.change1 = d1;
+  n.rating2 = r2;
+  n.change2 = d2;
+  s_elo.notice = n;
+  s_elo.notice_serial++;
+  switch (static_cast<NetProto::EloOutcome>(outcome))
+  {
+  case NetProto::EloOutcome::Counted:
+    LogF("elo: %s: the server counted it - %s %u (%+d), %s %u (%+d)", title, n.nick1.c_str(), r1, d1, n.nick2.c_str(),
+         r2, d2);
+    break;
+  case NetProto::EloOutcome::Different:
+    LogF("elo: %s: not counted - the other console saw another result", title);
+    break;
+  case NetProto::EloOutcome::NotRanked:
+    LogF("elo: %s: not counted - a player doesn't appear in the ranking", title);
+    break;
+  case NetProto::EloOutcome::TooMany:
+    LogF("elo: %s: not counted - the same two players' matches of this game today are enough", title);
+    break;
+  default:
+    LogF("elo: %s: not counted (%u)", title, outcome);
+    break;
+  }
+  // (Its list asked again when the tab shows it.)
+  auto it = s_elo.lists.find(game);
+  if (it != s_elo.lists.end())
+    it->second.answered_at = -1e9;
+}
+
+// The list the Online tab's "ELO Ranking" shows, asked while it shows (again after 5 minutes, a few times when no
+// answer came: a server before it drops the question).
+void PumpElo()
+{
+  if (s_elo.wanted.empty() || s_fd < 0 || !WorldCookieFresh())
+    return;
+  const double now = Now();
+  EloList& list = s_elo.lists[s_elo.wanted];
+  const bool due = (!list.answered && s_elo.tries < 3 && now - s_elo.asked_at > 4.0) ||
+                   (list.answered && now - list.answered_at > 300.0 && now - s_elo.asked_at > 4.0);
+  if (!due)
+    return;
+  s_elo.tries = list.answered ? 1 : s_elo.tries + 1;
+  s_elo.asked_at = now;
+  s_elo.nonce = static_cast<uint32_t>(RandomNumber());
+  uint8_t buf[96];
+  Writer w(buf, sizeof(buf));
+  w.Header(Type::EloTop);
+  w.Bytes(S.cookie, NetProto::COOKIE_SIZE);
+  w.U32(s_elo.nonce);
+  w.Str(s_elo.wanted, NetProto::MAX_ELO_GAME);
+  w.Bytes(s_world.key, NetProto::WORLD_KEY_SIZE);
+  if (w.Ok())
+    SendRaw(S.server, buf, w.Size());
+  list.asked = true;
+}
+
+void OnEloList(Reader& r)
+{
+  const uint32_t nonce = r.U32();
+  const std::string game = r.Str(NetProto::MAX_ELO_GAME);
+  const int ranked = r.U16();
+  const int count = r.U8();
+  std::vector<EloPlayer> players;
+  for (int i = 0; i < count && r.Ok(); i++)
+  {
+    EloPlayer p;
+    p.nick = NetProto::CleanNick(r.Str(NetProto::MAX_NICK));
+    p.country = NetProto::CleanCountry(r.Str(NetProto::COUNTRY_SIZE));
+    p.rating = r.U16();
+    p.wins = r.U16();
+    p.losses = r.U16();
+    players.push_back(std::move(p));
+  }
+  const int position = r.U16();
+  const int rating = r.U16(), wins = r.U16(), losses = r.U16();
+  if (!r.Ok() || nonce != s_elo.nonce || Elo::GameByKey(game) < 0)
+    return;
+  EloList& list = s_elo.lists[game];
+  list.game = game;
+  list.ranked = ranked;
+  list.players = std::move(players);
+  list.my_position = position;
+  list.my_rating = rating;
+  list.my_wins = wins;
+  list.my_losses = losses;
+  list.answered = true;
+  list.answered_at = Now();
+  list.serial++;
+  s_elo.tries = 0;
+  LogF("netplay: the ELO ranking of %s: %zu of %d players (ours: %s)", game.c_str(), list.players.size(), ranked,
+       position ? ("#" + std::to_string(position)).c_str() : "not ranked yet");
+}
+
+// (01.24) An answer of older lines (WORLD_OLDER): before our oldest, the oldest first - kept as far as WORLD_LINES_KEPT
+// (the newest of them); none: none left.
+void OnOlderWorldLines(const std::vector<NetProto::WorldLine>& lines)
+{
+  const uint32_t oldest = s_world.lines.empty() ? UINT32_MAX : s_world.lines.front().serial;
+  const uint32_t before = s_world.older_before ? std::min(s_world.older_before, oldest) : oldest;
+  const double now = Now();
+  std::vector<WorldChatLine> add;
+  uint32_t lowest = before;
+  for (const NetProto::WorldLine& l : lines)
+  {
+    if (l.serial >= before || (!add.empty() && l.serial <= add.back().serial))
+      continue;
+    lowest = std::min(lowest, l.serial);
+    if (l.phrase && *NetProto::ChatPhrase(l.phrase) == '\0')
+      continue;  // (a newer app's phrase)
+    WorldChatLine line;
+    line.serial = l.serial;
+    line.code = l.code;
+    line.nick = l.nick;
+    line.country = l.country;
+    line.phrase = l.phrase;
+    line.param = l.param;
+    line.text = l.text;
+    line.mine = s_world.mine.count(l.serial) != 0;
+    line.said_at = now - l.age;
+    add.push_back(std::move(line));
+  }
+  s_world.older_before = lowest;
+  if (lowest == before)
+    s_world.older_done = true;  // (none older)
+  const size_t room = WORLD_LINES_KEPT > s_world.lines.size() ? WORLD_LINES_KEPT - s_world.lines.size() : 0;
+  if (add.size() >= room)
+  {
+    add.erase(add.begin(), add.end() - static_cast<std::ptrdiff_t>(room));
+    s_world.older_done = true;  // (ours full)
+  }
+  s_world.lines.insert(s_world.lines.begin(), std::make_move_iterator(add.begin()), std::make_move_iterator(add.end()));
+  s_world.older_in += static_cast<int>(add.size());
+  s_world.serial++;
 }
 
 void OnWorldLines(Reader& r)
@@ -4518,8 +4885,23 @@ void OnWorldLines(Reader& r)
   std::vector<NetProto::WorldLine> lines;
   for (int i = 0; i < count && r.Ok(); i++)
     lines.push_back(NetProto::ReadWorldLine(r));
-  if (!r.Ok() || nonce != s_world.ask_nonce)
+  const bool older = s_world.older_nonce != 0 && nonce == s_world.older_nonce;
+  if (!r.Ok() || (!older && nonce != s_world.ask_nonce))
     return;
+  if (older)
+  {
+    s_world.older_nonce = 0;
+    if (flags & NetProto::WORLD_OLDER)
+    {
+      if (newest >= s_world.newest)  // (else the server started again: the usual question sorts it)
+        OnOlderWorldLines(lines);
+      return;
+    }
+    // (A server before 01.24: no older line - its answer the newer ones, as usual.)
+    s_world.older_done = true;
+    s_world.serial++;
+    LogLine("netplay: world chat: the server has no older lines (before 01.24)");
+  }
   if (!s_world.answered)
     LogF("netplay: the server has the world chat%s",
          (flags & NetProto::WORLD_STORED) ? " (its lines kept 30 days)" : "");
@@ -4537,6 +4919,8 @@ void OnWorldLines(Reader& r)
     s_world.lines.clear();
     s_world.mine.clear();
     s_world.serial++;
+    s_world.older_done = false;  // ((01.24) its older lines asked again)
+    s_world.older_before = 0;
   }
   const double now = Now();
   for (const NetProto::WorldLine& l : lines)
@@ -4560,9 +4944,16 @@ void OnWorldLines(Reader& r)
     s_world.lines_in++;
   }
   while (s_world.lines.size() > WORLD_LINES_KEPT)
+  {
     s_world.lines.pop_front();
-  if (!s_world.primed || s_world.shown)
-    s_world.seen = s_world.newest;  // (the first lines aren't new: those said before we came)
+    s_world.older_done = false;  // ((01.24) the older ones may come again)
+    s_world.older_before = 0;
+  }
+  if (!s_world.primed)
+    s_world.seen = std::max(s_world.newest, newest);  // (the first lines aren't new: those said before we came -
+                                                      // (01.24) the server's then too, should they take two answers)
+  else if (s_world.shown)
+    s_world.seen = s_world.newest;
   s_world.primed = true;
   if (!lines.empty())
     s_world.serial++;
@@ -4869,6 +5260,14 @@ void OnServerPacket(int index, Type type, Reader& r)
   case Type::TopPlayersList:
     if (index == 0)
       OnTopPlayersList(r);
+    return;
+  case Type::EloCounted:  // ((01.91) the ELO ranking)
+    if (index == 0)
+      OnEloCounted(r);
+    return;
+  case Type::EloList:
+    if (index == 0)
+      OnEloList(r);
     return;
   case Type::AllRooms:
     if (index == 0)
@@ -5250,9 +5649,12 @@ void OnControl(Peer& p, Reader& r)
     g.size = r.U64();
     if (r.Ok() && S.host && S.together && p.admitted)
     {
+      if (!S.has_suggestion || !(S.suggested == g) || S.suggested_by != p.info.id)
+        S.suggestion_serial++;  // ((01.88) a new one: the host's notice; the same one again says nothing)
       S.suggested = g;
       S.has_suggestion = true;
       S.suggested_by = p.info.id;
+      S.suggested_nick = p.info.nick;
       LogF("netplay: %s suggests a game (%s, %08x)", p.info.nick.c_str(), g.console.c_str(), g.crc);
     }
     return;
@@ -5481,6 +5883,18 @@ void OnControl(Peer& p, Reader& r)
                 p.info.id == 0 && S.phase == Phase::Room        ? PeerName(p) + " closed the room" :
                 S.phase == Phase::Room                          ? PeerName(p) + " left the room" :  // (00.95)
                                                                   PeerName(p) + " left the game");
+    return;
+  }
+  case ControlKind::Seat:
+  {
+    // ((01.91) The host to its spectators: a player's place is free in the match under way, or not any more.)
+    const uint8_t open = r.U8();
+    if (r.Ok() && S.watching && p.info.id == 0 && (open != 0) != S.seat_open)
+    {
+      S.seat_open = open != 0;
+      LogF("netplay: the host says %s", S.seat_open ? "a player's place is free in the match: we may join it" :
+                                                       "no player's place is free in the match any more");
+    }
     return;
   }
   default:
@@ -6379,6 +6793,7 @@ void UpdateStatus()
   }
   // (01.05) Spectators.
   st.watching = S.watching;
+  st.seat_open = S.watching && S.seat_open;  // ((01.91))
   if (S.watching)
   {
     if (const Peer* host = FindPeer(0))
@@ -6405,10 +6820,20 @@ void PumpWatchers(double now)
   if (!S.host)
     return;
   const bool match = S.phase == Phase::Starting || S.phase == Phase::Playing;
+  const int seat = SeatFree() ? 1 : 0;  // ((01.91))
   for (Peer& p : S.watchers)
   {
     if (!p.present)
       continue;
+    if (p.watch_started && p.seat_said != seat)
+    {
+      // ((01.91) A player's place free in the match, or not any more: told to it - it may join the match then.)
+      p.seat_said = seat;
+      const uint8_t payload[1] = {static_cast<uint8_t>(seat)};
+      SendControl(p, ControlKind::Seat, payload, sizeof(payload));
+      if (seat)
+        LogF("netplay: %s watches: told a player's place is free in the match", p.info.nick.c_str());
+    }
     if (match && !p.watch_started && p.rtt_ms >= 0.0)
     {
       p.watch_started = true;
@@ -6723,9 +7148,12 @@ Rules RulesFor(const std::string& key)
     return r;  // (not offered)
   r.online = true;
   // (01.05) Spectators: the light consoles first (their states are small, their frames cheap: a spectator's PS4 runs
-  // a few more to catch up).
+  // a few more to catch up). (01.26, the owner: "sí enciende el modo espectador para arcade") The Arcade too - a
+  // spectator runs no rollback, so it costs less than a player; its full inputs and its memory's checksums as the 2600's
+  // and the Master System's (local/herramientas/prueba-netplay/late-arcade.sh: Robby Roto and Gridlee watched, their
+  // checksums the host's). A heavy board's (CPS2, Neo Geo) on the PS4: WatchLog's lines say whether it keeps up.
   r.watch = key == "nes" || key == "sg1000" || key == "sms" || key == "gg" || key == "md" || key == "pce" ||
-            key == "snes" || key == "atari2600" || key == "atari7800";
+            key == "snes" || key == "atari2600" || key == "atari7800" || key == "arcade";
   return r;
 }
 
@@ -6954,8 +7382,18 @@ TopList TopGames()
   return s_top.list;
 }
 
-void WantTopGames()
+void WantTopGames(int days)
 {
+  days = days == 0 ? 0 : days >= NetProto::TOP_DAYS_MONTH ? NetProto::TOP_DAYS_MONTH : NetProto::TOP_DAYS;
+  if (days != s_top.days)
+  {
+    // ((01.91) Another period: its list, empty till it comes - not the other one's under its name.)
+    s_top.days = days;
+    s_top.list.games.clear();
+    s_top.list.answered = false;
+    s_top.list.serial++;
+    s_top.tries = 0;
+  }
   s_top.wanted = true;
 }
 
@@ -6967,7 +7405,10 @@ void Update()
     LoadWorld(S.data_dir);
     PumpWorld();  // ((01.07) the world chat: the Online tab's)
     if (S.phase == Phase::Browsing || (S.phase == Phase::Room && S.host && S.room_list))
+    {
       PumpTopPlayers();  // ((01.07) the players' ranking)
+      PumpElo();         // ((01.91) the ELO ranking)
+    }
   }
 }
 
@@ -7048,6 +7489,8 @@ View GetView()
   v.peer_games_in = GuestGamesIn();
   v.has_suggestion = S.has_suggestion;
   v.suggested = S.suggested;
+  v.suggestion_serial = S.suggestion_serial;  // (01.88)
+  v.suggested_nick = S.suggested_nick;
   v.notice = S.notice;
   // (01.05) Spectators: watching, or the host's (each with its ping).
   v.watching = S.watching;
@@ -7446,6 +7889,8 @@ bool IsHost()
 const CoreApi* WrapCore(const CoreApi* core)
 {
   S.core = core;
+  s_elo.tried = false;  // ((01.91) the ELO ranking: the game looked at again, at the match's first frame)
+  s_elo.detector.Stop();
   s_real_core = core;
   s_wrapped = *core;
   s_wrapped.set_controller_port_device = &PortDevice;
@@ -7737,6 +8182,7 @@ void RunFrame()
   RunCore();
   S.frame++;
   S.stats.frame = S.frame;
+  EloFrame();  // ((01.91) the ELO ranking: the match's end, from the game's memory)
 }
 
 bool Replaying()
@@ -7767,6 +8213,9 @@ void GameEnded()
 {
   if (S.phase == Phase::Off)
     return;
+  // ((01.91) A spectator going to play (JoinAfterWatching): the room joined as a player once its watching ends below.)
+  const std::string rejoin = S.rejoin_code, rejoin_dir = S.rejoin_dir;
+  S.rejoin_code.clear();
   // A Choose Together match ended so (End Match here or there), the other still in the room: back to the room.
   // (01.23) Any room's but a link cable's (Back to the Room, a player who left): the host's even alone - its room
   // stays open. Its spectators: back in the room too, the next match theirs to watch; one whose app is before it is
@@ -7820,6 +8269,32 @@ void GameEnded()
     LogF("netplay: %d player(s) joined the match under way", S.late_joined);
   CloseAll("");
   S.error = error;
+  if (!rejoin.empty())
+  {
+    // ((01.91) As any player late: the server lets it in while the match takes one more, the host admits it - or asks
+    // first -, its game loads and the host's state comes.)
+    S.error.clear();
+    LogF("netplay: watching ended: joining room %s's match as a player", rejoin.c_str());
+    Join(rejoin, rejoin_dir);
+    s_joined_from_watching = true;
+  }
+}
+
+bool JoinAfterWatching(const std::string& data_dir)
+{
+  if (!S.watching || !S.seat_open || S.code.empty())
+    return false;
+  S.rejoin_code = S.code;
+  S.rejoin_dir = data_dir;
+  LogF("netplay: a player's place is free: joining room %s's match as a player when this game ends", S.code.c_str());
+  return true;
+}
+
+bool TakeJoinedFromWatching()
+{
+  const bool joined = s_joined_from_watching;
+  s_joined_from_watching = false;
+  return joined;
 }
 
 bool KeepOwnSaves()
@@ -8017,7 +8492,18 @@ WorldChatView GetWorldChat()
   v.said = s_world.said;
   v.said_seconds = s_world.said_seconds;
   v.sending = !s_world.say.empty();
+  v.older_loading = !s_world.older_done && (s_world.older_wanted || s_world.older_nonce != 0);
+  v.older_done = s_world.older_done;
   return v;
+}
+
+void WorldWantOlder()
+{
+  if (!s_world.older_done && !s_world.older_wanted)
+  {
+    s_world.older_wanted = true;
+    s_world.serial++;
+  }
 }
 
 void WorldChatShown(bool shown)
@@ -8122,7 +8608,8 @@ PlayersList TopPlayers(int days)
 
 void WantTopPlayers(int days)
 {
-  days = days == 0 ? 0 : NetProto::TOP_DAYS;
+  // ((01.91) 30 days, 7 days or since ever.)
+  days = days == 0 ? 0 : days >= NetProto::TOP_DAYS_MONTH ? NetProto::TOP_DAYS_MONTH : NetProto::TOP_DAYS;
   if (s_players.wanted != days)
     s_players.tries = 0;
   s_players.wanted = days;
@@ -8138,5 +8625,28 @@ void SetRanked(const std::string& data_dir, bool on)
   SaveConfigKey(data_dir, "ranking", on ? "on" : "off");
   S.config.ranked = on;
   LogF("netplay: appear in the players' ranking: %s (from the next room)", on ? "yes" : "no");
+}
+
+// ---- (01.91) The ELO ranking ----
+EloList EloTop(const std::string& game)
+{
+  const auto it = s_elo.lists.find(game);
+  return it == s_elo.lists.end() ? EloList() : it->second;
+}
+
+void WantEloTop(const std::string& game)
+{
+  if (!NetProto::IsEloGame(game))
+    return;
+  if (s_elo.wanted != game)
+    s_elo.tries = 0;
+  s_elo.wanted = game;
+}
+
+EloNotice LastEloNotice(uint32_t* serial)
+{
+  if (serial)
+    *serial = s_elo.notice_serial;
+  return s_elo.notice;
 }
 }  // namespace Netplay

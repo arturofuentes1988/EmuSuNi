@@ -183,17 +183,17 @@ constexpr const char* ActionName(Mode mode, Action action)
 }
 
 // The hints line: a button (PS4Glyphs' name; "L1/R1" both) and what it does - the Library's line has the first three
-// at its left, the others at its right.
+// at its left, the others at its right. ((01.52) on_text: the text has the D-Pad - Board::OnText.)
 struct Hint
 {
   const char* glyph;
   const char* label;
   bool right;
 };
-inline std::vector<Hint> Hints(Mode mode)
+inline std::vector<Hint> Hints(Mode mode, bool on_text = false)
 {
-  std::vector<Hint> hints = {{"D-Pad", "Move", false},
-                             {"Cross", ActionName(mode, Action::Char), false},
+  std::vector<Hint> hints = {{"D-Pad", on_text ? "Move Cursor (Down: Keys)" : "Move (Up: Cursor)", false},
+                             {"Cross", on_text ? "Keys" : ActionName(mode, Action::Char), false},
                              {"L1/R1", ActionName(mode, ButtonAction(mode, Button::R1)), false}};
   for (const Button button : {Button::R2, Button::L2, Button::Triangle, Button::Square, Button::Circle})
     hints.push_back({GlyphOf(button), ActionName(mode, ButtonAction(mode, button)), true});
@@ -254,6 +254,11 @@ enum class Result
   Browse,
 };
 
+// (01.52, a player: "si quiero agregar algo al principio del nombre del juego no me deja, debo borrar todo") The text
+// has a cursor: a key types there, Delete erases the character before it; at the text's end when it opens. Up from the
+// keys' first row reaches the text - one more place in the keys' column, round with the others -: there Left / Right
+// move the cursor a character at a time (an accent, a ñ, a kana, a hangul syllable: one character, not its bytes),
+// round past an end on a fresh press; Down or Cross go back to the keys.
 class Board
 {
 public:
@@ -263,6 +268,8 @@ public:
     Wipe();
     m_mode = mode;
     m_text = std::move(text);
+    m_cursor = m_text.size();
+    m_on_text = false;
     m_max = max_chars;
     m_page = 0;
     m_caps = Caps::Off;
@@ -285,8 +292,22 @@ public:
   const std::string& Text() const { return m_text; }
   size_t Length() const { return CountChars(m_text); }
   size_t Max() const { return m_max; }
-  // The search changed without the keyboard (Circle in the games, the tour): the keyboard's text follows.
-  void SetText(const std::string& text) { m_text = text; }
+  // The search changed without the keyboard (Circle in the games, the tour): the keyboard's text follows, its cursor at
+  // the end. (The same text: the cursor stays.)
+  void SetText(const std::string& text)
+  {
+    if (text == m_text)
+      return;
+    m_text = text;
+    m_cursor = m_text.size();
+  }
+  // (01.52) The cursor: a byte of the text, a character's first (its end: the text's size); in Display()'s text.
+  size_t Cursor() const { return m_cursor; }
+  size_t DisplayCursor() const
+  {
+    return m_mode != Mode::Password || m_shown ? m_cursor : CountChars(m_text.substr(0, m_cursor)) * 3;
+  }
+  bool OnText() const { return m_on_text; }
   // The text as shown: a password's characters as dots, unless Show.
   std::string Display() const
   {
@@ -380,7 +401,7 @@ public:
   }
   bool IsSelected(int row, int column) const
   {
-    if (row != m_row)
+    if (row != m_row || m_on_text)
       return false;
     return row < CHAR_ROWS ? column == m_col : WideAt(row, column) == WideAt(m_row, m_col);
   }
@@ -391,13 +412,32 @@ public:
   {
     if (rows != 0)
     {
-      const int to = MenuNav::Step(m_row, rows, Rows(), wrap);
-      const bool moved = to != m_row;
-      m_row = to;
-      return moved;
+      // ((01.52) the text first: place 0, the rows after it)
+      const int at = m_on_text ? 0 : m_row + 1;
+      const int to = MenuNav::Step(at, rows, Rows() + 1, wrap);
+      if (to == at)
+        return false;
+      m_on_text = to == 0;
+      if (!m_on_text)
+        m_row = to - 1;
+      return true;
     }
     if (columns == 0)
       return false;
+    if (m_on_text)
+    {
+      // (01.52) The cursor, a character at a time: its places before each one and at the end.
+      const int count = static_cast<int>(Length()) + 1;
+      const int at = static_cast<int>(CountChars(m_text.substr(0, m_cursor)));
+      const int to = MenuNav::Step(at, columns < 0 ? -1 : 1, count, wrap);
+      if (to == at)
+        return false;
+      m_cursor = 0;
+      for (int i = 0; i < to && m_cursor < m_text.size(); i++)
+        m_cursor += std::min(CharBytes(static_cast<unsigned char>(m_text[m_cursor])), m_text.size() - m_cursor);
+      AutoCaps();
+      return true;
+    }
     if (m_row < CHAR_ROWS)
     {
       const int to = MenuNav::Step(m_col, columns, COLUMNS, wrap);
@@ -417,6 +457,11 @@ public:
   // Cross: the selected key.
   Result Press()
   {
+    if (m_on_text)
+    {
+      m_on_text = false;  // ((01.52) on the text: back to the keys)
+      return Result::Toggled;
+    }
     std::string ch;
     const Action action = Selected(&ch);
     return action == Action::Char ? Type(ch) : Do(action);
@@ -428,18 +473,29 @@ public:
     switch (action)
     {
     case Action::Space:
-      // (No space first or after another in a search or a name; a password may have them anywhere.)
-      if (Length() >= m_max || ((search || Written()) && (m_text.empty() || m_text.back() == ' ')))
+      // (No space first or beside another in a search or a name; a password may have them anywhere. (01.52) At the
+      // cursor.)
+      if (Length() >= m_max ||
+          ((search || Written()) && (m_cursor == 0 || m_text[m_cursor - 1] == ' ' ||
+                                     (m_cursor < m_text.size() && m_text[m_cursor] == ' '))))
         return Result::Refused;
-      m_text += ' ';
+      m_text.insert(m_cursor, 1, ' ');
+      m_cursor++;
       AutoCaps();
       return Result::Typed;
     case Action::Delete:
-      if (m_text.empty())
+    {
+      // ((01.52) the character before the cursor: none at the text's start)
+      if (m_cursor == 0)
         return Result::Refused;
-      PopChar(m_text);
+      size_t start = m_cursor - 1;
+      while (start > 0 && (static_cast<unsigned char>(m_text[start]) & 0xC0) == 0x80)
+        start--;
+      m_text.erase(start, m_cursor - start);
+      m_cursor = start;
       AutoCaps();
       return Result::Erased;
+    }
     case Action::Clear:
       if (m_text.empty())
         return Result::Refused;
@@ -456,6 +512,7 @@ public:
         return Result::Refused;
       while (Written() && !m_text.empty() && m_text.back() == ' ')
         m_text.pop_back();
+      m_cursor = std::min(m_cursor, m_text.size());
       return Result::Ok;
     case Action::Cancel:
       return Result::Cancel;
@@ -490,7 +547,8 @@ public:
   {
     if (ch.empty() || Length() >= m_max)
       return Result::Refused;
-    m_text += ch;
+    m_text.insert(m_cursor, ch);  // ((01.52) at the cursor, which goes on after it)
+    m_cursor += ch.size();
     // (Shift once: one letter - a digit or a sign leaves it on.)
     if (m_caps == Caps::Once && Cased(ch))
       m_caps = Caps::Off;
@@ -518,19 +576,19 @@ private:
   // A name or a message (their spaces and OK alike).
   bool Written() const { return m_mode == Mode::Text || m_mode == Mode::Chat; }
   // The capitals by themselves (unless Shift is on for every letter): a name's at its start and after a space; a
-  // message's at its start and after ". ", "! " or "? ".
+  // message's at its start and after ". ", "! " or "? ". ((01.52) What is before the cursor says.)
   void AutoCaps()
   {
     if (!Written() || m_caps == Caps::Lock)
       return;
-    bool start = m_text.empty();
-    if (!start && m_text.back() == ' ')
+    bool start = m_cursor == 0;
+    if (!start && m_text[m_cursor - 1] == ' ')
     {
       if (m_mode == Mode::Text)
         start = true;
       else
       {
-        const size_t end = m_text.find_last_not_of(' ');
+        const size_t end = m_text.find_last_not_of(' ', m_cursor - 1);
         start = end == std::string::npos || m_text[end] == '.' || m_text[end] == '!' || m_text[end] == '?';
       }
     }
@@ -540,12 +598,15 @@ private:
   {
     std::fill(m_text.begin(), m_text.end(), '\0');
     m_text.clear();
+    m_cursor = 0;
   }
 
   Mode m_mode = Mode::Search;
   std::string m_text;
   size_t m_max = 40;
   int m_row = 1, m_col = 0, m_page = 0;
+  size_t m_cursor = 0;     // (01.52) where a key types: a byte of m_text, a character's first
+  bool m_on_text = false;  // (01.52) the D-Pad on the text (its cursor), not on the keys
   Caps m_caps = Caps::Off;
   bool m_shown = false;
 };

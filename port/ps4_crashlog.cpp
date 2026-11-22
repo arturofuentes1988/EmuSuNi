@@ -20,6 +20,7 @@
 #include <time.h>
 #include <unistd.h>
 
+#include <atomic>
 #include <cxxabi.h>
 #include <exception>
 #include <typeinfo>
@@ -88,6 +89,9 @@ void writeCodeAt(int fd, uint64_t rip) {
 
 // FreeBSD values (the PS4 kernel's); the OpenOrbis musl headers may carry Linux ones.
 constexpr int kSigIll = 4, kSigAbrt = 6, kSigFpe = 8, kSigBus = 10, kSigSegv = 11;
+// (01.29) Three more whose default is to end the app without a word: a breakpoint instruction, an emulator trap, a
+// system call the PS4's kernel doesn't have (a core's library written for another system).
+constexpr int kSigTrap = 5, kSigEmt = 7, kSigSys = 12;
 constexpr int kSaSiginfo = 0x40;
 // The handler runs on the thread's stack for signals (sigaltstack): a thread whose own stack overflowed has no
 // room left on it for the handler, and the app used to end without a word.
@@ -104,6 +108,11 @@ constexpr int kRipIndex = 20, kRspIndex = 23;
 constexpr uintptr_t kTextWindow = 0x4000000;  // 64 MiB covers the eboot's code
 
 int g_traceFd = -1;
+// (01.67, the master: a game that hung wrote an xmb-trace-1.log of 20.3 GB) A trace stops at 64 MiB: its last line says
+// so, nothing more is written to it until the next start.
+constexpr size_t kTraceMost = size_t{64} << 20;
+std::atomic<size_t> g_traceBytes{0};
+std::atomic<bool> g_traceFull{false};
 
 // Opened on first use: the heap may log before this file's constructor runs.
 int traceFd() {
@@ -262,7 +271,7 @@ __attribute__((constructor(101))) void earlyInit() {
         int flags;
     } stack = {g_mainSignalStack, sizeof(g_mainSignalStack), 0};
     ps4_crash_sigaltstack(&stack, nullptr);
-    const int signals[] = {kSigIll, kSigAbrt, kSigFpe, kSigBus, kSigSegv};
+    const int signals[] = {kSigIll, kSigAbrt, kSigFpe, kSigBus, kSigSegv, kSigTrap, kSigEmt, kSigSys};
     for (int sig : signals)
         setHandler(sig, crashHandler, kSaSiginfo | kSaOnstack);
 }
@@ -323,5 +332,13 @@ extern "C" void ps4_boot_trace(const char* stage) {
         snprintf(line, sizeof(line), "[%8.3f] %s%s", seconds, stage, newline ? "\n" : "");
     if (written >= static_cast<int>(sizeof(line)))
         line[sizeof(line) - 2] = '\n';
+    if (g_traceFull.load(std::memory_order_relaxed))
+        return;
+    const size_t bytes = strlen(line);
+    if (g_traceBytes.fetch_add(bytes) + bytes > kTraceMost) {
+        if (!g_traceFull.exchange(true))
+            writeAll(fd, "trace: this trace reached 64 MB: nothing more is written to it until EmuSuNi starts again\n");
+        return;
+    }
     writeAll(fd, line);
 }

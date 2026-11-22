@@ -2,14 +2,19 @@
 
 #include "Log.h"
 
+#include <algorithm>
 #include <atomic>
+#include <cerrno>
 #include <cstdarg>
+#include <cstdlib>
+#include <ctime>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
 #include <iterator>
 #include <mutex>
 
+#include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -27,6 +32,13 @@ extern "C" __attribute__((weak)) void ps4_trace_sync(void);  // port/ps4_crashlo
 namespace
 {
 constexpr size_t MIB = 1024 * 1024;
+
+// (01.67, the master: a game that hung wrote an emusuni-1.log of 18.6 GB on a player's PS4) This session's log stops at
+// 64 MiB: its last line says so, and stdout and stderr go to /dev/null until EmuSuNi starts again - the cores' own
+// lines too (they write to the same file: its size, the file's position, is looked at every 64 lines).
+constexpr off_t LOG_MOST = static_cast<off_t>(64 * MIB);
+std::atomic<bool> s_log_full{false};
+unsigned s_log_lines = 0;  // (under LogLine's lock)
 
 // The flexible memory readings (LogMemory, FlexibleFreeMiB): the most since the menu's first one, and a game's
 // lowest (MemorySessionStart to LogMemorySession). Read on any thread.
@@ -64,8 +76,24 @@ void LogLine(const std::string& text)
   // N64 core's threads start together) came out mixed into one another.
   static std::mutex mutex;
   std::lock_guard lock(mutex);
-  fprintf(stderr, "%s\n", text.c_str());
-  ps4_boot_trace(text.c_str());
+  if (!s_log_full.load())
+  {
+    fprintf(stderr, "%s\n", text.c_str());
+    if (++s_log_lines % 64 == 0 && lseek(STDERR_FILENO, 0, SEEK_CUR) >= LOG_MOST)
+    {
+      fprintf(stderr, "log: this log reached %zu MB: nothing more is written to it until EmuSuNi starts again\n",
+              static_cast<size_t>(LOG_MOST) / MIB);
+      s_log_full = true;
+      const int null = open("/dev/null", O_WRONLY);
+      if (null >= 0)
+      {
+        dup2(null, STDOUT_FILENO);
+        dup2(null, STDERR_FILENO);
+        close(null);
+      }
+    }
+  }
+  ps4_boot_trace(text.c_str());  // (the trace's own limit: port/ps4_crashlog.cpp)
 }
 
 // For C code (port/ps4_n64.c).
@@ -76,7 +104,9 @@ extern "C" void emusuni_log_line(const char* text)
 
 void LogF(const char* format, ...)
 {
-  char line[1024];
+  // (01.69) 2304: a core's line of up to 2048 (Emulator.cpp's CoreLog) with its name before it; at 1024 the ends of
+  // the cores' long 600-frame lines were lost.
+  char line[2304];
   va_list args;
   va_start(args, format);
   vsnprintf(line, sizeof(line), format, args);
@@ -229,4 +259,80 @@ void MakeDirs(const std::string& path)
     if (at == path.size() || path[at] == '/')
       mkdir(path.substr(0, at).c_str(), 0777);
   }
+}
+
+std::vector<std::string> CheckDataDir(const std::string& data_dir, DataDirCheck* found)
+{
+  std::vector<std::string> lines;
+  const auto error = [](const char* step) { return std::string(step) + ": " + std::strerror(errno); };
+  struct stat st = {};
+  if (stat(data_dir.c_str(), &st) != 0 || !S_ISDIR(st.st_mode))
+  {
+    const std::string why = mkdir(data_dir.c_str(), 0777) == 0 ? std::string("made now") : error("mkdir");
+    lines.push_back(data_dir + " wasn't there (" + why + ")");
+  }
+  // Where /data and the folder lead when they are links (a PS5's /data may be another place than a PS4's).
+  for (const std::string& path : {std::string("/data"), data_dir})
+  {
+    char target[256] = {};
+    const ssize_t got = readlink(path.c_str(), target, sizeof(target) - 1);
+    if (got > 0)
+      lines.push_back(path + " leads to " + std::string(target, static_cast<size_t>(got)));
+  }
+  // A file made, written, renamed, read and deleted, as the saves and the menu's settings are written.
+  const std::string test = data_dir + "/.write-check.new", done = data_dir + "/.write-check";
+  std::string write = "writable (a file made, written, renamed, read and deleted)";
+  FILE* file = std::fopen(test.c_str(), "wb");
+  if (!file)
+    write = error("can't make a file");
+  else
+  {
+    const bool wrote = std::fwrite("ok\n", 1, 3, file) == 3 && std::fflush(file) == 0 && fsync(fileno(file)) == 0;
+    const std::string why = wrote ? std::string() : error("can't write a file");
+    std::fclose(file);
+    if (!wrote)
+      write = why;
+    else if (std::rename(test.c_str(), done.c_str()) != 0)
+      write = error("can't rename a file");
+    else if (ReadTextFile(done) != "ok\n")
+      write = "a file written reads back otherwise";
+    if (std::remove(done.c_str()) != 0 && std::remove(test.c_str()) != 0 && write.compare(0, 8, "writable") == 0)
+      write = error("can't delete a file");
+  }
+  lines.push_back(data_dir + ": " + write);
+  // The starts' count: one more each start, kept in the folder.
+  const std::string check = data_dir + "/data-check.ini", text = ReadTextFile(check);
+  long starts = 0;
+  std::string since;
+  for (size_t at = 0; at < text.size();)
+  {
+    const size_t end = std::min(text.find('\n', at), text.size());
+    const std::string line = text.substr(at, end - at);
+    if (line.compare(0, 7, "starts=") == 0)
+      starts = std::max(0L, std::atol(line.c_str() + 7));
+    else if (line.compare(0, 6, "since=") == 0)
+      since = line.substr(6, 10);
+    at = end + 1;
+  }
+  if (since.empty())
+  {
+    const std::time_t now = std::time(nullptr);
+    char day[16] = {};
+    std::strftime(day, sizeof(day), "%Y-%m-%d", std::gmtime(&now));
+    since = day;
+  }
+  lines.push_back(starts > 0 ? data_dir + " has seen " + std::to_string(starts) + " start(s) before this one (since " +
+                                   since + ")" :
+                               "no start before this one recorded in " + data_dir + " (a first start, the first of " +
+                                   "01.25, or the folder was emptied: again at the next start - it doesn't keep files)");
+  const std::string kept = "# EmuSuNi: this folder's starts (the log's \"data:\" lines)\nstarts=" +
+                           std::to_string(starts + 1) + "\nsince=" + since + "\n";
+  if (!WriteTextFile(check, kept))
+    lines.push_back(error("data-check.ini can't be written"));
+  if (found)
+  {
+    found->writable = write.compare(0, 8, "writable") == 0;
+    found->starts_before = starts;
+  }
+  return lines;
 }

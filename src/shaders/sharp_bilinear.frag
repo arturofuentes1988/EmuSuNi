@@ -18,5 +18,5 @@ void main()
   const vec2 phase = texel - 0.5 - corner;
   const vec2 pixels_per_texel = pc.OutputSize.xy * pc.SourceSize.zw;
   const vec2 ramp = clamp((phase - 0.5) * pixels_per_texel + 0.5, 0.0, 1.0);
-  FragColor = vec4(texture(Source, (corner + 0.5 + ramp) * pc.SourceSize.zw).rgb, 1.0);
+  FragColor = vec4(Grade(texture(Source, (corner + 0.5 + ramp) * pc.SourceSize.zw).rgb), 1.0);
 }

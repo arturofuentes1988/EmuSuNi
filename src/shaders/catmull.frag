@@ -32,5 +32,5 @@ void main()
   c += texture(Source, vec2(t12.x, t12.y)).rgb * wc;
   c += texture(Source, vec2(t3.x, t12.y)).rgb * wr;
   c += texture(Source, vec2(t12.x, t3.y)).rgb * wb;
-  FragColor = vec4(clamp(c / (wt + wl + wc + wr + wb), 0.0, 1.0), 1.0);
+  FragColor = vec4(Grade(clamp(c / (wt + wl + wc + wr + wb), 0.0, 1.0)), 1.0);
 }

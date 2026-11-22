@@ -136,4 +136,36 @@ bool HasMods(const std::string& save_dir, uint64_t game_title_id);
 // emusuni_mods at the game's start (Emulator.cpp). Saved at once (Settings::Set).
 bool ModsOn(uint64_t game_title_id);
 void SetModsOn(uint64_t game_title_id, bool on);
+
+// ---- (01.46, the owner) Each of them one by one, each with its switch ----
+// A game's mods: the one straight in its folder (LayeredFS' own place, as before 01.46 - "main"; its switch is Mods
+// above, the core's emusuni_mods) and one in each subfolder holding a mod's files (romfs, exefs, code.ips...: the
+// core's emusuni_mod_folders, the ones on). By name; the main one first.
+struct Mod
+{
+  std::string name;    // its folder's name ("" for the main one)
+  std::string folder;  // where its files are
+  bool main = false;
+};
+std::vector<Mod> ListMods(const std::string& save_dir, uint64_t game_title_id);
+// On unless turned off (the main one: ModsOn; one in a folder of its own: settings.ini's 3ds_mod_off, "<title ID>/
+// <its folder>" items split by '|'). Saved at once.
+bool ModOn(uint64_t game_title_id, const Mod& mod);
+void SetModOn(uint64_t game_title_id, const Mod& mod, bool on);
+// The core's emusuni_mod_folders: the folders of the mods in folders of their own that are on, split by '|'.
+std::string ModFolders(const std::string& save_dir, uint64_t game_title_id);
+// Its installed update and DLC: On unless turned off (settings.ini's 3ds_update_off, 3ds_dlc_off: title IDs), the
+// core's emusuni_update and emusuni_dlc.
+bool UpdateOn(uint64_t game_title_id);
+void SetUpdateOn(uint64_t game_title_id, bool on);
+bool DlcOn(uint64_t game_title_id);
+void SetDlcOn(uint64_t game_title_id, bool on);
+// What the core does of those (its emusuni_3ds_extras_caps; 0 for a core before it: the switches aren't offered).
+enum Caps : int
+{
+  CAP_UPDATE_SWITCH = 1,  // emusuni_update=disabled starts the game without its update
+  CAP_DLC_SWITCH = 2,     // emusuni_dlc=disabled: the game doesn't find its DLC
+  CAP_MOD_FOLDERS = 4,    // emusuni_mod_folders: the mods in folders of their own, laid over the main one
+};
+int ExtrasCaps();
 }  // namespace ThreeDsCia

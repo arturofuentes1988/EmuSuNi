@@ -171,6 +171,23 @@ const std::vector<System>& Systems()
       {SystemId::OPENBOR, "openbor", "OpenBOR", "OpenBOR", "OpenBOR", "OPENBOR", "OPENBOR", 0x37617A, 0x37617A,
        "openbor/", "/usb0/Roms/openbor", {".pak"}, "", "", &Cores::OPENBOR, true},
 #endif
+#ifdef EMUSUNI_VITA
+      // The PS Vita (with-vita, experimental): Vita3K. A game is a .vpk, or a .zip of a decrypted dump (its app
+      // folder; any .zip in the Vita's own folder: src/Library.cpp), of up to several GiB: the core reads it itself
+      // from its path (by_path) and installs it in its own storage the first time. It needs the Vita's firmware, which
+      // the player brings (src/Vita.h). The badge in a navy blue no other console has.
+      {SystemId::VITA, "psvita", "PS Vita", "PS Vita", "PS Vita", "PS VITA", "PS VITA", 0x1A3F8F, 0x1A3F8F, "psvita/",
+       "/usb0/Roms/psvita", {".vpk"}, "Sony - PlayStation Vita", "libretro-thumbnails/Sony_-_PlayStation_Vita",
+       &Cores::VITA3K, true},
+#endif
+#ifdef EMUSUNI_MUGEN
+      // (01.27) MUGEN (with-mugen, experimental): Ikemen GO, the MUGEN engine. A game is a folder of its own in
+      // Roms/mugen, as Ikemen GO's release has it (its external/script/main.lua: src/Library.cpp finds it; the core
+      // runs the game from its folder - by_path). Not a console: no libretro thumbnails. The badge in a dark red no
+      // other console has.
+      {SystemId::MUGEN, "mugen", "MUGEN", "MUGEN", "MUGEN", "MUGEN", "MUGEN", 0x8E1B1B, 0x8E1B1B, "mugen/",
+       "/usb0/Roms/mugen", {".lua"}, "", "", &Cores::IKEMEN, true},
+#endif
   };
   return SYSTEMS;
 }

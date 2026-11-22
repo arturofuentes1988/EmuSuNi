@@ -351,6 +351,12 @@ std::string CorePart(SystemId system, const std::string& library_version)
 #ifdef EMUSUNI_OPENBOR
   case SystemId::OPENBOR: break;  // (with-openbor: no achievements, ConsoleId 0)
 #endif
+#ifdef EMUSUNI_VITA
+  case SystemId::VITA: break;  // (with-vita: no achievements, ConsoleId 0)
+#endif
+#ifdef EMUSUNI_MUGEN
+  case SystemId::MUGEN: break;  // (with-mugen: no achievements, ConsoleId 0)
+#endif
   }
   if (!name)
     return {};
@@ -4788,6 +4794,14 @@ uint32_t ConsoleId(SystemId system)
   // (with-openbor) RetroAchievements has no OpenBOR: its .pak files are never identified nor hashed (0: "no
   // achievements for this console").
   case SystemId::OPENBOR: return 0;
+#endif
+#ifdef EMUSUNI_VITA
+  // (with-vita) RetroAchievements has no PS Vita: its games are never identified nor hashed.
+  case SystemId::VITA: return 0;
+#endif
+#ifdef EMUSUNI_MUGEN
+  // (with-mugen) RetroAchievements has no MUGEN: its games are never identified nor hashed.
+  case SystemId::MUGEN: return 0;
 #endif
   }
   return 0;

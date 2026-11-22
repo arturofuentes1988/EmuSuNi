@@ -105,6 +105,20 @@ void GameEnded()
   Save();
 }
 
+bool RenamePath(const std::string& old_path, const std::string& new_path)
+{
+  Load(App::DATA_DIR);
+  const auto it = s.games.find(old_path);
+  if (it == s.games.end() || s.games.count(new_path))
+    return false;
+  Game g = it->second;
+  g.path = new_path;
+  s.games.erase(it);
+  s.games[new_path] = g;
+  Save();
+  return true;
+}
+
 std::vector<Game> Games()
 {
   Load(App::DATA_DIR);

@@ -2,8 +2,9 @@
 
 // The package's small files in one (00.90): a PKG keeps each file in whole 64 KiB blocks, so the hundred or so small
 // files of xmb - the built-in bezels, the star ratings' indexes, the languages, the sounds - took about 3.6 MB more
-// than their bytes. scripts/package.sh puts them in <assets>/xmb/assets.zip (scripts/make-asset-pack.py: stored, not
-// compressed, named from xmb: "bezels/tv.png", "lang/es.ini") and leaves their folders out of the package.
+// than their bytes. scripts/package.sh puts them in <assets>/xmb/assets.zip (scripts/make-asset-pack.py, named from
+// xmb: "bezels/tv.png", "lang/es.ini"; 01.26: deflated where that makes a file smaller, else stored) and leaves their
+// folders out of the package.
 //
 // A path of the app's own files (<assets>/xmb/...) is read here as it always was: the loose file first (the PC's tests,
 // a folder put back by hand), else the zip's entry. The zip's index (its central directory: each stored entry's place)

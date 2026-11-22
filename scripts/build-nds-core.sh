@@ -56,7 +56,12 @@
 #     melonDS encrypted its secure area itself for the first boot). The app may free its copy once
 #     retro_load_game returns. Or the ROM from its path (a retro_game_info with a path and no
 #     data): read with stdio straight into the cart's buffer, the only allocation; if it can't be
-#     read, retro_load_game returns false. (need_fullpath stays false: data works as before.)
+#     read, retro_load_game returns false. (need_fullpath stays false: data works as before.) That
+#     buffer is off the app's 512 MiB heap since 01.29: direct memory on the PS4, else malloc, never
+#     new (a 512 MiB ROM, Pokemon Black 2 / White 2, never fit the heap, and new's failure ended the
+#     app); the cart gives it back. A ROM that can't be read (no memory at all: "Not enough memory
+#     for the ROM") makes retro_load_game return false without an exception (on the PS4 a throw never
+#     reaches its catch: 00.24's report MJY57N ended the app there), and the app goes back to the menu.
 #   - The Wi-Fi (00.95), for the games' Nintendo WFC through Wiimmfi or WiiLink WFC (the DNS that
 #     src/Emulator.cpp sets in the firmware): melonDS's indirect mode, libslirp on the PS4's BSD
 #     sockets (libkernel's), on the emulation thread, poll() never waiting. OpenOrbis' sys/socket.h,
@@ -835,8 +840,9 @@ patch(core, 'src/libretro/config/console.cpp',
 # --- The ROM from its path (retro_game_info with a path, no data): read with stdio straight into the
 # cart's buffer, the one allocation (a power of two, zero-filled past the file, as melonDS pads a
 # ROM given as data, so the cart takes it as it is). Any failure (can't open or read it, not a DS
-# ROM's size, no memory) is a content error: retro_load_game returns false. A ROM given as data
-# works as before.
+# ROM's size, no memory) is a content error: retro_load_game returns false - said without an exception
+# since 01.29 (on the PS4 a throw never reaches its catch: the app ended at once, 00.24's report MJY57N
+# with no memory for a 512 MiB ROM). A ROM given as data works as before.
 patch(core, 'src/libretro/core/core.hpp',
       '        std::optional<retro::GameInfo> _ndsInfo = std::nullopt;\n',
       '        std::optional<retro::GameInfo> _ndsInfo = std::nullopt;\n'
@@ -844,58 +850,77 @@ patch(core, 'src/libretro/core/core.hpp',
       '        // EmuSuNi: a ROM read from its path, until LoadGame makes the cart of it.\n'
       '        std::unique_ptr<uint8_t[]> _ndsRomFromPath;\n'
       '        uint32_t _ndsRomFromPathLength = 0;\n'
+      '        // EmuSuNi: why that ROM couldn\'t be read (LoadGame returns false with it, no exception).\n'
+      '        std::string _emusuniLoadError;\n'
       '#endif\n')
 patch(core, 'src/libretro/core/core.cpp',
       'void MelonDsDs::CoreState::InitContent(unsigned type, std::span<const retro_game_info> game) {\n'
       '    ZoneScopedN(TracyFunction);\n',
       '#ifdef EMUSUNI_PORT\n'
-      '#include <algorithm>\n#include <cerrno>\n#include <cstdio>\n#include <cstring>\n#include <new>\n\n'
+      '#include <algorithm>\n#include <cerrno>\n#include <cstdio>\n#include <cstring>\n#include <new>\n'
+      '#include <Utils.h>\n\n'
       '// EmuSuNi: the ROM at path in one buffer of a power-of-two size, zero-filled past the end of the\n'
-      '// file (what melonDS makes of a ROM given as data); its size in padded.\n'
-      'static std::unique_ptr<uint8_t[]> EmuSuNiReadRom(const char* path, uint32_t& padded) {\n'
+      '// file (what melonDS makes of a ROM given as data); its size in padded. The buffer is melonDS\'s\n'
+      '// EmuSuNiRomAlloc\'s (01.29: direct memory, off the app\'s heap), given back by the cart (Utils.h).\n'
+      '// On a failure, nullptr and why in error (01.29: no exception, which on the PS4 ends the app).\n'
+      'static std::unique_ptr<uint8_t[]> EmuSuNiReadRom(const char* path, uint32_t& padded, std::string& error) {\n'
       '    FILE* file = fopen(path, "rb");\n'
-      '    if (!file)\n'
-      '        throw MelonDsDs::content_exception(fmt::format("Can\'t open the ROM \\"{}\\": {}", path, strerror(errno)));\n'
+      '    if (!file) {\n'
+      '        error = fmt::format("Can\'t open the ROM \\"{}\\": {}", path, strerror(errno));\n'
+      '        return nullptr;\n'
+      '    }\n'
       '    long size = -1;\n'
       '    if (fseek(file, 0, SEEK_END) == 0)\n'
       '        size = ftell(file);\n'
       '    if (size < 0 || fseek(file, 0, SEEK_SET) != 0) {\n'
       '        fclose(file);\n'
-      '        throw MelonDsDs::content_exception(fmt::format("Can\'t read the ROM \\"{}\\"", path));\n'
+      '        error = fmt::format("Can\'t read the ROM \\"{}\\"", path);\n'
+      '        return nullptr;\n'
       '    }\n'
       '    if (size < (long)std::max<size_t>(0x1000, sizeof(melonDS::NDSHeader)) || size > 512L * 1024 * 1024) {\n'
       '        fclose(file);\n'
-      '        throw MelonDsDs::content_exception(fmt::format("\\"{}\\" ({} bytes) isn\'t a Nintendo DS ROM", path, size));\n'
+      '        error = fmt::format("\\"{}\\" ({} bytes) isn\'t a Nintendo DS ROM", path, size);\n'
+      '        return nullptr;\n'
       '    }\n'
       '    const uint32_t length = static_cast<uint32_t>(size);\n'
       '    padded = 1;\n'
       '    while (padded < length)\n'
       '        padded <<= 1;\n'
-      '    std::unique_ptr<uint8_t[]> rom(new (std::nothrow) uint8_t[padded]);\n'
+      '    // (01.29) Not the heap\'s new[]: a 512 MiB ROM (Pokemon Black 2 / White 2) never fit the app\'s\n'
+      '    // 512 MiB heap, and new\'s failure ended the app (00.24\'s report MJY57N). Any ROM a load that\n'
+      '    // failed left behind is given back first (no cart is alive while a ROM is read).\n'
+      '    melonDS::EmuSuNiRomSweep();\n'
+      '    const char* where = "";\n'
+      '    uint8_t* rom = melonDS::EmuSuNiRomAlloc(padded, where);\n'
       '    if (!rom) {\n'
       '        fclose(file);\n'
-      '        throw MelonDsDs::content_exception(fmt::format("Not enough memory for the ROM ({} MiB)", padded >> 20));\n'
+      '        error = fmt::format("Not enough memory for the ROM ({} MiB)", padded >> 20);\n'
+      '        return nullptr;\n'
       '    }\n'
       '    size_t done = 0;\n'
       '    while (done < length) {\n'
-      '        const size_t got = fread(rom.get() + done, 1, length - done, file);\n'
+      '        const size_t got = fread(rom + done, 1, length - done, file);\n'
       '        if (got == 0)\n'
       '            break;\n'
       '        done += got;\n'
       '    }\n'
       '    fclose(file);\n'
-      '    if (done != length)\n'
-      '        throw MelonDsDs::content_exception(fmt::format("Read only {} of the {} bytes of \\"{}\\"", done, length, path));\n'
-      '    memset(rom.get() + length, 0, padded - length);\n'
-      '    retro::info("Read the {}-byte ROM \\"{}\\" into a {}-byte buffer", length, path, padded);\n'
-      '    return rom;\n'
+      '    if (done != length) {\n'
+      '        melonDS::EmuSuNiRomFree(rom);\n'
+      '        error = fmt::format("Read only {} of the {} bytes of \\"{}\\"", done, length, path);\n'
+      '        return nullptr;\n'
+      '    }\n'
+      '    memset(rom + length, 0, padded - length);\n'
+      '    retro::info("Read the {}-byte ROM \\"{}\\" into a {}-byte buffer ({})", length, path, padded, where);\n'
+      '    return std::unique_ptr<uint8_t[]>(rom);\n'
       '}\n'
       '#endif\n\n'
       'void MelonDsDs::CoreState::InitContent(unsigned type, std::span<const retro_game_info> game) {\n'
       '    ZoneScopedN(TracyFunction);\n'
       '#ifdef EMUSUNI_PORT\n'
-      '    _ndsRomFromPath.reset(); // EmuSuNi: nothing left from an earlier load that failed\n'
+      '    melonDS::EmuSuNiRomFree(_ndsRomFromPath.release()); // EmuSuNi: nothing left from an earlier load that failed\n'
       '    _ndsRomFromPathLength = 0;\n'
+      '    _emusuniLoadError.clear();\n'
       '#endif\n')
 patch(core, 'src/libretro/core/core.cpp',
       '                    throw content_exception("Loaded a save file instead of a ROM, ensure that you opened the right file.");\n'
@@ -907,7 +932,9 @@ patch(core, 'src/libretro/core/core.cpp',
       '                if (game[0].data == nullptr && game[0].size == 0 && game[0].path && game[0].path[0]) {\n'
       '                    // EmuSuNi: the ROM from its path; of the content only the header (and the\n'
       '                    // path) is kept, as for data once the console has its cart (LoadGame).\n'
-      '                    _ndsRomFromPath = EmuSuNiReadRom(game[0].path, _ndsRomFromPathLength);\n'
+      '                    _ndsRomFromPath = EmuSuNiReadRom(game[0].path, _ndsRomFromPathLength, _emusuniLoadError);\n'
+      '                    if (!_ndsRomFromPath)\n'
+      '                        return; // (LoadGame says why)\n'
       '                    retro_game_info header = game[0];\n'
       '                    header.data = _ndsRomFromPath.get();\n'
       '                    header.size = sizeof(melonDS::NDSHeader);\n'
@@ -916,6 +943,17 @@ patch(core, 'src/libretro/core/core.cpp',
       '                }\n'
       '#endif\n\n'
       '                if (game[0].size == 0) {\n')
+patch(core, 'src/libretro/core/core.cpp',
+      '    ZoneScopedN(TracyFunction);\n\n    InitContent(type, game);\n\n',
+      '    ZoneScopedN(TracyFunction);\n\n    InitContent(type, game);\n\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '    if (!_emusuniLoadError.empty()) {\n'
+      '        // EmuSuNi: the ROM couldn\'t be read (InitContent): false, its reason the frontend\'s message.\n'
+      '        retro::error("{}", _emusuniLoadError);\n'
+      '        retro::set_error_message(_emusuniLoadError.c_str());\n'
+      '        return false;\n'
+      '    }\n'
+      '#endif\n\n')
 patch(core, 'src/libretro/core/core.cpp',
       '    retro_assert(Console == nullptr);\n'
       '    // Instantiates the console with games and save data installed\n'
@@ -985,6 +1023,173 @@ patch(core, 'src/libretro/config/console.cpp',
       '    retro::debug("Parsed NDS ROM read from \\"{}\\"", ndsInfo.GetPath());\n\n'
       '    return cart;\n'
       '}\n'
+      '#endif\n')
+
+# --- (01.29) A ROM read from its path in memory of its own, off the app's 512 MiB heap: direct memory on the
+# PS4 (CPU write-back, as the 3DS core's FCRAM: build-3ds-core.sh), else malloc (which fails without ending the
+# app; new's bad_alloc ended it: 00.24's report MJY57N, Pokemon Black 2 RJ, malloc(512 MiB) refused). The cart
+# gives it back as it came (~CartCommon); a ROM given as data is new[]'s and deleted as before. A load that
+# fails gives it back too (below); should one still be taken by no cart, the next read gives it back
+# (EmuSuNiRomSweep: no cart is alive then).
+patch(melonds, 'src/Utils.h',
+      'std::unique_ptr<u8[]> CopyToUnique(const u8* data, u32 len) noexcept;\n',
+      'std::unique_ptr<u8[]> CopyToUnique(const u8* data, u32 len) noexcept;\n'
+      '\n#ifdef EMUSUNI_PORT\n'
+      '/// EmuSuNi (scripts/build-nds-core.sh): a buffer of length bytes for a ROM read from its path, off the\n'
+      '/// app\'s heap (direct memory on the PS4, else malloc), or nullptr; where names the memory it came from.\n'
+      'u8* EmuSuNiRomAlloc(u32 length, const char*& where) noexcept;\n'
+      '/// A cart\'s ROM (~CartCommon): one of EmuSuNiRomAlloc\'s given back as it came, any other new[]\'s, deleted.\n'
+      'void EmuSuNiRomFree(u8* rom) noexcept;\n'
+      '/// The ROMs of EmuSuNiRomAlloc no cart holds given back (called before a ROM is read: no cart is alive).\n'
+      'void EmuSuNiRomSweep() noexcept;\n'
+      '#endif\n')
+patch(melonds, 'src/Utils.cpp',
+      '#include "Utils.h"\n',
+      '#include "Utils.h"\n'
+      '\n#ifdef EMUSUNI_PORT\n'
+      '#include <cstdlib>\n#include <mutex>\n'
+      '#if defined(__ORBIS__)\n'
+      '#include <sys/types.h>\n'
+      'extern "C" {\n'
+      'int32_t sceKernelAllocateDirectMemory(off_t searchStart, off_t searchEnd, size_t length, size_t alignment,\n'
+      '                                      int32_t memoryType, off_t* physicalAddress);\n'
+      'int32_t sceKernelMapDirectMemory(void** addr, size_t length, int32_t prot, int32_t flags, off_t physicalAddress,\n'
+      '                                 size_t alignment);\n'
+      'int32_t sceKernelReleaseDirectMemory(off_t physicalAddress, size_t length);\n'
+      'int32_t sceKernelMunmap(void* addr, size_t length);\n'
+      'size_t sceKernelGetDirectMemorySize();\n'
+      '}\n'
+      '#endif\n'
+      '#endif\n')
+patch(melonds, 'src/Utils.cpp',
+      '    auto newdata = std::make_unique<u8[]>(len);\n'
+      '    memcpy(newdata.get(), data, len);\n'
+      '    return newdata;\n'
+      '}\n',
+      '    auto newdata = std::make_unique<u8[]>(len);\n'
+      '    memcpy(newdata.get(), data, len);\n'
+      '    return newdata;\n'
+      '}\n'
+      '\n#ifdef EMUSUNI_PORT\n'
+      '// EmuSuNi: the ROMs of EmuSuNiRomAlloc (one cart at a time; a few slots for a load that failed). phys is\n'
+      '// the direct memory\'s, -1 for malloc\'s.\n'
+      'namespace\n{\n'
+      'struct EmuSuNiRomBlock\n{\n    u8* At = nullptr;\n    size_t Size = 0;\n    long long Phys = -1;\n};\n'
+      'std::mutex EmuSuNiRomLock;\n'
+      'EmuSuNiRomBlock EmuSuNiRomBlocks[4];\n\n'
+      'void EmuSuNiRomGiveBack(const EmuSuNiRomBlock& block) noexcept\n{\n'
+      '#if defined(__ORBIS__)\n'
+      '    if (block.Phys >= 0)\n    {\n'
+      '        sceKernelMunmap(block.At, block.Size);\n'
+      '        sceKernelReleaseDirectMemory(static_cast<off_t>(block.Phys), block.Size);\n'
+      '        return;\n'
+      '    }\n'
+      '#endif\n'
+      '    free(block.At);\n'
+      '}\n'
+      '}\n\n'
+      'u8* EmuSuNiRomAlloc(u32 length, const char*& where) noexcept\n{\n'
+      '    std::lock_guard guard(EmuSuNiRomLock);\n'
+      '    EmuSuNiRomBlock* slot = nullptr;\n'
+      '    for (EmuSuNiRomBlock& block : EmuSuNiRomBlocks)\n'
+      '    {\n'
+      '        if (!block.At)\n        {\n            slot = &block;\n            break;\n        }\n'
+      '    }\n'
+      '    where = "nowhere";\n'
+      '    if (!slot || length == 0)\n'
+      '        return nullptr;\n'
+      '    EmuSuNiRomBlock block;\n'
+      '#if defined(__ORBIS__)\n'
+      '    // Whole 64 KiB pages of CPU write-back direct memory (type 0, WB_ONION), read and write.\n'
+      '    const size_t size = (static_cast<size_t>(length) + 0xFFFF) & ~static_cast<size_t>(0xFFFF);\n'
+      '    off_t phys = 0;\n'
+      '    if (sceKernelAllocateDirectMemory(0, static_cast<off_t>(sceKernelGetDirectMemorySize()), size, 0x10000, 0,\n'
+      '                                      &phys) == 0)\n'
+      '    {\n'
+      '        void* base = reinterpret_cast<void*>(0x2800000000ull); // (a hint well above the kernel library\'s objects)\n'
+      '        if (sceKernelMapDirectMemory(&base, size, 0x03, 0, phys, 0x10000) == 0 && base)\n'
+      '        {\n'
+      '            block = {static_cast<u8*>(base), size, static_cast<long long>(phys)};\n'
+      '            where = "direct memory";\n'
+      '        }\n'
+      '        else\n'
+      '        {\n'
+      '            sceKernelReleaseDirectMemory(phys, size);\n'
+      '        }\n'
+      '    }\n'
+      '#endif\n'
+      '    if (!block.At)\n'
+      '    {\n'
+      '        if (u8* p = static_cast<u8*>(malloc(length)))\n'
+      '        {\n'
+      '            block = {p, length, -1};\n'
+      '            where = "the heap";\n'
+      '        }\n'
+      '    }\n'
+      '    if (block.At)\n'
+      '        *slot = block;\n'
+      '    return block.At;\n'
+      '}\n\n'
+      'void EmuSuNiRomFree(u8* rom) noexcept\n{\n'
+      '    if (!rom)\n'
+      '        return;\n'
+      '    {\n'
+      '        std::lock_guard guard(EmuSuNiRomLock);\n'
+      '        for (EmuSuNiRomBlock& block : EmuSuNiRomBlocks)\n'
+      '        {\n'
+      '            if (block.At == rom)\n'
+      '            {\n'
+      '                EmuSuNiRomGiveBack(block);\n'
+      '                block = {};\n'
+      '                return;\n'
+      '            }\n'
+      '        }\n'
+      '    }\n'
+      '    delete[] rom; // a ROM given as data (CopyToUnique\'s)\n'
+      '}\n\n'
+      'void EmuSuNiRomSweep() noexcept\n{\n'
+      '    std::lock_guard guard(EmuSuNiRomLock);\n'
+      '    for (EmuSuNiRomBlock& block : EmuSuNiRomBlocks)\n'
+      '    {\n'
+      '        // Held by no cart: direct memory given back; malloc\'s only forgotten (never freed twice).\n'
+      '        if (block.At && block.Phys >= 0)\n'
+      '            EmuSuNiRomGiveBack(block);\n'
+      '        block = {};\n'
+      '    }\n'
+      '}\n'
+      '#endif\n')
+# No new[]'s delete of such a buffer either (the app's free ignores direct memory, and malloc's isn't new[]'s): a
+# ROM whose header melonDS refuses, and one left by a load that failed before the cart (the core's end).
+patch(melonds, 'src/NDSCart.cpp',
+      '        Log(LogLevel::Error, "NDSCart: ROM header verification failed\\n");\n        return nullptr;\n',
+      '        Log(LogLevel::Error, "NDSCart: ROM header verification failed\\n");\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '        EmuSuNiRomFree(cartrom.release()); // EmuSuNi: given back as it came (Utils.h)\n'
+      '#endif\n'
+      '        return nullptr;\n')
+patch(core, 'src/libretro/core/core.cpp',
+      'MelonDsDs::CoreState::~CoreState() noexcept {\n'
+      '    ZoneScopedN(TracyFunction);\n'
+      '    Console = nullptr;\n'
+      '    melonDS::NDS::Current = nullptr;\n'
+      '}\n',
+      '#ifdef EMUSUNI_PORT\n#include <Utils.h>\n#endif\n\n'
+      'MelonDsDs::CoreState::~CoreState() noexcept {\n'
+      '    ZoneScopedN(TracyFunction);\n'
+      '    Console = nullptr;\n'
+      '    melonDS::NDS::Current = nullptr;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '    melonDS::EmuSuNiRomFree(_ndsRomFromPath.release()); // EmuSuNi: a ROM read for a load that failed (Utils.h)\n'
+      '#endif\n'
+      '}\n')
+patch(melonds, 'src/NDSCart/CartCommon.cpp',
+      'CartCommon::~CartCommon() = default;\n',
+      '#ifdef EMUSUNI_PORT\n'
+      'CartCommon::~CartCommon()\n{\n'
+      '    EmuSuNiRomFree(ROM.release()); // EmuSuNi: a ROM read from its path given back as it came (Utils.h)\n'
+      '}\n'
+      '#else\n'
+      'CartCommon::~CartCommon() = default;\n'
       '#endif\n')
 patch(core, 'src/libretro/config/console.cpp',
       '    if (type == ConsoleType::DSi) {\n        // If we\'re in DSi mode...\n',

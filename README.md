@@ -3,10 +3,10 @@
 </p>
 
 <p align="center">
-  <b>Twenty-three classic consoles and arcade boards, and OpenBOR's games, in one app for jailbroken PS4 consoles.</b><br>
+  <b>Twenty-four classic consoles and arcade boards, and OpenBOR's games, in one app for jailbroken PS4 consoles.</b><br>
   Super Nintendo · NES · Nintendo 64 · Game Boy · Game Boy Color · Game Boy Advance · PlayStation ·
   Nintendo DS · Nintendo 3DS · PSP · Dreamcast · NAOMI · Atomiswave · SG-1000 · Master System ·
-  Game Gear · Genesis · Saturn · PC Engine · Atari 2600 · Atari 7800 · Atari Jaguar · Arcade · OpenBOR
+  Game Gear · Genesis · Saturn · PC Engine · Atari 2600 · Atari 7800 · Atari Jaguar · PS Vita · Arcade · OpenBOR
 </p>
 
 <p align="center">
@@ -18,7 +18,7 @@
 <p align="center">
   <a href="https://github.com/arturofuentes1988/EmuSuNi/releases/latest"><img alt="Download" src="https://img.shields.io/github/v/release/arturofuentes1988/EmuSuNi?label=download&style=for-the-badge&color=7b4dff"></a>
   <img alt="PS4 with GoldHEN" src="https://img.shields.io/badge/PS4-GoldHEN-003791?style=for-the-badge&logo=playstation&logoColor=white">
-  <img alt="23 consoles" src="https://img.shields.io/badge/consoles-23-e5484d?style=for-the-badge">
+  <img alt="24 consoles" src="https://img.shields.io/badge/consoles-24-e5484d?style=for-the-badge">
   <a href="LICENSE"><img alt="License GPL-2.0+" src="https://img.shields.io/badge/license-GPL--2.0%2B-3db46d?style=for-the-badge"></a>
 </p>
 
@@ -36,12 +36,12 @@
 2. **Add your games**: copy them to `Roms/<console>` on the USB drive or to `/data/EmuSuNi/Roms/<console>`
    on the PS4 (by FTP). The app makes the folders itself: `snes`, `nes`, `n64`, `gb`, `gbc`, `gba`, `ps1`,
    `nds`, `3ds`, `psp`, `dc`, `naomi`, `atomiswave`, `sg1000`, `sms`, `gg`, `md` (Genesis), `saturn`,
-   `pce` (PC Engine), `atari2600`, `atari7800`, `atarijaguar`, `arcade` and `openbor` (OpenBOR's `.pak` games).
+   `pce` (PC Engine), `atari2600`, `atari7800`, `atarijaguar`, `psvita`, `arcade` and `openbor` (OpenBOR's `.pak` games).
    Arcade, NAOMI and Atomiswave games stay in their `.zip` ([formats](#the-consoles)).
 3. **BIOS**: only the Arcade's Neo Geo games (`neogeo.zip`), NAOMI (`naomi.zip`, `naomi2.zip`),
    Atomiswave (`awbios.zip`) and the Saturn (a 512 KB `.bin`, such as `saturn_bios.bin`) need yours, plus
-   `disksys.rom` for Famicom Disk System games ([BIOS files](#bios-files)). No games or BIOS files are
-   included.
+   `disksys.rom` for Famicom Disk System games; the PS Vita needs **your** firmware 3.74 and **your**
+   `vita-keys.txt` ([BIOS files](#bios-files)). No games, BIOS files, firmware or keys are included.
 4. **Play**: your games show up by themselves, with their box art when the PS4 is online. In a game,
    **L3 + R3** opens the menu: save states, settings, controls, quit.
 5. **Help and bug reports**: the [Telegram group](https://t.me/+A53DraC3it5mZTcx), or an
@@ -74,10 +74,11 @@
 | **Atari 7800** | ProSystem | `.a78` | Not needed |
 | **Atari Jaguar** — *experimental* | Virtual Jaguar 3.11 | `.j64` `.jag` `.abs` `.cof` | Not needed |
 | **Arcade**: Neo Geo, Capcom CPS1/CPS2/CPS3, Sega, Konami, Taito... | FinalBurn Neo 1.0.0.03 | One `.zip` / `.7z` per game, not unpacked | Neo Geo: **yours**, `neogeo.zip` |
+| **PS Vita** — *experimental* | Vita3K (EmuSuNi's own port) | `.vpk`, or a `.zip` of a decrypted dump | **Yours**: firmware 3.74 and `vita-keys.txt` ([BIOS](#bios-files)) |
 | **OpenBOR**: the beat 'em ups fans make | OpenBOR v3.0 (Build 6391) and v4.0 (Build 8025) | `.pak` | Not needed |
 
-No BIOS files or games are included. Only the Arcade's Neo Geo games, NAOMI, Atomiswave and the Saturn
-need a BIOS of yours ([BIOS](#bios-files)).
+No BIOS files, firmware, keys or games are included. Only the Arcade's Neo Geo games, NAOMI, Atomiswave and the Saturn
+need a BIOS of yours, and the PS Vita your firmware and keys ([BIOS](#bios-files)).
 
 The **Saturn** is experimental: it draws in software, on threads of its own, and its games can run slower
 than on the console. The **Nintendo 3DS** is still experimental: decrypted games only; if the screen stays black as
@@ -86,8 +87,37 @@ The **Atari Jaguar** is experimental too: most of the games tried play well, a f
 slower.
 **OpenBOR** plays the free beat 'em ups its fans make, each a `.pak` file: none come with EmuSuNi, put yours in
 `Roms/openbor` ([Where the games go](#where-the-games-go)). They have no save states, cheats or covers.
+The **PS Vita** is experimental and new in v00.25: it installs your firmware 3.74 and reads your `vita-keys.txt`, both
+taken from your own Vita ([BIOS files](#bios-files)). Many games still run slowly or don't start, and it has no save
+states or cheats.
 
-## What's new in v00.24
+## What's new in v00.25
+
+- **PS Vita (experimental), new**: with **your** firmware 3.74 and **your** `vita-keys.txt`, taken from your own Vita
+  ([BIOS files](#bios-files)). `.vpk` games, or `.zip`s of decrypted dumps, in `Roms/psvita`. Touch with the controller's
+  touch pad or a pointer (L3), and the **gyroscope** from the DualShock 4 (**PS Vita Motion Sensor**, in **L3 + R3 → Game
+  Settings**). Uncharted, God of War, Mortal Kombat, Street Fighter X Tekken, Rayman Legends and others are playable;
+  many still run slowly.
+- **3DS**: Super Mario 3D Land no longer hangs; Castlevania: Mirror of Fate and Luigi's Mansion 2 run smoother; a faster
+  translator. **HD textures**, **mods** (`code.ips`, `code.bps`, `romfs`...), updates and DLC each with its switch;
+  Gateway / Action Replay **cheats**; the **3DS Motion Sensor** from the DualShock 4 and **Right Stick → D-Pad**.
+- **Cheats**: the **Dreamcast** and the **Arcade** take cheats now, and **Import Cheats** (**Triangle → Cheats**) copies a
+  `.cht` of yours from the USB drive or the internal storage with the right name (on the 3DS, a CTRPF `.txt` too).
+- **Online**: an automatic **ELO ranking** of the 10 most played 1-on-1 games (the winner is read from the game); a
+  **spectator joins the match** when a place frees up; **Most Played** and **Players** over the last 30 days or since
+  ever; in **Choose Together** the host sees the guest's suggestion.
+- **Library**: **subfolders as folders**; **much better box art** (by CRC, by the cartridge's code, Spanish names in
+  English and LaunchBox) and **Cover From a File**; a keyboard with a cursor; settings in groups; the sticks'
+  sensitivity and dead zone. Arcade, NAOMI, Atomiswave and Saturn find parent sets and BIOS files in the folders above.
+- **PS5 and portable mode**: when the console can't save to `/data/EmuSuNi`, your data goes to the USB drive by itself;
+  the `system` folders are made and **Information** shows your **BIOS folder**.
+- **More**: a cleaner picture in the GPU cores, Brightness and Saturation; N64 Controller Paks for players 2-4 and an
+  experimental widescreen; the DS opens 512 MiB games (Pokémon White 2 / Black 2).
+- **If you have v00.24**, the app shows the **Important Update** notice when it opens: **Update Now** installs it.
+
+All the details: the [release notes](https://github.com/arturofuentes1988/EmuSuNi/releases/tag/v00.25) and the [changelog](CHANGELOG.md).
+
+## What was new in v00.24
 
 - **A much faster 3DS**: the GPU's commands and the sound on threads of their own, the CPU without extra waits, the
   games' idle loops skipped, the game's code prepared ahead and each game that needs it with its GPU's own time. On
@@ -116,7 +146,7 @@ slower.
   of bezels; Midnight Club L.A. at a steady 30 FPS and fewer crashes on the PSP; Genesis games of up to 32 MiB; Saturn
   and OpenBOR fixes; a lighter DS Wi-Fi; the Telegram group's QR code in **How to Help**.
 
-All the details: the [release notes](https://github.com/arturofuentes1988/EmuSuNi/releases/latest) and the [changelog](CHANGELOG.md).
+All the details: the [release notes](https://github.com/arturofuentes1988/EmuSuNi/releases/tag/v00.24) and the [changelog](CHANGELOG.md).
 
 ## What was new in 00.23
 
@@ -394,7 +424,7 @@ The app makes a folder for every console by itself, on the PS4 and on the USB dr
 
 The folders: `snes`, `nes`, `n64`, `gb`, `gbc`, `gba`, `ps1`, `nds`, `3ds`, `psp`, `dc`, `naomi`,
 `atomiswave`, `sg1000`, `sms`, `gg`, `md` (Genesis), `saturn`, `pce` (PC Engine), `atari2600`, `atari7800`,
-`atarijaguar`, `arcade` and `openbor`.
+`atarijaguar`, `psvita`, `arcade` and `openbor`.
 
 **OpenBOR's games** go in `openbor`: `Roms/openbor` on the USB drive (`/mnt/usb0/Roms/openbor` over FTP) or
 `/data/EmuSuNi/Roms/openbor` on the PS4. Copy each game's `.pak` there as it is (not zipped); the app picks the
@@ -441,6 +471,10 @@ None are included. Only these need yours:
 | Atomiswave | `awbios.zip` | Beside the games (`Roms/atomiswave`) or `/data/EmuSuNi/system/dc` |
 | Saturn | A 512 KB `.bin`: `saturn_bios.bin` or `mpr-17933.bin` (USA / Europe), `sega_101.bin` (Japan), or any `.bin` with "bios" in its name (a USA or Europe one is preferred) | `/data/EmuSuNi/system/saturn`, `/data/EmuSuNi/system` or beside the game (`Roms/saturn`) |
 | Famicom Disk System | `disksys.rom` | `/data/EmuSuNi/system` |
+| PS Vita | Its firmware 3.74, the three files `PSP2UPDAT.PUP`, `PSP2UPDAT_PREINST.PUP` and `PSP2UPDAT_FONT.PUP`, and `vita-keys.txt`, taken from your own Vita | `/data/EmuSuNi/system/vita3k` (the firmware installs itself the first time you open a game) |
+
+In portable mode each `system` folder is also on the drive, in `EmuSuNi-Portable/system`; the app makes them empty and
+each console's **Information** shows the exact folder.
 
 The other consoles play without one, the PC Engine and the Atari consoles included. If you have the real ones, they
 are used: PlayStation (`scph5501.bin` or another, more games work), Nintendo DS (`bios7.bin`, `bios9.bin`,

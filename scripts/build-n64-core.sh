@@ -52,6 +52,7 @@
 #   - An emulation that stops by itself ("error in ERET") ends the game with a message instead of a crash (01.04).
 #   - ParaLLEl-RSP made when an N64 game's RSP starts, not by a static constructor before main, its code in memory of its
 #     own from the app (port/ps4_n64.c); without that memory CXD4 runs the RSP, with no abort() (01.05).
+#   - A game's RAM patches from the app, written at every VI where its code is: N64 Widescreen (01.58).
 #   - PGO: scripts/n64-core.profdata.xz (00.72; N64_CORE_PGO=off without it).
 # Everything is compiled again when the flags or this script change (make tracks neither flags nor
 # headers: in the N64 test 00.02, Granite's objects saw two Vulkan header versions and disagreed on
@@ -2272,6 +2273,72 @@ patch('libretro/libretro.c',
       "          }\n"
       "       }\n"
       "#endif\n"
+      "#ifdef IOS\n       bool can_jit = false;\n")
+# EmuSuNi 01.58: a game's RAM patches, for N64 Widescreen (src/Emulator.cpp's list of games, each with the words of its
+# own code that make its 3D 16:9). The app gives them in the option mupen64plus-emusuni-ram-patches ("ADDRESS:EXPECTED:
+# VALUE ..." in hex); at every VI each word whose RAM holds the expected one (the game's code is loaded there) gets the
+# new one, its recompiled code dropped as a cheat's write does (cheat.c). The app's own cheats (retro_cheat_*) are
+# apart: their reset doesn't touch these. Off, the app gives the same words the other way round, so a state saved with
+# it on is put back as the game was.
+patch('mupen64plus-core/src/main/main.c',
+      "void new_vi(void)\n{\n",
+      "/* EmuSuNi (01.58): a game's RAM patches (libretro.c's option mupen64plus-emusuni-ram-patches): at each VI every\n"
+      "   word whose RAM holds the expected one gets the new one, its recompiled code dropped as a cheat's write does. */\n"
+      "struct emusuni_ram_patch\n"
+      "{\n"
+      "    uint32_t address, expected, value;\n"
+      "};\n"
+      "static struct emusuni_ram_patch emusuni_ram_patches[32];\n"
+      "static int emusuni_ram_patch_count = 0;\n"
+      "\n"
+      "/* \"ADDRESS:EXPECTED:VALUE ...\" (hex, 32-bit words): the patches given. */\n"
+      "void emusuni_set_ram_patches(const char* text)\n"
+      "{\n"
+      "    unsigned int address, expected, value;\n"
+      "    int used = 0;\n"
+      "    emusuni_ram_patch_count = 0;\n"
+      "    while (text && emusuni_ram_patch_count < 32 && sscanf(text, \" %x:%x:%x%n\", &address, &expected, &value, &used) == 3)\n"
+      "    {\n"
+      "        emusuni_ram_patches[emusuni_ram_patch_count].address = address & 0x00FFFFFCu;\n"
+      "        emusuni_ram_patches[emusuni_ram_patch_count].expected = expected;\n"
+      "        emusuni_ram_patches[emusuni_ram_patch_count].value = value;\n"
+      "        emusuni_ram_patch_count++;\n"
+      "        text += used;\n"
+      "    }\n"
+      "    DebugMessage(M64MSG_INFO, \"EmuSuNi: %d RAM patch(es) for this game.\", emusuni_ram_patch_count);\n"
+      "}\n"
+      "\n"
+      "static void emusuni_apply_ram_patches(void)\n"
+      "{\n"
+      "    int i;\n"
+      "    for (i = 0; i < emusuni_ram_patch_count; i++)\n"
+      "    {\n"
+      "        const struct emusuni_ram_patch* patch = &emusuni_ram_patches[i];\n"
+      "        uint32_t* word;\n"
+      "        if (patch->address + 4 > g_dev.rdram.dram_size)\n"
+      "            continue;\n"
+      "        word = (uint32_t*)((unsigned char*)g_dev.rdram.dram + patch->address);\n"
+      "        if (*word != patch->expected)\n"
+      "            continue;\n"
+      "        *word = patch->value;\n"
+      "        invalidate_r4300_cached_code(&g_dev.r4300, 0x80000000u | patch->address, 4);\n"
+      "    }\n"
+      "}\n"
+      "\n"
+      "void new_vi(void)\n{\n")
+patch('mupen64plus-core/src/main/main.c',
+      "    gs_apply_cheats(&g_cheat_ctx);\n",
+      "    gs_apply_cheats(&g_cheat_ctx);\n"
+      "    emusuni_apply_ram_patches();  /* EmuSuNi (01.58) */\n")
+patch('libretro/libretro.c',
+      "#ifdef IOS\n       bool can_jit = false;\n",
+      "       {\n"
+      "          /* EmuSuNi (01.58): the game's RAM patches (main.c), none without the option. */\n"
+      "          extern void emusuni_set_ram_patches(const char* text);\n"
+      "          var.key = CORE_NAME \"-emusuni-ram-patches\";\n"
+      "          var.value = NULL;\n"
+      "          emusuni_set_ram_patches(environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) ? var.value : NULL);\n"
+      "       }\n"
       "#ifdef IOS\n       bool can_jit = false;\n")
 for path, text in patched.items():
     full = root + '/' + path

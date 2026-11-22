@@ -649,14 +649,15 @@ int RoomsOf(uint32_t ip)
 // players, matches, the bytes relayed, the host's version and the countries of those who were in it. No address, no
 // nickname, no code. Kept ROOM_LOG_DAYS days. Nothing when the statistics are off (no --stats-dir).
 constexpr int ROOM_LOG_DAYS = 180;
-// (01.05) When the games most played online were last counted (OnTopGames; a room logged with matches: again).
-double s_top_at = -1e9;
+// (01.05) The games most played online counted again (OnTopGames) after this time: a room logged with matches, a game's
+// file learnt ((01.91) every period's count: since ever, 30 days, 7 days...).
+double s_top_stale = 0.0;
 void RoomLog(const Room& room, const char* why)
 {
   if (!s_stats.on || !s_stats.db)
     return;
   if (room.matches > 0)
-    s_top_at = -1e9;
+    s_top_stale = Now();
   const double now = Now();
   const std::string& console = room.game.console;
   const bool together = console == TOGETHER, link = console == GBLINK || console == GBALINK;
@@ -847,15 +848,21 @@ void OnStats(Reader& r, const sockaddr_in& from, size_t size, AddressState& stat
 // (01.05, the owner: "juegos más jugados en línea") The games most played online: room_log's matches of the last
 // days by game - its label, console and content CRC32 (a Choose Together match's: its game's) -, with a public room's
 // title of it when there is one (strangers read those in the list already). No nickname, address or code is in it.
-// Counted again every 10 minutes, or after a room with matches closed (an answer is the copy's).
+// Counted again every 10 minutes, or after a room with matches closed (an answer is the copy's). (01.91, the owner:
+// "Siempre" and 30 days by default) Each period its own count: 1 to 30 days, or 0 since ever - room_log's ROOM_LOG_DAYS,
+// every match since the games most played began (01.05).
 struct TopEntry
 {
   std::string console, title;
   uint32_t crc = 0;
   int64_t matches = 0;
 };
-std::vector<TopEntry> s_top;
-int s_top_days = 0;
+struct TopGamesCount
+{
+  std::vector<TopEntry> games;
+  double at = -1e9;
+};
+std::map<int, TopGamesCount> s_top;  // by days (0: since ever)
 
 // (01.06) A game's whole file's CRC32 and its content's, as a host of 01.06 on says both (Create): the rooms of the
 // apps that know a game by its whole file (FILE_ID_VERSIONS: v00.23's, most of them) count as its content's in the
@@ -876,7 +883,7 @@ void LearnFileId(const std::string& console, uint32_t file_crc, uint32_t content
   const int64_t now = static_cast<int64_t>(std::time(nullptr));
   Stmt q(s_stats.db, "INSERT OR REPLACE INTO file_id(old, label, seen) VALUES (?, ?, ?)");
   q.Text(1, old_label).Text(2, label).Int(3, now).Run();
-  s_top_at = -1e9;  // (counted again at the next question)
+  s_top_stale = Now();  // (counted again at the next question)
   static double last_prune = -1e9;
   if (Now() - last_prune >= 3600.0)
   {
@@ -886,11 +893,10 @@ void LearnFileId(const std::string& console, uint32_t file_crc, uint32_t content
   }
 }
 
-void CountTopGames(int days)
+void CountTopGames(int days, TopGamesCount* out)
 {
-  s_top.clear();
-  s_top_at = Now();
-  s_top_days = days;
+  out->games.clear();
+  out->at = Now();
   if (!s_stats.on || !s_stats.db)
     return;
   // ((01.06) A room of an app that knew its game by its whole file: by its content's when a host of 01.06 said both.)
@@ -901,8 +907,9 @@ void CountTopGames(int days)
                       "LEFT JOIN file_id f ON f.old = r.game AND r.version IN (" + old_versions + ") "
                       "WHERE r.created >= ? AND r.matches > 0 AND r.game LIKE '%.c-%' GROUP BY g ORDER BY m DESC, g "
                       "LIMIT 40").c_str());
-  q.Int(1, static_cast<int64_t>(std::time(nullptr)) - int64_t{days} * 86400);
-  while (q.Row() && s_top.size() < static_cast<size_t>(TOP_GAMES))
+  // ((01.91) Since ever: every row room_log keeps.)
+  q.Int(1, days > 0 ? static_cast<int64_t>(std::time(nullptr)) - int64_t{days} * 86400 : int64_t{0});
+  while (q.Row() && out->games.size() < static_cast<size_t>(TOP_GAMES))
   {
     const std::string label = q.ColText(0);
     const size_t at = label.find(".c-");
@@ -913,7 +920,7 @@ void CountTopGames(int days)
     e.crc = static_cast<uint32_t>(std::strtoul(label.c_str() + at + 3, nullptr, 16));
     e.matches = q.ColInt(1);
     e.title = CleanText(q.ColText(2), 40, "");
-    s_top.push_back(std::move(e));
+    out->games.push_back(std::move(e));
   }
 }
 
@@ -925,9 +932,11 @@ void OnTopGames(Reader& r, const sockaddr_in& from, size_t size, AddressState& s
   int days = r.U8();
   if (!r.Ok() || !state.lists.Take(Now(), LISTS_RATE, LISTS_BURST))
     return;
-  days = std::clamp(days == 0 ? TOP_DAYS : days, 1, 30);
-  if (Now() - s_top_at > 600.0 || days != s_top_days)
-    CountTopGames(days);
+  // ((01.91) 0: since ever - until 01.90 TOP_DAYS; no app asked for 0 before: theirs is TOP_DAYS, 7.)
+  days = days == 0 ? 0 : std::clamp(days, 1, TOP_DAYS_MONTH);
+  TopGamesCount& top = s_top[days];
+  if (Now() - top.at > 600.0 || top.at < s_top_stale)
+    CountTopGames(days, &top);
   uint8_t buf[MAX_PACKET];
   Writer w(buf, sizeof(buf));
   w.Header(Type::TopGamesList);
@@ -936,7 +945,7 @@ void OnTopGames(Reader& r, const sockaddr_in& from, size_t size, AddressState& s
   const size_t count_at = w.Size();
   w.U8(0);
   size_t count = 0;
-  for (const TopEntry& e : s_top)
+  for (const TopEntry& e : top.games)
   {
     uint8_t one[256];
     Writer o(one, sizeof(one));
@@ -1640,6 +1649,7 @@ void OnRelayData(Reader& r, const sockaddr_in& from, size_t packet_size)
 
 #include "emusuni-netd-chat.h"     // ((01.07) the world chat)
 #include "emusuni-netd-players.h"  // ((01.07) the players' ranking)
+#include "emusuni-netd-elo.h"      // ((01.91) the ELO ranking)
 
 void OnPacket(const uint8_t* data, size_t size, const sockaddr_in& from)
 {
@@ -1714,6 +1724,12 @@ void OnPacket(const uint8_t* data, size_t size, const sockaddr_in& from)
     break;
   case Type::TopPlayers:
     OnTopPlayers(r, from, size, state);
+    break;
+  case Type::EloResult:  // (01.91)
+    OnEloResult(r, from);
+    break;
+  case Type::EloTop:
+    OnEloTop(r, from, size, state);
     break;
   case Type::Keepalive:
     OnKeepalive(r, from);
@@ -1997,6 +2013,8 @@ int main(int argc, char** argv)
       s_beat_min_gap = std::max(0.0, std::atof(argv[++i]));
     else if (arg == "--player-min" && i + 1 < argc)  // ((01.07) the ranking's minute, shorter)
       s_player_min_seconds = std::max(0.0, std::atof(argv[++i]));
+    else if (arg == "--elo-min" && i + 1 < argc)  // ((01.91) the ELO ranking's matches before a player shows)
+      s_elo_min_matches = std::max(1, std::atoi(argv[++i]));
 #endif
     else if (arg == "--port" && i + 1 < argc)
       port = std::atoi(argv[++i]);
@@ -2066,6 +2084,7 @@ int main(int argc, char** argv)
     const size_t slash = secret_file.rfind('/');
     s_chat_salt_dir = slash == std::string::npos ? "." : slash == 0 ? "/" : secret_file.substr(0, slash);
   }
+  LoadWorldHistory();  // ((01.24) the world chat's last lines from before a restart)
   if (!s_relay_only)
     std::printf("emusuni-netd: the world chat %s\n",
                 ChatStored() ? ("keeps its lines 30 days (salt in " + s_chat_salt_dir + ")").c_str() :

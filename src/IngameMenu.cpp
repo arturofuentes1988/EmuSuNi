@@ -4,20 +4,24 @@
 #include "IngameMenu.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cfloat>
 #include <cmath>
 #include <cstdio>
 #include <ctime>
+#include <filesystem>
 #include <sstream>
 
 #include <orbis/Pad.h>
 
 #include "Achievements.h"
 #include "AchievementsUi.h"
+#include "ArcadeCheats.h"  // ((01.26) FinalBurn Neo's cheats: their values, chosen here)
 #include "Controls.h"
 #include "Display.h"
 #include "GameExtras.h"  // ((01.22) a game's Updates, DLC and Mods / Patched Romset: asked of the menu after the game)
 #include "Image.h"
+#include "Library.h"  // ((01.89) Import Cheats: the USB drives)
 #include "Log.h"
 #include "MenuNav.h"
 #include "Netplay.h"
@@ -57,6 +61,23 @@ std::string AchievementDate(int64_t when)
   std::strftime(text, sizeof(text), "%d/%m/%Y  %H:%M", &day);
   return text;
 }
+
+// (01.26) The Arcade's cheats: FinalBurn Neo's folder of cheat files (system/fbneo/cheats, as Emulator.cpp gives the
+// core), and the game's set as the core's driver names it (the zip's name in lower case: its file there, <set>.ini).
+std::string ArcadeCheatsDir()
+{
+  return Portable::SystemDir(GetSystem(SystemId::ARCADE).key) + "/fbneo/cheats";
+}
+std::string ArcadeSet(const std::string& game_path)
+{
+  const size_t slash = game_path.find_last_of('/');
+  std::string set = slash == std::string::npos ? game_path : game_path.substr(slash + 1);
+  const size_t dot = set.rfind('.');
+  if (dot != std::string::npos && dot > 0)
+    set.resize(dot);
+  std::transform(set.begin(), set.end(), set.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+  return set;
+}
 }  // namespace
 
 void IngameMenu::Init(Display* display, ImFont* regular, ImFont* bold)
@@ -80,7 +101,7 @@ void IngameMenu::SetGame(const std::string& data_dir, const std::string& game_id
   m_hint_time = 0.0f;
   m_toast.clear();
   m_slot = 1;
-  m_cheats.Load(data_dir, game_id);
+  m_cheats.Load(data_dir, game_id, system == SystemId::DC);  // ((01.26) the Dreamcast's addresses: its codes)
   m_extras_rows.clear();
   m_extras_files.clear();
   m_extras_ask.clear();
@@ -214,9 +235,18 @@ void IngameMenu::BuildRows()
 #ifdef EMUSUNI_OPENBOR
     // (with-openbor) OpenBOR's core has no states, no cheats and no reset (its games save their own progress; the
     // game's own menus go back to its title): those rows aren't there.
-    const bool openbor = m_system == SystemId::OPENBOR;
+    bool openbor = m_system == SystemId::OPENBOR;
 #else
-    const bool openbor = false;
+    bool openbor = false;
+#endif
+#ifdef EMUSUNI_VITA
+    // (with-vita) The PS Vita's core has no states and no cheats either, and its reset isn't tried on the PS4 yet:
+    // the same rows left out.
+    openbor = openbor || m_system == SystemId::VITA;
+#endif
+#ifdef EMUSUNI_MUGEN
+    // (01.27, with-mugen) Ikemen GO's core: no states, cheats or reset either (its game is restarted from its own menu).
+    openbor = openbor || m_system == SystemId::MUGEN;
 #endif
     if (!openbor)
     {
@@ -235,7 +265,9 @@ void IngameMenu::BuildRows()
     rows.push_back({"Settings", "", false, false, 0, "settings"});
     rows.push_back({"Controls", "", false, false, 0, "controls"});
     if (!openbor)
-      rows.push_back({"Cheats", std::to_string(m_cheats.Entries().size()), false, false, 0, "cheats"});
+      rows.push_back({"Cheats",
+                      std::to_string(m_system == SystemId::ARCADE ? ArcadeCheats::List().size() : m_cheats.Entries().size()),
+                      false, false, 0, "cheats"});
     // RetroAchievements (00.73): this game's achievements, when someone is logged in.
     {
       const Achievements::Summary ra = Achievements::GetSummary();
@@ -264,17 +296,15 @@ void IngameMenu::BuildRows()
   {
     ExtrasRows(&rows);
   }
-  else if (m_page == Page::Cheats && m_system == SystemId::DC)
+  else if (m_page == Page::Room)
   {
-    rows.push_back({"The Dreamcast's emulator takes no cheat codes", "", true});
+    RoomRows(&rows);
   }
+  // ((01.26, the owner) The Dreamcast and the 3DS take cheats now: Flycast's and Azahar's cores their codes through
+  // retro_cheat_set. The NAOMI's and the Atomiswave's lists don't exist.)
   else if (m_page == Page::Cheats && IsFlycastBoard(m_system))
   {
     rows.push_back({"The arcade board's emulator takes no cheat codes", "", true});
-  }
-  else if (m_page == Page::Cheats && m_system == SystemId::THREEDS)
-  {
-    rows.push_back({"The Nintendo 3DS emulator takes no cheat codes", "", true});
   }
   else if (m_page == Page::Cheats && (m_system == SystemId::A2600 || m_system == SystemId::A7800))
   {
@@ -283,13 +313,44 @@ void IngameMenu::BuildRows()
   }
   else if (m_page == Page::Cheats && m_system == SystemId::ARCADE)
   {
-    // (libretro's cheat collection doesn't fit FinalBurn Neo; its own cheats come in a later version.)
-    rows.push_back({"The arcade emulator's cheats come in a later version", "", true});
+    // ((01.26, the owner) FinalBurn Neo's own cheats - libretro's collection doesn't fit it -: the options its core made
+    // of the game's cheat files, each with its values (src/ArcadeCheats.h), under its file's name; two values, ON / OFF
+    // as the other consoles' cheats. Find Cheats Online: the game's file of FBNeo-cheats, for the next start.)
+    const std::vector<ArcadeCheats::Cheat> cheats = ArcadeCheats::List();
+    const std::string dir = ArcadeCheatsDir(), set = ArcadeSet(m_game_path);
+    rows.push_back({"Find Cheats Online", "", false, false, 0, "cheatfind"});
+    if (FileExists(dir + "/" + set + ".ini.new"))
+      PushWrapped(&rows, "A downloaded cheat file comes when the game starts again: Quit Game, then start it");
+    if (!cheats.empty())
+      rows.push_back({"Disable All", "", false, false, 0, "acheat:off"});
+    for (size_t i = 0; i < cheats.size(); i++)
+    {
+      if (i == 0 || cheats[i].file != cheats[i - 1].file)
+      {
+        Row file{cheats[i].file.empty() ? std::string("Codes") : cheats[i].file, "", true};
+        file.raw = !cheats[i].file.empty();
+        rows.push_back(file);
+      }
+      Row row{cheats[i].name, "", false, false, 0, "acheat:" + std::to_string(i)};
+      row.raw = true;  // (the file's words, as they are)
+      if (cheats[i].values.size() == 2)
+        row.tag = cheats[i].value != 0 ? 1 : -1;
+      else
+        row.value = ArcadeCheats::ValueName(cheats[i].values[cheats[i].value]);
+      rows.push_back(row);
+    }
+    if (cheats.empty())
+    {
+      rows.push_back({"No cheats for this game", "", true});
+      PushWrapped(&rows, "Put FinalBurn Neo cheat files in " + dir);
+    }
   }
   else if (m_page == Page::Cheats)
   {
     const auto& entries = m_cheats.Entries();
     rows.push_back({"Find Cheats Online", "", false, false, 0, "cheatfind"});
+    if (Cheats::Importable(m_system))
+      rows.push_back({"Import Cheats", "", false, false, 0, "cheatimport"});  // ((01.89) a .cht of the player's own)
     if (!entries.empty())
     {
       rows.push_back({"Enable All", "", false, false, 0, "cheatall:on"});
@@ -309,7 +370,13 @@ void IngameMenu::BuildRows()
   {
     using State = CheatDownload::Finder::State;
     const State state = m_finder.GetState();
-    if (state == State::Downloading)
+    const bool ctrpf = m_system == SystemId::THREEDS;  // ((01.26) the 3DS's: CTRPF-AR-CHEAT-CODES, on GitHub)
+    const bool fbneo = m_system == SystemId::ARCADE;   // ((01.26) the Arcade's: FBNeo-cheats, on GitHub)
+    if (fbneo && (state == State::Downloading || state == State::Searching || state == State::Idle))
+      rows.push_back({"Looking in github.com/finalburnneo/FBNeo-cheats...", "", true});
+    else if (state == State::Downloading && ctrpf)
+      rows.push_back({"Looking in github.com/iSharingan/CTRPF-AR-CHEAT-CODES...", "", true});
+    else if (state == State::Downloading)
       rows.push_back({"Downloading the cheat collection: " + std::to_string(m_finder.DownloadedMb()) +
                           (m_finder.TotalMb() > 0 ? " of " + std::to_string(m_finder.TotalMb()) : std::string()) + " MB",
                       "", true});
@@ -340,14 +407,49 @@ void IngameMenu::BuildRows()
       rows.push_back({"Circle, then Find Cheats Online: another try", "", true});
     }
     else if (m_finder.Results().empty())
+    {
       rows.push_back({"No cheats found for this game", "", true});
+      if (ctrpf && !m_finder.TitleId().empty())
+      {
+        // ((01.26) None in that collection: the player's own file still works - Azahar reads it at the game's start.)
+        rows.push_back({"github.com/iSharingan/CTRPF-AR-CHEAT-CODES has none for " + m_finder.TitleId(), "", true});
+        rows.push_back({"Your own: " + m_data_dir + "/saves/3ds/Azahar/cheats/" + m_finder.TitleId() + ".txt", "",
+                        true});
+      }
+      else if (fbneo && !m_finder.TitleId().empty())
+      {
+        // ((01.26) None there: a file of the player's own in the core's folder still works, from the next start.)
+        rows.push_back({"github.com/finalburnneo/FBNeo-cheats has none for " + m_finder.TitleId(), "", true});
+        rows.push_back({"Your own: " + ArcadeCheatsDir() + "/" + m_finder.TitleId() + ".ini", "", true});
+      }
+    }
+    else if (fbneo)
+    {
+      // ((01.26) The game's file saved for its next start - the core reads its cheats as the game starts.)
+      rows.push_back({"From github.com/finalburnneo/FBNeo-cheats", "", true});
+      rows.push_back({m_finder.Results().front() + " saved: " + std::to_string(m_finder.CheatCount()) + " cheats", "",
+                      true});
+      PushWrapped(&rows, "Its cheats come when the game starts again: Quit Game, then start it");
+    }
     else
     {
-      rows.push_back({"Cheat lists (libretro)", "", true});
+      // ((01.57) an N64 cartridge's own list first, under its own title: found by its header, whatever its name)
       const auto& results = m_finder.Results();
+      const size_t cartridge = std::min(m_finder.CartridgeResults(), results.size());
+      if (cartridge > 0)
+        rows.push_back({"By the cartridge (Mupen64Plus's list)", "", true});
       for (size_t i = 0; i < results.size(); i++)
+      {
+        if (i == cartridge)
+          rows.push_back({ctrpf ? "From github.com/iSharingan/CTRPF-AR-CHEAT-CODES" : "Cheat lists (libretro)", "",
+                          true});
         rows.push_back({results[i], "", false, false, 0, "cheatfile:" + std::to_string(i)});
+      }
     }
+  }
+  else if (m_page == Page::CheatImport)
+  {
+    ImportRows(&rows);
   }
   else if (m_page == Page::CheatPick)
   {
@@ -391,6 +493,14 @@ void IngameMenu::BuildRows()
                                                        Controls::Describe(value),
                       false, waiting, 0, "ctl:" + std::to_string(i)});
     }
+    // (01.27) The sticks' sensitivity and dead zone (src/Controls.h: StickSetting), with the buttons' Apply To.
+    rows.push_back({"Sticks", "", true});
+    const auto& sticks = Controls::StickSettings();
+    for (size_t i = 0; i < sticks.size(); i++)
+    {
+      rows.push_back({sticks[i].label, Controls::StickText(sticks[i], Controls::GetStick(sticks[i], edit, m_system)),
+                      false, false, 0, "ctlstick:" + std::to_string(i)});
+    }
     // The buttons that open this menu (00.68), for every game.
     rows.push_back({"Every Game", "", true});
     if (const Settings::Setting* menu_buttons = Settings::Find("menu_buttons"))
@@ -427,8 +537,10 @@ void IngameMenu::BuildRows()
           rows.push_back({category, "", true});
         header = true;
         const std::string value = Settings::Get(setting.key, m_game_id);
-        rows.push_back({setting.label, Settings::LabelOf(setting, value), false, !setting.live, 0,
-                        setting.key});
+        // ((01.57) the N64 Resolution changes as the menu closes - the game starts again from where it was -,
+        // not at the next start: no amber note, unless online)
+        rows.push_back({setting.label, Settings::LabelOf(setting, value), false,
+                        !setting.live && !RestartsForIt(setting.key), 0, setting.key});
       }
     }
     rows.push_back({"", "", true});
@@ -441,6 +553,136 @@ void IngameMenu::BuildRows()
   m_selected = std::clamp(m_selected, 0, std::max(0, static_cast<int>(m_rows.size()) - 1));
   if (m_page != Page::Main && !m_rows.empty() && m_rows[m_selected].header)
     Move(1);
+}
+
+// ((01.89, the owner: «prefiero la de importar trucos») Import Cheats, as the menu's (Triangle -> Cheats): the places -
+// the USB drives, the app's storage -, a folder's folders and .cht files; a file chosen for a game with cheats already:
+// Replace (the one before kept as .bak) or Cancel. The names as they are (not translated).
+void IngameMenu::ImportRows(std::vector<Row>* rows)
+{
+  const std::string data(App::DATA_DIR);
+  if (!m_import_file.empty())
+  {
+    rows->push_back({"This game has cheats already", "", true});
+    rows->push_back({"Replace", "", false, false, 0, "chtreplace"});
+    rows->push_back({"Cancel", "", false, false, 0, "chtcancel"});
+  }
+  else
+  {
+    const std::string& dir = m_import_dir;
+    std::vector<std::string> places = Library::UsbDrives();
+    places.push_back(data);
+    Row where{dir.empty() ? std::string("Places") : dir, "", true};
+    where.raw = !dir.empty();
+    rows->push_back(where);
+    if (dir.empty())
+    {
+      for (const std::string& place : places)
+      {
+        Row row{place, place == data ? "EmuSuNi's Storage" : "USB Drive", false, false, 0, "chtdir:" + place};
+        row.raw = true;
+        rows->push_back(row);
+      }
+    }
+    else
+    {
+      // ("..": the folder above; from a place's top the places again.)
+      const std::string parent = dir.substr(0, dir.rfind('/'));
+      const bool top = parent.empty() || std::find(places.begin(), places.end(), dir) != places.end();
+      rows->push_back({"..", "", false, false, 0, top ? "chtdir:" : "chtdir:" + parent});
+      const bool txt = m_system == SystemId::THREEDS;  // ((01.89) Azahar's own files too)
+      const Cheats::Folder folder = Cheats::ReadFolder(dir, txt);
+      if (!folder.error.empty())
+        rows->push_back({"(this folder can't be opened: " + folder.error + ")", "", true});
+      else if (folder.folders.empty() && folder.files.empty())
+        rows->push_back({txt ? "No .cht or .txt files or folders here" : "No .cht files or folders here", "", true});
+      for (const std::string& name : folder.folders)
+      {
+        Row row{name + "/", "", false, false, 0, "chtdir:" + dir + "/" + name};
+        row.raw = true;
+        rows->push_back(row);
+      }
+      for (const auto& [name, bytes] : folder.files)
+      {
+        char size[32];
+        if (bytes < (uintmax_t{1} << 20))
+          std::snprintf(size, sizeof(size), "%llu KB", static_cast<unsigned long long>((bytes + 1023) >> 10));
+        else
+          std::snprintf(size, sizeof(size), "%.1f MB", static_cast<double>(bytes) / (1 << 20));
+        Row row{name, size, false, false, 0, "chtfile:" + dir + "/" + name};
+        row.raw = true;
+        rows->push_back(row);
+      }
+      if (folder.cut)
+        rows->push_back({"Only the first 5000 are shown", "", true});
+    }
+  }
+  // (The row asked for - the folder come from, Cancel -, else the first one after "..".)
+  if (!m_import_select.empty())
+  {
+    int at = -1;
+    for (size_t i = 0; i < rows->size() && at < 0; i++)
+    {
+      const Row& row = (*rows)[i];
+      if (row.key == m_import_select ||
+          (m_import_select == "first" && !row.header && row.label != ".." && !row.key.empty()))
+        at = static_cast<int>(i);
+    }
+    m_import_select.clear();
+    m_selected = std::max(at, 0);
+  }
+}
+
+void IngameMenu::ImportActivate(const std::string& key)
+{
+  if (key == "cheatimport" || key.rfind("chtdir:", 0) == 0)
+  {
+    // (The folder of the last time, if it is there now: else the places. Going up: on the folder it came from.)
+    const std::string from = m_import_dir;
+    std::string dir = key == "cheatimport" ? Settings::Get("cheat_file_dir") : key.substr(7);
+    std::error_code ec;
+    if (!dir.empty() && !std::filesystem::is_directory(dir, ec))
+      dir.clear();
+    m_page = Page::CheatImport;
+    m_import_file.clear();
+    m_import_dir = dir;
+    if (Settings::Get("cheat_file_dir") != dir)
+      Settings::Set("cheat_file_dir", dir);
+    m_import_select = key != "cheatimport" && from.size() > dir.size() ? "chtdir:" + from : "first";
+    return;
+  }
+  if (key == "chtcancel")
+  {
+    m_import_file.clear();
+    m_import_select = "first";
+    return;
+  }
+  if (key.rfind("chtfile:", 0) != 0 && key != "chtreplace")
+    return;
+  const bool replace = key == "chtreplace";
+  const std::string file = replace ? m_import_file : key.substr(8);
+  // ((01.89) The Dreamcast's addresses, the 3DS's Gateway codes; (01.90) an Azahar .txt made the list, all off.)
+  int codes = 0;
+  const Cheats::Import result = Cheats::ImportFile(file, m_cheats.Path(), Cheats::KindFor(m_system, file), replace, &codes);
+  if (result == Cheats::Import::Exists)
+  {
+    m_import_file = file;
+    m_import_select = "chtcancel";
+    return;
+  }
+  m_import_file.clear();
+  if (result != Cheats::Import::Done)
+  {
+    Toast(Cheats::ImportProblem(result));
+    return;
+  }
+
+  // (Then Cheats, with the new ones: turned on there, told to the core as the menu closes - TakeCheatsChanged.)
+  m_cheats.Load(m_data_dir, m_game_id, m_system == SystemId::DC);
+  m_cheats_changed = true;
+  m_page = Page::Cheats;
+  m_selected = 0;
+  Toast(codes == 1 ? std::string("1 cheat imported") : std::to_string(codes) + " cheats imported");
 }
 
 void IngameMenu::PushWrapped(std::vector<Row>* rows, const std::string& text, bool translate)
@@ -561,11 +803,23 @@ void IngameMenu::Change(int direction)
   const std::string key = m_rows[m_selected].key;
   if (m_page == Page::Achievements)
     return;
+  if (m_page == Page::Room)
+  {
+    RoomChange(key);  // ((01.24) Cross, Left or Right: each setting has two values)
+    return;
+  }
   if (m_page == Page::Extras)
   {
     // (01.22) Left / Right: the 3DS's Mods On / Off only (Cross does the rest: ExtrasActivate).
     if (key == "x:mods")
       ExtrasActivate(key);
+    return;
+  }
+  // ((01.89) Import Cheats: its page opened, a folder, a .cht chosen, Replace or Cancel.)
+  if ((m_page == Page::Cheats && key == "cheatimport") || m_page == Page::CheatImport)
+  {
+    if (direction > 0)
+      ImportActivate(key);
     return;
   }
   if (m_page == Page::Cheats && key == "cheatfind")
@@ -577,7 +831,34 @@ void IngameMenu::Change(int direction)
     m_selected = 0;
     m_search_selected = 0;
     // (00.87: the collection's download stays in this PS4's cache - m_data_dir can be a USB drive's portable data.)
-    m_finder.Start(App::DATA_DIR, m_system, m_game_path, m_title);
+    // ((01.26) The Arcade's: its game's file into the core's cheats folder.)
+    m_finder.Start(m_system == SystemId::ARCADE ? ArcadeCheatsDir() : std::string(App::DATA_DIR), m_system, m_game_path,
+                   m_title);
+    return;
+  }
+  if (m_page == Page::Cheats && m_system == SystemId::ARCADE)
+  {
+    // ((01.26) FinalBurn Neo's cheats: Left / Right a cheat's value (round), Cross the next; Disable All every one to its
+    // value 0, off. Kept for the game at once; the core told back in the game (Emulator.cpp, TakeCheatsChanged).)
+    if (key == "acheat:off")
+    {
+      ArcadeCheats::DisableAll();
+      Toast("All cheats off");
+    }
+    else if (key.rfind("acheat:", 0) == 0)
+    {
+      const size_t index = static_cast<size_t>(std::atoi(key.c_str() + 7));
+      const std::string value = ArcadeCheats::Step(index, direction);
+      const std::vector<ArcadeCheats::Cheat> cheats = ArcadeCheats::List();
+      if (index < cheats.size())
+        Toast(cheats[index].name + (cheats[index].values.size() == 2 ? (cheats[index].value != 0 ? ": on" : ": off") :
+                                                                        ": " + value));
+    }
+    else
+    {
+      return;
+    }
+    m_cheats_changed = true;
     return;
   }
   if (m_page == Page::CheatSearch)
@@ -663,6 +944,17 @@ void IngameMenu::Change(int direction)
         return;
       Controls::ResetToDefault(edit, m_system);
       Toast("Controls back to the default");
+    }
+    else if (key.rfind("ctlstick:", 0) == 0)
+    {
+      // (01.27) A stick's sensitivity or the dead zone: the next value, round (the game gets it as the menu closes).
+      const size_t index = static_cast<size_t>(std::atoi(key.c_str() + 9));
+      if (index < Controls::StickSettings().size())
+      {
+        const Controls::StickSetting& setting = Controls::StickSettings()[index];
+        Controls::SetStick(setting, Controls::StepStick(setting, Controls::GetStick(setting, edit, m_system), direction),
+                           edit, m_system);
+      }
     }
     else if (key == "__menubuttons__")
     {
@@ -764,9 +1056,16 @@ void IngameMenu::Change(int direction)
     return;
   const std::string value = Settings::Step(*setting, Settings::Get(key, m_game_id), direction);
   Settings::Set(key, value, m_game_id);  // where the game's settings come from (Apply To)
-  if (!setting->live)
+  if (RestartsForIt(key))
+    Toast("N64 Resolution: back in the game, it starts again with it where it was", 3.0f);  // ((01.57) Emulator.cpp)
+  else if (!setting->live)
     Toast(std::string(setting->label) + ": next time a game starts");
   m_settings_changed = true;
+}
+
+bool IngameMenu::RestartsForIt(const std::string& key) const
+{
+  return key == "n64_resolution" && m_system == SystemId::N64 && !Netplay::Active();
 }
 
 std::string IngameMenu::RowHelp(const Row& row) const
@@ -810,6 +1109,9 @@ std::string IngameMenu::RowHelp(const Row& row) const
                                                            "the room." :
                                                            "Leaves the room: the match ends for everyone.");
     }
+    if (row.key == "np:join")
+      return T("A player's place is free: this game ends and you join the match as a player (the host may have to "
+               "accept you first).");
     if (row.key == "np:end")
       return T(Netplay::GetStatus().together ?
                    "Ends this match for both: back to the room's games, to pick another." :
@@ -817,6 +1119,8 @@ std::string IngameMenu::RowHelp(const Row& row) const
                    "can start again. You stay in the room.");
     if (row.key == "np:reset")
       return T("Resets the game for every player at once: everyone stops a moment, then it starts again.");
+    if (row.key == "np:room")
+      return T("Your room's settings, changed during the match: entry, spectators and joining the match under way.");
     if (row.key == "disc")
     {
       return PS4Lang::T("Disc " + std::to_string(m_disc_in + 1) + " is in the console.") + " " +
@@ -849,17 +1153,67 @@ std::string IngameMenu::RowHelp(const Row& row) const
     }
     return {};
   }
+  if (m_page == Page::Room)
+  {
+    // ((01.24) The room's own menu's helps: its rows are the same - Menu.cpp's Online page.)
+    static const std::pair<const char*, const char*> ROOM[] = {
+        {"Entry: Free", "Whoever comes is in the room at once, without asking you. Cross: each one asks first."},
+        {"Entry: With Permission", "Each player asks to join and you accept them or not. Cross: whoever comes is in "
+                                   "at once."},
+        {"Spectators: Yes", "Up to 4 may watch the match from the Online tab, without voice or chat. Cross: no "
+                            "spectators."},
+        {"Spectators: No", "No one watches the match. Cross: up to 4 may watch it from the Online tab."},
+        {"Late Joining: Yes", "A player may join the match under way while a place is left: everyone stops a moment "
+                              "while it comes in. Cross: no one joins once it starts."},
+        {"Late Joining: No", "No one joins the match once it starts. Cross: a player may join it under way."},
+    };
+    for (const auto& [label, help] : ROOM)
+    {
+      if (row.label == label)
+        return T(help);
+    }
+    return {};
+  }
   if (m_page == Page::Cheats)
   {
     if (row.key == "cheatall:on")
       return T("Turns every cheat on.");
-    if (row.key == "cheatall:off")
+    if (row.key == "cheatall:off" || row.key == "acheat:off")
       return T("Turns every cheat off.");
-    if (row.key.rfind("cheat:", 0) == 0)
+    if (row.key.rfind("cheat:", 0) == 0)  // ((01.36) Square deletes one)
+      return T("Cross turns this cheat on or off.") + " " + T("Square twice deletes it.");
+    if (row.key.rfind("acheat:", 0) == 0 && row.tag != 0)
       return T("Cross turns this cheat on or off.");
+    if (row.key.rfind("acheat:", 0) == 0)
+      return T("Left / Right choose this cheat's value, Cross the next one.");
+    if (row.key == "cheatfind" && m_system == SystemId::ARCADE)
+      return T("Downloads this game's cheat file from github.com/finalburnneo/FBNeo-cheats, FinalBurn Neo's own: its "
+               "cheats come when the game starts again.");
+    if (row.key == "cheatfind" && m_system == SystemId::THREEDS)
+      return T("Looks for this game's cheats in github.com/iSharingan/CTRPF-AR-CHEAT-CODES: you choose the ones to "
+               "add.");
     if (row.key == "cheatfind")
       return T("Looks for this game's cheats in libretro's collection (RetroArch's): you choose the "
                "ones to add. The collection (about 35 MB) is downloaded the first time.");
+    if (row.key == "cheatimport" && m_system == SystemId::THREEDS)  // ((01.89) Azahar's .txt too)
+      return T("A RetroArch .cht file or Azahar's .txt of your own, on a USB drive or in EmuSuNi's storage, as this "
+               "game's cheats. A copy is made; your file stays as it is.");
+    if (row.key == "cheatimport")
+      return T("A RetroArch .cht file of your own, on a USB drive or in EmuSuNi's storage, as this game's cheats. "
+               "A copy is made; your file stays as it is.");
+    return {};
+  }
+  if (m_page == Page::CheatImport)
+  {
+    if (row.key == "chtreplace")
+      return T("The cheats it has now are kept beside them as a .bak file; the new ones then show in Cheats.");
+    if (row.key == "chtcancel")
+      return T("Nothing changes.");
+    if (row.key.rfind("chtfile:", 0) == 0 && Cheats::KindFor(m_system, row.key) == Cheats::Kind::Azahar)
+      return T("Cross: this Azahar file's cheats into this game's list, all off: turn on the ones you want. Your file "
+               "stays as it is.");
+    if (row.key.rfind("chtfile:", 0) == 0)
+      return T("Cross: these cheats as this game's. A copy is made; your file stays as it is.");
     return {};
   }
   if (m_page == Page::CheatSearch)
@@ -883,6 +1237,8 @@ std::string IngameMenu::RowHelp(const Row& row) const
       return T("All Games: the normal layout. This Game: its own.");
     if (row.key == "__ctlreset__")
       return T("Back to the default layout.");
+    if (row.key.rfind("ctlstick:", 0) == 0)  // (01.27)
+      return PS4Lang::T(Controls::StickHelp(static_cast<size_t>(std::atoi(row.key.c_str() + 9))));
     if (row.key == "__menubuttons__")
     {
       // The setting's help, then the choice's.
@@ -951,7 +1307,9 @@ std::string IngameMenu::RowHelp(const Row& row) const
   // Fast Forward: the button that does it in this game (its controls or its console's: the Controls page).
   std::string help = row.key == "fast_forward" ? PS4Lang::T(Controls::FastForwardHelp(m_game_id, m_system)) :
                                                  T(setting->help);
-  if (!setting->live)
+  if (RestartsForIt(row.key))
+    help += " " + T("(Back in the game: it starts again with it, where it was.)");
+  else if (!setting->live)
     help += " " + T("(Next game start.)");
   const Settings::Choice* choice = Settings::FindChoice(*setting, Settings::Get(row.key, m_game_id));
   // Quality: what the level does on this game's console.
@@ -980,6 +1338,12 @@ IngameMenu::Action IngameMenu::Activate()
     m_selected = 0;
     m_extras_ask.clear();
     LoadExtras();
+    return Action::None;
+  }
+  if (key == "np:room")
+  {
+    m_page = Page::Room;  // ((01.24) the host's Room Settings)
+    m_selected = 0;
     return Action::None;
   }
   if (key == "resume")
@@ -1053,6 +1417,17 @@ IngameMenu::Action IngameMenu::Activate()
     Toast(ask.nick + " was not accepted");
     BuildRows();
     return Action::None;
+  }
+  if (key == "np:join")
+  {
+    // ((01.91, the owner) A spectator into the match: its watching ends with this game and the room is joined as a
+    // player - the match's state comes as a late player's; the host asked first when its entry is with permission.)
+    if (!Netplay::JoinAfterWatching(m_data_dir))
+    {
+      Toast("The place isn't free any more");
+      return Action::None;
+    }
+    return Action::Quit;
   }
   if (key.rfind("np:", 0) == 0)
   {
@@ -1415,6 +1790,8 @@ void IngameMenu::OnlineRows(std::vector<Row>* rows)
       if (!p.me)
         rows->push_back({"Remove Player", p.nick, false, false, 0, "np:kick:" + std::to_string(p.id)});
     }
+    // (01.24, the owner) The room's Entry, Spectators and Late Joining, changed during the match: a page of its own.
+    rows->push_back({"Room Settings", "", false, false, 0, "np:room"});
   }
   rows->push_back({"Settings", "", false, false, 0, "settings"});
   rows->push_back({"Controls", "", false, false, 0, "controls"});
@@ -1424,6 +1801,9 @@ void IngameMenu::OnlineRows(std::vector<Row>* rows)
   if (status.room_back)
     rows->push_back({"Back to the Room", status.room_back_old ? "Not with an older EmuSuNi" : "", false, false, 0,
                      "np:end"});
+  // ((01.91, the owner) A spectator: a player's place is free in the match - into it as a player.)
+  if (status.watching && status.seat_open)
+    rows->push_back({"Join the Match", "", false, false, 0, "np:join"});
   rows->push_back({status.watching ? "Stop Watching" : "Leave Room", "", false, false, 0, "quit"});
 }
 
@@ -1493,6 +1873,44 @@ void IngameMenu::OnlineActivate(const std::string& key, int direction)
   m_online_refresh = 0.0f;  // (the rows as they are now)
 }
 
+void IngameMenu::RoomRows(std::vector<Row>* rows)
+{
+  const Netplay::View v = Netplay::GetView();
+  rows->push_back({v.free_entry ? "Entry: Free" : "Entry: With Permission", "", false, false, 0, "room:entry"});
+  if (v.watch_possible)
+    rows->push_back({v.watch_allowed ? "Spectators: Yes" : "Spectators: No", "", false, false, 0, "room:watch"});
+  if (v.late_possible)
+    rows->push_back({v.late_allowed ? "Late Joining: Yes" : "Late Joining: No", "", false, false, 0, "room:late"});
+}
+
+void IngameMenu::RoomChange(const std::string& key)
+{
+  // (As the room's own menu does: Menu.cpp's OnlineAction "entry", "watchers", "late" - the same toasts.)
+  const Netplay::View v = Netplay::GetView();
+  if (!v.host)
+    return;
+  if (key == "room:entry")
+  {
+    Netplay::SetFreeEntry(!v.free_entry);
+    Toast(!v.free_entry ? "Players come in without asking" : "Players ask you to join first");
+  }
+  else if (key == "room:watch" && v.watch_possible)
+  {
+    Netplay::SetWatchAllowed(!v.watch_allowed);
+    Toast(!v.watch_allowed ? "Spectators may watch the match" : "No spectators: those watching left");
+  }
+  else if (key == "room:late" && v.late_possible)
+  {
+    Netplay::SetLateAllowed(!v.late_allowed);
+    Toast(!v.late_allowed ? "A player may join the match under way" : "No one joins the match once it starts");
+  }
+  else
+  {
+    return;
+  }
+  LogF("menu: room settings: %s", key.c_str() + 5);
+}
+
 // The Controls page's capture: once every button is up, the first one pressed is the row's new button (5 s
 // without one: nothing changes).
 void IngameMenu::Capture(uint32_t held, float dt)
@@ -1556,6 +1974,33 @@ void IngameMenu::Capture(uint32_t held, float dt)
   BuildRows();
 }
 
+// (01.36, a player: 16 cheats added, some by mistake, none could be taken out) Square on a code: asked first (a toast),
+// Square again on it within 3 s deletes it from the list and its file; the core's codes again (m_cheats_changed).
+void IngameMenu::AskDeleteCheat()
+{
+  if (m_selected < 0 || m_selected >= static_cast<int>(m_rows.size()) ||
+      m_rows[m_selected].key.rfind("cheat:", 0) != 0)
+    return;
+  const int index = std::atoi(m_rows[m_selected].key.c_str() + 6);
+  const auto& entries = m_cheats.Entries();
+  if (index < 0 || index >= static_cast<int>(entries.size()))
+    return;
+  const std::string name = entries[static_cast<size_t>(index)].name;
+  if (m_cheat_delete_asked != index)
+  {
+    m_cheat_delete_asked = index;
+    m_cheat_delete_time = 3.0f;
+    Toast("Square again to delete: " + name, 3.0f);
+    return;
+  }
+  m_cheat_delete_asked = -1;
+  if (m_cheats.Remove(static_cast<size_t>(index)))
+  {
+    Toast("Cheat deleted: " + name);
+    m_cheats_changed = true;
+  }
+}
+
 IngameMenu::Action IngameMenu::Poll(uint32_t pressed, uint32_t held, float dt)
 {
   if (!m_open)
@@ -1571,8 +2016,12 @@ IngameMenu::Action IngameMenu::Poll(uint32_t pressed, uint32_t held, float dt)
   m_kick_time = std::max(0.0f, m_kick_time - dt);
   if (m_kick_time <= 0.0f)
     m_kick_asked = -1;
+  m_cheat_delete_time = std::max(0.0f, m_cheat_delete_time - dt);  // ((01.36) a cheat's delete asked: 3 s)
+  if (m_cheat_delete_time <= 0.0f || (pressed & ~static_cast<uint32_t>(ORBIS_PAD_BUTTON_SQUARE)) != 0)
+    m_cheat_delete_asked = -1;
   // (00.86: also our room open while the game is played alone - a request to join, its seconds left.)
-  if (m_page == Page::Main && (Netplay::Active() || Netplay::Hosting()))
+  // ((01.24) Room Settings too: its rows as the room is now.)
+  if ((m_page == Page::Main || m_page == Page::Room) && (Netplay::Active() || Netplay::Hosting()))
   {
     m_online_refresh -= dt;
     if (m_online_refresh <= 0.0f)
@@ -1651,6 +2100,11 @@ IngameMenu::Action IngameMenu::Poll(uint32_t pressed, uint32_t held, float dt)
     action = Activate();
     rebuild = true;
   }
+  else if ((pressed & ORBIS_PAD_BUTTON_SQUARE) && m_page == Page::Cheats)
+  {
+    AskDeleteCheat();  // ((01.36) Square on a code)
+    rebuild = true;
+  }
   else if (((held & COMBO) == COMBO && (pressed & COMBO)) ||
            (buttons.mask != 0 && (held & buttons.mask) == buttons.mask && (pressed & buttons.mask)))
   {
@@ -1670,6 +2124,21 @@ IngameMenu::Action IngameMenu::Poll(uint32_t pressed, uint32_t held, float dt)
       m_finder.Stop();
       m_page = Page::Cheats;
       m_selected = 0;
+      rebuild = true;
+    }
+    else if (m_page == Page::CheatImport)
+    {
+      // ((01.89) Replace / Cancel asked: Cancel; else back to Cheats.)
+      if (!m_import_file.empty())
+      {
+        m_import_file.clear();
+        m_import_select = "first";
+      }
+      else
+      {
+        m_page = Page::Cheats;
+        m_selected = 0;
+      }
       rebuild = true;
     }
     else if (m_page == Page::Extras && !m_extras_ask.empty())
@@ -1787,6 +2256,10 @@ void IngameMenu::Draw(ImDrawList* dl, float dt)
       }
       m_chat_seen = newest;
     }
+    // ((01.91, the owner) A spectator: a player's place came free in the match - said once (Join the Match, the menu).)
+    if (st.seat_open && !m_seat_said && !m_open)
+      Toast("A place is free in the match: Join the Match in the in-game menu", 5.0f);
+    m_seat_said = st.seat_open;
   }
   const ImVec2 size(static_cast<float>(Display::WIDTH), static_cast<float>(Display::HEIGHT));
   const float a = m_appear;
@@ -1814,8 +2287,10 @@ void IngameMenu::Draw(ImDrawList* dl, float dt)
                            m_page == Page::Achievements ? "ACHIEVEMENTS" :
                            m_page == Page::Extras ? (m_system == SystemId::ARCADE ? "PATCHED ROMSET" :
                                                                                      "UPDATES, DLC AND MODS") :
+                           m_page == Page::Room   ? "ROOM SETTINGS" :
                            m_page == Page::CheatSearch ? "FIND CHEATS ONLINE" :
                            m_page == Page::CheatPick   ? "CHOOSE CHEATS" :
+                           m_page == Page::CheatImport ? "IMPORT CHEATS" :
                            m_page == Page::Controls    ? (Controls::HasGameProfile(m_game_id) ? "CONTROLS - THIS GAME" :
                                                                                                "CONTROLS - ALL GAMES") :
                            Settings::ScopeOf(m_game_id) == Settings::Scope::Game    ? "SETTINGS - THIS GAME" :
@@ -1959,6 +2434,7 @@ void IngameMenu::Draw(ImDrawList* dl, float dt)
       hint("Cross", m_page == Page::Cheats      ? "On/Off" :
                     m_page == Page::CheatSearch ? "Select" :
                     m_page == Page::CheatPick   ? "Choose" :
+                    m_page == Page::CheatImport ? "Select" :
                     m_page == Page::Achievements ? "Select" :
                     m_page == Page::Extras       ? "Select" :
                                                   "Change");
@@ -1975,9 +2451,13 @@ void IngameMenu::Draw(ImDrawList* dl, float dt)
   {
     const float fade = std::min(1.0f, m_toast_time / 0.3f);
     const char* text = T(m_toast.c_str());
-    const float tw = bold->CalcTextSizeA(32, FLT_MAX, 0, text).x;
-    const ImVec2 p(size.x - tw - 120, size.y - 150);
-    dl->AddRectFilled(ImVec2(p.x - 30, p.y - 18), ImVec2(p.x + tw + 30, p.y + 56),
+    // ((01.29) A toast of several lines - "\n" between them: the 3DS's Mii data and its folder -: the box as tall as
+    // they are, its bottom where a line's is; a toast of one line as before.)
+    const ImVec2 ts = bold->CalcTextSizeA(32, FLT_MAX, 0, text);
+    const float tw = ts.x;
+    const float more = std::max(0.0f, ts.y - 32.0f);
+    const ImVec2 p(size.x - tw - 120, size.y - 150 - more);
+    dl->AddRectFilled(ImVec2(p.x - 30, p.y - 18), ImVec2(p.x + tw + 30, p.y + 56 + more),
                       IM_COL32(26, 12, 52, static_cast<int>(225 * fade)), 14);
     dl->AddText(bold, 32, p, IM_COL32(255, 255, 255, static_cast<int>(255 * fade)), text);
   }

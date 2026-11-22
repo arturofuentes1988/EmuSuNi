@@ -14,6 +14,7 @@
 #include <pthread.h>
 #include <unistd.h>
 
+#include "AppSession.h"
 #include "Log.h"
 
 #ifdef __ORBIS__
@@ -226,6 +227,7 @@ const char* const MESSAGE_TAIL = "\n\nThe game's file may be damaged,\nor the em
   RawLog(line);
   if (!s_dir.empty())
     WriteNow(AgainPath(), again);
+  AppSession::ClosingRaw("a restart by the start watchdog");  // ((01.27) for the next start's "session:" line)
   LogSync();
   const int result = sceSystemServiceLoadExec("/app0/eboot.bin", nullptr);
   std::snprintf(line, sizeof(line), "start watchdog: restart asked (%#x)", static_cast<unsigned>(result));

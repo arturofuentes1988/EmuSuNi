@@ -8,7 +8,8 @@
 // Yes", the app's default -), by its code (the chat's: an HMAC of its chat key, never the key or an address): from the
 // match's start (Lock) - or its late join - to its end, its leaving, its connection lost, the room closing. Not the
 // time in the room's menu, nor a spectator's. The main server with --stats-dir only (stats.db):
-//  - player_time: a row by code, day (UTC) and console, its seconds - PLAYER_DAYS days (the 7 days' ranking);
+//  - player_time: a row by code, day (UTC) and console, its seconds - PLAYER_DAYS days (the 7 and (01.91) 30 days'
+//    rankings);
 //  - player_total: a row by code and console, its seconds since ever;
 //  - players: each code's last nickname (CleanNick's, as the rooms show it) and country (only when it shows it).
 // Without PLAYER_RANKED nothing of that player is counted or kept.
@@ -128,7 +129,9 @@ void OnTopPlayers(Reader& r, const sockaddr_in& from, size_t size, AddressState&
   int days = r.U8();
   if (!r.Ok() || !state.lists.Take(Now(), LISTS_RATE, LISTS_BURST))
     return;
-  days = days == 0 ? 0 : TOP_DAYS;
+  // ((01.91, the owner: 30 days by default) 1 to PLAYER_DAYS days - player_time's -, or 0 since ever; an app before it
+  // asks for TOP_DAYS or 0, as ever.)
+  days = days == 0 ? 0 : std::clamp(days, 1, PLAYER_DAYS);
   TopPlayersCount& count = s_top_players[days];
   if (Now() - count.at > 600.0)
     CountTopPlayers(days, &count);

@@ -1,0 +1,624 @@
+EmuSuNi's patch of DolphinPS4's Mesa winsys, port/mesa/ac_ps4_drm.c at DolphinPS4 720f60a (MIT, as the file):
+scripts/setup.sh applies it after the DolphinPS4 checkout (DolphinPS4's build-mesa.sh copies the file into Mesa).
+- The submissions' numbers, ac_ps4_get_submit_stats (the app's "gpu:" lines; the app needs it to link).
+- The submission thread, off by default (an empty /data/EmuSuNi/gpu-submitthread-on turns it on): the kernel's
+  calls (sceGnmSubmitCommandBuffers, ...AndFlip..., sceGnmSubmitDone) made in sequence order on a thread of its own,
+  not on the thread that submits; written for EmuSuNi from the idea of Crema's winsys (read, not copied).
+- (01.87) The IB-chain check's sceKernelVirtualQuery remembered per mapping until the winsys unmaps anything
+  (gpu-ibcheckcache-on, off by default), and the buffers' tail check timed and, with gpu-lighttails-on (off by
+  default), spread over the submissions and lighter.
+--- a/port/mesa/ac_ps4_drm.c
++++ b/port/mesa/ac_ps4_drm.c
+@@ -228,6 +228,10 @@
+ 
+ /* Guards the address-space heaps (va_range_free has no device argument). */
+ static simple_mtx_t ps4_va_lock = SIMPLE_MTX_INITIALIZER;
++/* EmuSuNi: every unmap of the winsys (and release of a buffer's direct memory) counts here
++ * first, so that the IB-chain check's cache (ps4_chain_mapped) never trusts a range it checked
++ * before one. */
++static uint64_t ps4_unmap_gen;
+ 
+ static void
+ ps4_log(const char *fmt, ...)
+@@ -901,6 +905,7 @@
+ 
+ static struct util_sync_provider *ps4_sync_provider_init(ac_drm_device *dev);
+ static ac_drm_device *ps4_last_device;
++static void ps4_sq_start(void); /* EmuSuNi: the submission thread's switch (below) */
+ 
+ /* Logs the first memory operations (bring-up). */
+ static unsigned ps4_verbose_left = 64;
+@@ -985,6 +990,7 @@
+       ps4_install_fault_capture(dev, dev->gnm_module);
+    ps4_fault_dev = dev; /* the last device created is the one in use */
+    ps4_start_flight_recorder(dev);
++   ps4_sq_start();
+    ps4_log("radv/ps4: device initialized\n");
+    return 0;
+ 
+@@ -1109,6 +1115,7 @@
+ static void
+ ps4_do_free(ac_drm_device *dev, struct amdgpu_bo *b)
+ {
++   __atomic_add_fetch(&ps4_unmap_gen, 1, __ATOMIC_SEQ_CST); /* (EmuSuNi) */
+    if (b->cpu_owned)
+       sceKernelMunmap(b->cpu, b->size);
+    const int rr = sceKernelReleaseDirectMemory(b->phys, b->size + PS4_TAIL);
+@@ -1370,6 +1377,7 @@
+        * over a live mapping isn't guaranteed to replace it; a mapping left behind would vanish
+        * when its direct memory is released, leaving a hole the kernel hands to other mappings
+        * - which a later buffer at this address would then silently overwrite.) */
++      __atomic_add_fetch(&ps4_unmap_gen, 1, __ATOMIC_SEQ_CST); /* (EmuSuNi) */
+       const int ru = sceKernelMunmap((void *)(uintptr_t)addr, size);
+       if (!ps4_reserve(addr, size)) {
+          static unsigned logged;
+@@ -1850,6 +1858,103 @@
+    }
+ }
+ 
++/* ---------------------------------------------------------------------------------------------
++ * EmuSuNi: the submissions' numbers (ac_ps4_get_submit_stats, the app's "gpu:" lines), and the
++ * IB-chain check's cache.
++ */
++enum {
++   PS4_SS_ON,         /* 1: the submission thread is on */
++   PS4_SS_SUBMITS,    /* submissions, flips included */
++   PS4_SS_FLIPS,
++   PS4_SS_CALLER_NS,  /* time in ac_drm_cs_submit_raw2 (after its waits for the sync points of
++                         other submissions) and in ac_ps4_submit_flip */
++   PS4_SS_LOCK_NS,    /* of it, waiting for dev->lock */
++   PS4_SS_CALL_NS,    /* time in sceGnmSubmitCommandBuffers / sceGnmSubmitAndFlipCommandBuffers */
++   PS4_SS_DONES,      /* sceGnmSubmitDone calls */
++   PS4_SS_DONE_NS,
++   PS4_SS_QUEUED_NS,  /* (thread) from queued to the start of its call */
++   PS4_SS_DEPTH_MAX,  /* (thread) the most jobs queued at once */
++   PS4_SS_FULL,       /* (thread) times a submitter waited for room in the queue */
++   PS4_SS_FAILED,     /* calls that failed */
++   PS4_SS_VQ_CALLS,   /* sceKernelVirtualQuery calls of the IB-chain check */
++   PS4_SS_VQ_SAVED,   /* (gpu-ibcheckcache-on) links its cache answered */
++   PS4_SS_TAILS,      /* tail checks (every 256 submissions; gpu-lighttails-on: each one) */
++   PS4_SS_TAILS_NS,
++   PS4_SS_TAILS_MAX_NS, /* the longest one since the last read */
++   PS4_SS_SWITCHES,   /* 1 the submission thread, 2 gpu-ibcheckcache-on, 4 gpu-lighttails-on */
++   PS4_SS_COUNT
++};
++/* The _NS ones in TSC ticks until read. */
++static uint64_t ps4_ss[PS4_SS_COUNT];
++
++static inline uint64_t
++ps4_tsc(void)
++{
++   return __builtin_ia32_rdtsc();
++}
++
++static inline void
++ps4_ss_add(unsigned what, uint64_t value)
++{
++   __atomic_fetch_add(&ps4_ss[what], value, __ATOMIC_RELAXED);
++}
++
++static inline void
++ps4_ss_max(unsigned what, uint64_t value)
++{
++   uint64_t now = __atomic_load_n(&ps4_ss[what], __ATOMIC_RELAXED);
++   while (value > now &&
++          !__atomic_compare_exchange_n(&ps4_ss[what], &now, value, true, __ATOMIC_RELAXED, __ATOMIC_RELAXED))
++      ;
++}
++
++/* The switches besides the submission thread's (read with it, ps4_sq_start, before any submission):
++ * gpu-ibcheckcache-on and gpu-lighttails-on. */
++static int ps4_sw_ibcache, ps4_sw_lighttails;
++
++/* (gpu-ibcheckcache-on, OFF) The IB-chain check below asks the kernel (sceKernelVirtualQuery) about
++ * every chain link of every submission. With the switch, the mapping the kernel described - the
++ * whole buffer's - is remembered, and a later link inside it is trusted without asking again, until
++ * the winsys unmaps anything (ps4_unmap_gen; only the winsys maps and unmaps in its GPU windows). A
++ * buffer freed or its address reused always goes through an unmap first. */
++#define PS4_VQ_CACHE 64
++static struct {
++   uint64_t start, end, gen; /* gen: ps4_unmap_gen + 1 when it was asked (0: empty) */
++} ps4_vq_cache[PS4_VQ_CACHE];
++static simple_mtx_t ps4_vq_cache_lock = SIMPLE_MTX_INITIALIZER;
++
++static bool
++ps4_chain_mapped(uint64_t addr, uint64_t len)
++{
++   const unsigned slot = (unsigned)(addr >> 21) % PS4_VQ_CACHE;
++   uint64_t gen = 0;
++   if (ps4_sw_ibcache > 0) {
++      /* (read before the kernel is asked: an unmap meanwhile makes the answer stale at once) */
++      gen = __atomic_load_n(&ps4_unmap_gen, __ATOMIC_SEQ_CST) + 1;
++      simple_mtx_lock(&ps4_vq_cache_lock);
++      const bool hit = ps4_vq_cache[slot].gen == gen && ps4_vq_cache[slot].start <= addr &&
++                       addr + len <= ps4_vq_cache[slot].end;
++      simple_mtx_unlock(&ps4_vq_cache_lock);
++      if (hit) {
++         ps4_ss_add(PS4_SS_VQ_SAVED, 1);
++         return true;
++      }
++   }
++   struct ps4_vq_info vq;
++   memset(&vq, 0, sizeof(vq));
++   ps4_ss_add(PS4_SS_VQ_CALLS, 1);
++   const bool mapped = !sceKernelVirtualQuery((void *)(uintptr_t)addr, 0, &vq, sizeof(vq)) &&
++                       vq.is_direct && (uintptr_t)vq.end >= addr + len;
++   if (mapped && ps4_sw_ibcache > 0 && (uintptr_t)vq.start <= addr) {
++      simple_mtx_lock(&ps4_vq_cache_lock);
++      ps4_vq_cache[slot].start = (uintptr_t)vq.start;
++      ps4_vq_cache[slot].end = (uintptr_t)vq.end;
++      ps4_vq_cache[slot].gen = gen;
++      simple_mtx_unlock(&ps4_vq_cache_lock);
++   }
++   return mapped;
++}
++
+ /* Before submitting: does every IB of the chain still start with a packet header, and does every
+  * chain link point into a live buffer? (A GPU hang showed a chained IB full of vertex-like float
+  * data.) Follows only the chain link in each IB's last 4 dwords - a few reads per IB. On failure,
+@@ -1872,13 +1977,9 @@
+          next_dw = tail[3] & 0xfffff;
+          struct ac_addr_info info;
+          ps4_ib_addr(dev, next, &info);
+-         struct ps4_vq_info vq;
+-         memset(&vq, 0, sizeof(vq));
+          if (!info.valid)
+             problem = "chains to an address outside the GPU windows";
+-         else if (ps4_vq_ok &&
+-                  (sceKernelVirtualQuery((void *)(uintptr_t)next, 0, &vq, sizeof(vq)) ||
+-                   !vq.is_direct || (uintptr_t)vq.end < next + next_dw * 4ull))
++         else if (ps4_vq_ok && !ps4_chain_mapped(next, next_dw * 4ull)) /* (EmuSuNi: its cache) */
+             problem = "chains to memory that isn't mapped";
+       }
+       if (problem) {
+@@ -1981,6 +2082,311 @@
+    simple_mtx_unlock(&dev->lock);
+ }
+ 
++/* EmuSuNi (gpu-lighttails-on, OFF): the tail check spread out. Without it, every 256th submission
++ * looks at every live buffer's tail (ps4_scan_tails) - 16 reads in each of its 16 pages, of slow GPU
++ * memory - at once, under dev->lock and the app's queue lock: up to ~28 ms in Uncharted (01.86, the
++ * longest holds of the queue lock). With it, each submission looks at the next 1/256th of the
++ * buffers (all of them every 256 submissions, as before), and in each only the first 16 dwords of
++ * its tail, where a write past the end starts; the full check, and its report, when those aren't
++ * zero. dev->lock held. */
++static unsigned ps4_tail_cursor;
++static void
++ps4_scan_tails_light(ac_drm_device *dev)
++{
++   const unsigned n = dev->num_bos;
++   if (n <= 1)
++      return;
++   for (unsigned count = (n + 255) / 256; count; count--) {
++      if (ps4_tail_cursor < 1 || ps4_tail_cursor >= n)
++         ps4_tail_cursor = 1;
++      struct amdgpu_bo *b = dev->bos[ps4_tail_cursor++];
++      if (!b || !b->tail_mapped || b->tail_reported)
++         continue;
++      const volatile uint32_t *t = (const volatile uint32_t *)(uintptr_t)(b->last_va + b->size);
++      bool dirty = false;
++      for (unsigned i = 0; i < 16 && !dirty; i++)
++         dirty = t[i] != 0;
++      if (dirty)
++         ps4_check_tail(dev, b, "live");
++   }
++}
++
++/* ---------------------------------------------------------------------------------------------
++ * EmuSuNi: the submission thread.
++ *
++ * Without the thread (the default), each submission makes its two kernel calls on the thread that
++ * submits, under dev->lock (and, in EmuSuNi, under the frontend's queue lock):
++ * sceGnmSubmitCommandBuffers (~0.4 ms) and sceGnmSubmitDone. An empty file
++ * /data/EmuSuNi/gpu-submitthread-on, there when the first device is made, turns the thread on.
++ * Then the thread that submits does everything else as before - the checks, the sequence number,
++ * the fence written into its IB, all under dev->lock - and only queues the call. The queue is
++ * filled under dev->lock, so it is in sequence order, and one thread makes the calls in that order.
++ * Flips go through the same queue, behind the work queued before them. The thread never takes
++ * dev->lock: a full queue makes a submitter wait for room while it holds dev->lock, and that's
++ * all.
++ *
++ * sceGnmSubmitDone: after every flip, else at most every 4 ms, and 4 ms after the last one when
++ * nothing more comes.
++ *
++ * A failed call can't be given back to the caller any more. Its work is dropped, as for a
++ * corrupted command buffer above, but its sequence number still reaches the GPU in order, so
++ * nothing waits for it forever:
++ *  - a submission's fence IB alone;
++ *  - for a flip, its IB's fence write alone, then sceVideoOutSubmitFlip once the GPU got there;
++ *  - if even that fails, the CPU writes the number once the GPU has written the one before.
++ *
++ * Written for EmuSuNi from the idea of Crema's winsys (v02.05: SubmitDone spaced out; v02.06:
++ * submissions and flips on a thread of their own), read, not copied.
++ *
++ * Its numbers (ac_ps4_get_submit_stats, above) are kept both ways, for the app's "gpu:" lines.
++ */
++int scePthreadSetprio(void *thread, int priority);
++int scePthreadRename(void *thread, const char *name);
++void *scePthreadSelf(void);
++uint64_t sceKernelGetTscFrequency(void);
++int sceVideoOutSubmitFlip(int handle, int buffer, int flip_mode, int64_t flip_arg) __attribute__((weak));
++
++
++#define PS4_SQ_JOBS 256        /* a power of two */
++#define PS4_SQ_IBS 68          /* dcb[64] and the timestamp and fence IBs */
++#define PS4_SQ_DONE_NS 4000000 /* sceGnmSubmitDone at most this often (but after every flip) */
++#define PS4_SQ_PRIORITY 420    /* above the emulation threads (480), below the sound (400) */
++
++struct ps4_sq_job {
++   ac_drm_device *dev;
++   uint64_t seq;
++   uint64_t queued;     /* TSC */
++   uint64_t user_fence; /* also written with seq by the last IB (0: none) */
++   bool flip;
++   int video;
++   unsigned buffer, mode;
++   int64_t arg;
++   unsigned num_ibs;
++   void *dcb[PS4_SQ_IBS];
++   uint32_t dcb_sizes[PS4_SQ_IBS];
++};
++
++static struct {
++   int on; /* -1 not looked at yet, 0 off, 1 on (set before the first device is used) */
++   pthread_mutex_t lock;
++   pthread_cond_t work, room;
++   struct ps4_sq_job *jobs;
++   unsigned head, tail; /* next to run, next to fill */
++} ps4_sq = {.on = -1};
++static simple_mtx_t ps4_sq_start_lock = SIMPLE_MTX_INITIALIZER;
++
++static void
++ps4_sq_done(ac_drm_device *dev)
++{
++   const uint64_t t = ps4_tsc();
++   dev->submit_done();
++   ps4_ss_add(PS4_SS_DONES, 1);
++   ps4_ss_add(PS4_SS_DONE_NS, ps4_tsc() - t);
++}
++
++/* The thread's waits for the GPU: never dev->lock (ps4_wait_seq's hang report takes it, and a
++ * submitter may hold it while it waits for room in the queue). */
++static void
++ps4_sq_wait(ac_drm_device *dev, uint64_t seq)
++{
++   while (ps4_completed(dev) < seq)
++      ps4_sleep(dev);
++}
++
++/* The CPU writes `seq` as completed: only once the GPU has written every number before it, so a
++ * later GPU write is a larger number. */
++static void
++ps4_sq_cpu_fence(ac_drm_device *dev, uint64_t seq, uint64_t user_fence)
++{
++   if (seq > 1)
++      ps4_sq_wait(dev, seq - 1);
++   uint64_t cur = __atomic_load_n(dev->fence, __ATOMIC_ACQUIRE);
++   while (cur < seq &&
++          !__atomic_compare_exchange_n(dev->fence, &cur, seq, false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
++      ;
++   if (user_fence)
++      __atomic_store_n((volatile uint64_t *)(uintptr_t)user_fence, seq, __ATOMIC_RELEASE);
++}
++
++/* A call that failed: the job's sequence number to the GPU all the same (see above). */
++static void
++ps4_sq_failed(struct ps4_sq_job *job, int r, void **ccb, uint32_t *ccb_sizes)
++{
++   ac_drm_device *dev = job->dev;
++   ps4_ss_add(PS4_SS_FAILED, 1);
++   /* The fence IB is a submission's last; a flip's IB starts with its fence write (8 dwords). */
++   void *dcb[1] = {job->dcb[job->num_ibs - 1]};
++   uint32_t size[1] = {job->flip ? 32 : job->dcb_sizes[job->num_ibs - 1]};
++   const int r2 = dev->submit(1, dcb, size, ccb, ccb_sizes);
++   if (r2)
++      ps4_sq_cpu_fence(dev, job->seq, job->user_fence);
++   int f = 0;
++   if (job->flip && sceVideoOutSubmitFlip) {
++      ps4_sq_wait(dev, job->seq);
++      f = sceVideoOutSubmitFlip(job->video, (int)job->buffer, (int)job->mode, job->arg);
++   }
++   static unsigned logged;
++   if (logged++ < 8)
++      ps4_log("radv/ps4: submission thread: %s of submission %llu = %#x, its work dropped; its fence "
++              "%s (%#x)%s%s\n",
++              job->flip ? "sceGnmSubmitAndFlipCommandBuffers" : "sceGnmSubmitCommandBuffers",
++              (unsigned long long)job->seq, r, r2 ? "written by the CPU" : "submitted alone", r2,
++              job->flip ? (sceVideoOutSubmitFlip ? ", then sceVideoOutSubmitFlip " : ", no flip")
++                        : "",
++              job->flip && sceVideoOutSubmitFlip ? (f ? "failed" : "done") : "");
++}
++
++static void *
++ps4_sq_thread(void *arg)
++{
++   (void)arg;
++   scePthreadRename(scePthreadSelf(), "radv submit");
++   const int prio = scePthreadSetprio(scePthreadSelf(), PS4_SQ_PRIORITY);
++   ps4_log("radv/ps4: submission thread started (priority %d: %#x)\n", PS4_SQ_PRIORITY, prio);
++   void *ccb[PS4_SQ_IBS];
++   uint32_t ccb_sizes[PS4_SQ_IBS];
++   memset(ccb, 0, sizeof(ccb));
++   memset(ccb_sizes, 0, sizeof(ccb_sizes));
++   ac_drm_device *owed = NULL; /* a sceGnmSubmitDone to make, for this device's driver */
++   /* (times by the TSC) */
++   const uint64_t hz = sceKernelGetTscFrequency();
++   const uint64_t done_ticks = (hz ? hz : 1600000000ull) / (1000000000ull / PS4_SQ_DONE_NS);
++   const double ns_per_tick = 1e9 / (double)(hz ? hz : 1600000000ull);
++   uint64_t last_done = ps4_tsc() - done_ticks;
++   pthread_mutex_lock(&ps4_sq.lock);
++   for (;;) {
++      if (ps4_sq.head == ps4_sq.tail) {
++         if (!owed) {
++            pthread_cond_wait(&ps4_sq.work, &ps4_sq.lock);
++            continue;
++         }
++         const uint64_t now = ps4_tsc();
++         if (now - last_done < done_ticks) {
++            struct timespec until;
++            clock_gettime(CLOCK_REALTIME, &until);
++            const int64_t ns =
++               until.tv_nsec + (int64_t)((double)(done_ticks - (now - last_done)) * ns_per_tick) + 1000;
++            until.tv_sec += ns / 1000000000;
++            until.tv_nsec = ns % 1000000000;
++            const int r = pthread_cond_timedwait(&ps4_sq.work, &ps4_sq.lock, &until);
++            if (r == 0 || r == ETIMEDOUT)
++               continue;
++            /* (a timed wait that doesn't work here: the call now rather than spin) */
++         }
++         ac_drm_device *dev = owed;
++         owed = NULL;
++         pthread_mutex_unlock(&ps4_sq.lock);
++         ps4_sq_done(dev);
++         last_done = ps4_tsc();
++         pthread_mutex_lock(&ps4_sq.lock);
++         continue;
++      }
++      struct ps4_sq_job *job = &ps4_sq.jobs[ps4_sq.head % PS4_SQ_JOBS];
++      pthread_mutex_unlock(&ps4_sq.lock);
++
++      ac_drm_device *dev = job->dev;
++      const uint64_t start = ps4_tsc();
++      ps4_ss_add(PS4_SS_QUEUED_NS, start - job->queued);
++      const int r = job->flip ? dev->submit_and_flip(job->num_ibs, job->dcb, job->dcb_sizes, ccb,
++                                                     ccb_sizes, (uint32_t)job->video, job->buffer,
++                                                     job->mode, job->arg)
++                              : dev->submit(job->num_ibs, job->dcb, job->dcb_sizes, ccb, ccb_sizes);
++      ps4_ss_add(PS4_SS_CALL_NS, ps4_tsc() - start);
++      if (r)
++         ps4_sq_failed(job, r, ccb, ccb_sizes);
++      const uint64_t now = ps4_tsc();
++      if (job->flip || now - last_done >= done_ticks) {
++         ps4_sq_done(dev);
++         last_done = now;
++         owed = NULL;
++      } else {
++         owed = dev;
++      }
++
++      pthread_mutex_lock(&ps4_sq.lock);
++      ps4_sq.head++;
++      pthread_cond_signal(&ps4_sq.room);
++   }
++   return NULL;
++}
++
++/* Looks at the switch once (the first device made) and starts the thread. */
++static void
++ps4_sq_start(void)
++{
++   simple_mtx_lock(&ps4_sq_start_lock);
++   if (ps4_sq.on < 0) {
++      ps4_sq.on = 0;
++      ps4_sw_ibcache = access("/data/EmuSuNi/gpu-ibcheckcache-on", F_OK) == 0;
++      ps4_sw_lighttails = access("/data/EmuSuNi/gpu-lighttails-on", F_OK) == 0;
++      const bool wanted = access("/data/EmuSuNi/gpu-submitthread-on", F_OK) == 0;
++      if (wanted) {
++         ps4_sq.jobs = calloc(PS4_SQ_JOBS, sizeof(*ps4_sq.jobs));
++         pthread_attr_t attr;
++         pthread_t thread;
++         if (ps4_sq.jobs && !pthread_mutex_init(&ps4_sq.lock, NULL) &&
++             !pthread_cond_init(&ps4_sq.work, NULL) && !pthread_cond_init(&ps4_sq.room, NULL) &&
++             !pthread_attr_init(&attr)) {
++            pthread_attr_setstacksize(&attr, 256 * 1024);
++            ps4_sq.on = pthread_create(&thread, &attr, ps4_sq_thread, NULL) == 0;
++            pthread_attr_destroy(&attr);
++         }
++      }
++      __atomic_store_n(&ps4_ss[PS4_SS_ON], (uint64_t)ps4_sq.on, __ATOMIC_RELAXED);
++      __atomic_store_n(&ps4_ss[PS4_SS_SWITCHES],
++                       (uint64_t)(ps4_sq.on | ps4_sw_ibcache << 1 | ps4_sw_lighttails << 2),
++                       __ATOMIC_RELAXED);
++      ps4_log("radv/ps4: submission thread %s (the file /data/EmuSuNi/gpu-submitthread-on %s); "
++              "IB-chain check's cache %s (gpu-ibcheckcache-on); light tail checks %s "
++              "(gpu-lighttails-on)\n",
++              ps4_sq.on ? "on" : "off", wanted ? "is there" : "isn't there",
++              ps4_sw_ibcache ? "on" : "off", ps4_sw_lighttails ? "on" : "off");
++   }
++   simple_mtx_unlock(&ps4_sq_start_lock);
++}
++
++/* Queues a job for the thread (dev->lock held: in sequence order). */
++static void
++ps4_sq_push(struct ps4_sq_job *job)
++{
++   pthread_mutex_lock(&ps4_sq.lock);
++   if (ps4_sq.tail - ps4_sq.head >= PS4_SQ_JOBS) {
++      ps4_ss_add(PS4_SS_FULL, 1);
++      while (ps4_sq.tail - ps4_sq.head >= PS4_SQ_JOBS)
++         pthread_cond_wait(&ps4_sq.room, &ps4_sq.lock);
++   }
++   job->queued = ps4_tsc();
++   ps4_sq.jobs[ps4_sq.tail % PS4_SQ_JOBS] = *job;
++   ps4_sq.tail++;
++   if (ps4_sq.tail - ps4_sq.head > __atomic_load_n(&ps4_ss[PS4_SS_DEPTH_MAX], __ATOMIC_RELAXED))
++      __atomic_store_n(&ps4_ss[PS4_SS_DEPTH_MAX], ps4_sq.tail - ps4_sq.head, __ATOMIC_RELAXED);
++   pthread_cond_signal(&ps4_sq.work);
++   pthread_mutex_unlock(&ps4_sq.lock);
++}
++
++/* The numbers since the start, `count` of them at most (PS4_SS_* order; times in ns; the longest
++ * tail check since the last call); returns how many it wrote. */
++unsigned ac_ps4_get_submit_stats(uint64_t *out, unsigned count);
++unsigned
++ac_ps4_get_submit_stats(uint64_t *out, unsigned count)
++{
++   static double ns_per_tick;
++   if (!ns_per_tick) {
++      const uint64_t hz = sceKernelGetTscFrequency();
++      ns_per_tick = hz ? 1e9 / (double)hz : 1.0;
++   }
++   const unsigned n = MIN2(count, PS4_SS_COUNT);
++   for (unsigned i = 0; i < n; i++) {
++      const uint64_t v = i == PS4_SS_TAILS_MAX_NS ? __atomic_exchange_n(&ps4_ss[i], 0, __ATOMIC_RELAXED)
++                                                  : __atomic_load_n(&ps4_ss[i], __ATOMIC_RELAXED);
++      const bool time = i == PS4_SS_CALLER_NS || i == PS4_SS_LOCK_NS || i == PS4_SS_CALL_NS ||
++                        i == PS4_SS_DONE_NS || i == PS4_SS_QUEUED_NS || i == PS4_SS_TAILS_NS ||
++                        i == PS4_SS_TAILS_MAX_NS;
++      out[i] = time ? (uint64_t)((double)v * ns_per_tick) : v;
++   }
++   return n;
++}
++
+ int
+ ac_drm_cs_submit_raw2(ac_drm_device *dev, uint32_t ctx_id, uint32_t bo_list_handle,
+                       int num_chunks, struct drm_amdgpu_cs_chunk *chunks, uint64_t *seq_no)
+@@ -2044,6 +2450,7 @@
+    }
+    if (!num_ibs)
+       return -EINVAL;
++   const uint64_t ss_start = ps4_tsc(); /* (EmuSuNi: the numbers) */
+ 
+    /* A corrupted command buffer would hang the GPU (or fault it, and the system kills the app):
+     * drop its work - the fences still signal - and report it once. */
+@@ -2067,7 +2474,9 @@
+       simple_mtx_unlock(&dev->lock);
+    }
+ 
++   const uint64_t ss_lock = ps4_tsc();
+    simple_mtx_lock(&dev->lock);
++   ps4_ss_add(PS4_SS_LOCK_NS, ps4_tsc() - ss_lock);
+    /* The fence IB slot for the next sequence number must be free (its previous user finished).
+     * Waited for before taking the number, so submissions reach the GPU in sequence order (the
+     * completed counter must never get ahead of work that hasn't been submitted yet). */
+@@ -2131,8 +2540,32 @@
+       dcb_sizes[0] = (uint32_t)(t - ts_ib) * 4;
+       submit_ibs++;
+    }
+-   int r = dev->submit(submit_ibs, dcb, dcb_sizes, ccb, ccb_sizes);
+-   dev->submit_done();
++   int r = 0;
++   if (ps4_sq.on > 0) {
++      /* EmuSuNi: the submission thread makes the calls (above) */
++      struct ps4_sq_job job;
++      job.dev = dev;
++      job.seq = seq;
++      job.user_fence = user_fence_addr;
++      job.flip = false;
++      job.video = 0;
++      job.buffer = job.mode = 0;
++      job.arg = 0;
++      job.num_ibs = submit_ibs;
++      memcpy(job.dcb, dcb, sizeof(dcb[0]) * submit_ibs);
++      memcpy(job.dcb_sizes, dcb_sizes, sizeof(dcb_sizes[0]) * submit_ibs);
++      ps4_sq_push(&job);
++   } else {
++      const uint64_t ss_call = ps4_tsc();
++      r = dev->submit(submit_ibs, dcb, dcb_sizes, ccb, ccb_sizes);
++      ps4_ss_add(PS4_SS_CALL_NS, ps4_tsc() - ss_call);
++      const uint64_t ss_done = ps4_tsc();
++      dev->submit_done();
++      ps4_ss_add(PS4_SS_DONES, 1);
++      ps4_ss_add(PS4_SS_DONE_NS, ps4_tsc() - ss_done);
++      if (r)
++         ps4_ss_add(PS4_SS_FAILED, 1);
++   }
+    if (seq <= 40 || seq % 1000 == 0)
+       ps4_log("radv/ps4: submit %llu: %u IBs (first %p, %u bytes) = %#x, GPU completed %llu, "
+               "%llu memory writes checked, %u disabled\n",
+@@ -2145,8 +2578,18 @@
+       return -EINVAL;
+    }
+ 
+-   if (seq % 256 == 0)
+-      ps4_scan_tails(dev);
++   /* (EmuSuNi: timed for the "gpu:" line; gpu-lighttails-on: spread over the submissions) */
++   if (ps4_sw_lighttails > 0 || seq % 256 == 0) {
++      const uint64_t ss_tails = ps4_tsc();
++      if (ps4_sw_lighttails > 0)
++         ps4_scan_tails_light(dev);
++      else
++         ps4_scan_tails(dev);
++      const uint64_t took = ps4_tsc() - ss_tails;
++      ps4_ss_add(PS4_SS_TAILS, 1);
++      ps4_ss_add(PS4_SS_TAILS_NS, took);
++      ps4_ss_max(PS4_SS_TAILS_MAX_NS, took);
++   }
+    ps4_run_deferred(dev);
+ 
+    if (signal_chunk) {
+@@ -2161,6 +2604,8 @@
+    }
+    simple_mtx_unlock(&dev->lock);
+    *seq_no = seq;
++   ps4_ss_add(PS4_SS_SUBMITS, 1);
++   ps4_ss_add(PS4_SS_CALLER_NS, ps4_tsc() - ss_start);
+    return 0;
+ }
+ 
+@@ -2177,7 +2622,9 @@
+    enum { FLIP_IB_DW = 128 };
+    STATIC_ASSERT(ARRAY_SIZE(dev->flip_seq) * FLIP_IB_DW * 4 <= PS4_PAGE);
+ 
++   const uint64_t ss_start = ps4_tsc(); /* (EmuSuNi: the numbers) */
+    simple_mtx_lock(&dev->lock);
++   ps4_ss_add(PS4_SS_LOCK_NS, ps4_tsc() - ss_start);
+    const unsigned slot = dev->flip_count % ARRAY_SIZE(dev->flip_seq);
+    /* The slot's previous flip IB, and the fence IB slot for the next sequence number, must be
+     * free - waited for before taking the number, as in ac_drm_cs_submit_raw2. */
+@@ -2205,8 +2652,33 @@
+    uint32_t dcb_size[1] = {(uint32_t)(cs - ib) * 4};
+    void *ccb[1] = {NULL};
+    uint32_t ccb_size[1] = {0};
+-   const int r = dev->submit_and_flip(1, dcb, dcb_size, ccb, ccb_size, video, buffer, mode, arg);
+-   dev->submit_done();
++   int r = 0;
++   if (ps4_sq.on > 0) {
++      /* EmuSuNi: the submission thread makes the call, behind the work queued before (above) */
++      struct ps4_sq_job job;
++      job.dev = dev;
++      job.seq = seq;
++      job.user_fence = 0;
++      job.flip = true;
++      job.video = video;
++      job.buffer = buffer;
++      job.mode = mode;
++      job.arg = arg;
++      job.num_ibs = 1;
++      job.dcb[0] = dcb[0];
++      job.dcb_sizes[0] = dcb_size[0];
++      ps4_sq_push(&job);
++   } else {
++      const uint64_t ss_call = ps4_tsc();
++      r = dev->submit_and_flip(1, dcb, dcb_size, ccb, ccb_size, video, buffer, mode, arg);
++      ps4_ss_add(PS4_SS_CALL_NS, ps4_tsc() - ss_call);
++      const uint64_t ss_done = ps4_tsc();
++      dev->submit_done();
++      ps4_ss_add(PS4_SS_DONES, 1);
++      ps4_ss_add(PS4_SS_DONE_NS, ps4_tsc() - ss_done);
++      if (r)
++         ps4_ss_add(PS4_SS_FAILED, 1);
++   }
+    if (r) {
+       dev->last_seq--;
+       static unsigned logged;
+@@ -2223,6 +2695,9 @@
+       ps4_run_deferred(dev);
+    }
+    simple_mtx_unlock(&dev->lock);
++   ps4_ss_add(PS4_SS_SUBMITS, 1);
++   ps4_ss_add(PS4_SS_FLIPS, 1);
++   ps4_ss_add(PS4_SS_CALLER_NS, ps4_tsc() - ss_start);
+    return r;
+ }
+ 

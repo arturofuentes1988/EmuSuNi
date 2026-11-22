@@ -11,3 +11,15 @@ layout(push_constant) uniform Push
   uvec4 Const2;
   uvec4 Const3;
 } pc;
+
+// (01.72) The picture's colours (Graphics: Brightness, Gamma, Saturation), drawn by the pass to the screen (GpuFilter.cpp
+// SetConstants; every mode's last pass but Tube TV's, which has a look of its own): Const3.x 1 / gamma (above 1 the
+// dark parts lighter, the white staying white), .y the brightness, .z the saturation (floats' bits), .w 1 to draw them.
+vec3 Grade(vec3 c)
+{
+  if (pc.Const3.w == 0u)
+    return c;
+  c = pow(clamp(c, 0.0, 1.0), vec3(uintBitsToFloat(pc.Const3.x))) * uintBitsToFloat(pc.Const3.y);
+  const float grey = dot(c, vec3(0.2126, 0.7152, 0.0722));
+  return clamp(mix(vec3(grey), c, uintBitsToFloat(pc.Const3.z)), 0.0, 1.0);
+}

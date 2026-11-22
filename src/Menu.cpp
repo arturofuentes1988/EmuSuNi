@@ -47,12 +47,15 @@
 #include "BezelProject.h"
 #include "CheatDownload.h"
 #include "Cheats.h"
+#include "ConsoleArt.h"
 #include "Controls.h"
 #include "CoverDownload.h"
 #include "CoverFiles.h"
 #include "Display.h"
+#include "Emulator.h"  // ((01.27) Triangle -> Load State: LoadStateAtStart)
 #include "GameAudio.h"
 #include "GameDelete.h"
+#include "GameRename.h"
 #include "Image.h"
 #include "Log.h"
 #include "LogReport.h"
@@ -62,6 +65,7 @@
 #include "Net.h"
 #include "PS4Glyphs.h"
 #include "PS4Lang.h"
+#include "AppSession.h"
 #include "Portable.h"
 #include "Ratings.h"
 #include "Saves.h"
@@ -71,18 +75,23 @@
 #include "TextKeyboard.h"
 #include "Tour.h"
 #include "GbLink.h"
+#include "Elo.h"  // ((01.91) the ELO ranking's games)
 #include "Netplay.h"
 #include "NetplayLibrary.h"
 #include "NetplayUi.h"
 #include "MyStats.h"
 #include "UsageStats.h"
 #include "Update.h"
+#ifdef EMUSUNI_VITA
+#include "Vita.h"  // (with-vita: the PS Vita's firmware)
+#endif
 #include "Voice.h"
 #ifdef EMUSUNI_SATURN
 #include "SaturnTest.h"
 #endif
 #ifdef EMUSUNI_3DS
 #include "ThreeDsCia.h"  // ((01.09) the 3DS's updates and DLC from CIAs, a game's mods on or off)
+#include "ThreeDsTextures.h"  // ((01.42) a 3DS game's texture pack: on or off, installed, removed)
 #include "GameExtras.h"  // ((01.22) the Arcade's patched romsets; the in-game menu's asks after the game)
 #endif
 
@@ -153,6 +162,27 @@ void DrawStar(ImDrawList* dl, ImVec2 c, float r, ImU32 fill, ImU32 outline = 0)
   dl->AddConcavePolyFilled(points, 10, fill);
   if (outline)
     dl->AddPolyline(points, 10, outline, ImDrawFlags_Closed, std::max(1.0f, r * 0.12f));
+}
+
+// (01.28) A box row's box (Item::check), `size` wide, from left_center: ticked, filled in `fill` with a white tick;
+// not, its frame alone. How wide it is: size.
+float DrawCheckBox(ImDrawList* dl, ImVec2 left_center, float size, bool ticked, ImU32 frame, ImU32 fill, ImU32 tick)
+{
+  const ImVec2 p0(left_center.x, left_center.y - size * 0.5f), p1(left_center.x + size, left_center.y + size * 0.5f);
+  const float round = size * 0.18f;
+  if (ticked)
+  {
+    dl->AddRectFilled(p0, p1, fill, round);
+    const ImVec2 c((p0.x + p1.x) * 0.5f, left_center.y);
+    const float r = size * 0.5f;
+    dl->PathLineTo(ImVec2(c.x - r * 0.52f, c.y + r * 0.02f));
+    dl->PathLineTo(ImVec2(c.x - r * 0.14f, c.y + r * 0.40f));
+    dl->PathLineTo(ImVec2(c.x + r * 0.54f, c.y - r * 0.38f));
+    dl->PathStroke(tick, 0, std::max(2.0f, size * 0.12f));
+  }
+  else
+    dl->AddRect(p0, p1, frame, round, 0, std::max(2.0f, size * 0.08f));
+  return size;
 }
 
 // A game's rating (src/Ratings.h): five stars in a row centred on c, each r in radius, gold up to its half stars
@@ -239,6 +269,46 @@ void DrawAchievementMark(ImDrawList* dl, ImFont* bold, ImVec2 corner, float h, c
     dl->AddLine(ImVec2(p0.x + inset, y), ImVec2(p0.x + inset + (w - 2.0f * inset) * share, y),
                 IM_COL32(255, 200, 60, a), std::max(1.5f, h * 0.1f));
   }
+}
+
+// (01.36, a player: "roms/arcade/hacks") A game whose path goes through a folder named "hacks" (any letters' case), on
+// any console: a hack, marked so (DrawHackMark). Only the folders, not the file's own name.
+bool InHacksFolder(const std::string& path)
+{
+  // (Each cover drawn asks: a quick look for the word first - most paths haven't got it.)
+  static const std::string WORD = "hacks";
+  if (std::search(path.begin(), path.end(), WORD.begin(), WORD.end(), [](char a, char b) {
+        return std::tolower(static_cast<unsigned char>(a)) == b;
+      }) == path.end())
+    return false;
+  const std::filesystem::path folder = std::filesystem::path(path).parent_path();
+  for (const std::filesystem::path& part : folder)
+  {
+    if (strcasecmp(part.string().c_str(), "hacks") == 0)
+      return true;
+  }
+  return false;
+}
+
+// (01.36) A hack's mark, as RetroAchievements' (DrawAchievementMark): a small "HACKS" box whose bottom right corner is
+// `corner`, h tall, in orange. Its width: HackMarkWidth.
+float HackMarkWidth(ImFont* bold, float h)
+{
+  return bold->CalcTextSizeA(h * 0.62f, FLT_MAX, 0, "HACKS").x + h * 0.6f;
+}
+void DrawHackMark(ImDrawList* dl, ImFont* bold, ImVec2 corner, float h, float alpha)
+{
+  if (alpha <= 0.01f)
+    return;
+  const float size = h * 0.62f;
+  const ImVec2 t = bold->CalcTextSizeA(size, FLT_MAX, 0, "HACKS");
+  const float w = HackMarkWidth(bold, h);
+  const ImVec2 p0(corner.x - w, corner.y - h);
+  const int a = static_cast<int>(255 * std::clamp(alpha, 0.0f, 1.0f));
+  dl->AddRectFilled(p0, corner, IM_COL32(14, 14, 22, a * 82 / 100), h * 0.28f);
+  dl->AddRect(p0, corner, IM_COL32(255, 150, 50, a), h * 0.28f, 0, std::max(1.0f, h * 0.07f));
+  dl->AddText(bold, size, ImVec2(p0.x + (w - t.x) * 0.5f, p0.y + (h - t.y) * 0.5f - h * 0.05f),
+              IM_COL32(255, 170, 80, a), "HACKS");
 }
 
 // `star`: the star's picture (Menu's m_star) - a quad per star, its shadow and its gold half (4 vertices each, no
@@ -804,7 +874,14 @@ struct Preferences
       if (key != "snes")
         text += "games_dir." + key + "=" + Portable::ToStored(dir) + "\n";
     }
-    WriteTextFile(path, text);
+    // (01.24) A player's PS5 lost its Game Folders at every start (v00.23): a save that fails says so, once a session.
+    static bool failed_said = false;
+    if (!WriteTextFile(path, text) && !failed_said)
+    {
+      failed_said = true;
+      LogF("menu: %s couldn't be saved (%s): the menu's preferences and Game Folders won't last", path.c_str(),
+           std::strerror(errno));
+    }
   }
 };
 
@@ -841,17 +918,47 @@ enum class Category
 #ifdef EMUSUNI_OPENBOR
   OpenborGames,  // builds with OpenBOR (EMUSUNI_OPENBOR, with-openbor): its .pak games
 #endif
+#ifdef EMUSUNI_VITA
+#ifndef EMUSUNI_OPENBOR
+  NoOpenborGames,  // (with-vita without with-openbor: OpenBOR's place, so that the PS Vita's list is at its console's
+                   // number; no console of this build, so never shown: SystemOfList)
+#endif
+  VitaGames,  // builds with the PS Vita (EMUSUNI_VITA, with-vita)
+#endif
+#ifdef EMUSUNI_MUGEN
+#if !defined(EMUSUNI_OPENBOR) && !defined(EMUSUNI_VITA)
+  NoOpenborGames,  // (with-mugen without with-openbor: OpenBOR's place; never shown, as above)
+#endif
+#ifndef EMUSUNI_VITA
+  NoVitaGames,  // (with-mugen without with-vita: the PS Vita's place; never shown)
+#endif
+  MugenGames,  // (01.27) builds with MUGEN (EMUSUNI_MUGEN, with-mugen): Ikemen GO game folders
+#endif
   Favorites,
   SavedData,
   Themes,
   Online,  // (00.23) online play's tab: rooms, codes, public rooms, nickname, the online profile
 };
-#ifdef EMUSUNI_OPENBOR
+#if defined(EMUSUNI_MUGEN)
+constexpr int CATEGORY_COUNT = 32;
+static_assert(static_cast<int>(Category::MugenGames) ==
+              static_cast<int>(Category::Games) + 1 + static_cast<int>(SystemId::MUGEN));
+#ifdef EMUSUNI_VITA
+static_assert(static_cast<int>(Category::VitaGames) ==
+              static_cast<int>(Category::Games) + 1 + static_cast<int>(SystemId::VITA));
+#endif
+#elif defined(EMUSUNI_VITA)
+constexpr int CATEGORY_COUNT = 31;
+static_assert(static_cast<int>(Category::VitaGames) ==
+              static_cast<int>(Category::Games) + 1 + static_cast<int>(SystemId::VITA));
+#elif defined(EMUSUNI_OPENBOR)
 constexpr int CATEGORY_COUNT = 30;
-static_assert(static_cast<int>(Category::OpenborGames) ==
-              static_cast<int>(Category::Games) + 1 + static_cast<int>(SystemId::OPENBOR));
 #else
 constexpr int CATEGORY_COUNT = 29;
+#endif
+#ifdef EMUSUNI_OPENBOR
+static_assert(static_cast<int>(Category::OpenborGames) ==
+              static_cast<int>(Category::Games) + 1 + static_cast<int>(SystemId::OPENBOR));
 #endif
 static_assert(static_cast<int>(Category::N64Games) ==
               static_cast<int>(Category::Games) + 1 + static_cast<int>(SystemId::N64));
@@ -881,6 +988,20 @@ constexpr const char* CATEGORY_NAMES[CATEGORY_COUNT] = {
     "Saturn", "PC Engine", "Atari 2600", "Atari 7800", "Atari Jaguar",
 #ifdef EMUSUNI_OPENBOR
     "OpenBOR",
+#elif defined(EMUSUNI_VITA)
+    "",  // (OpenBOR's place: Category::NoOpenborGames)
+#endif
+#ifdef EMUSUNI_VITA
+    "PS Vita",
+#endif
+#ifdef EMUSUNI_MUGEN
+#if !defined(EMUSUNI_OPENBOR) && !defined(EMUSUNI_VITA)
+    "",  // (OpenBOR's place: Category::NoOpenborGames)
+#endif
+#ifndef EMUSUNI_VITA
+    "",  // (the PS Vita's place: Category::NoVitaGames)
+#endif
+    "MUGEN",
 #endif
     "Favorites", "Saved Data", "Themes", "Online"};
 constexpr const char* SORT_NAMES[][2] = {
@@ -914,6 +1035,14 @@ std::vector<SystemId> s_shown_consoles;
 // on the screen. Read again at each frame's start (Draw): a change shows at once. Smaller means the same drawing
 // shrunk (ScaleDrawn), not other text sizes: every size drawn is one more set of glyphs in the font atlas.
 float s_menu_scale = 1.0f;
+
+// (01.26, a player: "de lejos no se distinguen") Settings -> Icon Size: the consoles' icons drawn smaller or bigger
+// (the XMB's row, by the Library's page title).
+float ConsoleIconScale()
+{
+  const std::string size = Settings::Get("icon_size");
+  return size == "small" ? 0.75f : size == "large" ? 1.35f : 1.0f;
+}
 
 float MenuScaleOf(const std::string& value)
 {
@@ -1090,6 +1219,42 @@ std::string ConsoleOrderKeys()
   return keys;
 }
 
+// (01.26, a player who doesn't use them) Settings -> Tabs Shown: the Online and Favorites tabs (and XMB columns) left
+// out - UpdateHiddenTabs, each frame: one shows again while it is the page open (Settings -> Online Play opens Online)
+// or, Online, while online play runs. A change makes the tabs and columns again (s_console_order_version).
+bool s_hide_online = false, s_hide_favorites = false;
+
+// ((01.28, the owner: "un checkbox seleccionable") A box each in Settings - Online Tab, Favorites Tab - ticked shown.
+// The value kept is still 01.26's tabs_shown (all, no_online, no_favorites, consoles): what a player chose with its
+// list stays, nothing to move, and an older version reads it as before.)
+bool TabShown(bool online)
+{
+  const std::string tabs = Settings::Get("tabs_shown");
+  return tabs != "consoles" && tabs != (online ? "no_online" : "no_favorites");
+}
+void SetTabShown(bool online, bool shown)
+{
+  const bool with_online = online ? shown : TabShown(true);
+  const bool with_favorites = online ? TabShown(false) : shown;
+  Settings::Set("tabs_shown", with_online && with_favorites ? "all" :
+                              with_favorites                ? "no_online" :
+                              with_online                   ? "no_favorites" :
+                                                              "consoles");
+}
+
+void UpdateHiddenTabs(int category)
+{
+  const bool online = !TabShown(true) && category != static_cast<int>(Category::Online) && !Netplay::Active() &&
+                      !Netplay::Hosting();
+  const bool favorites = !TabShown(false) && category != static_cast<int>(Category::Favorites);
+  if (online != s_hide_online || favorites != s_hide_favorites)
+  {
+    s_hide_online = online;
+    s_hide_favorites = favorites;
+    s_console_order_version++;
+  }
+}
+
 // The XMB style's columns, left to right: Settings, Online (00.23), all the games, a column per console shown (in
 // the console order), the favorites. Saved Data and Themes are pages of Settings in both styles (Cross
 // on them in its list, Circle back).
@@ -1100,11 +1265,14 @@ const std::vector<int>& Columns()
   if (version != s_console_order_version)
   {
     version = s_console_order_version;
-    columns = {static_cast<int>(Category::Settings), static_cast<int>(Category::Online),
-               static_cast<int>(Category::Games)};
+    columns = {static_cast<int>(Category::Settings)};
+    if (!s_hide_online)  // ((01.26) Tabs Shown)
+      columns.push_back(static_cast<int>(Category::Online));
+    columns.push_back(static_cast<int>(Category::Games));
     for (SystemId id : ShownOrder())
       columns.push_back(static_cast<int>(Category::Games) + 1 + static_cast<int>(id));
-    columns.push_back(static_cast<int>(Category::Favorites));
+    if (!s_hide_favorites)
+      columns.push_back(static_cast<int>(Category::Favorites));
   }
   return columns;
 }
@@ -1121,8 +1289,10 @@ const std::vector<int>& Tabs()
     tabs = {static_cast<int>(Category::Games)};
     for (SystemId id : ShownOrder())
       tabs.push_back(static_cast<int>(Category::Games) + 1 + static_cast<int>(id));
-    tabs.push_back(static_cast<int>(Category::Favorites));
-    tabs.push_back(static_cast<int>(Category::Online));  // (00.23)
+    if (!s_hide_favorites)  // ((01.26) Tabs Shown)
+      tabs.push_back(static_cast<int>(Category::Favorites));
+    if (!s_hide_online)
+      tabs.push_back(static_cast<int>(Category::Online));  // (00.23)
     tabs.push_back(static_cast<int>(Category::Settings));
   }
   return tabs;
@@ -1229,7 +1399,8 @@ constexpr ConsoleNote CONSOLE_NOTES[] = {
     {SystemId::GBC, "Game Boy Color games", nullptr, nullptr},
     {SystemId::GBA, "Game Boy Advance games", nullptr, nullptr},
     // (00.81: a .bin without its .cue too - src/Library.cpp.)
-    {SystemId::PS1, "PlayStation games, on one disc or several", nullptr,
+    {SystemId::PS1, "PlayStation games, on one disc or several",
+     "Optional: scph5501.bin (USA), scph5500.bin (Japan), scph5502.bin (Europe)",  // ((01.92) and BIOS Folder)
      ".cue (with its .bin tracks) or a .bin alone, .chd, .pbp, .iso, .m3u; not in a .zip"},
     {SystemId::NDS, "Nintendo DS games", nullptr, nullptr},
     {SystemId::PSP, "PSP games: UMD images and PSN downloads", nullptr, nullptr},
@@ -1268,6 +1439,21 @@ constexpr ConsoleNote CONSOLE_NOTES[] = {
     {SystemId::OPENBOR, "OpenBOR games: free fan-made beat 'em ups", nullptr,
      ".pak, not in a .zip; the engine version is picked by itself"},
 #endif
+#ifdef EMUSUNI_VITA
+    // (with-vita. Its firmware: the player's own files, taken from a USB drive by Settings -> PS Vita Firmware -
+    // src/Vita.h.)
+    {SystemId::VITA, "PS Vita games (experimental: slower than the console)",
+     "Sony's firmware 3.74: Settings -> PS Vita Firmware copies it from a USB drive",
+     ".vpk, or the .zip of a decrypted dump; installed the first time it starts"},
+#endif
+#ifdef EMUSUNI_MUGEN
+    // (01.27, with-mugen) Ikemen GO's games: each a folder as its release has it (src/Library.cpp). (01.72) What to
+    // copy, plainly (players copied loose files): the game's whole folder, its .exe not alone, an example's path. Its
+    // Files row takes several lines; the box leaves out Plays then (DrawConsoleInfo).
+    {SystemId::MUGEN, "MUGEN fighting games (experimental): Ikemen GO", nullptr,
+     "Each game's whole folder as it comes, the one with data, chars, stages, external... (not its .exe alone, no "
+     "files taken out of it): Roms/mugen/<Game>/data, Roms/mugen/<Game>/chars"},
+#endif
 };
 
 struct Item
@@ -1278,6 +1464,11 @@ struct Item
   int theme = -1;      // index into THEMES, or -2 - wallpaper index
   int setting = -1;
   int save = -1;  // index into the saved data list
+  int check = -1;  // (01.28) a box row: 1 ticked, 0 not (drawn as a box; Cross ticks it at once: ToggleCheck)
+  // (01.47) A folder's row in a console's list (Show Subfolders as Folders): its path there ("Hacks/Spanish"; Cross
+  // opens it), its games all the way down.
+  std::string folder;
+  int folder_games = 0;
 };
 
 enum Setting
@@ -1300,6 +1491,7 @@ enum Setting
   SET_DELETE_GAME,      // "Delete?" for a game (Triangle's options)
   SET_CLEANUP,          // Clean Up Games: duplicates and other regions
   SET_CLEANUP_CONFIRM,  // "Delete?" for Clean Up Games
+  SET_RENAME_FILES,     // (01.81) Rename Files With My Names: how many, then Rename
   SET_SAVED_DATA,       // the Saved Data page (in Settings)
   SET_THEMES,           // the Themes page (in Settings)
   SET_FIND_COVER,       // Find Cover (Triangle's options): pictures to choose from
@@ -1346,16 +1538,91 @@ enum Setting
   SET_3DS_CIA_INSTALL,  //   its install as it goes (Cancel), then its result: Delete the CIA / Keep It
   SET_3DS_CIA_DELETE,   //   "Delete?" for that CIA: it can't be brought back
   SET_3DS_EXTRAS,       //   a 3DS game's Triangle -> Updates, DLC and Mods: what it has, Remove, Mods On / Off
+  SET_3DS_TEX_CONFIRM,  //   (01.42) Install Textures: the pack, the free space: Install / Cancel
+  SET_3DS_TEX_INSTALL,  //   its install as it goes (Cancel), then its result
+  SET_3DS_TEX_REMOVE,   //   "Remove?" for its installed texture pack
   SET_3DS_REMOVE,       //   "Remove?" for its update or its DLC (copy its save first)
   SET_LIST_VIEW,        // (01.18) Options in a list of games: Order and Filters - the order, genre, players, adults
   SET_ARCADE_PATCHED,   // (01.22, src/GameExtras.h) an Arcade game's Triangle -> Patched Romset: in use, Remove, found
   SET_ARCADE_CONFIRM,   //   one found chosen: Install / Cancel (the room it takes)
   SET_ARCADE_COPY,      //   its copy as it goes (Cancel), then its result
   SET_ARCADE_REMOVE,    //   "Remove?" for the one in use
+  // (01.26, a player and the owner) The menu's look, Settings.cpp's global values as Menu Size (MenuChoicePanel):
+  SET_TAB_ONLINE,       //   (01.28) Online Tab: a box, ticked shown (tabs_shown, as 01.26's Tabs Shown kept it)
+  SET_TAB_FAVORITES,    //   (01.28) Favorites Tab: the same
+  SET_CONSOLE_ICONS,    //   Console Icons: the console, its controller or none (console_icons)
+  SET_ICON_SIZE,        //   Icon Size: small, medium, large (icon_size)
+  SET_HELP_BOXES,       //   Help Boxes: the games' boxes at the bottom - the console's, the 3DS's tip (help_boxes)
+  SET_FOLDER_VIEW,      // (01.47) Show Subfolders as Folders: a box (folder_view, off by default)
+  SET_COVER_FILE,       // (01.56) Cover From a File (Triangle's options): the drives' folders and pictures
+  SET_LAUNCHBOX,        // (01.84) LaunchBox Covers: a box (covers_launchbox, on by default; src/CoverDownload.cpp)
+  // (01.26, the owner: "sí está bien la agrupación del menú") Settings' groups: a list of their own in the Settings
+  // list (m_settings_group; Circle back) - SETTINGS_GROUPS.
+  SET_GROUP_GAMES,      //   Consoles and Games
+  SET_GROUP_COVERS,     //   Covers and Bezels
+  SET_GROUP_LOOK,       //   Appearance
+  SET_GROUP_SOUND,      //   Sound
+  SET_GROUP_ONLINE,     //   Online and Accounts
+  SET_GROUP_SYSTEM,     //   System
+#ifdef EMUSUNI_VITA
+  SET_VITA_FIRMWARE,    // (with-vita, src/Vita.h) PS Vita Firmware: what is there, Copy the Firmware, its progress
+#endif
 #ifdef EMUSUNI_SATURN
 #endif
   SET_GROUP = 100,  // + index into Settings::Categories(): an emulation settings list
 };
+static_assert(SET_GROUP_SYSTEM < SET_GROUP, "the menu's settings before the emulation settings lists");
+#ifdef EMUSUNI_VITA
+static_assert(SET_VITA_FIRMWARE < SET_GROUP, "the menu's settings before the emulation settings lists");
+#endif
+
+// (01.26, the owner: "sí está bien la agrupación del menú") Settings' first level: Saved Data, the groups, Controls,
+// Language and Send Log (the most asked of players, the master's: also first); each group's entries (BuildItems) in a
+// list of their own - what it holds said beside it. GroupOfSetting: which group's list shows a setting (-1 the first
+// level, -2 none: a page of another), so a setting opened from anywhere (a shortcut, the tour, a notice) has its list
+// behind it.
+struct SettingsGroup
+{
+  int setting;          // its SET_GROUP_*
+  const char* name;
+  const char* detail;   // what it holds, beside it
+  std::vector<int> members;
+};
+const std::vector<SettingsGroup>& SettingsGroups()
+{
+  static const std::vector<SettingsGroup> groups = {
+      {SET_GROUP_GAMES, "Consoles and Games", "Game folders, the consoles and tabs shown, their order",
+       {SET_FOLDERS, SET_FOLDER_VIEW, SET_CONSOLES_SHOWN, SET_TAB_ONLINE, SET_TAB_FAVORITES, SET_CONSOLE_ORDER,
+        SET_CLEANUP
+#ifdef EMUSUNI_VITA
+        , SET_VITA_FIRMWARE  // (with-vita)
+#endif
+       }},
+      {SET_GROUP_COVERS, "Covers and Bezels", "Download covers, the games without one, bezels",
+       {SET_DOWNLOAD, SET_LAUNCHBOX, SET_NO_COVER, SET_COVERS, SET_BEZELS}},
+      {SET_GROUP_LOOK, "Appearance", "Themes, the menu, the icons and the help boxes",
+       {SET_THEMES, SET_STYLE, SET_MENU_SIZE, SET_CLOCK, SET_RATINGS, SET_CONSOLE_ICONS, SET_ICON_SIZE,
+        SET_HELP_BOXES}},
+      {SET_GROUP_SOUND, "Sound", "Sound effects and volume", {SET_SOUNDS, SET_VOLUME}},
+      {SET_GROUP_ONLINE, "Online and Accounts", "Online play, voice chat, RetroAchievements, my stats",
+       {SET_ONLINE, SET_VOICE, SET_ACHIEVEMENTS, SET_MY_STATS}},
+      {SET_GROUP_SYSTEM, "System", "Your data on a USB drive, updates, statistics, reset, about",
+       {SET_PORTABLE, SET_UPDATES, SET_STATS, SET_RESET_ALL, SET_HELP, SET_ABOUT}},
+  };
+  return groups;
+}
+int GroupOfSetting(int setting)
+{
+  if (setting == SET_SAVED_DATA || setting == SET_CONTROLS || setting == SET_LANGUAGE || setting == SET_SEND_LOG)
+    return -1;
+  const auto& groups = SettingsGroups();
+  for (size_t g = 0; g < groups.size(); g++)
+  {
+    if (std::find(groups[g].members.begin(), groups[g].members.end(), setting) != groups[g].members.end())
+      return static_cast<int>(g);
+  }
+  return -2;
+}
 
 // A row of a settings list panel.
 struct SettingRow
@@ -1410,6 +1677,7 @@ struct Game
   // (01.05) Its mark under the stars (StandardMark): 0 not known yet (its file not read), 1 the standard version, 2
   // another, 3 nothing to say (a console the list hasn't, discs). Known once, then kept.
   mutable int8_t standard = 0;
+  std::string folder;  // (01.47) its folder in its console's list (Library::BrowseFolders; "" right in it)
 };
 
 // (00.85) A game for the matchers of names - the stars' (Ratings::Matcher), the covers' download - which read none of
@@ -1448,6 +1716,13 @@ public:
       : m_display(display), m_data_dir(data_dir), m_assets_dir(assets_dir)
   {
     m_prefs.Load(UserDir() + "/xmb.ini");
+    // (01.24) The folders of Game Folders as read (a player's PS5 lost them at every start, v00.23): only the
+    // xmb.ini's lines, no drive looked at here.
+    for (const auto& [key, dir] : m_prefs.games_dirs)
+    {
+      if (!dir.empty())
+        LogF("menu: Game Folders: %s: %s", key.c_str(), dir.c_str());
+    }
     // (The Roms/<console> folders are made by the read of the games: MakeFolders, on its thread.)
     for (const System& system : Systems())
     {
@@ -1610,12 +1885,22 @@ private:
   // The games of a read in m_games: in its order, the user's own names on them, by title (ApplyNames), the stars and
   // RetroAchievements' marks for them; GamesChanged after any change of m_games' order: what points into it by index
   // goes by the games' files again.
-  void SetGames(std::vector<Library::Game>&& roms);
+  // ((01.47) folders: the consoles' folders the games were found in - each game's own folder in its list from them.)
+  void SetGames(std::vector<Library::Game>&& roms, const std::array<std::vector<std::string>, SYSTEM_COUNT>& folders);
   void ApplyNames();
   std::array<std::string, CATEGORY_COUNT> SelectedPaths();
   void GamesChanged(const std::array<std::string, CATEGORY_COUNT>& selected, const std::string& online);
   void ForgetCovers();
   void BuildItems();
+  // (01.47, a player: "como hace EmulationStation") Settings -> Show Subfolders as Folders: a console's list shows
+  // the folder open in it (m_folder) - its subfolders first, then its own games; Cross on a folder opens it, Circle
+  // goes up.
+  bool FolderView() const { return Settings::GetOn("folder_view"); }
+  void GroupByFolder(int c);
+  void OpenFolder(int c, const std::string& folder);
+  void OpenFoldersOf(const std::array<std::string, CATEGORY_COUNT>& paths);
+  std::string FolderLine(int c) const;
+  void DrawFolderIcon(ImDrawList* dl, ImVec2 center, float width, float alpha);
   const Theme& CurrentTheme() const;
   void ApplyPreferences();
   ImTextureID LoadPngTexture(const std::string& path, float* aspect = nullptr,
@@ -1657,7 +1942,11 @@ private:
 
   void HandleInput(uint32_t pressed);
   void ActivateItem(const Item& item);
+  void ToggleCheck(int setting);  // (01.28) a box row (Item::check): Cross ticks or unticks it
   void OpenSettingPanel(int setting);
+  // (01.26) Settings' list as the group's (SettingsGroups(); -1 the first level), the row of `select` chosen (none:
+  // the first; the first level back from a group: the group's row).
+  void OpenSettingsGroup(int group, int select);
   void ApplySettingOption(int setting, int option);
   void OpenSettingsList(const std::string& category, const std::string& game_id, int system = -1);
   void BuildSettingRows();
@@ -1668,9 +1957,13 @@ private:
   void BuildControlRows();
   void UpdateCapture(float dt);
   void OpenCheatsList(const Game& game);
+  // (01.27) Triangle -> Load State: the game's save states (Saved Data's rows), Cross starts the game in one.
+  void OpenLoadStatePanel(const Game& game);
+  std::string m_load_state_game;  // its key
   void BuildCheatRows();
   void UpdateCheatFinder();
   bool CheatPanelBack();
+  void AskDeleteCheat();  // (01.36) Square on a code: asked, then Square again deletes it
   void OpenGameFolders();
   void OpenConsoleOrder(int selected = -1);
   bool ConsoleOrderInput(uint32_t pressed);
@@ -1689,7 +1982,8 @@ private:
   // The keyboard (00.80, src/TextKeyboard.h): the search's, or a text asked for (AskText).
   void HandleKeyboard(uint32_t pressed);
   void KeyboardDid(TextKeyboard::Result result, int direction, uint32_t button);
-  void ShowToast(const std::string& text, int icon);
+  // ((01.91) seconds: how long it shows - its fades in and out by its own length; 2.2 s every one's before.)
+  void ShowToast(const std::string& text, int icon, float seconds = 2.2f);
   // A game's name of the user's own (data_dir/names.ini) and a text asked for: the app's keyboard (00.80; until 00.79
   // the PS4's), with a title, the line under the field, at most `max_length` characters.
   void LoadNames();
@@ -1821,14 +2115,16 @@ private:
   void BuildTopTable();
   void DrawTopTable(ImDrawList* dl, float alpha, float x0, float x1, float y, float bottom);
   // (01.07, the owner) The Online tab's pages - Rooms, Chat (the world chat), Most Played (the table above),
-  // Players (the ranking) -, L1 / R1 between them (the Library's: past the first or the last, the menu's tabs).
+  // Players (the ranking), (01.91) ELO Ranking -, L1 / R1 between them (the Library's: past the first or the last, the
+  // menu's tabs).
   enum OnlinePage
   {
     PAGE_ROOMS = 0,
     PAGE_CHAT = 1,
     PAGE_TOP = 2,
     PAGE_PLAYERS = 3,
-    ONLINE_PAGES = 4,
+    PAGE_ELO = 4,
+    ONLINE_PAGES = 5,
   };
   int m_online_page = PAGE_ROOMS;
   bool OnlinePageInput(uint32_t pressed);
@@ -1845,8 +2141,30 @@ private:
   uint32_t m_world_said_seen = 0;
   // The players' ranking's page (Netplay::TopPlayers): the last 7 days or since ever (Triangle), the row selected.
   void DrawPlayersTable(ImDrawList* dl, float alpha, float x0, float x1, float y, float bottom);
-  int m_players_days = NetProto::TOP_DAYS;
+  // ((01.91, the owner) The players' ranking's and the games most played's periods: 30 days at first, Triangle 7 days,
+  // since ever (0), 30 days again.)
+  int m_players_days = NetProto::TOP_DAYS_MONTH;
+  int m_top_days = NetProto::TOP_DAYS_MONTH;
+  static int NextPeriod(int days)
+  {
+    return days == NetProto::TOP_DAYS_MONTH ? NetProto::TOP_DAYS : days == NetProto::TOP_DAYS ? 0 : NetProto::TOP_DAYS_MONTH;
+  }
+  // Triangle's label: the period it goes to.
+  static const char* NextPeriodButton(int days)
+  {
+    const int next = NextPeriod(days);
+    return next == NetProto::TOP_DAYS ? "Last 7 Days" : next == 0 ? "Since Ever" : "Last 30 Days";
+  }
+  static const char* PeriodTitle(int days)
+  {
+    return days == NetProto::TOP_DAYS ? "Last 7 days" : days == 0 ? "Since ever" : "Last 30 days";
+  }
   int m_players_index = 0;
+  // ((01.91, the owner: "un ranking ELO ... una sub-subpestaña por juego") The ELO ranking's page: one of src/Elo.h's
+  // games (Triangle the next, Square the one before), its players' rows (Up / Down).
+  void DrawEloTable(ImDrawList* dl, float alpha, float x0, float x1, float y, float bottom);
+  int m_elo_game = 0;
+  int m_elo_index = 0;
   std::vector<TopRow> m_top_rows;
   int m_top_index = 0;
   uint32_t m_top_serial = 0, m_top_logged = 0;
@@ -1898,6 +2216,8 @@ private:
   int m_together_game = -1;
   // (A new room starts on the Online tab's console filter's tab; the log's last line of the tabs.)
   std::string m_together_room, m_together_said;
+  // ((01.88) The last suggestion noticed (Netplay::View::suggestion_serial): its notice and its game selected, once.)
+  uint32_t m_together_suggestion = 0;
   void DrawTogetherScreen(ImDrawList* dl, float dt);
   bool TogetherInput(uint32_t pressed);
   void TogetherPick(int game);
@@ -2013,6 +2333,24 @@ private:
   void BuildUpdatePanel();
   void UpdatePanelChoice();
   void UpdateUpdater();
+#ifdef EMUSUNI_VITA
+  // (with-vita, src/Vita.h) The PS Vita's firmware: its Settings row and its panel.
+  std::string VitaFirmwareDetail() const;
+  void OpenVitaFirmwarePanel();
+  void BuildVitaFirmwarePanel();
+  void VitaFirmwareChoice();
+  void UpdateVitaFirmware();
+  // (01.29) The PS Vita's game folders (Roms/psvita of the PS4 and of each USB drive, the one chosen): where the
+  // player's own copies of the firmware's files are looked for. look: the drives looked at again now.
+  std::vector<std::string> VitaFolders(bool look) const
+  {
+    return Library::ConsoleFolders(GetSystem(SystemId::VITA), GamesFolder(SystemId::VITA),
+                                   look ? Library::FindPlaces(m_data_dir, Library::UsbDrives()) : m_places);
+  }
+  int m_vita_serial = -1;
+  bool m_vita_help = false;  // ((01.72) the panel's page on the .PUP files: what they are, where from, where to)
+  bool m_vita_found[Vita::PART_COUNT] = {};  // ((01.72) a file of Sony's size in the game folders, as last looked)
+#endif
   std::string UpdatesDetail(const Update::Status& status) const;
   // Portable data (00.87, src/Portable.h): Settings -> Keep My Data on the USB Drive (its page, the copy's page, the
   // question for a drive never answered for, the notice for a drive used here connected meanwhile, the warnings), the
@@ -2054,6 +2392,11 @@ private:
   };
   std::string ForgetGame(const Game& game, bool saves, const KeptByOthers& kept);
   void SetDeleteGameLines();
+  // ((01.81) Rename Files With My Names, src/GameRename.h) A console's games with names of the player's own: how many
+  // take them as their files' names (the confirmation), then the renaming and what goes with each.
+  int RenamableGames(SystemId system) const;
+  void OpenRenameFiles(SystemId system);
+  void RenameFiles();
   std::string OptionHelp(const std::string& option) const;
   void TourCommand(const std::string& command);
   // Saved data.
@@ -2112,6 +2455,14 @@ private:
   std::string ThreeDsGameName(uint64_t game_title_id);
   // A CIA said in a line: its game (the player's game's title, its own name, or its file's), what it is, its version.
   std::string CiaLine(const ThreeDsCia::File& file);
+  // (01.42, src/ThreeDsTextures.h) Its Texture Pack row's help (its pictures, once counted beside the menu) and, every
+  // frame, those rows' help again once their counts come.
+  std::string TexturePackHelp(const std::string& folder);
+  void Update3dsTextures();
+  // Install Textures: its pack (m_3ds_tex_pack) and the free space, Install / Cancel (its install as it goes:
+  // Update3dsTextures); Remove Textures: "Remove?".
+  void Open3dsTexConfirm();
+  void Ask3dsTexRemove();
 #endif
   // (01.22, src/GameExtras.h) An Arcade game's Triangle -> Patched Romset: the one FinalBurn Neo uses (Remove), and
   // those of its set in the Arcade's "patched" folders (Roms/arcade/patched), one copied in at a time on its thread
@@ -2225,7 +2576,12 @@ private:
   std::vector<std::string> m_wallpapers;
   std::vector<Item> m_items[CATEGORY_COUNT];
   int m_category = static_cast<int>(Category::Games);
+  int m_settings_group = -1;  // ((01.26) the Settings list's group open: SettingsGroups()'s; -1 the first level)
   int m_selected[CATEGORY_COUNT] = {};
+  // (01.47) Show Subfolders as Folders: the folder open in each console's list ("" its top; kept while the app runs),
+  // and whether the first start opened the folder of the game played last.
+  std::string m_folder[CATEGORY_COUNT];
+  bool m_folders_started = false;
   float m_category_pos = 1.0f;  // the XMB row's position (Columns(): all the games)
   float m_item_pos[CATEGORY_COUNT] = {};
   bool m_all_covered[CATEGORY_COUNT] = {};  // Without Cover emptied the list: its games all have covers
@@ -2305,8 +2661,16 @@ private:
     List,
     Search,
     Pick,
+    Import,  // ((01.89) Import Cheats: the drives' folders and .cht files; then Replace or Cancel when it has some)
   };
   Cheats::List m_cheats;
+  // ((01.89) Import Cheats: the folder shown - "" the places, kept in settings.ini as cheat_file_dir -, the file chosen
+  // while Replace / Cancel is asked ("" none), the row to select once its rows are made.)
+  std::string m_cheat_import_dir, m_cheat_import_file, m_cheat_import_select;
+  void ImportCheatFile(const std::string& file, bool replace);
+  // ((01.36) Square on a code asked to delete it: which one, until when - AskDeleteCheat.)
+  int m_cheat_delete_asked = -1;
+  std::chrono::steady_clock::time_point m_cheat_delete_until{};
   std::string m_cheats_game, m_cheats_path, m_cheats_title, m_cheats_folder, m_cheats_file;
   SystemId m_cheats_system = SystemId::SNES;
   CheatPage m_cheat_page = CheatPage::List;
@@ -2448,6 +2812,7 @@ private:
   std::string m_toast;  // a short notice at the top ("Added to Favorites")
   int m_toast_icon = 0;  // 1 a star, 2 an empty star
   float m_toast_time = 0.0f;
+  float m_toast_length = 2.2f;  // ((01.91) ShowToast's seconds: the fade in counts from it)
 
   // The user's names for games (key -> name).
   std::map<std::string, std::string> m_names;
@@ -2465,6 +2830,9 @@ private:
     std::string text, name, path;
     Library::Game game;  // a search: the game (its region chooses among the closest title's pictures)
     int serial = 0;      // a search: which one (StartFind's)
+    // ((01.56) Cover From a File: 4 preview a picture of the drive's (name: its file), 5 make it the game's cover - its
+    // cover before copied aside first (backup_from -> backup_to, once), then the record of it written (record).)
+    std::string backup_from, backup_to, record, record_text;
   };
   struct FindResult
   {
@@ -2498,12 +2866,23 @@ private:
   float m_preview_wait = 0.0f;
   ImTextureID m_preview{};
   float m_preview_aspect = 1.0f;
+  // (01.56, the owner) Cover From a File: the game (by key), the folder shown ("" the places: the USB drives and the
+  // app's storage; kept in settings.ini as cover_file_dir).
+  std::string m_pick_key, m_pick_title, m_pick_dir;
+  SystemId m_pick_system = SystemId::SNES;
+  void OpenCoverFile(int game);
+  void OpenCoverFileDir(const std::string& dir, const std::string& select_key);
+  void PickCoverFile(const std::string& file);
+  void UndoCoverFile();
+  std::string CoverRecordPath(const std::string& key);
+  void ForgetGameCover(const std::string& key);  // its cover's texture made again from its file
 
   // Files waiting for "Delete" (Delete Game, Clean Up Games), and Clean Up's two lists.
   std::vector<std::string> m_pending_delete;
   bool m_delete_saves = false;  // (01.19) Delete Game: its saves and states too (off each time it opens)
   std::string m_delete_title, m_delete_file;  // ... the game's title and file, for its lines
   size_t m_delete_files = 0;                  // ... its files' count
+  std::vector<GameRename::Plan> m_rename_plans;  // ((01.81) Rename Files With My Names: what Rename does)
   std::vector<std::string> m_cleanup_dups, m_cleanup_others[SYSTEM_COUNT];
   std::string m_cleanup_system;  // Keep Only USA Games' console ("snes", "nes", "n64")
 #ifdef EMUSUNI_3DS
@@ -2517,6 +2896,20 @@ private:
   std::vector<std::string> m_3ds_actions;
   uint64_t m_3ds_remove = 0;
   std::unordered_map<std::string, uint64_t> m_3ds_titles;
+  bool m_3ds_tex_counting = false;  // ((01.42) a Texture Pack row's help waits for its count)
+  std::string m_3ds_tex_pack;       // ((01.42) the player's pack for it: Roms/3ds/textures/<title ID>; "" none)
+  // ((01.46, the owner) Its four parts: 0 the list of them, then Updates, DLC, Mods, Textures (SECTION_*), each opened
+  // from it; its mods one by one as listed.)
+  enum
+  {
+    SECTION_LIST = 0,
+    SECTION_UPDATES = 1,
+    SECTION_DLC = 2,
+    SECTION_MODS = 3,
+    SECTION_TEXTURES = 4,
+  };
+  int m_3ds_section = SECTION_LIST;
+  std::vector<ThreeDsCia::Mod> m_3ds_mods;
 #endif
   // (01.22) An Arcade game's Patched Romset: the game, those found, the one chosen; a game's panel opened after the
   // game closed for it (Start the Game at its top).
@@ -2540,6 +2933,8 @@ std::array<std::string, SYSTEM_COUNT> Menu::Impl::ChosenFolders() const
   std::array<std::string, SYSTEM_COUNT> chosen;
   for (const System& system : Systems())
     chosen[static_cast<size_t>(system.id)] = GamesFolder(system.id);
+  // ((01.91) For a game's start: an Arcade clone in a folder below its console's finds its parent above it.)
+  Library::SetChosenFolders(chosen);
   return chosen;
 }
 
@@ -2601,7 +2996,7 @@ void Menu::Impl::LoadCachedGames()
   m_places = cache.places;
   m_console_games = cache.found.counts;
   const size_t count = cache.found.games.size();
-  SetGames(std::move(cache.found.games));
+  SetGames(std::move(cache.found.games), cache.found.folders);
   m_games_fingerprint = m_cache_fingerprint;
   m_games_known = true;
   char line[160];
@@ -2881,7 +3276,7 @@ void Menu::Impl::GamesRead(ReadDone& done)
   if (!m_games_known || done.fingerprint != m_games_fingerprint)
   {
     const size_t before = m_games.size();
-    SetGames(std::move(done.found.games));
+    SetGames(std::move(done.found.games), done.found.folders);
     m_games_fingerprint = done.fingerprint;
     m_games_known = true;
     LoadPlayed();
@@ -3013,15 +3408,19 @@ void Menu::Impl::DrawReading()
   }
 }
 
-void Menu::Impl::SetGames(std::vector<Library::Game>&& roms)
+void Menu::Impl::SetGames(std::vector<Library::Game>&& roms,
+                          const std::array<std::vector<std::string>, SYSTEM_COUNT>& folders)
 {
   std::vector<Game>().swap(m_games);  // (the old ones' room given back first: 30 000 games are several MB)
   m_games.reserve(roms.size());
+  // ((01.47) each game's folder in its console's list: made from the paths alone, so turning the folders on is at once)
+  std::vector<std::string> in = Library::BrowseFolders(roms, folders);
   for (size_t i = 0; i < roms.size(); i++)
   {
     Game game;
     game.rom = std::move(roms[i]);
     game.order = static_cast<int>(i);
+    game.folder = std::move(in[i]);
     m_games.push_back(std::move(game));
   }
   std::vector<Library::Game>().swap(roms);
@@ -3105,6 +3504,14 @@ void Menu::Impl::GamesChanged(const std::array<std::string, CATEGORY_COUNT>& sel
 {
   ForgetCovers();
   m_no_cover_count = -1;
+  // ((01.47) A folder's row selected stays so; a game selected in a console's list has its folder open there.)
+  std::array<std::string, CATEGORY_COUNT> folder_rows;
+  for (int c = 0; c < CATEGORY_COUNT; c++)
+  {
+    if (IsGameList(c) && m_selected[c] >= 0 && m_selected[c] < static_cast<int>(m_items[c].size()))
+      folder_rows[c] = m_items[c][static_cast<size_t>(m_selected[c])].folder;
+  }
+  OpenFoldersOf(selected);
   BuildItems();
   for (int c = 0; c < CATEGORY_COUNT; c++)
   {
@@ -3115,7 +3522,8 @@ void Menu::Impl::GamesChanged(const std::array<std::string, CATEGORY_COUNT>& sel
     const auto& refreshed = m_items[c];
     for (size_t i = 0; i < refreshed.size(); i++)
     {
-      if (refreshed[i].game >= 0 && !selected[c].empty() && m_games[refreshed[i].game].rom.path == selected[c])
+      if ((refreshed[i].game >= 0 && !selected[c].empty() && m_games[refreshed[i].game].rom.path == selected[c]) ||
+          (!folder_rows[c].empty() && refreshed[i].folder == folder_rows[c]))
       {
         m_selected[c] = static_cast<int>(i);
         m_item_pos[c] = static_cast<float>(i);
@@ -3178,16 +3586,29 @@ void Menu::Impl::LoadAssets()
   io.Fonts->TexMinWidth = 4096;
   io.Fonts->TexMinHeight = 2048;
   const std::string fonts = m_assets_dir + "/xmb/fonts/";
+  // (01.27) A font read as AddFontFromFileTTF reads it (the whole file, named after it), but through AssetPack: the
+  // package has them in xmb/assets.zip, deflated (scripts/package.sh; a loose file still comes first).
+  auto load_font = [&](const std::string& path, const ImFontConfig* base) -> ImFont* {
+    std::string bytes;
+    if (!AssetPack::Read(path, &bytes) || bytes.empty())
+      return nullptr;
+    ImFontConfig config = base ? *base : ImFontConfig();
+    if (config.Name[0] == '\0')
+      ImFormatString(config.Name, IM_ARRAYSIZE(config.Name), "%s", path.substr(path.find_last_of('/') + 1).c_str());
+    void* data = IM_ALLOC(bytes.size());  // the atlas owns it, as with AddFontFromFileTTF
+    std::memcpy(data, bytes.data(), bytes.size());
+    return io.Fonts->AddFontFromMemoryTTF(data, static_cast<int>(bytes.size()), 32.0f, &config);
+  };
   // Nunito (Latin, Cyrillic), then the Japanese / Chinese / Korean glyphs merged in (PS4Lang).
   auto add_font = [&](const char* file, bool bold) {
-    ImFont* font = io.Fonts->AddFontFromFileTTF((fonts + file).c_str(), 32.0f);
+    ImFont* font = load_font(fonts + file, nullptr);
     if (!font)
       return font;
     for (const std::string& extra : PS4Lang::ExtraFonts(m_assets_dir, bold))
     {
       ImFontConfig config;
       config.MergeMode = true;
-      io.Fonts->AddFontFromFileTTF(extra.c_str(), 32.0f, &config);
+      load_font(extra, &config);
     }
     return font;
   };
@@ -4460,6 +4881,9 @@ void Menu::Impl::BuildItems()
   // The emulation settings (Video, Graphics, Performance, Emulation, System) are set from a game
   // (Triangle -> Game Settings: for that game, its console or all games), not here.
   settings.push_back({"Game Folders", "A folder for each console's games", -1, -1, SET_FOLDERS});
+  // ((01.47, a player) A box, off by default: nobody's list changes unasked.)
+  settings.push_back({"Show Subfolders as Folders", "Each console's subfolders, opened one by one", -1, -1,
+                      SET_FOLDER_VIEW, -1, FolderView() ? 1 : 0});
   // ((01.09 to 01.21: 3DS Updates and DLC here. (01.22, the owner) From the game: Triangle -> Updates, DLC and Mods.)
   {
     std::string order;
@@ -4468,9 +4892,22 @@ void Menu::Impl::BuildItems()
     settings.push_back({"Console Order", order, -1, -1, SET_CONSOLE_ORDER});
   }
   settings.push_back({"Consoles Shown", ShownDetail(), -1, -1, SET_CONSOLES_SHOWN});
+  // ((01.26, a player and the owner) The menu's own choices - Settings.cpp's, as Menu Size: MenuChoicePanel.)
+  const auto choice_row = [&settings](const char* key, int set) {
+    if (const Settings::Setting* s = Settings::Find(key))
+      settings.push_back({s->label, Settings::LabelOf(*s, Settings::Get(key)), -1, -1, set});
+  };
+  // ((01.28, the owner: "un checkbox seleccionable") Tabs Shown's list as a box each: Cross ticks it.)
+  settings.push_back({"Online Tab", "Rooms, codes and the players online", -1, -1, SET_TAB_ONLINE, -1,
+                      TabShown(true) ? 1 : 0});
+  settings.push_back({"Favorites Tab", "Your favorite games (kept while it's hidden)", -1, -1, SET_TAB_FAVORITES, -1,
+                      TabShown(false) ? 1 : 0});
   settings.push_back({"Clean Up Games", "Duplicates and other regions", -1, -1, SET_CLEANUP});
   settings.push_back({"Download Covers", "Box art from libretro for your games", -1, -1,
                       SET_DOWNLOAD});
+  // ((01.84, the owner: «ok, usemos launchbox como respaldo») A box, ticked unless turned off: src/CoverDownload.cpp.)
+  settings.push_back({"LaunchBox Covers", "When libretro has none: a search per game", -1, -1, SET_LAUNCHBOX, -1,
+                      Settings::GetOn("covers_launchbox") ? 1 : 0});
   settings.push_back({"Games Without Cover", NoCoverDetail(), -1, -1, SET_NO_COVER});
   settings.push_back({"Covers Saved On", CoversDetail(), -1, -1, SET_COVERS});
   // (00.80: The Bezel Project's) (01.11: not counted here - BezelsDetail)
@@ -4481,15 +4918,64 @@ void Menu::Impl::BuildItems()
   settings.push_back({"Menu Style", Library() ? "Library" : "XMB", -1, -1, SET_STYLE});
   if (const Settings::Setting* size = Settings::Find("menu_size"))
     settings.push_back({"Menu Size", Settings::LabelOf(*size, Settings::Get("menu_size")), -1, -1, SET_MENU_SIZE});
+  choice_row("console_icons", SET_CONSOLE_ICONS);
+  choice_row("icon_size", SET_ICON_SIZE);
+  choice_row("help_boxes", SET_HELP_BOXES);
   settings.push_back({"Clock", m_prefs.clock ? "On" : "Off", -1, -1, SET_CLOCK});
   settings.push_back({"Reset All Settings", "Every setting back to the defaults", -1, -1,
                       SET_RESET_ALL});
   settings.push_back({"Check for Updates", UpdatesDetail(Update::Get()), -1, -1, SET_UPDATES});
+#ifdef EMUSUNI_VITA
+  // (with-vita, src/Vita.h) The PS Vita's firmware: what is there, its copy from the player's own files.
+  settings.push_back({"PS Vita Firmware", VitaFirmwareDetail(), -1, -1, SET_VITA_FIRMWARE});
+#endif
   // (00.23, src/UsageStats.h) How many use EmuSuNi: a random number of this app, never names or games.
   settings.push_back({"Anonymous Statistics", UsageStats::Enabled() ? "On" : "Off", -1, -1, SET_STATS});
   settings.push_back({"How to Help", "", -1, -1, SET_HELP});  // (00.90)
   settings.push_back({"Send Log", "", -1, -1, SET_SEND_LOG});  // (00.91: src/LogReport.h)
   settings.push_back({"About", "", -1, -1, SET_ABOUT});
+  // ((01.26, the owner) Settings' groups: every entry made as before, then the first level - Saved Data, the groups,
+  // Controls, Language, Send Log - or the open group's entries, in its order.)
+  {
+    std::vector<Item> all = std::move(settings);
+    settings.clear();
+    const auto take = [&all, &settings](int setting) {
+      for (const Item& item : all)
+      {
+        if (item.setting == setting)
+          settings.push_back(item);
+      }
+    };
+    const auto& groups = SettingsGroups();
+    if (m_settings_group >= 0 && m_settings_group < static_cast<int>(groups.size()))
+    {
+      for (const int setting : groups[static_cast<size_t>(m_settings_group)].members)
+        take(setting);
+    }
+    else
+    {
+      m_settings_group = -1;
+      const auto group = [&settings, &groups](int setting) {
+        for (const SettingsGroup& g : groups)
+        {
+          if (g.setting == setting)
+            settings.push_back({g.name, g.detail, -1, -1, g.setting});
+        }
+      };
+      take(SET_SAVED_DATA);
+      group(SET_GROUP_GAMES);
+      group(SET_GROUP_COVERS);
+      group(SET_GROUP_LOOK);
+      take(SET_CONTROLS);
+      group(SET_GROUP_SOUND);
+      take(SET_LANGUAGE);
+      group(SET_GROUP_ONLINE);
+      group(SET_GROUP_SYSTEM);
+      take(SET_SEND_LOG);
+    }
+    int& selected = m_selected[static_cast<int>(Category::Settings)];
+    selected = std::clamp(selected, 0, std::max(0, static_cast<int>(settings.size()) - 1));
+  }
 
   auto& games = m_items[static_cast<int>(Category::Games)];
   std::vector<int> order(m_games.size());
@@ -4602,6 +5088,13 @@ void Menu::Impl::BuildItems()
     if (m_favorites.count(game.rom.key))
       favorites.push_back(item);
   }
+  // ((01.47) Show Subfolders as Folders: each console's list as its open folder - not a search's, which finds every
+  // game, nor All's or Favorites'.)
+  if (m_search.empty() && FolderView())
+  {
+    for (const System& system : Systems())
+      GroupByFolder(ListOfSystem(system.id));
+  }
   // A list Without Cover emptied: its games all have covers (before the other empty texts).
   for (int c = 0; c < CATEGORY_COUNT; c++)
   {
@@ -4686,6 +5179,117 @@ void Menu::Impl::BuildItems()
   BuildOnlineItems();
   for (int c = 0; c < CATEGORY_COUNT; c++)
     m_selected[c] = std::clamp(m_selected[c], 0, std::max(0, static_cast<int>(m_items[c].size()) - 1));
+}
+
+// (01.47) A console's list - its games as BuildItems made it, filtered and in its order - as the folder open in it: a
+// row for each folder in it with games shown (by name; its games all the way down beside it), then its own games. A
+// folder without one isn't shown. The folder open gone (its games deleted or moved, a filter leaving none): the nearest
+// one above it that has some.
+void Menu::Impl::GroupByFolder(int c)
+{
+  if (c < 0 || c >= CATEGORY_COUNT)
+    return;
+  auto& list = m_items[c];
+  std::string& open = m_folder[c];
+  const auto inside = [](const std::string& folder, const std::string& in) {
+    return in.empty() || folder == in ||
+           (folder.size() > in.size() && folder.compare(0, in.size(), in) == 0 && folder[in.size()] == '/');
+  };
+  while (!open.empty())
+  {
+    const bool shown = std::any_of(list.begin(), list.end(), [&](const Item& item) {
+      return item.game >= 0 && inside(m_games[static_cast<size_t>(item.game)].folder, open);
+    });
+    if (shown)
+      break;
+    const size_t slash = open.rfind('/');
+    open = slash == std::string::npos ? std::string() : open.substr(0, slash);
+  }
+  std::vector<Item> rows, games;
+  std::map<std::string, size_t> at;  // a folder's name in lower case -> its row
+  for (Item& item : list)
+  {
+    if (item.game < 0)
+      continue;
+    const std::string& folder = m_games[static_cast<size_t>(item.game)].folder;
+    if (!inside(folder, open))
+      continue;
+    if (folder.size() == open.size())
+    {
+      games.push_back(std::move(item));
+      continue;
+    }
+    const size_t from = open.empty() ? 0 : open.size() + 1;
+    const size_t end = folder.find('/', from);
+    const std::string name = folder.substr(from, end == std::string::npos ? std::string::npos : end - from);
+    const auto [row, added] = at.emplace(Lower(name), rows.size());
+    if (added)
+    {
+      Item folder_row{name, ""};
+      folder_row.folder = folder.substr(0, end);
+      rows.push_back(std::move(folder_row));
+    }
+    rows[row->second].folder_games++;
+  }
+  std::sort(rows.begin(), rows.end(), [](const Item& a, const Item& b) { return Lower(a.label) < Lower(b.label); });
+  for (Item& row : rows)
+    row.detail = std::to_string(row.folder_games) + (row.folder_games == 1 ? " game" : " games");
+  rows.insert(rows.end(), std::make_move_iterator(games.begin()), std::make_move_iterator(games.end()));
+  list = std::move(rows);
+}
+
+// (01.47) Cross on a folder's row (its path) or Circle in one (the folder above): the list made again there, on its
+// first row - going up, on the row of the folder it came from.
+void Menu::Impl::OpenFolder(int c, const std::string& folder)
+{
+  if (c < 0 || c >= CATEGORY_COUNT)
+    return;
+  const std::string from = m_folder[c];
+  m_folder[c] = folder;
+  BuildItems();
+  m_selected[c] = 0;
+  const auto& items = m_items[c];
+  for (size_t i = 0; i < items.size(); i++)
+  {
+    if (!items[i].folder.empty() && items[i].folder == from)
+      m_selected[c] = static_cast<int>(i);
+  }
+  m_item_pos[c] = static_cast<float>(m_selected[c]);
+}
+
+// (01.47) The folder of a game (by its file: paths[c]) open in its console's list: the game selected there is in view.
+void Menu::Impl::OpenFoldersOf(const std::array<std::string, CATEGORY_COUNT>& paths)
+{
+  std::map<std::string, std::vector<int>> wanted;  // a game's file -> the consoles' lists that show it
+  for (int c = 0; c < CATEGORY_COUNT; c++)
+  {
+    if (SystemOfList(c) >= 0 && !paths[c].empty())
+      wanted[paths[c]].push_back(c);
+  }
+  for (size_t i = 0; i < m_games.size() && !wanted.empty(); i++)
+  {
+    const auto found = wanted.find(m_games[i].rom.path);
+    if (found == wanted.end())
+      continue;
+    for (const int c : found->second)
+    {
+      if (SystemOfList(c) == static_cast<int>(m_games[i].rom.system))
+        m_folder[c] = m_games[i].folder;
+    }
+    wanted.erase(found);
+  }
+}
+
+// (01.47) Where a console's list is: "Folder: Hacks / Spanish" ("" at its top, or without the folders).
+std::string Menu::Impl::FolderLine(int c) const
+{
+  if (c < 0 || c >= CATEGORY_COUNT || SystemOfList(c) < 0 || m_folder[c].empty() || !m_search.empty() ||
+      !FolderView())
+    return {};
+  std::string shown;
+  for (const char ch : m_folder[c])
+    shown += ch == '/' ? std::string(" / ") : std::string(1, ch);
+  return "Folder: " + shown;
 }
 
 void Menu::Impl::SetLanguage(const std::string& code)
@@ -4785,11 +5389,70 @@ void Menu::Impl::OpenSavesPanel(int index)
   MoveSettingRow(0);
 }
 
+// (01.27, the owner: Triangle's menu with the in-game menu's rows) A game's save states as Saved Data shows them - where
+// it left off (Continue's) and Slots 1 to 8, each with its picture and date -; Cross starts the game and loads it
+// (Emulator::LoadStateAtStart). The in-game menu's Load State has the same files.
+void Menu::Impl::OpenLoadStatePanel(const Game& game)
+{
+  m_panel = {};
+  m_panel.open = true;
+  m_panel.setting = SET_SAVES;
+  m_panel.title = "Load State";
+  m_saves_panel = -1;
+  m_load_state_game = game.rom.key;
+  std::vector<SettingRow> rows;
+  for (int slot = 0; slot <= Saves::SLOTS; slot++)
+  {
+    const int64_t time = Saves::Modified(Saves::StatePath(game.rom.key, slot));
+    if (time <= 0)
+      continue;
+    SettingRow row{slot == 0 ? std::string("Resume State") : "Slot " + std::to_string(slot), DateText(time),
+                   "load:" + std::to_string(slot)};
+    row.icon = StatePicture(game.rom.key, slot, &row.icon_aspect);
+    rows.push_back(std::move(row));
+  }
+  if (rows.empty())
+    rows.push_back({"No save states for this game yet", "", "", true});
+  LogF("menu: Load State for %s: %zu state(s)", game.rom.key.c_str(), rows.size() - (rows[0].header ? 1 : 0));
+  m_panel.rows = std::move(rows);
+  m_panel.selected = 0;
+  MoveSettingRow(0);
+}
+
 // ---------------------------------------------------------------------------------------------
 // Panels.
 
+void Menu::Impl::OpenSettingsGroup(int group, int select)
+{
+  const int was = m_settings_group;
+  m_settings_group = group;
+  BuildItems();
+  const auto& items = m_items[static_cast<int>(Category::Settings)];
+  const int find = group < 0 && select < 0 && was >= 0 ? SettingsGroups()[static_cast<size_t>(was)].setting : select;
+  int at = 0;
+  for (int i = 0; i < static_cast<int>(items.size()); i++)
+  {
+    if (items[static_cast<size_t>(i)].setting == find)
+      at = i;
+  }
+  m_selected[static_cast<int>(Category::Settings)] = at;
+  m_item_pos[static_cast<int>(Category::Settings)] = static_cast<float>(at);
+}
+
 void Menu::Impl::OpenSettingPanel(int setting)
 {
+  // ((01.26, the owner) A group: its list in the Settings list's place - no panel. A setting of another list than the
+  // one shown, opened from anywhere - a shortcut, the tour, a notice -: its list behind it, its row chosen.)
+  for (size_t g = 0; g < SettingsGroups().size(); g++)
+  {
+    if (SettingsGroups()[g].setting == setting)
+    {
+      OpenSettingsGroup(static_cast<int>(g), -1);
+      return;
+    }
+  }
+  if (const int group = GroupOfSetting(setting); group != -2 && group != m_settings_group)
+    OpenSettingsGroup(group, setting);
   m_panel = {};
   m_panel.open = true;
   m_panel.setting = setting;
@@ -4846,6 +5509,33 @@ void Menu::Impl::OpenSettingPanel(int setting)
     m_panel.lines = {"", "Smaller games in the menu:", "more of them on the screen at once,", "in the XMB's list and the",
                      "Library's row of covers.", "", "It changes at once."};
     break;
+  case SET_CONSOLE_ICONS:
+  case SET_ICON_SIZE:
+  case SET_HELP_BOXES:
+  {
+    // (01.26) The menu's own choices (Settings.cpp's, as Menu Size's): the one in use chosen, what the setting does under
+    // them (translated, then wrapped: the panel's lines are drawn as they are). ((01.28) Tabs Shown: two boxes now.)
+    const char* key = setting == SET_CONSOLE_ICONS ? "console_icons" :
+                      setting == SET_ICON_SIZE     ? "icon_size" :
+                                                     "help_boxes";
+    if (const Settings::Setting* s = Settings::Find(key))
+    {
+      m_panel.title = s->label;
+      for (const Settings::Choice& choice : s->choices)
+      {
+        if (Settings::Get(key) == choice.value)
+          m_panel.selected = static_cast<int>(m_panel.options.size());
+        m_panel.options.push_back(choice.label);
+      }
+      m_panel.lines = {""};
+      std::stringstream wrapped(WrapText(m_font, 28, PS4Lang::T(s->help), 540.0f));
+      for (std::string line; std::getline(wrapped, line);)
+        m_panel.lines.push_back(line);
+      m_panel.lines.push_back("");
+      m_panel.lines.push_back("It changes at once.");
+    }
+    break;
+  }
   case SET_CLOCK:
     m_panel.title = "Clock";
     m_panel.options = {"On", "Off"};
@@ -4975,6 +5665,11 @@ void Menu::Impl::OpenSettingPanel(int setting)
   case SET_UPDATES:
     OpenUpdatePanel(false);
     return;
+#ifdef EMUSUNI_VITA
+  case SET_VITA_FIRMWARE:
+    OpenVitaFirmwarePanel();  // (with-vita)
+    return;
+#endif
   case SET_DOWNLOAD:
     m_panel.title = "Download Covers";
     StartCoverDownload();
@@ -5049,6 +5744,19 @@ void Menu::Impl::BuildSettingRows()
   // 00.71. Flycast's consoles had one fixed level, Standard, from 00.53 to 00.67: the Quality levels again since 00.68.)
   if (m_panel.system == static_cast<int>(SystemId::THREEDS))
     rows.push_back({"Nintendo 3DS: experimental", "", "", true});
+  // (01.58) N64 Widescreen: offered on the page of a game it knows (its ROM's header in Emulator.cpp's list) only.
+  bool n64_wide = false;
+  if (!game.empty() && m_panel.system == static_cast<int>(SystemId::N64))
+  {
+    for (const Game& listed : m_games)
+    {
+      if (listed.rom.key == game)
+      {
+        n64_wide = Emulator::N64WidescreenListed(listed.rom.path);
+        break;
+      }
+    }
+  }
   for (const char* category : Settings::Categories())
   {
     if (!m_panel.category.empty() && m_panel.category != category)
@@ -5060,8 +5768,12 @@ void Menu::Impl::BuildSettingRows()
         continue;
       if (!game.empty() && std::string(setting.key) == "language")
         continue;
+      if (setting.per_game && game.empty())
+        continue;  // ((01.91) a game's pages only: Triangle -> Game Settings, the in-game menu's)
       if (m_panel.system >= 0 ? !Settings::AppliesTo(setting, static_cast<SystemId>(m_panel.system)) :
                                 !Settings::AppliesToAny(setting))
+        continue;
+      if (std::string(setting.key) == "n64_widescreen" && !n64_wide)
         continue;
       if (!header)
         rows.push_back({category, "", "", true});
@@ -5114,10 +5826,54 @@ void Menu::Impl::ChangeSettingRow(int direction)
   // Start the Game (after the game closed for it).
   if (m_panel.setting == SET_3DS_EXTRAS)
   {
-    if (row.key == "3ds:mods")
+    if (direction > 0 && row.key.rfind("3ds:sec:", 0) == 0)
+    {
+      // ((01.46) One of its four parts: its own list.)
+      m_3ds_section = std::atoi(row.key.c_str() + 8);
+      Open3dsExtras(GameIndexOf(m_3ds_path), "", false);
+    }
+    else if (row.key.rfind("3ds:mod:", 0) == 0 && row.tag != 0)
+    {
+      // (01.46) A mod's switch (either way).
+      const size_t index = static_cast<size_t>(std::atoi(row.key.c_str() + 8));
+      if (index < m_3ds_mods.size())
+      {
+        ThreeDsCia::SetModOn(m_3ds_title, m_3ds_mods[index], row.tag < 0);
+        m_panel.rows[m_panel.selected].tag = row.tag < 0 ? 1 : -1;
+      }
+    }
+    else if (row.key == "3ds:update_on" || row.key == "3ds:dlc_on")
+    {
+      // (01.46) The installed update's or DLC's switch (a core that can leave them out: ThreeDsCia::ExtrasCaps).
+      if (row.key == "3ds:update_on")
+        ThreeDsCia::SetUpdateOn(m_3ds_title, row.tag < 0);
+      else
+        ThreeDsCia::SetDlcOn(m_3ds_title, row.tag < 0);
+      m_panel.rows[m_panel.selected].tag = row.tag < 0 ? 1 : -1;
+    }
+    else if (row.key == "3ds:mods")
     {
       ThreeDsCia::SetModsOn(m_3ds_title, row.tag < 0);
       m_panel.rows[m_panel.selected].tag = row.tag < 0 ? 1 : -1;
+    }
+    else if (row.key == "3ds:textures")
+    {
+      // (01.42) Texture Pack On / Off (either way); turned on, what it costs is said.
+      const bool on = row.tag < 0;
+      ThreeDsTextures::SetOn(m_3ds_title, on);
+      m_panel.rows[m_panel.selected].tag = on ? 1 : -1;
+      if (on)
+      {
+        ShowToast("Texture pack on: it takes more memory. If the game runs slow or closes, turn it off.", 0, 6.0f);
+      }
+    }
+    else if (direction > 0 && row.key == "3ds:tex_install")
+    {
+      Open3dsTexConfirm();  // ((01.42) Install Textures)
+    }
+    else if (direction > 0 && row.key == "3ds:tex_remove")
+    {
+      Ask3dsTexRemove();
     }
     else if (direction > 0 && row.key == "3ds:start")
     {
@@ -5187,6 +5943,26 @@ void Menu::Impl::ChangeSettingRow(int direction)
   }
   if (m_panel.setting == SET_SAVES)
   {
+    if (row.key.rfind("load:", 0) == 0)
+    {
+      // ((01.27) Triangle -> Load State: the game started, that state loaded as it starts.)
+      if (direction <= 0)
+        return;
+      const int slot = std::atoi(row.key.c_str() + 5);
+      for (size_t i = 0; i < m_games.size(); i++)
+      {
+        if (m_games[i].rom.key != m_load_state_game)
+          continue;
+        Emulator::LoadStateAtStart(m_load_state_game, slot);
+        m_panel.open = false;
+        Item launch;
+        launch.game = static_cast<int>(i);
+        ActivateItem(launch);
+        return;
+      }
+      Play("error");  // (the game isn't in the list any more)
+      return;
+    }
     if (direction <= 0 || row.key.rfind("del:", 0) != 0)
       return;
     // "Delete?" first.
@@ -5243,6 +6019,28 @@ void Menu::Impl::ChangeSettingRow(int direction)
       }
       m_find_wake.notify_one();
       ShowToast("Downloading the picture...", 0);
+    }
+    return;
+  }
+  if (m_panel.setting == SET_COVER_FILE)
+  {
+    // ((01.56) a folder: opened; a picture: the game's cover; the cover before back)
+    if (direction <= 0)
+      return;
+    if (row.key.rfind("cfdir:", 0) == 0)
+    {
+      // (Going up: on the folder it came from.)
+      const std::string dir = row.key.substr(6), from = m_pick_dir;
+      OpenCoverFileDir(dir, from.size() > dir.size() ? "cfdir:" + from : std::string());
+      Play("menu");
+    }
+    else if (row.key.rfind("img:", 0) == 0)
+    {
+      PickCoverFile(row.key.substr(4));
+    }
+    else if (row.key == "cf:undo")
+    {
+      UndoCoverFile();
     }
     return;
   }
@@ -5532,6 +6330,20 @@ void Menu::Impl::ChangeSettingRow(int direction)
       BuildControlRows();
       return;
     }
+    if (row.key.rfind("ctlstick:", 0) == 0)
+    {
+      // (01.27) A stick's sensitivity or the dead zone: the next value (Left / Right), round.
+      const size_t index = static_cast<size_t>(std::atoi(row.key.c_str() + 9));
+      if (index < Controls::StickSettings().size())
+      {
+        const std::string edit = Controls::HasGameProfile(m_controls_game) ? m_controls_game : "";
+        const Controls::StickSetting& setting = Controls::StickSettings()[index];
+        Controls::SetStick(setting, Controls::StepStick(setting, Controls::GetStick(setting, edit, system), direction),
+                           edit, system);
+        BuildControlRows();
+      }
+      return;
+    }
     if (row.key.rfind("ctl:", 0) == 0)
     {
       const std::string edit = Controls::HasGameProfile(m_controls_game) ? m_controls_game : "";
@@ -5589,6 +6401,44 @@ void Menu::Impl::ChangeSettingRow(int direction)
     m_finder_mb = -1;
     m_finder.Start(m_data_dir, m_cheats_system, m_cheats_path, m_cheats_title);
     BuildCheatRows();
+    return;
+  }
+  // ((01.89) Import Cheats: the folder of the last time, if it is there now - else the places -; a folder opened, a
+  // .cht chosen, Replace or Cancel.)
+  if (row.key == "cheatimport" || row.key.rfind("chtdir:", 0) == 0)
+  {
+    if (direction <= 0)
+      return;
+    const std::string from = m_cheat_import_dir;
+    std::string dir = row.key == "cheatimport" ? Settings::Get("cheat_file_dir") : row.key.substr(7);
+    std::error_code ec;
+    if (!dir.empty() && !std::filesystem::is_directory(dir, ec))
+      dir.clear();
+    m_cheat_page = CheatPage::Import;
+    m_cheat_import_file.clear();
+    m_cheat_import_dir = dir;
+    if (Settings::Get("cheat_file_dir") != dir)
+      Settings::Set("cheat_file_dir", dir);
+    // (Going up: on the folder it came from.)
+    m_cheat_import_select = row.key != "cheatimport" && from.size() > dir.size() ? "chtdir:" + from : "first";
+    BuildCheatRows();
+    Play("menu");
+    return;
+  }
+  if (row.key.rfind("chtfile:", 0) == 0 || row.key == "chtreplace")
+  {
+    if (direction > 0)
+      ImportCheatFile(row.key == "chtreplace" ? m_cheat_import_file : row.key.substr(8), row.key == "chtreplace");
+    return;
+  }
+  if (row.key == "chtcancel")
+  {
+    if (direction <= 0)
+      return;
+    m_cheat_import_file.clear();
+    m_cheat_import_select = "first";
+    BuildCheatRows();
+    Play("back");
     return;
   }
   if (row.key.rfind("cheatfile:", 0) == 0)
@@ -5751,6 +6601,15 @@ void Menu::Impl::BuildControlRows()
     }
     rows.push_back(std::move(row));
   }
+  // (01.27) The sticks' sensitivity and dead zone (src/Controls.h: StickSetting).
+  rows.push_back({"Sticks", "", "", true});
+  const auto& sticks = Controls::StickSettings();
+  for (size_t i = 0; i < sticks.size(); i++)
+  {
+    rows.push_back({sticks[i].label,
+                    Controls::StickText(sticks[i], Controls::GetStick(sticks[i], edit, m_controls_system)),
+                    "ctlstick:" + std::to_string(i)});
+  }
   rows.push_back({"", "", "", true});
   rows.push_back({"Reset to Default", "", "__ctlreset__"});
   m_panel.rows = std::move(rows);
@@ -5831,7 +6690,7 @@ void Menu::Impl::OpenCheatsList(const Game& game)
   m_cheats_folder = UserDir() + "/cheats/" + GetSystem(game.rom.system).prefix;
   m_cheats_file = game.rom.id + ".cht";
   m_cheat_page = CheatPage::List;
-  m_cheats.Load(UserDir(), game.rom.key);
+  m_cheats.Load(UserDir(), game.rom.key, game.rom.system == SystemId::DC);  // ((01.26) the Dreamcast's: codes)
   BuildCheatRows();
   m_panel.selected = 0;
   MoveSettingRow(0);
@@ -5840,10 +6699,21 @@ void Menu::Impl::OpenCheatsList(const Game& game)
 void Menu::Impl::BuildCheatRows()
 {
   std::vector<SettingRow> rows;
+  int select = -1;  // ((01.89) Import Cheats: the row asked for, once its rows are made)
   if (m_cheat_page == CheatPage::List)
   {
     m_panel.title = "Cheats";
     rows.push_back({"Find Cheats Online", "", "cheatfind"});
+    if (Cheats::Importable(m_cheats_system))
+    {
+      SettingRow import{"Import Cheats", "", "cheatimport"};
+      import.help = m_cheats_system == SystemId::THREEDS ?  // ((01.89) the 3DS: Azahar's .txt too)
+                        "A RetroArch .cht file or Azahar's .txt of your own, on a USB drive or in EmuSuNi's storage, as "
+                        "this game's cheats. A copy is made; your file stays as it is." :
+                        "A RetroArch .cht file of your own, on a USB drive or in EmuSuNi's storage, as this game's "
+                        "cheats. A copy is made; your file stays as it is.";
+      rows.push_back(import);
+    }
     const auto& entries = m_cheats.Entries();
     if (!entries.empty())
     {
@@ -5869,7 +6739,10 @@ void Menu::Impl::BuildCheatRows()
     using State = CheatDownload::Finder::State;
     m_panel.title = "Find Cheats Online";
     const State state = m_finder.GetState();
-    if (state == State::Downloading)
+    const bool ctrpf = m_cheats_system == SystemId::THREEDS;  // ((01.26) the 3DS's: CTRPF-AR-CHEAT-CODES, on GitHub)
+    if (state == State::Downloading && ctrpf)
+      rows.push_back({"Looking in github.com/iSharingan/CTRPF-AR-CHEAT-CODES...", "", "", true});
+    else if (state == State::Downloading)
       rows.push_back({"Downloading the cheat collection: " + std::to_string(m_finder.DownloadedMb()) +
                           (m_finder.TotalMb() > 0 ? " of " + std::to_string(m_finder.TotalMb()) : std::string()) + " MB",
                       "", "", true});
@@ -5886,13 +6759,103 @@ void Menu::Impl::BuildCheatRows()
       rows.push_back({"Circle, then Find Cheats Online: another try", "", "", true});
     }
     else if (m_finder.Results().empty())
+    {
       rows.push_back({"No cheats found for this game", "", "", true});
+      if (ctrpf && !m_finder.TitleId().empty())
+      {
+        // ((01.26) None in that collection: the player's own file still works - Azahar reads it at the game's start.)
+        rows.push_back({"github.com/iSharingan/CTRPF-AR-CHEAT-CODES has none for " + m_finder.TitleId(), "", "", true});
+        rows.push_back({"Your own: " + UserDir() + "/saves/3ds/Azahar/cheats/" + m_finder.TitleId() + ".txt", "", "",
+                        true});
+      }
+    }
     else
     {
-      rows.push_back({"Cheat lists (libretro)", "", "", true});
+      // ((01.57) an N64 cartridge's own list first, under its own title: found by its header, whatever its name)
       const auto& results = m_finder.Results();
+      const size_t cartridge = std::min(m_finder.CartridgeResults(), results.size());
+      if (cartridge > 0)
+        rows.push_back({"By the cartridge (Mupen64Plus's list)", "", "", true});
       for (size_t i = 0; i < results.size(); i++)
+      {
+        if (i == cartridge)
+          rows.push_back({ctrpf ? "From github.com/iSharingan/CTRPF-AR-CHEAT-CODES" : "Cheat lists (libretro)", "", "",
+                          true});
         rows.push_back({results[i], "", "cheatfile:" + std::to_string(i)});
+      }
+    }
+  }
+  else if (m_cheat_page == CheatPage::Import)
+  {
+    // ((01.89) Import Cheats: the places - the USB drives, the app's storage -, a folder's folders and .cht files (as
+    // Cover From a File's); a file chosen for a game with cheats already: Replace or Cancel.)
+    m_panel.title = "Import Cheats";
+    rows.push_back({m_cheats_title, GetSystem(m_cheats_system).tab, "", true});
+    if (!m_cheat_import_file.empty())
+    {
+      rows.push_back({"This game has cheats already", "", "", true});
+      SettingRow replace{"Replace", "", "chtreplace"};
+      replace.help = "The cheats it has now are kept beside them as a .bak file; the new ones then show in Cheats.";
+      rows.push_back(replace);
+      SettingRow cancel{"Cancel", "", "chtcancel"};
+      cancel.help = "Nothing changes.";
+      rows.push_back(cancel);
+    }
+    else
+    {
+      const std::string& dir = m_cheat_import_dir;
+      std::vector<std::string> places = Library::UsbDrives();
+      places.push_back(m_data_dir);
+      rows.push_back({dir.empty() ? std::string("Places") : dir, "", "", true});
+      if (dir.empty())
+      {
+        for (const std::string& place : places)
+          rows.push_back({place, place == m_data_dir ? "EmuSuNi's Storage" : "USB Drive", "chtdir:" + place});
+      }
+      else
+      {
+        // ("..": the folder above; from a place's top the places again.)
+        const std::string parent = dir.substr(0, dir.rfind('/'));
+        const bool top = parent.empty() || std::find(places.begin(), places.end(), dir) != places.end();
+        rows.push_back({"..", top ? "Places" : parent, top ? "chtdir:" : "chtdir:" + parent});
+        const bool txt = m_cheats_system == SystemId::THREEDS;  // ((01.89) Azahar's own files too)
+        const Cheats::Folder folder = Cheats::ReadFolder(dir, txt);
+        if (!folder.error.empty())
+          rows.push_back({"(this folder can't be opened: " + folder.error + ")", "", "", true});
+        else if (folder.folders.empty() && folder.files.empty())
+          rows.push_back({txt ? "No .cht or .txt files or folders here" : "No .cht files or folders here", "", "", true});
+        for (const std::string& name : folder.folders)
+          rows.push_back({name + "/", "", "chtdir:" + dir + "/" + name});
+        for (const auto& [name, bytes] : folder.files)
+        {
+          char size[32];
+          if (bytes < (uintmax_t{1} << 20))
+            std::snprintf(size, sizeof(size), "%llu KB", static_cast<unsigned long long>((bytes + 1023) >> 10));
+          else
+            std::snprintf(size, sizeof(size), "%.1f MB", static_cast<double>(bytes) / (1 << 20));
+          SettingRow row{name, size, "chtfile:" + dir + "/" + name};
+          row.help = Cheats::KindFor(m_cheats_system, name) == Cheats::Kind::Azahar ?
+                         "Cross: this Azahar file's cheats into this game's list, all off: turn on the ones you want. "
+                         "Your file stays as it is." :
+                         "Cross: these cheats as this game's. A copy is made; your file stays as it is.";
+          rows.push_back(row);
+        }
+        if (folder.cut)
+          rows.push_back({"Only the first 5000 are shown", "", "", true});
+      }
+    }
+    // (The row asked for - the folder come from, Cancel -, else the folder's first one after "..".)
+    if (!m_cheat_import_select.empty())
+    {
+      for (size_t i = 0; i < rows.size() && select < 0; i++)
+      {
+        const SettingRow& row = rows[i];
+        if (row.key == m_cheat_import_select ||
+            (m_cheat_import_select == "first" && !row.header && row.label != ".." && !row.key.empty()))
+          select = static_cast<int>(i);
+      }
+      m_cheat_import_select.clear();
+      select = std::max(select, 0);
     }
   }
   else
@@ -5918,10 +6881,46 @@ void Menu::Impl::BuildCheatRows()
   m_panel.rows = std::move(rows);
   if (!m_panel.rows.empty())
   {
+    if (select >= 0)
+      m_panel.selected = select;
     m_panel.selected = std::clamp(m_panel.selected, 0, static_cast<int>(m_panel.rows.size()) - 1);
     if (m_panel.rows[m_panel.selected].header)
       MoveSettingRow(1);
+    else if (select >= 0)
+      MoveSettingRow(0);  // (its place in the list in view)
   }
+}
+
+// ((01.89) Import Cheats) The file chosen: a RetroArch .cht, copied to the game's own file (Cheats::ImportFile); a
+// game with cheats already asks first (Replace keeps the one before as .bak). Then Cheats, with the new ones.
+void Menu::Impl::ImportCheatFile(const std::string& file, bool replace)
+{
+  // ((01.89) The Dreamcast's addresses, the 3DS's Gateway codes; (01.90) an Azahar .txt made the list, all off.)
+  int codes = 0;
+  const Cheats::Import result =
+      Cheats::ImportFile(file, m_cheats.Path(), Cheats::KindFor(m_cheats_system, file), replace, &codes);
+  if (result == Cheats::Import::Exists)
+  {
+    m_cheat_import_file = file;
+    m_cheat_import_select = "chtcancel";
+    BuildCheatRows();
+    Play("menu");
+    return;
+  }
+  m_cheat_import_file.clear();
+  if (result != Cheats::Import::Done)
+  {
+    ShowToast(Cheats::ImportProblem(result), 0);  // (why, in the log: Cheats::ImportFile)
+    BuildCheatRows();
+    Play("error");
+    return;
+  }
+  m_cheats.Load(UserDir(), m_cheats_game, m_cheats_system == SystemId::DC);
+  m_cheat_page = CheatPage::List;
+  m_panel.selected = 0;
+  BuildCheatRows();
+  ShowToast(codes == 1 ? std::string("1 cheat imported") : std::to_string(codes) + " cheats imported", 0);
+  Play("confirm");
 }
 
 // While Find Cheats Online looks, its rows follow it.
@@ -5940,8 +6939,58 @@ void Menu::Impl::UpdateCheatFinder()
 }
 
 // Circle on Find Cheats Online's pages: one page back (true), else the panel closes as before.
+// (01.36, a player: 16 cheats added, some by mistake, none could be taken out) Square on a code of Triangle -> Cheats:
+// asked first (a toast), Square again on it within 3 s deletes it from the list and its file. (The in-game menu's
+// Cheats the same: IngameMenu::AskDeleteCheat.)
+void Menu::Impl::AskDeleteCheat()
+{
+  if (m_cheat_page != CheatPage::List || m_panel.selected < 0 ||
+      m_panel.selected >= static_cast<int>(m_panel.rows.size()) ||
+      m_panel.rows[static_cast<size_t>(m_panel.selected)].key.rfind("cheat:", 0) != 0)
+    return;
+  const int index = std::atoi(m_panel.rows[static_cast<size_t>(m_panel.selected)].key.c_str() + 6);
+  const auto& entries = m_cheats.Entries();
+  if (index < 0 || index >= static_cast<int>(entries.size()))
+    return;
+  const std::string name = entries[static_cast<size_t>(index)].name;
+  const auto now = std::chrono::steady_clock::now();
+  if (m_cheat_delete_asked != index || now > m_cheat_delete_until)
+  {
+    m_cheat_delete_asked = index;
+    m_cheat_delete_until = now + std::chrono::seconds(3);
+    ShowToast("Square again to delete: " + name, 0);
+    Play("menu");
+    return;
+  }
+  m_cheat_delete_asked = -1;
+  if (!m_cheats.Remove(static_cast<size_t>(index)))
+    return;
+  ShowToast("Cheat deleted: " + name, 0);
+  BuildCheatRows();
+  m_panel.selected = std::clamp(m_panel.selected, 0, static_cast<int>(m_panel.rows.size()) - 1);
+  if (m_panel.rows[static_cast<size_t>(m_panel.selected)].header)
+    MoveSettingRow(-1, false);  // (the last one gone: the row above, not a title)
+  Play("confirm");
+}
+
 bool Menu::Impl::CheatPanelBack()
 {
+  // ((01.89) Import Cheats: Replace / Cancel asked - Cancel -, else back to Cheats.)
+  if (m_panel.title == "Import Cheats" && m_cheat_page == CheatPage::Import)
+  {
+    if (!m_cheat_import_file.empty())
+    {
+      m_cheat_import_file.clear();
+      m_cheat_import_select = "first";
+    }
+    else
+    {
+      m_cheat_page = CheatPage::List;
+      m_panel.selected = 0;
+    }
+    BuildCheatRows();
+    return true;
+  }
   if (m_panel.title == "Choose Cheats" && m_cheat_page == CheatPage::Pick)
   {
     m_cheat_page = CheatPage::Search;
@@ -5974,26 +7023,45 @@ void Menu::Impl::OpenGameOptions()
   m_panel.open = true;
   m_panel.title = "Game";
   // (00.88) Favorites no longer here: L2 on a game adds it or takes it out (the menu fits the screen again).
+  // ((01.27, the owner: "que sea el mismo que sale cuando aprieto L2 y R2, o ... en su gran mayoría las opciones que se
+  // necesitan que se llamen desde un juego") The in-game menu's rows that work without the game, named and in its
+  // order: Load State (the game started in one), Settings, Controls, Cheats, Achievements, the 3DS's Updates, DLC and
+  // Mods, the Arcade's Patched Romset; then the game list's own. Each opens the same page, kept in the same files.)
   m_panel.options = {"Start",
-                     "Game Settings",
-                     "Cheats",  // (left out for the Dreamcast: below)
+                     "Load State",  // (left out where the in-game menu has no states: below)
+                     "Settings",
                      "Controls",
+                     "Cheats",  // (left out for the NAOMI and the Atomiswave: below)
                      "Rename",
                      "Find Cover",
+                     "Cover From a File",  // ((01.56) a picture of the player's own on a drive)
                      "Information",
                      m_prefs.default_game == game.rom.path ? "Remove Default Game" :
                                                              "Set as Default Game",
                      "Delete Game"};
-  // (Flycast takes no cheat codes, for the NAOMI and the Atomiswave either; FinalBurn Neo's own cheats come in a
-  // later version: libretro's don't fit it; Azahar's libretro core takes none.)
-  if (IsFlycast(game.rom.system) || game.rom.system == SystemId::ARCADE || game.rom.system == SystemId::THREEDS)
+  // (The NAOMI's and the Atomiswave's cores take no cheats. (01.26) FinalBurn Neo's own are its core's options, made as
+  // the game loads: (01.27) its Cheats here says so - the in-game menu's page has them.)
+  if (IsFlycast(game.rom.system) && game.rom.system != SystemId::DC)
     m_panel.options.erase(std::find(m_panel.options.begin(), m_panel.options.end(), "Cheats"));
+  // ((01.27) OpenBOR's and the PS Vita's cores have no states: the in-game menu has no Load State for them.)
+  bool no_states = false;
+#ifdef EMUSUNI_OPENBOR
+  no_states = no_states || game.rom.system == SystemId::OPENBOR;
+#endif
+#ifdef EMUSUNI_VITA
+  no_states = no_states || game.rom.system == SystemId::VITA;
+#endif
+#ifdef EMUSUNI_MUGEN
+  no_states = no_states || game.rom.system == SystemId::MUGEN;  // (01.27: Ikemen GO's core has no states)
+#endif
+  if (no_states)
+    m_panel.options.erase(std::find(m_panel.options.begin(), m_panel.options.end(), "Load State"));
   // RetroAchievements (00.79): the game's achievements (a file it has achievements for), or the files it knows of the
   // game (one it doesn't know, or another version). (00.80) For every game of a console it has achievements for, the
   // marks on or off: a file not checked yet is checked when it opens; the 3DS (none yet) has no entry.
   if (Achievements::ConsoleId(game.rom.system) != 0 && game.rom.system != SystemId::THREEDS)
   {
-    const auto info = std::find(m_panel.options.begin(), m_panel.options.end(), "Information");
+    const auto info = std::find(m_panel.options.begin(), m_panel.options.end(), "Rename");  // ((01.27) after Cheats)
     m_panel.options.insert(info, "Achievements");
   }
   // Online play (00.23, src/Netplay.h): the consoles that play online, after Start.
@@ -6014,15 +7082,22 @@ void Menu::Impl::OpenGameOptions()
   // on or off.
   if (game.rom.system == SystemId::THREEDS)
   {
-    const auto info = std::find(m_panel.options.begin(), m_panel.options.end(), "Information");
+    const auto info = std::find(m_panel.options.begin(), m_panel.options.end(), "Rename");  // ((01.27) after Cheats)
     m_panel.options.insert(info, "Updates, DLC and Mods");
   }
 #endif
   // (01.22) An Arcade game's patched romset (FinalBurn Neo's system/fbneo/patched, 01.05): in use, removed, installed.
   if (game.rom.system == SystemId::ARCADE)
   {
-    const auto info = std::find(m_panel.options.begin(), m_panel.options.end(), "Information");
+    const auto info = std::find(m_panel.options.begin(), m_panel.options.end(), "Rename");  // ((01.27) after Cheats)
     m_panel.options.insert(info, "Patched Romset");
+  }
+  // ((01.81) Rename Files With My Names: a console whose games can take them, one at least named by the player.)
+  if (RenamableGames(game.rom.system) > 0)
+  {
+    const auto rename = std::find(m_panel.options.begin(), m_panel.options.end(), "Rename");
+    if (rename != m_panel.options.end())
+      m_panel.options.insert(rename + 1, "Rename Files With My Names");
   }
   m_extras_from_game = false;  // (its panels from here: Start is in this list)
   Play("menu");
@@ -6218,118 +7293,257 @@ void Menu::Impl::Open3dsExtras(int game_index, const std::string& select_key, bo
     return;
   }
   const std::string save_dir = ThreeDsSaveDir();
+  const std::string id = ThreeDsCia::Hex(m_3ds_title);
   std::vector<SettingRow> rows;
-  if (m_extras_from_game)
+  // ((01.46, the owner: "un submenú que te muestre las actualizaciones una por una, los dlc, los mods y las texturas,
+  // y que cada uno de estos tenga un switch ... además que salga claro dónde se debe instalar cada uno") Its four
+  // parts, in every 3DS game with a title ID: the list of them (each with what it has), and each one's own list opened
+  // from there - a switch for each of its things, and where its files go always on the screen: under its title, and as
+  // the last lines of every row's help.
+  const bool cias = ThreeDsCia::Available();
+  const ThreeDsCia::Installed has = cias ? ThreeDsCia::InstalledFor(save_dir, m_3ds_title) : ThreeDsCia::Installed{};
+  const int caps = ThreeDsCia::ExtrasCaps();
+  // Its own CIAs in the 3DS's "cia" folders read again (reread false: as listed - back from one of them).
+  if (reread && cias)
+    List3dsCias();
+  const std::vector<std::string> cia_folders = ThreeDsCia::Folders(
+      Library::ConsoleFolders(GetSystem(SystemId::THREEDS), GamesFolder(SystemId::THREEDS), m_places), false);
+  std::string cia_where;
+  for (const std::string& folder : cia_folders)
+    cia_where += (cia_where.empty() ? "" : "\n") + folder;
+  const std::string cia_help = Tr("Copy its decrypted update or DLC CIAs to the folder cia in Roms/3ds:") + "\n" +
+                               (cia_where.empty() ? std::string("USB: Roms/3ds/cia") : cia_where);
+  const std::string mods_help =
+      "Each mod in a folder of its own, by FTP (its romfs, exefs, code.ips...): saves/3ds/Azahar/load/mods/" + id +
+      "/<its name>/\nA mod straight in that folder, as before, is one of them too.";
+  const std::string tex_folder = ThreeDsTextures::InstalledFolder(save_dir, m_3ds_title);
+  m_3ds_tex_pack = ThreeDsTextures::PackFolder(
+      Library::ConsoleFolders(GetSystem(SystemId::THREEDS), GamesFolder(SystemId::THREEDS), m_places), m_3ds_title);
+  m_3ds_mods = ThreeDsCia::ListMods(save_dir, m_3ds_title);
+  m_3ds_tex_counting = false;
+  // A part's title: where its files go, on the screen as long as its list is.
+  const auto where = [&rows](const std::string& put, const std::vector<std::string>& places) {
+    rows.push_back({put, "", "", true});
+    for (const std::string& place : places)
+      rows.push_back({place, "", "", true});
+  };
+  if (m_3ds_section == SECTION_UPDATES || m_3ds_section == SECTION_DLC)
   {
-    SettingRow start{"Start the Game", "", "3ds:start"};
-    start.help = "The game starts again with what it has installed now.";
-    rows.push_back(start);
-  }
-  rows.push_back({game.rom.title, ThreeDsCia::Hex(m_3ds_title), "", true});
-  if (ThreeDsCia::Available())
-  {
-    const ThreeDsCia::Installed has = ThreeDsCia::InstalledFor(save_dir, m_3ds_title);
-    SettingRow update{"Update", Tr("None"), "3ds:update"};
-    SettingRow dlc{"DLC", Tr("None"), "3ds:dlc"};
-    update.help = dlc.help = "Install them from their CIA files: copied to Roms/3ds/cia, they show here.";
-    if (has.read && has.has_update)
+    const bool updates = m_3ds_section == SECTION_UPDATES;
+    m_panel.title = updates ? "Updates" : "DLC";
+    std::vector<std::string> places(cia_folders.begin(), cia_folders.begin() + std::min<size_t>(2, cia_folders.size()));
+    if (places.empty())
+      places.push_back("USB: Roms/3ds/cia");
+    where("Put its CIA files in:", places);
+    if (!cias)
     {
-      update.value = ThreeDsCia::VersionText(has.update_version) + " (" + ThreeDsCia::SizeText(has.update_bytes) + ")";
-      update.help = "The game starts with this update. Another version: install its CIA (below, once in Roms/3ds/cia).";
+      SettingRow none{"Updates and DLC", Tr("Not in This Version"), "3ds:update"};
+      none.help = ThreeDsCia::CodeText(ThreeDsCia::NO_CORE);
+      rows.push_back(none);
     }
-    if (has.read && has.dlc_titles > 0)
+    else
     {
-      dlc.value = Tr("Installed") + " (" + ThreeDsCia::SizeText(has.dlc_bytes) + ")";
-      dlc.help = Tr("Its DLC's contents installed: " + std::to_string(has.dlc_contents));
-    }
-    if (!has.read)
-      update.help = dlc.help = ThreeDsCia::CodeText(has.code);
-    rows.push_back(update);
-    rows.push_back(dlc);
-    const std::string copy_first =
-        "Removed for good. An update or DLC can change the game's save: copy the save first (its folder: saves/3ds/"
-        "Azahar/sdmc, by FTP), or the game may not read it after.";
-    if (has.read && has.has_update)
-    {
-      SettingRow remove{"Remove the Update", "", "3ds:remove_update"};
-      remove.help = copy_first;
-      rows.push_back(remove);
-    }
-    if (has.read && has.dlc_titles > 0)
-    {
-      SettingRow remove{"Remove the DLC", "", "3ds:remove_dlc"};
-      remove.help = copy_first;
-      rows.push_back(remove);
-    }
-    // Its own CIAs in the "cia" folders (an encrypted one said; one that can't be read has no game to show under).
-    if (reread)
-      List3dsCias();
-    const int64_t free = ThreeDsCia::FreeBytes(Portable::UserDir());
-    rows.push_back({"Install from CIA Files",
-                    free < 0 ? std::string() : "Free: " + ThreeDsCia::SizeText(static_cast<uint64_t>(free)), "",
-                    true});
-    size_t own = 0;
-    for (size_t i = 0; i < m_cias.size(); i++)
-    {
-      const ThreeDsCia::File& file = m_cias[i];
-      const ThreeDsCia::Info& info = file.info;
-      if (!info.read || ThreeDsCia::GameOf(info.title_id) != m_3ds_title || info.kind == ThreeDsCia::Kind::Game)
-        continue;
-      own++;
-      const bool is_update = info.kind == ThreeDsCia::Kind::Update;
-      SettingRow row;
-      row.label = is_update ? "Update " + ThreeDsCia::VersionText(info.version) : std::string("DLC");
-      row.key = "cia:" + std::to_string(i);
-      std::string help = file.file_name + "  \xC2\xB7  " + ThreeDsCia::SizeText(file.size);
-      if (info.encrypted)
+      const std::string copy_first =
+          "Removed for good. An update or DLC can change the game's save: copy the save first (its folder: saves/3ds/"
+          "Azahar/sdmc, by FTP), or the game may not read it after.";
+      const bool installed = has.read && (updates ? has.has_update : has.dlc_titles > 0);
+      const int cap = updates ? ThreeDsCia::CAP_UPDATE_SWITCH : ThreeDsCia::CAP_DLC_SWITCH;
+      if (installed)
       {
-        row.value = Tr("Encrypted");
-        help += "\n" + Tr(ThreeDsCia::CodeText(ThreeDsCia::ENCRYPTED));
-      }
-      else if (is_update && has.read && has.has_update && has.update_version >= info.version)
-      {
-        row.value = Tr("Installed");
-        help += "\n" + Tr("Installed already: " + ThreeDsCia::VersionText(has.update_version));
+        // The one installed: its switch (a core that can leave it out), or what it is.
+        SettingRow item{updates ? "Update " + ThreeDsCia::VersionText(has.update_version) : std::string("Its DLC"),
+                        ThreeDsCia::SizeText(updates ? has.update_bytes : has.dlc_bytes), "3ds:installed"};
+        std::string help = updates ? std::string() : Tr("Its DLC's contents installed: " +
+                                                        std::to_string(has.dlc_contents)) + "\n";
+        if (caps & cap)
+        {
+          item.key = updates ? "3ds:update_on" : "3ds:dlc_on";
+          item.value.clear();
+          item.tag = (updates ? ThreeDsCia::UpdateOn(m_3ds_title) : ThreeDsCia::DlcOn(m_3ds_title)) ? 1 : -1;
+          help += "Off: the game starts without it from its next start; it stays installed. A save made with it may "
+                  "not load without it.";
+        }
+        else
+        {
+          help += "The game starts with it. Turning it off comes with the next 3DS emulator; until then, Remove takes "
+                  "it away.";
+        }
+        item.help = help + "\n" + cia_help;
+        rows.push_back(item);
+        SettingRow remove{updates ? "Remove the Update" : "Remove the DLC", "",
+                          updates ? "3ds:remove_update" : "3ds:remove_dlc"};
+        remove.help = copy_first;
+        rows.push_back(remove);
       }
       else
       {
-        row.value = ThreeDsCia::SizeText(info.install_bytes);
-        help += "\n" + Tr(!is_update && has.read && has.dlc_titles > 0 ?
-                              "This game has DLC installed: Cross installs this one too." :
-                              "Cross: install it.");
+        SettingRow none{updates ? "No Update Installed" : "No DLC Installed", "", updates ? "3ds:update" : "3ds:dlc"};
+        none.help = (has.read ? Tr("Install them from their CIA files: copied to Roms/3ds/cia, they show here.") :
+                                Tr(ThreeDsCia::CodeText(has.code))) +
+                    "\n" + cia_help;
+        rows.push_back(none);
       }
-      row.help = help;
+      // Its own CIAs of this kind in the "cia" folders (an encrypted one said).
+      const int64_t free = ThreeDsCia::FreeBytes(Portable::UserDir());
+      rows.push_back({"Install from CIA Files",
+                      free < 0 ? std::string() : "Free: " + ThreeDsCia::SizeText(static_cast<uint64_t>(free)), "",
+                      true});
+      size_t own = 0;
+      for (size_t i = 0; i < m_cias.size(); i++)
+      {
+        const ThreeDsCia::File& file = m_cias[i];
+        const ThreeDsCia::Info& info = file.info;
+        const bool is_update = info.kind == ThreeDsCia::Kind::Update;
+        if (!info.read || ThreeDsCia::GameOf(info.title_id) != m_3ds_title || info.kind == ThreeDsCia::Kind::Game ||
+            is_update != updates)
+          continue;
+        own++;
+        SettingRow row;
+        row.label = is_update ? "Update " + ThreeDsCia::VersionText(info.version) : std::string("DLC");
+        row.key = "cia:" + std::to_string(i);
+        std::string help = file.file_name + "  \xC2\xB7  " + ThreeDsCia::SizeText(file.size);
+        if (info.encrypted)
+        {
+          row.value = Tr("Encrypted");
+          help += "\n" + Tr(ThreeDsCia::CodeText(ThreeDsCia::ENCRYPTED));
+        }
+        else if (is_update && has.read && has.has_update && has.update_version >= info.version)
+        {
+          row.value = Tr("Installed");
+          help += "\n" + Tr("Installed already: " + ThreeDsCia::VersionText(has.update_version));
+        }
+        else
+        {
+          row.value = ThreeDsCia::SizeText(info.install_bytes);
+          help += "\n" + Tr(!is_update && has.read && has.dlc_titles > 0 ?
+                                "This game has DLC installed: Cross installs this one too." :
+                                "Cross: install it.");
+        }
+        row.help = help;
+        rows.push_back(row);
+      }
+      if (own == 0)
+      {
+        SettingRow none{"No CIA Files for It", "", "3ds:nocia"};
+        none.help = cia_help;
+        rows.push_back(none);
+      }
+    }
+  }
+  else if (m_3ds_section == SECTION_MODS)
+  {
+    m_panel.title = "Mods";
+    where("Put each mod in a folder of its own in:", {"saves/3ds/Azahar/load/mods/", id + "/<its name>/"});
+    for (size_t i = 0; i < m_3ds_mods.size(); i++)
+    {
+      const ThreeDsCia::Mod& mod = m_3ds_mods[i];
+      SettingRow row{mod.main ? std::string("The Mod in Its Folder") : mod.name, "", "3ds:mod:" + std::to_string(i)};
+      std::string help;
+      if (mod.main || (caps & ThreeDsCia::CAP_MOD_FOLDERS))
+      {
+        row.tag = ThreeDsCia::ModOn(m_3ds_title, mod) ? 1 : -1;
+        help = mod.main ? "Its files straight in the folder: loaded when the game starts (Off: the game as it is - a "
+                          "mod for another version or region can hang it)." :
+                          "Loaded when the game starts, over the mod straight in the folder; between two of them, the "
+                          "first by name wins.";
+      }
+      else
+      {
+        row.value = Tr("Not Loaded Yet");
+        help = "Mods in folders of their own load with the next 3DS emulator; until then only the mod straight in the "
+               "folder loads.";
+      }
+      row.help = help + "\n" + mods_help;
       rows.push_back(row);
     }
-    if (own == 0)
+    if (m_3ds_mods.empty())
     {
-      // Where they go: the 3DS's "cia" folders (one made in each game folder: List3dsCias).
-      std::string where;
-      for (const std::string& folder : ThreeDsCia::Folders(
-               Library::ConsoleFolders(GetSystem(SystemId::THREEDS), GamesFolder(SystemId::THREEDS), m_places), false))
-        where += (where.empty() ? "" : "\n") + folder;
-      SettingRow none{"No CIA Files for It", "", "3ds:nocia"};
-      none.help = Tr("Copy its decrypted update or DLC CIAs to the folder cia in Roms/3ds:") + "\n" +
-                  (where.empty() ? std::string("USB: Roms/3ds/cia") : where);
+      SettingRow none{"No Mods", "", "3ds:nomods"};
+      none.help = mods_help;
+      rows.push_back(none);
+    }
+  }
+  else if (m_3ds_section == SECTION_TEXTURES)
+  {
+    // ((01.42, the owner) Its texture pack: its pictures for the game's textures (src/ThreeDsTextures.h), Off unless
+    // turned on; installed from the player's pack (the menu's copy, made smaller where it must) and removed.)
+    m_panel.title = "Textures";
+    where("Put the pack on a USB drive in:", {"Roms/3ds/textures/" + id});
+    const size_t none_yet = rows.size();
+    if (ThreeDsTextures::HasPng(tex_folder))
+    {
+      SettingRow textures{"Texture Pack", "", "3ds:textures"};
+      textures.tag = ThreeDsTextures::On(m_3ds_title) ? 1 : -1;
+      textures.help = TexturePackHelp(tex_folder);
+      rows.push_back(textures);
+    }
+    if (!m_3ds_tex_pack.empty())
+    {
+      SettingRow install{"Install Textures", "", "3ds:tex_install"};
+      install.help = TexturePackHelp(m_3ds_tex_pack);
+      rows.push_back(install);
+    }
+    std::error_code tex_error;
+    if (std::filesystem::is_directory(tex_folder, tex_error))
+    {
+      SettingRow remove{"Remove Textures", "", "3ds:tex_remove"};
+      remove.help = "The installed copy is deleted, with all its pictures: saves/3ds/Azahar/load/textures/" + id +
+                    "\nThe pack on the USB drive isn't touched.";
+      rows.push_back(remove);
+    }
+    if (rows.size() == none_yet)
+    {
+      SettingRow none{"No Texture Pack", "", "3ds:notex"};
+      none.help = "Put the pack on a USB drive in Roms/3ds/textures/" + id + ", then Install Textures here.";
       rows.push_back(none);
     }
   }
   else
   {
-    SettingRow none{"Updates and DLC", Tr("Not in This Version"), "3ds:update"};
-    none.help = ThreeDsCia::CodeText(ThreeDsCia::NO_CORE);
-    rows.push_back(none);
+    // The list of them: each one's own list (Cross), with what it has now.
+    m_3ds_section = SECTION_LIST;
+    if (m_extras_from_game)
+    {
+      SettingRow start{"Start the Game", "", "3ds:start"};
+      start.help = "The game starts again with what it has installed now.";
+      rows.push_back(start);
+    }
+    rows.push_back({game.rom.title, id, "", true});
+    SettingRow updates{"Updates",
+                       !cias                         ? std::string("Not in This Version") :
+                       has.read && has.has_update    ? ThreeDsCia::VersionText(has.update_version) :
+                                                       std::string("None"),
+                       "3ds:sec:" + std::to_string(SECTION_UPDATES)};
+    updates.help = "Its update: installed from its CIA file, on or off, removed.\n" + cia_help;
+    rows.push_back(updates);
+    SettingRow dlc{"DLC",
+                   !cias                          ? std::string("Not in This Version") :
+                   has.read && has.dlc_titles > 0 ? std::string("Installed") :
+                                                    std::string("None"),
+                   "3ds:sec:" + std::to_string(SECTION_DLC)};
+    dlc.help = "Its DLC: installed from its CIA files, on or off, removed.\n" + cia_help;
+    rows.push_back(dlc);
+    int mods_on = 0;
+    for (const ThreeDsCia::Mod& mod : m_3ds_mods)
+      mods_on += ThreeDsCia::ModOn(m_3ds_title, mod) ? 1 : 0;
+    SettingRow mods{"Mods",
+                    m_3ds_mods.empty() ? std::string("None") :
+                                         "On: " + std::to_string(mods_on) + " of " + std::to_string(m_3ds_mods.size()),
+                    "3ds:sec:" + std::to_string(SECTION_MODS)};
+    mods.help = "Its mods one by one, each on or off.\n" + mods_help;
+    rows.push_back(mods);
+    const bool pack_in = ThreeDsTextures::HasPng(tex_folder);
+    SettingRow textures{"Textures",
+                        pack_in                   ? std::string(ThreeDsTextures::On(m_3ds_title) ? "On" : "Off") :
+                        !m_3ds_tex_pack.empty()   ? std::string("To Install") :
+                                                    std::string("None"),
+                        "3ds:sec:" + std::to_string(SECTION_TEXTURES)};
+    textures.help = "Its texture pack: installed from a USB drive, on or off, removed.\nPut the pack on a USB drive in "
+                    "Roms/3ds/textures/" + id + ", then Install Textures here.";
+    rows.push_back(textures);
   }
-  SettingRow mods{"Mods", "", "3ds:mods"};
-  mods.tag = ThreeDsCia::ModsOn(m_3ds_title) ? 1 : -1;
-  const bool any = ThreeDsCia::HasMods(save_dir, m_3ds_title);
-  const std::string folder = "saves/3ds/Azahar/load/mods/" + ThreeDsCia::Hex(m_3ds_title);
-  mods.help = any ? "Its mods are loaded when it starts (Off: the game as it is - a mod for another version or region "
-                    "can hang it). Their folder: " + folder :
-                    "No mods in its folder (LayeredFS: romfs, exefs, code.ips): " + folder;
-  rows.push_back(mods);
   m_panel.rows = std::move(rows);
-  m_panel.selected = m_extras_from_game ? 0 : 1;
+  m_panel.selected = 0;
   for (size_t i = 0; i < m_panel.rows.size(); i++)
   {
     if (!select_key.empty() && m_panel.rows[i].key == select_key)
@@ -6339,6 +7553,181 @@ void Menu::Impl::Open3dsExtras(int game_index, const std::string& select_key, bo
     MoveSettingRow(1);
   else
     MoveSettingRow(0);
+  Play("menu");
+}
+
+// (01.42) The Texture Pack row's help (folder: the installed one) or Install Textures' (folder: the player's pack):
+// its pictures (counted on a thread of their own: "counting" until then), what it does, where.
+std::string Menu::Impl::TexturePackHelp(const std::string& folder)
+{
+  ThreeDsTextures::Count count;
+  std::string pictures;
+  if (ThreeDsTextures::Counted(folder, &count))
+  {
+    pictures = "Its pictures: " + std::to_string(count.pngs) + " (" + ThreeDsTextures::SizeText(count.bytes) + ")";
+  }
+  else
+  {
+    ThreeDsTextures::RequestCount(folder);
+    m_3ds_tex_counting = true;
+    pictures = "Counting its pictures...";
+  }
+  if (folder == m_3ds_tex_pack)
+    return "From: " + folder + "\n" + pictures +
+           "\nOnly its .png pictures and pack.json are copied, each picture at most 4 times its texture's size and "
+           "2048 a side (made smaller as it is copied).";
+  return pictures +
+         "\nOn: the game draws them instead of its own textures, from its next start. It takes more memory: if the "
+         "game runs slow or closes, turn it off.\nsaves/3ds/Azahar/load/textures/" +
+         ThreeDsCia::Hex(m_3ds_title) + "\nPut the pack on a USB drive in Roms/3ds/textures/" +
+         ThreeDsCia::Hex(m_3ds_title) + ", then Install Textures here.";
+}
+
+// Each frame: Texture Pack's and Install Textures' help once their counts have come; Install Textures' panel - its
+// install as it goes, then its result once.
+void Menu::Impl::Update3dsTextures()
+{
+  const auto add = [this](const std::string& translated) {
+    std::istringstream lines(WrapText(m_font, 28, translated, 550.0f));
+    for (std::string line; std::getline(lines, line);)
+      m_panel.lines.push_back(line);
+  };
+  if (m_panel.open && m_panel.setting == SET_3DS_TEX_INSTALL)
+  {
+    const ThreeDsTextures::Progress progress = ThreeDsTextures::Status();
+    if (!progress.busy && !progress.done)
+      return;  // (its result said)
+    m_panel.lines = {""};
+    add(m_3ds_tex_pack);
+    m_panel.lines.push_back("");
+    if (progress.busy)
+    {
+      if (progress.scanning)
+      {
+        add(Tr("Reading the pack..."));
+      }
+      else
+      {
+        const int percent = progress.bytes > 0 ? static_cast<int>(progress.bytes_done * 100 / progress.bytes) : 0;
+        add(Tr(m_panel.options.empty() ? "Cancelling..." : "Installing...") + " " + std::to_string(percent) + "%");
+        add(Tr("Pictures: " + std::to_string(progress.files_done) + " / " + std::to_string(progress.files)));
+        if (progress.reduced > 0)
+          add(Tr("Made smaller: " + std::to_string(progress.reduced)));
+      }
+      m_panel.lines.push_back("");
+      add(Tr("Don't close EmuSuNi or turn off the PS4 until it ends."));
+      return;
+    }
+    // Done: said once (its thread joined: the next frame has nothing to say).
+    ThreeDsTextures::Forget();
+    ThreeDsTextures::ForgetCount(ThreeDsTextures::InstalledFolder(ThreeDsSaveDir(), m_3ds_title));
+    switch (progress.result)
+    {
+    case ThreeDsTextures::DONE:
+      add(Tr("The texture pack is installed: " + std::to_string(progress.copied) + " files (" +
+             ThreeDsTextures::SizeText(progress.written) + ")"));
+      if (progress.reduced > 0)
+        add(Tr("Made smaller: " + std::to_string(progress.reduced)));
+      if (progress.too_big > 0)
+        add(Tr("Over 2048 a side, left out by the emulator: " + std::to_string(progress.too_big)));
+      if (progress.left_out > 0)
+        add(Tr("Other files not copied: " + std::to_string(progress.left_out)));
+      m_panel.lines.push_back("");
+      add(Tr(ThreeDsTextures::On(m_3ds_title) ? "The game uses it from its next start." :
+                                                "Turn on Texture Pack to use it."));
+      break;
+    case ThreeDsTextures::CANCELLED:
+      add(Tr("The install was cancelled: the texture pack installed before stays as it was."));
+      break;
+    case ThreeDsTextures::NO_PICTURES:
+      add(Tr("The pack has no PNG pictures."));
+      break;
+    case ThreeDsTextures::NO_ROOM:
+      add(Tr("Not enough free space: free some first (the PS4's storage, or the USB drive with Keep My Data on "
+             "the USB Drive)."));
+      break;
+    default:
+      add(Tr("The texture pack couldn't be installed: a file couldn't be read or written."));
+      break;
+    }
+    m_panel.options = {"Back"};
+    m_panel.selected = 0;
+    Play(progress.result == ThreeDsTextures::DONE ? "confirm" : "error");
+    return;
+  }
+  if (!m_3ds_tex_counting || !m_panel.open || m_panel.setting != SET_3DS_EXTRAS)
+    return;
+  const std::string installed = ThreeDsTextures::InstalledFolder(ThreeDsSaveDir(), m_3ds_title);
+  ThreeDsTextures::Count count;
+  for (SettingRow& row : m_panel.rows)
+  {
+    const std::string* folder = row.key == "3ds:textures" ? &installed :
+                                row.key == "3ds:tex_install" ? &m_3ds_tex_pack :
+                                                               nullptr;
+    if (folder && !ThreeDsTextures::Counted(*folder, &count))
+      return;  // (all of them together)
+  }
+  m_3ds_tex_counting = false;
+  for (SettingRow& row : m_panel.rows)
+  {
+    if (row.key == "3ds:textures")
+      row.help = TexturePackHelp(installed);
+    else if (row.key == "3ds:tex_install")
+      row.help = TexturePackHelp(m_3ds_tex_pack);
+  }
+}
+
+// Install Textures: the pack and the free space, Install / Cancel.
+void Menu::Impl::Open3dsTexConfirm()
+{
+  const std::string title =
+      m_3ds_game >= 0 && m_3ds_game < static_cast<int>(m_games.size()) ? m_games[m_3ds_game].rom.title : std::string();
+  MakeDirs(ThreeDsSaveDir());
+  const int64_t free = ThreeDsCia::FreeBytes(ThreeDsSaveDir());
+  ThreeDsTextures::Count count;
+  const bool counted = ThreeDsTextures::Counted(m_3ds_tex_pack, &count);
+  LogF("3ds textures: Install Textures chosen for %s: %s", ThreeDsCia::Hex(m_3ds_title).c_str(),
+       m_3ds_tex_pack.c_str());
+  m_panel = {};
+  m_panel.open = true;
+  m_panel.setting = SET_3DS_TEX_CONFIRM;
+  m_panel.title = "Install Textures";
+  m_panel.options = {"Install", "Cancel"};
+  const auto add = [this](const std::string& translated) {
+    std::istringstream lines(WrapText(m_font, 28, translated, 550.0f));
+    for (std::string line; std::getline(lines, line);)
+      m_panel.lines.push_back(line);
+  };
+  m_panel.lines = {"", title, ""};
+  add(Tr("From: " + m_3ds_tex_pack));
+  if (counted)
+    add(Tr("Its pictures: " + std::to_string(count.pngs) + " (" + ThreeDsTextures::SizeText(count.bytes) + ")"));
+  add(Tr("Free space: " + (free < 0 ? Tr("not known") : ThreeDsCia::SizeText(static_cast<uint64_t>(free)))));
+  m_panel.lines.push_back("");
+  add(Tr("Only its .png pictures and pack.json are copied, each picture at most 4 times its texture's size and 2048 a "
+         "side (made smaller as it is copied). A texture pack installed before is replaced. The pack on the USB drive "
+         "isn't changed."));
+  Play("menu");
+}
+
+// "Remove?" for the game's installed texture pack.
+void Menu::Impl::Ask3dsTexRemove()
+{
+  const std::string title =
+      m_3ds_game >= 0 && m_3ds_game < static_cast<int>(m_games.size()) ? m_games[m_3ds_game].rom.title : std::string();
+  m_panel = {};
+  m_panel.open = true;
+  m_panel.setting = SET_3DS_TEX_REMOVE;
+  m_panel.title = "Remove Textures";
+  m_panel.options = {"Cancel", "Remove"};
+  m_panel.lines = {"", title, ""};
+  std::istringstream lines(WrapText(m_font, 28,
+                                    Tr("The installed copy is deleted, with all its pictures: saves/3ds/Azahar/load/"
+                                       "textures/" + ThreeDsCia::Hex(m_3ds_title)) +
+                                        "\n" + Tr("The pack on the USB drive isn't touched."),
+                                    550.0f));
+  for (std::string line; std::getline(lines, line);)
+    m_panel.lines.push_back(line);
   Play("menu");
 }
 
@@ -6439,6 +7828,59 @@ void Menu::Impl::ThreeDsPanelChoice()
       Play("back");
     }
     return;
+  case SET_3DS_TEX_CONFIRM:
+    // (01.42) Install Textures: Install starts the copy on its thread (Update3dsTextures says how it goes).
+    if (choice != "Install")
+    {
+      Open3dsExtras(GameIndexOf(m_3ds_path), "3ds:tex_install", false);
+      Play("back");
+      return;
+    }
+    if (!ThreeDsTextures::Install(m_3ds_tex_pack, ThreeDsTextures::InstalledFolder(ThreeDsSaveDir(), m_3ds_title)))
+    {
+      ShowToast("The texture pack couldn't be installed: a file couldn't be read or written.", 0);
+      ThreeDsTextures::Forget();
+      Play("error");
+      return;
+    }
+    m_panel.setting = SET_3DS_TEX_INSTALL;
+    m_panel.options = {"Cancel"};
+    m_panel.selected = 0;
+    Update3dsTextures();
+    Play("confirm");
+    return;
+  case SET_3DS_TEX_INSTALL:
+    if (choice == "Cancel")
+    {
+      ThreeDsTextures::Cancel();
+      LogLine("3ds textures: the install cancelled by the player");
+      m_panel.options.clear();  // ("Cancelling..." until it stops)
+      Play("back");
+    }
+    else
+    {
+      Open3dsExtras(GameIndexOf(m_3ds_path), "3ds:textures", false);
+      Play("back");
+    }
+    return;
+  case SET_3DS_TEX_REMOVE:
+    if (choice == "Remove")
+    {
+      std::string why;
+      const bool removed =
+          ThreeDsTextures::Remove(ThreeDsTextures::InstalledFolder(ThreeDsSaveDir(), m_3ds_title), &why);
+      if (!removed)
+        LogLine("3ds textures: not removed: " + why);
+      ShowToast(removed ? "Texture pack removed" : "The texture pack couldn't be removed", 0);
+      Open3dsExtras(GameIndexOf(m_3ds_path), "", false);
+      Play(removed ? "confirm" : "error");
+    }
+    else
+    {
+      Open3dsExtras(GameIndexOf(m_3ds_path), "3ds:tex_remove", false);
+      Play("back");
+    }
+    return;
   case SET_3DS_REMOVE:
     if (choice == "Remove" && m_3ds_remove != 0)
     {
@@ -6476,12 +7918,29 @@ bool Menu::Impl::ThreeDsPanelBack()
     Play("back");
     return true;
   }
+  case SET_3DS_TEX_INSTALL:
+    if (ThreeDsTextures::Status().busy)
+      return true;  // ((01.42) it goes on: Cancel stops it)
+    ThreeDsTextures::Forget();
+    ThreeDsTextures::ForgetCount(ThreeDsTextures::InstalledFolder(ThreeDsSaveDir(), m_3ds_title));
+    [[fallthrough]];
+  case SET_3DS_TEX_CONFIRM:
+  case SET_3DS_TEX_REMOVE:
   case SET_3DS_REMOVE:
     Open3dsExtras(GameIndexOf(m_3ds_path), "", false);
     Play("back");
     return true;
   case SET_3DS_EXTRAS:
   {
+    if (m_3ds_section != SECTION_LIST)
+    {
+      // ((01.46) One of its four parts: back to the list of them, on that one.)
+      const int section = m_3ds_section;
+      m_3ds_section = SECTION_LIST;
+      Open3dsExtras(GameIndexOf(m_3ds_path), "3ds:sec:" + std::to_string(section), false);
+      Play("back");
+      return true;
+    }
     if (m_extras_from_game)
     {
       // ((01.22) Opened after the game closed for it: the list as it was - the game selected may be another one.)
@@ -6552,6 +8011,10 @@ void Menu::Impl::OpenAfterGame(const GameExtras::AfterGame& after)
 #ifdef EMUSUNI_3DS
   if (after.action.rfind("3ds:", 0) == 0)
   {
+    // ((01.46) In the part the action is of: Updates or DLC.)
+    m_3ds_section = after.action == "3ds:remove_update" ? SECTION_UPDATES :
+                    after.action == "3ds:remove_dlc"    ? SECTION_DLC :
+                                                          SECTION_LIST;
     Open3dsExtras(game);
     if (after.action == "3ds:remove_update" || after.action == "3ds:remove_dlc")
     {
@@ -6568,9 +8031,15 @@ void Menu::Impl::OpenAfterGame(const GameExtras::AfterGame& after)
           at = i;
       }
       if (at < m_cias.size())
+      {
+        m_3ds_section = m_cias[at].info.kind == ThreeDsCia::Kind::Dlc ? SECTION_DLC : SECTION_UPDATES;
+        Open3dsExtras(game, "", false);  // (its part under the confirmation, for when it closes)
         Open3dsCiaConfirm(at);
+      }
       else
+      {
         ShowToast("The file isn't there any more", 0);
+      }
     }
     return;
   }
@@ -6938,6 +8407,21 @@ void Menu::Impl::ApplySettingOption(int setting, int option)
         Settings::Set("menu_size", size->choices[static_cast<size_t>(option)].value);
     }
     break;
+  case SET_CONSOLE_ICONS:
+  case SET_ICON_SIZE:
+  case SET_HELP_BOXES:
+  {
+    // ((01.26) The same: Draw reads them each frame.)
+    const char* key = setting == SET_CONSOLE_ICONS ? "console_icons" :
+                      setting == SET_ICON_SIZE     ? "icon_size" :
+                                                     "help_boxes";
+    if (const Settings::Setting* s = Settings::Find(key))
+    {
+      if (option >= 0 && option < static_cast<int>(s->choices.size()))
+        Settings::Set(key, s->choices[static_cast<size_t>(option)].value);
+    }
+    break;
+  }
   case SET_COVERS:
   {
     // (Settings::Set: a global value of settings.ini, as the language: Reset All Settings puts it back.)
@@ -6959,7 +8443,8 @@ void Menu::Impl::ApplySettingOption(int setting, int option)
       for (const auto& [key, value] : Settings::GlobalValues())
       {
         if (key == "consoles_shown" || key == "consoles_off" || key == "covers_on" || key == "menu_size" ||
-            key == "stats_notice")
+            key == "stats_notice" || key == "tabs_shown" || key == "console_icons" || key == "icon_size" ||
+            key == "help_boxes" || key == "folder_view")  // ((01.26) the menu's look too; (01.47) its folders)
           menu.emplace_back(key, value);
       }
       Settings::ResetAll();
@@ -7007,6 +8492,21 @@ void Menu::Impl::HandleInput(uint32_t pressed)
 #ifdef EMUSUNI_3DS
       if (ThreeDsPanelBack())
         return;  // ((01.09) the 3DS's installer: back to its list; an install going on stays)
+#endif
+#ifdef EMUSUNI_VITA
+      if (m_panel.setting == SET_VITA_FIRMWARE && m_vita_help)
+      {
+        // ((01.72) the .PUP files' page: back to the firmware's own, on its option)
+        m_vita_help = false;
+        BuildVitaFirmwarePanel();
+        for (size_t i = 0; i < m_panel.options.size(); i++)
+        {
+          if (m_panel.options[i] == "What Are .PUP Files?")
+            m_panel.selected = static_cast<int>(i);
+        }
+        Play("back");
+        return;
+      }
 #endif
       if (ArcadePanelBack())
         return;  // ((01.22) an Arcade game's patched romset: back to its panel; a copy going on stays)
@@ -7093,6 +8593,13 @@ void Menu::Impl::HandleInput(uint32_t pressed)
     }
     if (!m_panel.rows.empty())
     {
+      // ((01.36) A cheat's Square: asked, then deleted - AskDeleteCheat; another button forgets the asking.)
+      if (pressed & BTN_SQUARE)
+      {
+        AskDeleteCheat();
+        return;
+      }
+      m_cheat_delete_asked = -1;
       // (00.76: round from the first row to the last and back on a fresh press; a held arrow stops at the end.)
       if (pressed & BTN_UP)
       {
@@ -7173,6 +8680,18 @@ void Menu::Impl::HandleInput(uint32_t pressed)
       Play("category");
       return;
     }
+    if (m_panel.setting == SET_RENAME_FILES)
+    {
+      // ((01.81) Rename Files With My Names: Rename, or back.)
+      const bool go = m_panel.options[m_panel.selected] == "Rename" && !m_rename_plans.empty();
+      m_panel.open = false;
+      if (go)
+        RenameFiles();
+      else
+        Play("back");
+      m_rename_plans.clear();
+      return;
+    }
     if (m_panel.setting == SET_DELETE_GAME || m_panel.setting == SET_CLEANUP_CONFIRM)
     {
       const bool go = m_panel.options[m_panel.selected] == "Delete";
@@ -7229,6 +8748,13 @@ void Menu::Impl::HandleInput(uint32_t pressed)
       UpdatePanelChoice();
       return;
     }
+#ifdef EMUSUNI_VITA
+    if (m_panel.setting == SET_VITA_FIRMWARE)
+    {
+      VitaFirmwareChoice();  // (with-vita)
+      return;
+    }
+#endif
     if (m_panel.setting >= SET_PORTABLE && m_panel.setting <= SET_PORTABLE_WARNING)
     {
       PortablePanelChoice();  // (00.87)
@@ -7307,14 +8833,25 @@ void Menu::Impl::HandleInput(uint32_t pressed)
             TextKeyboard::Mode::Text, "Left empty, the game takes its file's own name again.");
         return;
       }
+      if (choice == "Rename Files With My Names")
+      {
+        OpenRenameFiles(game.rom.system);
+        return;
+      }
       if (choice == "Find Cover")
       {
         OpenFindCover(item.game);
         return;
       }
+      if (choice == "Cover From a File")
+      {
+        OpenCoverFile(item.game);
+        return;
+      }
 #ifdef EMUSUNI_3DS
       if (choice == "Updates, DLC and Mods")
       {
+        m_3ds_section = SECTION_LIST;  // ((01.46) the list of its four parts)
         Open3dsExtras(item.game);  // (01.09)
         return;
       }
@@ -7341,9 +8878,30 @@ void Menu::Impl::HandleInput(uint32_t pressed)
         Play("menu");
         return;
       }
-      if (choice == "Game Settings")
+      if (choice == "Load State")
+      {
+        OpenLoadStatePanel(game);  // (01.27)
+        Play("menu");
+        return;
+      }
+      if (choice == "Settings")  // ((01.27) named as in the in-game menu: "Game Settings" until 01.26)
       {
         OpenSettingsList({}, game.rom.key, static_cast<int>(game.rom.system));
+      }
+      else if (choice == "Cheats" && game.rom.system == SystemId::ARCADE)
+      {
+        // ((01.27) FinalBurn Neo's cheats are its core's options, made as the game loads: the in-game menu's Cheats
+        // page has them - and Find Cheats Online.)
+        m_panel.title = "Cheats";
+        m_panel.options.clear();
+        m_panel.lines = {""};
+        std::istringstream in(WrapText(m_font, 28,
+                                       PS4Lang::T("An Arcade game's cheats are known once the game is open: start it, "
+                                                  "then choose Cheats in the in-game menu (Find Cheats Online is "
+                                                  "there too)."),
+                                       550.0f));
+        for (std::string line; std::getline(in, line);)
+          m_panel.lines.push_back(line);
       }
       else if (choice == "Cheats")
       {
@@ -7630,10 +9188,19 @@ void Menu::Impl::HandleInput(uint32_t pressed)
   {
     if (IsSettingsPage(m_category))
       m_category = static_cast<int>(Category::Settings);  // its row is still selected there
+    else if (m_category == static_cast<int>(Category::Settings) && m_settings_group >= 0)
+      OpenSettingsGroup(-1, -1);  // ((01.26) a group's list: back to the first level, on its row)
     else if (games && !m_search.empty())
     {
       SetSearch("");
       ShowToast("Search cleared", 0);
+    }
+    else if (!FolderLine(m_category).empty())
+    {
+      // ((01.47) in a folder: up to the one above it, on its row)
+      const std::string& open = m_folder[m_category];
+      const size_t slash = open.rfind('/');
+      OpenFolder(m_category, slash == std::string::npos ? std::string() : open.substr(0, slash));
     }
     Play("back");
   }
@@ -7699,13 +9266,17 @@ void Menu::Impl::RebuildGameLists(bool keep_selection)
       lists.push_back(c);
   }
   std::vector<int> kept(lists.size(), -1), was(lists.size(), 0);
+  std::vector<std::string> kept_folder(lists.size());  // ((01.47) a folder's row selected)
   for (size_t i = 0; i < lists.size(); i++)
   {
     const auto& items = m_items[lists[i]];
     const int at = m_selected[lists[i]];
     was[i] = at;
     if (at >= 0 && at < static_cast<int>(items.size()))
+    {
       kept[i] = items[at].game;
+      kept_folder[i] = items[at].folder;
+    }
   }
   BuildItems();  // keeps each selection inside its list
   for (size_t i = 0; i < lists.size(); i++)
@@ -7716,7 +9287,8 @@ void Menu::Impl::RebuildGameLists(bool keep_selection)
       const auto& items = m_items[c];
       for (size_t j = 0; j < items.size(); j++)
       {
-        if (kept[i] >= 0 && items[j].game == kept[i])
+        if ((kept[i] >= 0 && items[j].game == kept[i]) ||
+            (!kept_folder[i].empty() && items[j].folder == kept_folder[i]))
         {
           // The same game at another place (a game before it left): the row moves with it.
           m_item_pos[c] += static_cast<float>(static_cast<int>(j) - was[i]);
@@ -7856,16 +9428,66 @@ void Menu::Impl::KeyboardDid(TextKeyboard::Result result, int direction, uint32_
   }
 }
 
-void Menu::Impl::ShowToast(const std::string& text, int icon)
+void Menu::Impl::ShowToast(const std::string& text, int icon, float seconds)
 {
   m_toast = text;
   m_toast_icon = icon;
-  m_toast_time = 2.2f;
+  m_toast_time = m_toast_length = seconds;
+}
+
+// (01.28, the owner: "un checkbox seleccionable") A box row: Cross ticks or unticks it, at once and kept; its list made
+// again (the box as it is now). Online Tab and Favorites Tab: UpdateHiddenTabs shows or hides the tab the next frame.
+void Menu::Impl::ToggleCheck(int setting)
+{
+  if (setting == SET_TAB_ONLINE || setting == SET_TAB_FAVORITES)
+  {
+    const bool online = setting == SET_TAB_ONLINE;
+    SetTabShown(online, !TabShown(online));
+    Log(std::string("menu: the ") + (online ? "Online" : "Favorites") + " tab " +
+        (TabShown(online) ? "shown" : "hidden") + " (tabs_shown=" + Settings::Get("tabs_shown") + ")");
+  }
+  else if (setting == SET_LAUNCHBOX)
+  {
+    // ((01.84) The next download's: Download Covers, the start's.)
+    const bool on = !Settings::GetOn("covers_launchbox");
+    Settings::Set("covers_launchbox", on ? "on" : "off");
+    Log(std::string("menu: LaunchBox covers ") + (on ? "on" : "off"));
+  }
+  else if (setting == SET_FOLDER_VIEW)
+  {
+    // ((01.47) Turned on: each console's list open on the folder of the game selected there, still selected.)
+    const bool on = !FolderView();
+    Settings::Set("folder_view", on ? "on" : "off");
+    if (on)
+    {
+      std::array<std::string, CATEGORY_COUNT> paths;
+      for (int c = 0; c < CATEGORY_COUNT; c++)
+      {
+        const auto& items = m_items[c];
+        if (SystemOfList(c) >= 0 && m_selected[c] >= 0 && m_selected[c] < static_cast<int>(items.size()) &&
+            items[static_cast<size_t>(m_selected[c])].game >= 0)
+          paths[c] = m_games[static_cast<size_t>(items[static_cast<size_t>(m_selected[c])].game)].rom.path;
+      }
+      OpenFoldersOf(paths);
+    }
+    Log(std::string("menu: subfolders as folders ") + (on ? "on" : "off"));
+    RebuildGameLists(true);
+    return;
+  }
+  BuildItems();
 }
 
 // Cross on an item (both styles).
 void Menu::Impl::ActivateItem(const Item& item)
 {
+  if (!item.folder.empty())
+  {
+    // ((01.47) A folder's row: its games. (Its path copied first: the list - this row with it - is made again.)
+    const std::string folder = item.folder;
+    OpenFolder(m_category, folder);
+    Play("menu");
+    return;
+  }
   if (item.game >= 0)
   {
     m_launch = item.game;
@@ -7875,6 +9497,11 @@ void Menu::Impl::ActivateItem(const Item& item)
     m_games[item.game].played = static_cast<int64_t>(std::time(nullptr));
     SavePlayed();
     Play("launch");
+  }
+  else if (item.setting >= 0 && item.check >= 0)
+  {
+    ToggleCheck(item.setting);  // ((01.28) a box row: ticked or not at once, no panel)
+    Play("menu");
   }
   else if (item.setting >= 0)
   {
@@ -8956,6 +10583,259 @@ void Menu::Impl::OpenFindCover(int index, bool back_to_list)
   Play("menu");
 }
 
+// ---------------------------------------------------------------------------------------------
+// (01.56, the owner) Cover From a File: a picture of the player's own - on a USB drive, or in the app's storage - as
+// the game's cover, chosen in a plain browser of folders and pictures (.png, .jpg, .jpeg) with the selected one's
+// preview. Cross makes a copy of it the game's cover where Find Cover puts its own (the player's file only read); the
+// cover the game had before is kept aside the first time (data_dir/covers-before/<console>/), with a record of what was
+// done, so "Back to the Cover Before" (or "Remove My Picture", when it had none) undoes it.
+
+namespace
+{
+struct CoverRecord
+{
+  std::string saved, before, restore;  // the cover written; the copy of the one before and where it was ("" none)
+  bool there = false;
+};
+CoverRecord ReadCoverRecord(const std::string& path)
+{
+  CoverRecord record;
+  std::stringstream lines(ReadTextFile(path));
+  for (std::string line; std::getline(lines, line);)
+  {
+    const size_t equals = line.find('=');
+    const std::string key = line.substr(0, equals), value = equals == std::string::npos ? "" : line.substr(equals + 1);
+    if (key == "saved")
+      record.saved = value;
+    else if (key == "before")
+      record.before = value;
+    else if (key == "restore")
+      record.restore = value;
+  }
+  record.there = !record.saved.empty();
+  return record;
+}
+}  // namespace
+
+std::string Menu::Impl::CoverRecordPath(const std::string& key)
+{
+  const std::string file = CoverFiles::NewFile(UserDir() + "/covers-before", key);
+  return file.substr(0, file.rfind('.')) + ".txt";
+}
+
+void Menu::Impl::ForgetGameCover(const std::string& key)
+{
+  for (size_t i = 0; i < m_games.size(); i++)
+  {
+    if (m_games[i].rom.key != key)
+      continue;
+    auto it = m_covers.find(static_cast<int>(i));
+    if (it != m_covers.end() && !it->second.requested)
+    {
+      if (it->second.texture != ImTextureID{})
+        m_display.DestroyTexture(it->second.texture);
+      m_covers.erase(it);
+    }
+  }
+}
+
+void Menu::Impl::OpenCoverFile(int index)
+{
+  if (index < 0 || index >= static_cast<int>(m_games.size()))
+    return;
+  const Library::Game& rom = m_games[static_cast<size_t>(index)].rom;
+  m_pick_key = rom.key;
+  m_pick_title = rom.title;
+  m_pick_system = rom.system;
+  if (!m_find_thread.joinable())
+  {
+    m_find_stop = false;
+    m_find_thread = std::thread([this] { FindWorker(); });
+  }
+  m_panel = {};
+  m_panel.open = true;
+  m_panel.setting = SET_COVER_FILE;
+  m_panel.title = "Cover From a File";
+  // (The folder of the last time, if it is there now: else the places.)
+  std::string dir = Settings::Get("cover_file_dir");
+  std::error_code ec;
+  if (!dir.empty() && !std::filesystem::is_directory(dir, ec))
+    dir.clear();
+  OpenCoverFileDir(dir, {});
+  Play("menu");
+}
+
+// The rows: the game, the way back to its cover before (once a picture was chosen here), then the folder - "" the
+// places (the USB drives, the app's storage) -, "..", its folders and its pictures, by name (5000 at most).
+void Menu::Impl::OpenCoverFileDir(const std::string& dir, const std::string& select_key)
+{
+  m_pick_dir = dir;
+  if (Settings::Get("cover_file_dir") != dir)
+    Settings::Set("cover_file_dir", dir);
+  std::vector<SettingRow> rows;
+  rows.push_back({m_pick_title, GetSystem(m_pick_system).tab, "", true});
+  const CoverRecord record = ReadCoverRecord(CoverRecordPath(m_pick_key));
+  if (record.there)
+  {
+    SettingRow undo{record.before.empty() ? "Remove My Picture" : "Back to the Cover Before", "", "cf:undo"};
+    undo.help = record.before.empty() ? "The picture chosen here goes: the game has no cover of its own again." :
+                                        "The picture chosen here goes, and the game's cover before it comes back.";
+    rows.push_back(undo);
+  }
+  std::vector<std::string> places = Library::UsbDrives();
+  places.push_back(m_data_dir);
+  rows.push_back({dir.empty() ? std::string("Places") : dir, "", "", true});
+  if (dir.empty())
+  {
+    for (const std::string& place : places)
+      rows.push_back({place, place == m_data_dir ? "EmuSuNi's Storage" : "USB Drive", "cfdir:" + place});
+  }
+  else
+  {
+    // ("..": the folder above; from a place's top - or below the console's root - the places again.)
+    std::string parent = dir.substr(0, dir.rfind('/'));
+    const bool top = parent.empty() || std::find(places.begin(), places.end(), dir) != places.end();
+    rows.push_back({"..", top ? "Places" : parent, top ? "cfdir:" : "cfdir:" + parent});
+    std::vector<std::string> folders;
+    std::vector<std::pair<std::string, uintmax_t>> pictures;
+    constexpr size_t MOST = 5000;
+    bool readable = false, cut = false;
+    std::error_code ec;
+    // (Not a range-for: its ++ throws when the drive goes away meanwhile; increment(ec) just stops.)
+    for (std::filesystem::directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec))
+    {
+      readable = true;
+      const std::string name = it->path().filename().string();
+      if (name.empty() || name[0] == '.' || name == "System Volume Information" || name == "$RECYCLE.BIN")
+        continue;
+      if (folders.size() + pictures.size() >= MOST)
+      {
+        cut = true;
+        break;
+      }
+      std::error_code type_error;
+      if (it->is_directory(type_error))
+        folders.push_back(name);
+      else if (CoverFiles::IsPicture(name) && it->is_regular_file(type_error))
+        pictures.emplace_back(name, it->file_size(type_error));
+    }
+    const auto by_name = [](const std::string& a, const std::string& b) { return Lower(a) < Lower(b); };
+    std::sort(folders.begin(), folders.end(), by_name);
+    std::sort(pictures.begin(), pictures.end(),
+              [&](const auto& a, const auto& b) { return by_name(a.first, b.first); });
+    if (!readable && ec)
+      rows.push_back({"(this folder can't be opened: " + ec.message() + ")", "", "", true});
+    else if (folders.empty() && pictures.empty())
+      rows.push_back({"No pictures or folders here", "", "", true});
+    for (const std::string& folder : folders)
+      rows.push_back({folder + "/", "", "cfdir:" + (dir == "/" ? "/" + folder : dir + "/" + folder)});
+    for (const auto& [name, bytes] : pictures)
+    {
+      char size[32];
+      if (bytes < (uintmax_t{1} << 20))
+        std::snprintf(size, sizeof(size), "%llu KB", static_cast<unsigned long long>((bytes + 1023) >> 10));
+      else
+        std::snprintf(size, sizeof(size), "%.1f MB", static_cast<double>(bytes) / (1 << 20));
+      SettingRow row{name, size, "img:" + dir + "/" + name};
+      row.help = "Cross: this picture as the game's cover. A copy is made; your file stays as it is.";
+      rows.push_back(row);
+    }
+    if (cut)
+      rows.push_back({"Only the first 5000 are shown", "", "", true});
+  }
+  m_panel.rows = std::move(rows);
+  // On the row asked for (the folder come from), else the first one of the folder's (after ".."), else the first.
+  int at = -1, first = -1;
+  for (size_t i = 0; i < m_panel.rows.size(); i++)
+  {
+    const SettingRow& row = m_panel.rows[i];
+    if (!select_key.empty() && row.key == select_key)
+      at = static_cast<int>(i);
+    if (first < 0 && !row.header && row.label != ".." &&
+        (row.key.rfind("cfdir:", 0) == 0 || row.key.rfind("img:", 0) == 0))
+      first = static_cast<int>(i);
+  }
+  m_panel.selected = at >= 0 ? at : first >= 0 ? first : 0;
+  MoveSettingRow(0);
+}
+
+void Menu::Impl::PickCoverFile(const std::string& file)
+{
+  const std::string key = m_pick_key, record_path = CoverRecordPath(key);
+  CoverRecord record = ReadCoverRecord(record_path);
+  // Where it goes, as Find Cover's: over the game's cover of its name where it is (a PNG; a JPEG of the player's own
+  // stays, the new PNG beside it is newer and wins), else where new covers go (Covers Saved On).
+  const auto old = m_cover_files.find(Lower(key));
+  std::string target = old != m_cover_files.end() ? old->second : CoverFiles::NewFile(CoversSaveDir(true), key);
+  if (Lower(target.substr(target.rfind('.'))) != ".png")
+    target = target.substr(0, target.rfind('.')) + ".png";
+  FindJob job;
+  job.type = 5;
+  job.system = m_pick_system;
+  job.text = key;
+  job.name = file;
+  job.path = target;
+  if (!record.there && old != m_cover_files.end())
+  {
+    // (The first picture of a file for it: the cover it had kept aside, to come back to - a later one keeps that.)
+    const std::string backup = CoverFiles::NewFile(UserDir() + "/covers-before", key);
+    job.backup_from = old->second;
+    job.backup_to = backup.substr(0, backup.rfind('.')) + Lower(old->second.substr(old->second.rfind('.')));
+    record.before = job.backup_to;
+    record.restore = old->second;
+  }
+  record.saved = target;
+  job.record = record_path;
+  job.record_text = "saved=" + record.saved + "\nbefore=" + record.before + "\nrestore=" + record.restore + "\n";
+  {
+    std::lock_guard lock(m_find_mutex);
+    m_find_jobs.push_back(std::move(job));
+  }
+  m_find_wake.notify_one();
+}
+
+void Menu::Impl::UndoCoverFile()
+{
+  const std::string key = m_pick_key, record_path = CoverRecordPath(key);
+  const CoverRecord record = ReadCoverRecord(record_path);
+  if (!record.there)
+    return;
+  // The cover before written back where it was (its copy's bytes; a cover is small), else nothing changes.
+  bool restored = false;
+  if (!record.before.empty())
+  {
+    std::ifstream file(record.before, std::ios::binary);
+    const std::string data((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    restored = !data.empty() && !record.restore.empty() && WriteDataFile(record.restore, data.data(), data.size());
+    if (!restored)
+    {
+      ShowToast("The cover before can't be put back", 0);
+      Play("error");
+      return;
+    }
+  }
+  // The picture written here goes: only a PNG in a covers folder (the record is the app's own; still).
+  const bool ours = record.saved.size() > 4 && Lower(record.saved.substr(record.saved.size() - 4)) == ".png" &&
+                    record.saved.find("/covers/") != std::string::npos;
+  if (ours && record.saved != record.restore)
+    std::remove(record.saved.c_str());
+  if (restored)
+    std::remove(record.before.c_str());
+  std::remove(record_path.c_str());
+  for (auto it = m_cover_files.begin(); it != m_cover_files.end();)
+    it = it->second == record.saved ? m_cover_files.erase(it) : std::next(it);
+  if (restored)
+    CoverSaved(Lower(key), record.restore);
+  ForgetGameCover(key);
+  m_covers_changed = true;
+  RefreshNoCoverItem();
+  Log("covers: " + key + "'s picture from a file undone" +
+      (restored ? ": " + record.restore + " back" : std::string()));
+  ShowToast(restored ? "The cover before is back" : "Your picture was removed", 0);
+  Play("confirm");
+  OpenCoverFileDir(m_pick_dir, {});
+}
+
 // The pictures like m_find_query, looked up again.
 void Menu::Impl::StartFind()
 {
@@ -9039,22 +10919,17 @@ void Menu::Impl::UpdateFind(float dt)
       }
       std::remove(result.path.c_str());
     }
+    else if (result.type == 5)
+    {
+      // ((01.56) Cover From a File: the picture refused - not a picture, too big - or not written.)
+      ShowToast(result.error.empty() ? std::string("The picture can't be used") : result.error, 0);
+      Play("error");
+    }
     else if (result.ok)
     {
       // The new cover: shown at once (the old picture's texture goes).
       CoverSaved(Lower(result.key), result.path);
-      for (size_t i = 0; i < m_games.size(); i++)
-      {
-        if (m_games[i].rom.key != result.key)
-          continue;
-        auto it = m_covers.find(static_cast<int>(i));
-        if (it != m_covers.end() && !it->second.requested)
-        {
-          if (it->second.texture != ImTextureID{})
-            m_display.DestroyTexture(it->second.texture);
-          m_covers.erase(it);
-        }
-      }
+      ForgetGameCover(result.key);
       m_covers_changed = true;  // Without Cover: the game leaves the lists (Run)
       ShowToast("Cover saved", 0);
       Play("confirm");
@@ -9068,6 +10943,10 @@ void Menu::Impl::UpdateFind(float dt)
       {
         BuildNoCoverRows();  // picked, then Circle before the picture came
       }
+      else if (m_panel.open && m_panel.setting == SET_COVER_FILE && result.key == m_pick_key)
+      {
+        OpenCoverFileDir(m_pick_dir, "img:" + result.name);  // ((01.56) its row to go back to the cover before)
+      }
     }
     else
     {
@@ -9075,18 +10954,23 @@ void Menu::Impl::UpdateFind(float dt)
       Play("error");
     }
   }
-  // The preview: after a moment on a picture (not one download per press of Down).
+  // The preview: after a moment on a picture (not one download per press of Down). ((01.56) Cover From a File's: the
+  // picture of the drive's selected, read on the thread.)
+  const bool picking = m_panel.open && m_panel.setting == SET_COVER_FILE;
   std::string want;
-  if (shown && m_panel.selected >= 0 && m_panel.selected < static_cast<int>(m_panel.rows.size()))
+  if ((shown || picking) && m_panel.selected >= 0 && m_panel.selected < static_cast<int>(m_panel.rows.size()))
   {
     const std::string& key = m_panel.rows[m_panel.selected].key;
-    if (key.rfind("pick:", 0) == 0)
+    if (shown && key.rfind("pick:", 0) == 0)
       want = m_panel.rows[m_panel.selected].label;
+    else if (picking && key.rfind("img:", 0) == 0)
+      want = key.substr(4);
   }
   if (want != m_preview_want)
   {
     m_preview_want = want;
     m_preview_wait = 0.0f;
+    m_preview_name.clear();  // ((01.56) back on a picture shown before: asked for again)
     if (m_preview != ImTextureID{})
       m_display.DestroyTexture(m_preview);
     m_preview = ImTextureID{};
@@ -9099,13 +10983,13 @@ void Menu::Impl::UpdateFind(float dt)
       m_preview_name = want;
       {
         std::lock_guard lock(m_find_mutex);
-        m_find_jobs.push_back({1, m_find_system, m_find_titles, "", want,
+        m_find_jobs.push_back({picking ? 4 : 1, m_find_system, m_find_titles, "", want,
                                UserDir() + "/covers/.preview" + std::to_string(++m_preview_serial) + ".png"});
       }
       m_find_wake.notify_one();
     }
   }
-  if (!shown)
+  if (!shown && !picking)
     m_preview_name.clear();
 }
 
@@ -9137,7 +11021,71 @@ void Menu::Impl::FindWorker()
     FindResult result;
     result.type = job.type;
     result.serial = job.serial;
-    if (job.type == 0)
+    if (job.type == 4 || job.type == 5)
+    {
+      // ((01.56) Cover From a File: the player's file only read - never changed, never opened as anything but a
+      // picture: LoadPicture knows a PNG or a JPEG by its first bytes and refuses past 16384 pixels a side -, at most
+      // 40 MB; the preview as a temporary PNG (type 1's way), the cover as a PNG of 1024 pixels a side at most, written
+      // beside its place and renamed over it, after the cover before was copied aside once.)
+      constexpr uintmax_t MAX_FILE = uintmax_t{40} << 20;
+      constexpr uint32_t COVER_SIDE = 1024;
+      result.type = job.type == 4 ? 1 : 5;
+      result.name = job.name;
+      result.path = job.path;
+      result.key = job.text;
+      std::error_code ec;
+      const uintmax_t bytes = std::filesystem::file_size(job.name, ec);
+      ImageRGBA image;
+      std::string why;
+      if (ec || !std::filesystem::is_regular_file(job.name, ec))
+        result.error = "The file can't be read";
+      else if (bytes > MAX_FILE)
+        result.error = "The file is too big: over 40 MB";
+      else if (!LoadPicture(job.name, &image, job.type == 4 ? 320 : COVER_SIDE, job.type == 4 ? 320 : COVER_SIDE,
+                            &why))
+        result.error = why.empty() ? std::string("It isn't a PNG or JPEG picture") : why;
+      else if (job.type == 5 && !job.backup_to.empty())
+      {
+        // (Read and written whole - a cover is small -, not std::filesystem::copy_file: the PS4's kernel lacks calls
+        // libc++ may use for it.)
+        MakeDirs(job.backup_to.substr(0, job.backup_to.rfind('/')));
+        std::ifstream old(job.backup_from, std::ios::binary);
+        const std::string data((std::istreambuf_iterator<char>(old)), std::istreambuf_iterator<char>());
+        if (!old.good() && !old.eof())
+          result.error = "The cover before can't be kept";
+        else if (data.empty() || data.size() > MAX_FILE || !WriteDataFile(job.backup_to, data.data(), data.size()))
+          result.error = "The cover before can't be kept";
+      }
+      if (result.error.empty())
+      {
+        if (job.type == 5)
+          MakeDirs(job.path.substr(0, job.path.rfind('/')));
+        const std::string written = job.type == 5 ? job.path + ".new" : job.path;
+        result.ok = SavePng(written, image);
+        if (result.ok && job.type == 5)
+        {
+          std::filesystem::rename(written, job.path, ec);
+          result.ok = !ec;
+          if (ec)
+            std::remove(written.c_str());
+        }
+        if (!result.ok)
+          result.error = "The cover can't be written";
+        if (result.ok && job.type == 5 && !job.record.empty())
+        {
+          MakeDirs(job.record.substr(0, job.record.rfind('/')));
+          WriteTextFile(job.record, job.record_text);
+        }
+        if (result.ok && job.type == 5)
+          result.type = 2;  // (a cover saved, as Find Cover's)
+      }
+      if (!result.ok)
+        Log("covers: " + job.name + (job.type == 4 ? " (preview)" : "") + ": " + result.error);
+      else if (job.type == 5)
+        Log("covers: " + job.text + "'s cover from " + job.name + " (" + std::to_string(image.width) + "x" +
+            std::to_string(image.height) + ") in " + job.path);
+    }
+    else if (job.type == 0)
     {
       const std::pair<int, bool> list{static_cast<int>(job.system), job.titles};
       auto& names = lists[list];
@@ -9640,6 +11588,194 @@ std::string Menu::Impl::ForgetGame(const Game& game, bool saves, const KeptByOth
   return text;
 }
 
+// ---- (01.81, the master: a player renamed 920 Mega Drive games and wants the files to have those names) ----
+// Rename Files With My Names (Triangle's options, on a console of src/GameRename.h's): the console's games with a
+// name of the player's own (names.ini) take it as their file's name; their saves, states, cheats, covers and bezel go
+// with them (GameRename::Apply), their settings, controls, favorite, played time, My Stats and default game too (here).
+// A list of every file moved (old, new) stays in the player's data folder to undo it; each one in the log.
+
+int Menu::Impl::RenamableGames(SystemId system) const
+{
+  if (!GameRename::ConsoleTakes(system))
+    return 0;
+  int count = 0;
+  for (const Game& game : m_games)
+    count += game.rom.system == system && m_names.count(game.rom.key) ? 1 : 0;
+  return count;
+}
+
+void Menu::Impl::OpenRenameFiles(SystemId system)
+{
+  std::vector<GameRename::Wanted> wanted;
+  std::set<std::string> ids;  // (every game's of the console: a new name is never another one's key)
+  for (const Game& game : m_games)
+  {
+    if (game.rom.system != system)
+      continue;
+    ids.insert(Lower(game.rom.id));
+    const auto name = m_names.find(game.rom.key);
+    if (name == m_names.end())
+      continue;
+    GameRename::Wanted w;
+    w.path = game.rom.path;
+    w.key = game.rom.key;
+    w.name = name->second;
+    w.files = Library::GameFiles(game.rom).size();
+    wanted.push_back(w);
+  }
+  std::vector<std::pair<std::string, GameRename::Kept>> kept;
+  m_rename_plans = GameRename::MakePlans(wanted, ids, UserDir(), &kept);
+  int files = 0, missing = 0, unusable = 0;
+  for (const auto& [key, why] : kept)
+  {
+    files += why == GameRename::Kept::Files ? 1 : 0;
+    missing += why == GameRename::Kept::Missing ? 1 : 0;
+    unusable += why == GameRename::Kept::Name ? 1 : 0;
+  }
+  Log("rename files: " + std::string(GetSystem(system).key) + ": " + std::to_string(m_rename_plans.size()) +
+      " to rename, " + std::to_string(kept.size()) + " kept (" + std::to_string(files) + " of several files, " +
+      std::to_string(missing) + " not found, " + std::to_string(unusable) + " with no usable name, the rest named so)");
+  m_panel = {};
+  m_panel.open = true;
+  m_panel.setting = SET_RENAME_FILES;
+  m_panel.title = "Rename Files With My Names";
+  m_panel.lines = {"", GetSystem(system).name, ""};
+  // (Each text translated and wrapped to the panel's width.)
+  auto add = [this](const std::string& text) {
+    std::istringstream in(WrapText(m_font, 28, PS4Lang::T(text), 550.0f));
+    for (std::string line; std::getline(in, line);)
+      m_panel.lines.push_back(line);
+  };
+  if (m_rename_plans.empty())
+  {
+    add("No file needs a new name.");
+    m_panel.options = {"Cancel"};
+  }
+  else
+  {
+    add("Files that take your names: " + std::to_string(m_rename_plans.size()));
+    m_panel.options = {"Cancel", "Rename"};
+  }
+  if (files > 0)
+    add("Several files (discs), kept as they are: " + std::to_string(files));
+  if (missing > 0)
+    add("Not found on the drive: " + std::to_string(missing));
+  if (unusable > 0)
+    add("Names with nothing usable for a file: " + std::to_string(unusable));
+  if (!m_rename_plans.empty())
+  {
+    m_panel.lines.push_back("");
+    add("Their saves, states, cheats, covers, settings and controls go with them.");
+  }
+  Play("menu");
+}
+
+void Menu::Impl::RenameFiles()
+{
+  std::vector<std::string> places = {UserDir() + "/covers"};
+  if (!m_usb_covers.empty())
+    places.push_back(m_usb_covers);
+  const std::time_t now = std::time(nullptr);
+  char stamp[32] = "";
+  std::strftime(stamp, sizeof(stamp), "%Y-%m-%d %H-%M-%S", std::localtime(&now));
+  std::string undo = "# EmuSuNi: Rename Files With My Names, " + std::string(stamp) +
+                     ". Each file moved: its old path<tab>its new one (to undo, each new one back to its old one)\n";
+  int renamed = 0, failed = 0;
+  std::map<std::string, std::string> paths;  // a game's file: old -> new
+  for (const GameRename::Plan& plan : m_rename_plans)
+  {
+    GameRename::Moved moved;
+    if (!GameRename::Apply(plan, UserDir(), places, &moved))
+    {
+      failed++;
+      Log("rename files: " + plan.from + " couldn't be renamed (" + moved.error + "): it and its data stay as they were");
+      continue;
+    }
+    renamed++;
+    paths[plan.from] = plan.to;
+    for (const auto& [from, to] : moved.files)
+    {
+      undo += from + "\t" + to + "\n";
+      Log("rename files: " + from + " -> " + to);
+    }
+    for (const std::string& left : moved.left)
+      Log("rename files: " + left + " stays as it is: its new name was taken");
+    // A cover chosen from a file: its record's paths (covers-before/<name>.txt) follow its pictures.
+    for (const auto& [from, to] : moved.files)
+    {
+      if (to.size() < 4 || to.compare(to.size() - 4, 4, ".txt") != 0)
+        continue;
+      std::string text = ReadTextFile(to);
+      for (const auto& [old_path, new_path] : moved.files)
+      {
+        for (size_t at = text.find(old_path); at != std::string::npos; at = text.find(old_path, at + new_path.size()))
+          text.replace(at, old_path.size(), new_path);
+      }
+      WriteTextFile(to, text);
+    }
+    // What goes by its key, or its path, in the app's own files.
+    Settings::RenameGame(plan.old_key, plan.new_key);
+    Controls::RenameGameProfile(plan.old_key, plan.new_key);
+    const auto name = m_names.find(plan.old_key);
+    if (name != m_names.end())
+    {
+      // (Kept under its new key only when the file's name isn't it: characters a file can't have, a " (2)".)
+      const std::string value = name->second;
+      m_names.erase(name);
+      const System& system = SystemOfKey(plan.new_key);
+      std::string own, region, tags;
+      Library::ParseName(plan.new_key.substr(std::string(system.prefix).size()), &own, &region, &tags);
+      if (value != own)
+        m_names[plan.new_key] = value;
+    }
+    if (m_favorites.erase(plan.old_key) > 0)
+      m_favorites.insert(plan.new_key);
+    if (m_prefs.default_game == plan.from)
+      m_prefs.default_game = plan.to;
+    MyStats::RenamePath(plan.from, plan.to);
+    m_ratings.erase(plan.old_key);
+    m_rating_asked.erase(plan.old_key);
+    m_cover_why.erase(plan.old_key);
+  }
+  m_rename_plans.clear();
+  // played.ini's lines ("<time> <path>", the path as Portable stores it).
+  if (!paths.empty())
+  {
+    std::stringstream lines(ReadTextFile(UserDir() + "/played.ini"));
+    std::string text;
+    for (std::string line; std::getline(lines, line);)
+    {
+      while (!line.empty() && line.back() == '\r')
+        line.pop_back();
+      const size_t space = line.find(' ');
+      if (space != std::string::npos && space > 0)
+      {
+        const auto it = paths.find(Portable::FromStored(line.substr(space + 1)));
+        if (it != paths.end())
+          line = line.substr(0, space + 1) + Portable::ToStored(it->second);
+      }
+      text += line + "\n";
+    }
+    WriteTextFile(UserDir() + "/played.ini", text);
+  }
+  SaveNames();
+  SaveFavorites();
+  m_prefs.Save(UserDir() + "/xmb.ini");
+  if (renamed > 0)
+  {
+    const std::string list = UserDir() + "/renamed-files " + stamp + ".tsv";
+    if (WriteTextFile(list, undo))
+      Log("rename files: " + std::to_string(renamed) + " renamed; the list to undo it: " + list);
+    else
+      Log("rename files: " + std::to_string(renamed) + " renamed; the list to undo it couldn't be written: " + list);
+  }
+  RefreshGames();
+  ShowToast(failed > 0 ? "Files renamed: " + std::to_string(renamed) + "; not renamed: " + std::to_string(failed) +
+                             " (the log says why)" :
+                         "Files renamed: " + std::to_string(renamed),
+            0);
+}
+
 void Menu::Impl::SetDeleteGameLines()
 {
   m_panel.lines = {"", m_delete_title, "",
@@ -9658,13 +11794,26 @@ std::string Menu::Impl::OptionHelp(const std::string& option) const
       {"Add to Favorites", "Adds the game to the Favorites tab (L2 on a game does the same)."},
       {"Remove from Favorites", "Takes the game out of the Favorites tab."},
       {"Game Settings", "This game's settings: for all games, or only for this one (Apply To)."},
+      // ((01.27) Triangle's menu with the in-game menu's names: Settings, Load State.)
+      {"Settings", "This game's settings: for all games, or only for this one (Apply To)."},
+      {"Load State", "Starts the game in one of its save states: where you left off, or Slots 1 to 8."},
       {"Cheats", "Turns this game's cheat codes on and off."},
       {"Controls", "Which DualShock 4 button does what, for all games or only this one."},
       {"Information", "The game's file, size, region and when you last played it."},
       {"Achievements", "RetroAchievements: every achievement of the game, unlocked or not, with your progress; for a file "
                        "it doesn't know, the files of the game it knows."},
       {"Rename", "A name of your own for the game (it is found by it too, covers included). Empty: its own name again."},
+      // ((01.81) src/GameRename.h)
+      {"Rename Files With My Names",
+       "The files of this console's games you renamed take your names, with their saves, states, cheats and covers. "
+       "Asks first; a list to undo it is kept."},
       {"Find Cover", "Choose the game's cover from libretro's pictures: the ones most like its name, or another name."},
+      // ((01.72) the PS Vita's firmware panel)
+      {"Copy the Firmware", "Takes Sony's three .PUP files from Roms/psvita, checks each one and keeps it for the "
+                            "first PS Vita game."},
+      {"What Are .PUP Files?", "What the firmware's files are, where to get them and where to put them."},
+      {"Cover From a File", "A picture of your own (PNG or JPG) on a USB drive as the game's cover: a copy is kept, "
+                            "the file stays as it is."},
       {"Set as Default Game", "This game starts by itself when EmuSuNi opens (hold L1 to get the menu)."},
       {"Remove Default Game", "EmuSuNi opens on the menu again."},
       {"Delete Game", "Deletes the game's files from the drive (a .cue's tracks and every disc too), and its cover, name, "
@@ -10107,6 +12256,7 @@ void Menu::Impl::OpenOnlinePanel()
 {
   m_panel.open = false;
   m_category = static_cast<int>(Category::Online);
+  UpdateHiddenTabs(m_category);  // ((01.26) its tab back while it is open, if Tabs Shown hides it)
   m_category_pos = static_cast<float>(ColumnIndex(m_category));
   m_tab_pos = static_cast<float>(LibraryTab());
   BuildOnlineItems();
@@ -10564,9 +12714,12 @@ void Menu::Impl::DrawTopTable(ImDrawList* dl, float alpha, float x0, float x1, f
     return font->CalcTextSizeA(size, FLT_MAX, 0.0f, text.c_str()).x;
   };
   const Netplay::TopList top = Netplay::TopGames();
-  const std::string days = std::to_string(top.days > 0 ? top.days : NetProto::TOP_DAYS);
-  Text(dl, m_bold, 26, ImVec2(x0 + 2, y + 4), Rgba(theme.wave, alpha), "Most played online in the last " + days + " days",
-       false);
+  // ((01.91) The answer's period - the one asked until it comes; Triangle another.)
+  const int top_days = top.answered ? top.days : m_top_days;
+  const std::string title = top_days == 0 ? std::string("Most played online since ever") :
+                                            "Most played online in the last " + std::to_string(top_days) + " days";
+  Text(dl, m_bold, 26, ImVec2(x0 + 2, y + 4), Rgba(theme.wave, alpha), title, false);
+  PS4Glyphs::Draw(dl, m_bold, "Triangle", x0 + TextWidth(m_bold, 26, title) + 20.0f, y + 19.0f, 30.0f, alpha * 0.8f);
   y += 60.0f;
   const float w = x1 - x0;
   const float tx = x0 + 132.0f, col_console = x0 + w * 0.47f, col_version = x0 + w * 0.56f,
@@ -10588,8 +12741,11 @@ void Menu::Impl::DrawTopTable(ImDrawList* dl, float alpha, float x0, float x1, f
     const float cx = (x0 + x1) * 0.5f, cy = list_top + std::min(170.0f, (bottom - list_top) * 0.35f);
     const std::string first = PS4Lang::T(!top.answered ? "Asking the server..." : "No matches these days");
     raw(m_bold, 32, ImVec2(cx - raw_w(m_bold, 32, first) * 0.5f, cy), Rgba(theme.text, alpha), first);
-    const std::string second = PS4Lang::T("EmuSuNi's server counts the matches of the last " + days +
-                                          " days by game: only the games and how many - nothing of anyone.");
+    const std::string second = PS4Lang::T(
+        top_days == 0 ? std::string("EmuSuNi's server counts every match by game: only the games and how many - nothing "
+                                    "of anyone.") :
+                        "EmuSuNi's server counts the matches of the last " + std::to_string(top_days) +
+                            " days by game: only the games and how many - nothing of anyone.");
     const std::string fitted = Fit(m_font, 24, second, w - 80.0f);
     raw(m_font, 24, ImVec2(cx - raw_w(m_font, 24, fitted) * 0.5f, cy + 54.0f), Rgba(theme.text, alpha * 0.65f), fitted);
     return;
@@ -11311,11 +13467,13 @@ void Menu::Impl::BuildTogetherRows(const Netplay::View& v)
         continue;  // (a game for one player: nothing to play together; 00.95: for fewer than the room's players)
       t.unknown += card.players == 0 ? 1 : 0;
       t.known += card.players > 0 ? 1 : 0;
-      if (card.players == 0 && !m_online_show_all)
-        continue;
+      if (card.players == 0 && !m_online_show_all && !card.suggested)
+        continue;  // ((01.88) the guest's suggestion shown all the same)
       all.push_back(card);
     }
     std::stable_sort(all.begin(), all.end(), [this](const TogetherCard& a, const TogetherCard& b) {
+      if (a.suggested != b.suggested)
+        return a.suggested;  // ((01.88, the owner: the host never saw it) the guest's suggestion first)
       if ((a.players == 0) != (b.players == 0))
         return a.players != 0;
       return m_games[static_cast<size_t>(a.game)].rom.title < m_games[static_cast<size_t>(b.game)].rom.title;
@@ -12182,7 +14340,7 @@ void Menu::Impl::DrawOnlinePages(ImDrawList* dl, float alpha, float x0, float x1
   constexpr float CHIP_H = 38.0f, CHIP_FONT = 22.0f, GLYPH_H = 34.0f, BADGE = 18.0f;
   const ImU32 plain = light ? Rgba(0xFFFFFF, alpha * 0.55f) : Rgba(0x000000, alpha * 0.22f);
   const Netplay::WorldChatView world = Netplay::GetWorldChat();
-  static const char* const NAMES[] = {"Rooms", "Chat", "Most Played", "Players"};
+  static const char* const NAMES[] = {"Rooms", "Chat", "Most Played", "Players", "ELO Ranking"};
   float x = x0;
   x += PS4Glyphs::Draw(dl, m_bold, "L2", x, y + CHIP_H * 0.5f, GLYPH_H, alpha) + 12.0f;
   for (int i = 0; i < ONLINE_PAGES && x < x1; i++)
@@ -12290,7 +14448,8 @@ void Menu::Impl::DrawWorldChat(ImDrawList* dl, float alpha, float x0, float x1, 
   const float wrap_w = w - 36.0f;
   float yy = box_bottom - 12.0f;
   dl->PushClipRect(ImVec2(x0, top + 6.0f), ImVec2(x1, box_bottom - 6.0f), true);
-  for (int i = last; i >= 0 && yy > top; i--)
+  int i = last;
+  for (; i >= 0 && yy > top; i--)
   {
     const Netplay::WorldChatLine& l = world.lines[static_cast<size_t>(i)];
     std::string body = l.phrase ? PS4Lang::ChatPhraseText(l.phrase, l.param) : l.text;
@@ -12304,6 +14463,12 @@ void Menu::Impl::DrawWorldChat(ImDrawList* dl, float alpha, float x0, float x1, 
     NetplayUi::DrawChatLine(dl, m_font, m_bold, 26, 34.0f, line, ImVec2(x0 + 18.0f, yy),
                             l.mine ? Rgba(theme.wave, alpha) : Rgba(colour_of(l.code), alpha),
                             Rgba(theme.text, 0.92f * alpha));
+  }
+  // ((01.24) Above the oldest line, when it shows: the older ones coming, or none left.)
+  if (i < 0 && yy - 40.0f > top && (world.older_loading || world.older_done))
+  {
+    const std::string& note = PS4Lang::T(world.older_loading ? "Loading older messages..." : "No older messages");
+    dl->AddText(m_font, 22, ImVec2((x0 + x1 - TextWidth(m_font, 22, note)) * 0.5f, yy - 36.0f), dim, note.c_str());
   }
   dl->PopClipRect();
 }
@@ -12319,7 +14484,7 @@ void Menu::Impl::DrawPlayersTable(ImDrawList* dl, float alpha, float x0, float x
   const auto raw = [dl](ImFont* font, float size, ImVec2 at, ImU32 color, const std::string& text) {
     dl->AddText(font, size, at, color, text.c_str());
   };
-  const std::string period = m_players_days ? "Last 7 days" : "Since ever";
+  const std::string period = PeriodTitle(list.answered ? list.days : m_players_days);  // ((01.91) the answer's)
   Text(dl, m_bold, 26, ImVec2(x0 + 2.0f, y), Rgba(theme.wave, alpha), period);
   const float pw = TextWidth(m_bold, 26, period);
   PS4Glyphs::Draw(dl, m_bold, "Triangle", x0 + pw + 18.0f, y + 15.0f, 30.0f, alpha * 0.8f);
@@ -12391,6 +14556,153 @@ void Menu::Impl::DrawPlayersTable(ImDrawList* dl, float alpha, float x0, float x
   }
 }
 
+// (01.91, the owner: "un ranking ELO de los 10 juegos más jugados en línea") The ELO ranking: one page per game (its
+// chips - Square, Triangle -, the selected one lit), the game's title and console, our own place, then each ranked
+// player's place, nickname and country, rating, wins and losses (the selected row lit); under them how a match counts.
+// Not answered (a server before it): said after a few seconds.
+void Menu::Impl::DrawEloTable(ImDrawList* dl, float alpha, float x0, float x1, float y, float bottom)
+{
+  const Theme& theme = CurrentTheme();
+  const bool light = theme.text != 0xFFFFFF;
+  m_elo_game = std::clamp(m_elo_game, 0, Elo::GameCount() - 1);
+  const Elo::Game& game = Elo::GameAt(m_elo_game);
+  const Netplay::EloList list = Netplay::EloTop(game.key);
+  const auto raw = [dl](ImFont* font, float size, ImVec2 at, ImU32 color, const std::string& text) {
+    dl->AddText(font, size, at, color, text.c_str());
+  };
+  // The games' chips (Square / Triangle), as many as fit with the selected one among them.
+  constexpr float CHIP_H = 34.0f, CHIP_FONT = 20.0f, GLYPH_H = 30.0f;
+  const ImU32 plain = light ? Rgba(0xFFFFFF, alpha * 0.55f) : Rgba(0x000000, alpha * 0.22f);
+  const int games = Elo::GameCount();
+  std::vector<float> widths;
+  for (int i = 0; i < games; i++)
+    widths.push_back(TextWidth(m_bold, CHIP_FONT, Elo::GameAt(i).label) + 26.0f);
+  const float glyph_w = PS4Glyphs::Width("Square", GLYPH_H) + 12.0f;
+  const float room = (x1 - x0) - glyph_w * 2.0f;
+  int first = 0;
+  const auto fits = [&](int from) {
+    float sum = 0.0f;
+    for (int i = from; i <= m_elo_game; i++)
+      sum += widths[static_cast<size_t>(i)] + 6.0f;
+    return sum <= room;
+  };
+  while (first < m_elo_game && !fits(first))
+    first++;
+  float x = x0;
+  x += PS4Glyphs::Draw(dl, m_bold, "Square", x, y + CHIP_H * 0.5f, GLYPH_H, alpha * 0.8f) + 12.0f;
+  for (int i = first; i < games && x + widths[static_cast<size_t>(i)] <= x1 - glyph_w; i++)
+  {
+    const bool on = i == m_elo_game;
+    const ImVec2 p0(x, y), p1(x + widths[static_cast<size_t>(i)], y + CHIP_H);
+    if (on)
+    {
+      dl->AddRectFilled(p0, p1, Rgba(theme.wave, alpha * 0.45f), CHIP_H * 0.5f);
+      dl->AddRect(p0, p1, Rgba(theme.wave, alpha * 0.95f), CHIP_H * 0.5f, 0, 2.0f);
+    }
+    else
+    {
+      dl->AddRectFilled(p0, p1, plain, CHIP_H * 0.5f);
+      dl->AddRect(p0, p1, Rgba(theme.text, alpha * 0.18f), CHIP_H * 0.5f, 0, 1.5f);
+    }
+    raw(m_bold, CHIP_FONT, ImVec2(x + 13.0f, y + (CHIP_H - CHIP_FONT) * 0.5f - 2.0f),
+        Rgba(theme.text, alpha * (on ? 1.0f : 0.65f)), Elo::GameAt(i).label);
+    x += widths[static_cast<size_t>(i)] + 6.0f;
+  }
+  PS4Glyphs::Draw(dl, m_bold, "Triangle", x + 6.0f, y + CHIP_H * 0.5f, GLYPH_H, alpha * 0.8f);
+  y += CHIP_H + 18.0f;
+  // The game's title and console.
+  raw(m_bold, 26, ImVec2(x0 + 2.0f, y), Rgba(theme.wave, alpha), game.title);
+  const System* system = SystemByKey(game.console);
+  if (system)
+  {
+    const float px = x0 + TextWidth(m_bold, 26, game.title) + 18.0f;
+    const std::string console = system->tab;
+    const float pill_w = TextWidth(m_bold, 20, console) + 22.0f;
+    dl->AddRectFilled(ImVec2(px, y + 1.0f), ImVec2(px + pill_w, y + 31.0f), Rgba(system->color, alpha * 0.95f), 15.0f);
+    raw(m_bold, 20, ImVec2(px + 11.0f, y + 4.0f), Rgba(0xFFFFFF, alpha), console);
+  }
+  // Our own place (the answer's).
+  if (list.answered)
+  {
+    const int matches = list.my_wins + list.my_losses;
+    std::string place =
+        list.my_position > 0 ?
+            PS4Lang::T("Your place: " + std::to_string(list.my_position) + " of " + std::to_string(list.ranked)) :
+            PS4Lang::T("Not ranked yet: " + std::to_string(std::max(1, NetProto::ELO_MIN_MATCHES - matches)) +
+                       " more matches of this game");
+    if (matches > 0)
+      place += "    " + PS4Lang::T("Your ELO: " + std::to_string(list.my_rating) + "  ·  " +
+                                   std::to_string(list.my_wins) + " wins  ·  " + std::to_string(list.my_losses) +
+                                   " losses");
+    raw(m_font, 22, ImVec2(x1 - TextWidth(m_font, 22, place) - 4.0f, y + 6.0f), Rgba(theme.text, alpha * 0.8f), place);
+  }
+  y += 44.0f;
+  // How a match counts, at the bottom.
+  const std::string how = WrapText(m_font, 20,
+                                   PS4Lang::T("Who wins is read from the game itself; a match counts when both consoles "
+                                              "see the same winner."),
+                                   x1 - x0 - 20.0f);
+  const float how_h = 24.0f * static_cast<float>(std::count(how.begin(), how.end(), '\n') + 1);
+  raw(m_font, 20, ImVec2(x0 + 10.0f, bottom - how_h), Rgba(theme.text, alpha * 0.55f), how);
+  bottom -= how_h + 12.0f;
+  const float cx = (x0 + x1) * 0.5f;
+  const auto centered = [&](ImFont* font, float size, float at, ImU32 color, const std::string& english) {
+    const std::string& shown = PS4Lang::T(english);
+    raw(font, size, ImVec2(cx - TextWidth(font, size, shown) * 0.5f, at), color, shown);
+  };
+  if (list.players.empty())
+  {
+    const float cy = y + std::min(130.0f, (bottom - y) * 0.3f);
+    DrawCategoryIcon(dl, Category::Online, ImVec2(cx, cy), 84.0f, Rgba(theme.text, alpha * 0.22f));
+    const bool waited = m_time - m_online_entered > 8.0f;
+    centered(m_bold, 28, cy + 62.0f, Rgba(theme.text, alpha * 0.85f),
+             list.answered ? "No one in this ranking yet: play this game online against a friend" :
+             waited        ? "The ELO ranking isn't on EmuSuNi's server yet" :
+                             "Looking for the ranking...");
+    return;
+  }
+  const float w = x1 - x0;
+  const float col_player = x0 + 90.0f, col_elo = x0 + w * 0.56f, col_wins = x0 + w * 0.70f,
+              col_losses = x0 + w * 0.84f;
+  const ImU32 head = Rgba(theme.text, alpha * 0.55f);
+  Text(dl, m_bold, 22, ImVec2(x0 + 22.0f, y), head, "#", false);
+  Text(dl, m_bold, 22, ImVec2(col_player, y), head, "Player", false);
+  raw(m_bold, 22, ImVec2(col_elo, y), head, "ELO");
+  Text(dl, m_bold, 22, ImVec2(col_wins, y), head, "Wins", false);
+  Text(dl, m_bold, 22, ImVec2(col_losses, y), head, "Losses", false);
+  y += 32.0f;
+  dl->AddLine(ImVec2(x0, y), ImVec2(x1, y), Rgba(theme.text, alpha * 0.12f), 1.5f);
+  y += 10.0f;
+  constexpr float ROW_H = 58.0f;
+  const int n = static_cast<int>(list.players.size());
+  m_elo_index = std::clamp(m_elo_index, 0, n - 1);
+  const int visible = std::max(1, static_cast<int>((bottom - y) / ROW_H));
+  const int top = std::clamp(m_elo_index - visible / 2, 0, std::max(0, n - visible));
+  for (int i = top; i < n && i < top + visible; i++, y += ROW_H)
+  {
+    const Netplay::EloPlayer& p = list.players[static_cast<size_t>(i)];
+    const bool sel = i == m_elo_index;
+    // (Our own row: its place is ours.)
+    const bool mine = list.my_position == i + 1;
+    const ImVec2 r0(x0, y), r1(x1, y + ROW_H - 8.0f);
+    dl->AddRectFilled(r0, r1, sel ? Rgba(theme.wave, alpha * 0.22f) :
+                              mine ? Rgba(theme.wave, alpha * 0.10f) :
+                              light ? Rgba(0xFFFFFF, alpha * 0.5f) : Rgba(0x000000, alpha * 0.2f), 12.0f);
+    if (sel || mine)
+      dl->AddRect(r0, r1, Rgba(theme.wave, alpha * (sel ? 1.0f : 0.5f)), 12.0f, 0, 2.0f);
+    const float ty = y + (ROW_H - 8.0f - 30.0f) * 0.5f;
+    const uint32_t medal = i == 0 ? 0xE0B030 : i == 1 ? 0xB8B8C8 : i == 2 ? 0xC8803C : theme.text;
+    raw(m_bold, 28, ImVec2(x0 + 22.0f, ty - 2.0f), Rgba(medal, alpha * (i < 3 ? 1.0f : 0.7f)), std::to_string(i + 1));
+    const std::string nick =
+        Fit(m_font, 28, p.nick.empty() ? std::string("-") : p.nick, col_elo - col_player - 90.0f);
+    raw(m_font, 28, ImVec2(col_player, ty - 2.0f), Rgba(theme.text, alpha), nick);
+    DrawCountryTag(dl, col_player + TextWidth(m_font, 28, nick) + 12.0f, ty + 15.0f, p.country, 18.0f, alpha);
+    raw(m_bold, 28, ImVec2(col_elo, ty - 2.0f), Rgba(theme.wave, alpha), std::to_string(p.rating));
+    raw(m_bold, 26, ImVec2(col_wins, ty), Rgba(theme.text, alpha * 0.9f), std::to_string(p.wins));
+    raw(m_bold, 26, ImVec2(col_losses, ty), Rgba(theme.text, alpha * 0.9f), std::to_string(p.losses));
+  }
+}
+
 bool Menu::Impl::WorldChatInput(uint32_t pressed)
 {
   const Netplay::WorldChatView world = Netplay::GetWorldChat();
@@ -12415,6 +14727,9 @@ bool Menu::Impl::WorldChatInput(uint32_t pressed)
         m_world_index = to < 0 ? -1 : static_cast<int>(world.lines[static_cast<size_t>(to)].serial);
         Play("move");
       }
+      // ((01.24, the owner: "quiero que haya más historial") Up near the oldest lines: the ones before them asked.)
+      if ((pressed & BTN_UP) && to >= 0 && to <= 3 && !world.older_done)
+        Netplay::WorldWantOlder();
     }
     return true;
   }
@@ -12869,10 +15184,11 @@ bool Menu::Impl::OnlinePageInput(uint32_t pressed)
   m_room_picker.open = false;
   if (to == PAGE_TOP)
   {
-    Netplay::WantTopGames();
+    Netplay::WantTopGames(m_top_days);
     BuildTopTable();
   }
-  static const char* const NAMES[] = {"the rooms", "the world chat", "the games most played online", "the players"};
+  static const char* const NAMES[] = {"the rooms", "the world chat", "the games most played online", "the players",
+                                      "the ELO ranking"};
   Log(std::string("online: ") + NAMES[to]);
   Play("category");
   return true;
@@ -12916,11 +15232,39 @@ bool Menu::Impl::OnlineTabInput(uint32_t pressed)
     }
     if (pressed & BTN_TRIANGLE)
     {
-      m_players_days = m_players_days ? 0 : NetProto::TOP_DAYS;
+      m_players_days = NextPeriod(m_players_days);  // ((01.91) 30 days, 7 days, since ever)
       m_players_index = 0;
       Netplay::WantTopPlayers(m_players_days);
-      Log(m_players_days ? "online: the players' ranking of the last 7 days" :
-                           "online: the players' ranking since ever");
+      Log(m_players_days ? "online: the players' ranking of the last " + std::to_string(m_players_days) + " days" :
+                           std::string("online: the players' ranking since ever"));
+      Play("category");
+      return true;
+    }
+    if (pressed & (BTN_CROSS | BTN_CIRCLE))
+      return true;
+  }
+  // ((01.91) The ELO ranking: Up / Down its rows, Triangle the next game, Square the one before.)
+  if (m_online_page == PAGE_ELO)
+  {
+    const int n = static_cast<int>(Netplay::EloTop(Elo::GameAt(m_elo_game).key).players.size());
+    if (pressed & (BTN_UP | BTN_DOWN))
+    {
+      const uint32_t button = (pressed & BTN_UP) ? BTN_UP : BTN_DOWN;
+      const int to = n == 0 ? 0 : MenuNav::Step(m_elo_index, button == BTN_UP ? -1 : 1, n, Fresh(button));
+      if (to != m_elo_index)
+      {
+        m_elo_index = to;
+        Play("move");
+      }
+      return true;
+    }
+    if (pressed & (BTN_TRIANGLE | BTN_SQUARE))
+    {
+      const int games = Elo::GameCount();
+      m_elo_game = (m_elo_game + ((pressed & BTN_TRIANGLE) ? 1 : games - 1)) % games;
+      m_elo_index = 0;
+      Netplay::WantEloTop(Elo::GameAt(m_elo_game).key);
+      Log(std::string("online: the ELO ranking of ") + Elo::GameAt(m_elo_game).title);
       Play("category");
       return true;
     }
@@ -12948,6 +15292,18 @@ bool Menu::Impl::OnlineTabInput(uint32_t pressed)
     {
       m_online_page = PAGE_ROOMS;
       Play("back");
+      return true;
+    }
+    if (pressed & BTN_TRIANGLE)
+    {
+      // ((01.91, the owner: «Más jugados» con «Siempre») Its period, as the players' ranking's: 30 days, 7, since ever.)
+      m_top_days = NextPeriod(m_top_days);
+      m_top_index = 0;
+      Netplay::WantTopGames(m_top_days);
+      BuildTopTable();
+      Log(m_top_days ? "online: the games most played online of the last " + std::to_string(m_top_days) + " days" :
+                       std::string("online: the games most played online since ever"));
+      Play("category");
       return true;
     }
     if (pressed & BTN_CROSS)
@@ -13278,6 +15634,11 @@ void Menu::Impl::DrawOnlineTable(ImDrawList* dl, float alpha, float x0, float x1
     DrawPlayersTable(dl, alpha, x0, x1, y, bottom);
     return;
   }
+  if (m_online_page == PAGE_ELO)
+  {
+    DrawEloTable(dl, alpha, x0, x1, y, bottom);
+    return;
+  }
   constexpr float GLYPH_H = 34.0f;
 
   // The columns: the game the widest, then console, host, players, type, status, and the ping at the right.
@@ -13331,15 +15692,30 @@ void Menu::Impl::DrawOnlineTable(ImDrawList* dl, float alpha, float x0, float x1
     const float ly = cy + 116.0f;
     const ImU32 line = Rgba(theme.text, alpha * 0.8f);
     {
-      // "Press [Square] to create one" (two pieces translated: the button between them).
-      const std::string& before = PS4Lang::T("Press");
-      const std::string& after = PS4Lang::T("to create one");
-      const float bw = TextWidth(m_font, 26, before), gw = PS4Glyphs::Width("Square", GLYPH_H);
-      float lx = cx - (bw + 10.0f + gw + 10.0f + TextWidth(m_font, 26, after)) * 0.5f;
-      raw(m_font, 26, ImVec2(lx, ly), line, before);
-      lx += bw + 10.0f;
+      // "Press [Square] to create one": (01.24) one text, {} the button's place - a language that says the button
+      // first or last puts it there (Japanese, Korean, Turkish) -; without it, two pieces with the button between them.
+      const std::string whole = PS4Lang::T(std::string("Press {} to create one"));
+      const size_t at = whole.find("{}");
+      const auto trim = [](std::string s) {
+        while (!s.empty() && s.back() == ' ')
+          s.pop_back();
+        while (!s.empty() && s.front() == ' ')
+          s.erase(0, 1);
+        return s;
+      };
+      const std::string before = at == std::string::npos ? PS4Lang::T(std::string("Press")) : trim(whole.substr(0, at));
+      const std::string after =
+          at == std::string::npos ? PS4Lang::T(std::string("to create one")) : trim(whole.substr(at + 2));
+      const float bw = before.empty() ? 0.0f : TextWidth(m_font, 26, before) + 10.0f;
+      const float aw = after.empty() ? 0.0f : TextWidth(m_font, 26, after) + 10.0f;
+      const float gw = PS4Glyphs::Width("Square", GLYPH_H);
+      float lx = cx - (bw + gw + aw) * 0.5f;
+      if (!before.empty())
+        raw(m_font, 26, ImVec2(lx, ly), line, before);
+      lx += bw;
       lx += PS4Glyphs::Draw(dl, m_bold, "Square", lx, ly + 16.0f, GLYPH_H, alpha) + 10.0f;
-      raw(m_font, 26, ImVec2(lx, ly), line, after);
+      if (!after.empty())
+        raw(m_font, 26, ImVec2(lx, ly), line, after);
     }
     return;
   }
@@ -13626,6 +16002,8 @@ void Menu::Impl::UpdateOnline()
   Netplay::WorldChatShown(on_tab && m_online_page == PAGE_CHAT && !m_panel.open);
   if (on_tab && m_online_page == PAGE_PLAYERS)
     Netplay::WantTopPlayers(m_players_days);
+  if (on_tab && m_online_page == PAGE_ELO)
+    Netplay::WantEloTop(Elo::GameAt(m_elo_game).key);  // ((01.91) the ELO ranking's game)
   if (on_tab)
   {
     const Netplay::WorldChatView world = Netplay::GetWorldChat();
@@ -13743,6 +16121,31 @@ void Menu::Impl::UpdateOnline()
       }
       Play("menu");
     }
+  }
+  // ((01.88, the owner: the host never saw the guest's suggestion - its mark only, on one card of hundreds, none while
+  // its number of players isn't known) A Choose Together room's new suggestion, the host's: a notice once - the same
+  // game again says nothing -, and its game selected, first in the grid (BuildTogetherRows) on its console's tab or
+  // every console's: Cross plays it.
+  if (v.host && v.together && v.has_suggestion && v.suggestion_serial != m_together_suggestion && !m_keyboard &&
+      !m_capture && m_launch < 0 && !m_intro && !Tour::Active())
+  {
+    m_together_suggestion = v.suggestion_serial;
+    const auto at = m_online_library.find(v.suggested);
+    if (at != m_online_library.end())
+    {
+      const Library::Game& rom = m_games[static_cast<size_t>(at->second)].rom;
+      m_together_game = at->second;
+      if (!m_together_tab.empty() && m_together_tab != GetSystem(rom.system).key)
+        m_together_tab.clear();
+      ShowToast(v.suggested_nick + " suggests: " + rom.title, 0);
+      Log("online: " + v.suggested_nick + " suggests " + rom.title + ": selected");
+    }
+    else
+    {
+      ShowToast(v.suggested_nick + " suggests a game", 0);
+      Log("online: " + v.suggested_nick + " suggests a game not among ours");
+    }
+    Play("menu");
   }
   // A Choose Together room: this console's games to it once every file is hashed (each one's file found again by its
   // console, CRC32 and size: the common list's titles and covers are this console's).
@@ -14332,7 +16735,7 @@ void Menu::Impl::UpdatePanelChoice()
     // The PS4 finishes installing the update once the app is closed (as with a game's update).
     Log("update: the player closes EmuSuNi to finish the update");
     Netplay::Leave();  // (00.86: our room, open in the background, closes with the app - the others told)
-    LogSync();
+    AppSession::Closing("Close EmuSuNi, to finish an update");  // ((01.27) LogSync too)
     sceSystemServiceLoadExec("exit", nullptr);
     return;
   }
@@ -14379,6 +16782,193 @@ void Menu::Impl::UpdateUpdater()
     OpenUpdatePanel(true);
 }
 
+#ifdef EMUSUNI_VITA
+// ---- The PS Vita's firmware (with-vita, src/Vita.h) ----
+// Its Settings row and its panel: what is there, which files the player is to bring and where they go, Copy the
+// Firmware (from the PS Vita's game folders - a USB drive's Roms/psvita, the PS4's -, checked by size and SHA-256),
+// the copy as it goes (Stop), what failed. Nothing here asks Sony's servers for anything (01.29: the owner's rule).
+// A PS Vita game that can't start for want of the firmware opens the panel too (Update(): Vita::IsMissingMessage).
+
+std::string Menu::Impl::VitaFirmwareDetail() const
+{
+  const Vita::Status status = Vita::GetStatus();
+  if (status.busy)
+    return "Copying...";
+  const Vita::Firmware firmware = Vita::FindFirmware(Portable::SystemDir(GetSystem(SystemId::VITA).key));
+  return firmware.Installed() ? "Installed" : firmware.Ready() ? "Ready to install" : "Not installed";
+}
+
+void Menu::Impl::OpenVitaFirmwarePanel()
+{
+  m_panel = {};
+  m_panel.open = true;
+  m_panel.setting = SET_VITA_FIRMWARE;
+  m_vita_serial = -1;
+  m_vita_help = false;
+  BuildVitaFirmwarePanel();
+  Play("menu");
+}
+
+void Menu::Impl::BuildVitaFirmwarePanel()
+{
+  const Vita::Status s = Vita::GetStatus();
+  m_vita_serial = s.serial;
+  const std::string system_dir = Portable::SystemDir(GetSystem(SystemId::VITA).key);
+  std::vector<std::string> options, lines;
+  // (with-vita-nokeys) What the player is to know about the keys file, a line each: that build's core has none of
+  // Sony's keys inside, and can't install the firmware without the file. "" in a build with them, or with the file.
+  const std::string keys_note = Vita::KeysNote(system_dir);
+  // A text in the panel's lines, translated first and wrapped to its width; at most `most` lines of it.
+  auto add = [&](const std::string& text, size_t most) {
+    std::istringstream in(WrapText(m_font, 28, PS4Lang::T(text), 550.0f));
+    size_t count = 0;
+    for (std::string line; std::getline(in, line) && count < most; count++)
+      lines.push_back(line);
+  };
+  m_panel.title = "PS Vita Firmware";
+  lines.push_back("");
+  bool help_page = false;  // (01.72) the .PUP files' page: full, without the keys' note (the main page has it)
+  if (s.busy)
+  {
+    add(s.phase == Vita::Phase::Verifying ? "Checking the file that came..." : "Copying...", 2);
+    lines.push_back("File " + std::to_string(std::clamp(s.part, 0, Vita::PART_COUNT - 1) + 1) + " of 3");
+    lines.push_back(std::to_string(std::clamp<int64_t>(s.done * 100 / std::max<int64_t>(s.total, 1), 0, 100)) + "%");
+    options = {"Stop"};
+  }
+  else
+  {
+    const Vita::Firmware firmware = Vita::FindFirmware(system_dir);
+    if (firmware.Installed())
+    {
+      add("The PS Vita's firmware (3.74) is installed.", 2);
+    }
+    else if (firmware.Ready())
+    {
+      add("The firmware's files are there.", 2);
+      if (keys_note.empty())
+        add("The next PS Vita game installs them: a minute or more, its progress on the screen.", 3);
+    }
+    else if (m_vita_help)
+    {
+      // ((01.72, the owner: «explicar un poco de los archivos pup en la consola cuando no existe») What the .PUP files
+      // are, why EmuSuNi hasn't them, where they come from, where they go and what then - for one who never heard of
+      // one. No option (the lines take the panel's height); Circle goes back. No address or server of Sony's: the
+      // console never asks them anything (the owner's rule).
+      m_panel.title = "What Are .PUP Files?";
+      help_page = true;
+      lines.clear();  // (no blank line first: the page's lines end clear of the button hints)
+      add("A .PUP file is an official update of the PS Vita's system software, made by Sony. PS Vita games need three "
+          "of them (firmware 3.74): the system, a preinstalled package and the fonts.",
+          5);
+      for (int p = 0; p < Vita::PART_COUNT; p++)
+        lines.push_back(std::string(Vita::PackageName(p)) + "  -  " +
+                        std::to_string((Vita::PackageBytes(p) + 524288) / 1048576) + " MB");
+      add("They are Sony's: EmuSuNi doesn't include them or download them, and the PS4 never connects to Sony.", 3);
+      add("Download them on a computer, from PlayStation's official website: the PS Vita system software update.", 3);
+      add("Copy them, under any names, to Roms/psvita (or its firmware folder) on the USB drive, or to " + m_data_dir +
+              "/Roms/psvita on the PS4.",
+          4);
+      add("Then choose Copy the Firmware. The first PS Vita game installs them by itself, once: it takes a few "
+          "minutes.",
+          3);
+    }
+    else
+    {
+      if (s.phase == Vita::Phase::Failed)
+      {
+        add(s.message, 3);
+      }
+      else
+      {
+        add("PS Vita games need the Vita's own firmware (3.74), which isn't part of EmuSuNi.", 3);
+      }
+      // ((01.72) Each of Sony's three files and how it stands: installed, there to install, in the game folders
+      // still to copy, one of its size that isn't Sony's (the last copy's checksum), or missing.)
+      lines.push_back("");
+      Vita::FindPlayerFiles(VitaFolders(false), m_vita_found);
+      for (int p = 0; p < Vita::PART_COUNT; p++)
+      {
+        const char* state = firmware.installed[p] ? "Installed" :
+                            firmware.file[p]      ? "Ready to install" :
+                            s.not_sonys[p]        ? "Not Sony's file" :
+                            m_vita_found[p]       ? "Found, to copy" :
+                                                    "Missing";
+        lines.push_back(std::string(Vita::PackageName(p)) + "  -  " + PS4Lang::T(state));
+      }
+      lines.push_back("");
+      // (01.29) The player brings it - the app asks Sony's servers for nothing: which files, and where they go
+      // (the PS Vita's game folder on a USB drive, or the PS4's own by FTP; Copy the Firmware takes them from there
+      // whatever their names, by their size and SHA-256).
+      add("Put them, under any names, in Roms/psvita of a USB drive (or by FTP in " + m_data_dir +
+              "/Roms/psvita) and choose Copy the Firmware.",
+          6);
+      options = {"Copy the Firmware", "What Are .PUP Files?"};
+    }
+    if (!keys_note.empty() && !help_page)
+    {
+      lines.push_back("");
+      std::istringstream note(keys_note);
+      for (std::string line; std::getline(note, line);)
+        add(line, 3);
+    }
+  }
+  if (options != m_panel.options)
+  {
+    m_panel.options = options;
+    m_panel.selected = 0;
+  }
+  m_panel.lines = lines;
+}
+
+// Cross on one of the firmware panel's options.
+void Menu::Impl::VitaFirmwareChoice()
+{
+  if (m_panel.selected < 0 || m_panel.selected >= static_cast<int>(m_panel.options.size()))
+    return;
+  const std::string choice = m_panel.options[m_panel.selected];
+  if (choice == "What Are .PUP Files?")
+  {
+    m_vita_help = true;  // ((01.72) its own page; Circle comes back)
+    BuildVitaFirmwarePanel();
+    Play("menu");
+    return;
+  }
+  if (choice == "Copy the Firmware")
+  {
+    // (01.29) The player's own copies of Sony's three files, in the PS Vita's game folders (the drives looked at
+    // again: one plugged in with the panel open counts).
+    Log("vita: firmware: the player asked for the copy from the game folders");
+    Vita::StartCopy(Portable::SystemDir(GetSystem(SystemId::VITA).key), VitaFolders(true));
+    BuildVitaFirmwarePanel();
+    Play("confirm");
+    return;
+  }
+  if (choice == "Stop")
+  {
+    Vita::StopCopy();
+    Play("back");
+  }
+}
+
+// Every frame: the firmware's panel and its Settings row follow the copy.
+void Menu::Impl::UpdateVitaFirmware()
+{
+  const int serial = Vita::Serial();
+  if (serial == m_vita_serial)
+    return;
+  if (m_panel.open && m_panel.setting == SET_VITA_FIRMWARE)
+    BuildVitaFirmwarePanel();
+  else
+    m_vita_serial = serial;
+  const std::string detail = VitaFirmwareDetail();
+  for (Item& item : m_items[static_cast<int>(Category::Settings)])
+  {
+    if (item.setting == SET_VITA_FIRMWARE)
+      item.detail = detail;
+  }
+}
+#endif
+
 // ---- Portable data (00.87, src/Portable.h) ----
 
 std::string Menu::Impl::PortableDetail() const
@@ -14421,7 +17011,11 @@ void Menu::Impl::OpenPortablePanel()
   };
   if (Portable::Lost())
   {
-    add("The USB drive with your data was removed: saving to this PS4 until EmuSuNi starts again with it.");
+    // ((01.27) Put there by itself: this console's storage doesn't keep it - src/Portable.h's Local.)
+    add(Portable::Automatic() ? "The USB drive with your data was removed: what you save now is lost when EmuSuNi "
+                                "closes. Put it back and restart EmuSuNi." :
+                                "The USB drive with your data was removed: saving to this PS4 until EmuSuNi starts "
+                                "again with it.");
     option("Restart Now", "restart",
            "EmuSuNi closes and opens again: with the drive's data if it is connected, else with this PS4's.");
     option("OK", "back", "");
@@ -14430,6 +17024,8 @@ void Menu::Impl::OpenPortablePanel()
   {
     add("On: your saves, settings and game list are on the USB drive:");
     lines.push_back(Portable::DataFolder());
+    if (Portable::Automatic())
+      add("EmuSuNi put them there by itself: this console's storage doesn't keep them.");  // (01.27)
     lines.push_back("");
     add("BIOS files: put yours in EmuSuNi-Portable/system on the drive to use them on any PS4.");
     option("Turn Off and Copy Back", "off_copy",
@@ -15001,6 +17597,9 @@ void Menu::Impl::UpdatePortable()
   {
     BuildPortableCopyPanel();
   }
+  // ((01.27) The player's data put on a USB drive by itself at the start, or nowhere to keep it: said once, here.)
+  if (const std::string notice = m_portable_warning.empty() ? Portable::TakeNotice() : std::string(); !notice.empty())
+    m_portable_warning = notice;
   if (const std::string warning = Portable::TakeWarning(); !warning.empty())
   {
     m_portable_warning = warning;
@@ -15064,7 +17663,7 @@ void Menu::Impl::RestartApp(const std::string& why)
   Log("portable: EmuSuNi restarts: " + why);
   m_prefs.Save(UserDir() + "/xmb.ini");
   Netplay::Leave();
-  LogSync();
+  AppSession::Closing("a restart for the data on a USB drive");  // ((01.27) LogSync too)
   const int result = sceSystemServiceLoadExec("/app0/eboot.bin", nullptr);
   LogF("portable: restart asked (%#x)", static_cast<unsigned>(result));
   LogSync();
@@ -15320,10 +17919,26 @@ std::string Menu::Impl::WrapText(ImFont* font, float size, const std::string& te
 {
   std::string out;
   std::string line;
-  size_t last_space = std::string::npos;
+  // (01.72) Japanese and Chinese (kana, kanji, their full-width marks) break between any two of their characters;
+  // a short Latin run among them (a quarter of the width at most: "PS Vita", "3.74") moves down whole - its space isn't
+  // a break there, as "PS Vita"'s left "PS" alone at a line's end -, a longer one breaks at its own spaces; a closing
+  // mark (、。）」) doesn't start a line nor an opening one (（「) end it. Korean (Hangul) keeps its spaces' breaks.
+  // last_cjk: where the line's last such character ends.
+  size_t last_space = std::string::npos, last_cjk = std::string::npos;
   auto width_of = [&](const std::string& t) {
     return font->CalcTextSizeA(size, FLT_MAX, 0.0f, t.c_str()).x;
   };
+  auto is_cjk = [](const std::string& c) {
+    const unsigned char l = static_cast<unsigned char>(c[0]);
+    return c.size() == 3 && ((l >= 0xE3 && l <= 0xE9) || (l == 0xEF && static_cast<unsigned char>(c[1]) <= 0xBD));
+  };
+  auto char_before = [&](size_t end) {
+    size_t start = end - 1;
+    while (start > 0 && (static_cast<unsigned char>(line[start]) & 0xC0) == 0x80)
+      start--;
+    return start;
+  };
+  static const std::string closing = "、。，．）」』！？：；ー", opening = "（「『";
   for (size_t i = 0; i < text.size();)
   {
     const unsigned char lead = static_cast<unsigned char>(text[i]);
@@ -15334,33 +17949,55 @@ std::string Menu::Impl::WrapText(ImFont* font, float size, const std::string& te
     {
       out += line + "\n";
       line.clear();
-      last_space = std::string::npos;
+      last_space = last_cjk = std::string::npos;
       continue;
     }
-    if (width_of(line + ch) > width && !line.empty())
+    if (ch == " " && width_of(line + ch) > width && !line.empty())
     {
-      if (ch == " ")
+      out += line + "\n";
+      line.clear();
+      last_space = last_cjk = std::string::npos;
+      continue;
+    }
+    // (Again while it doesn't fit: a Latin run gone down whole may need its own break.)
+    while (width_of(line + ch) > width && !line.empty())
+    {
+      // cut: where the line ends (what follows goes down).
+      size_t cut = line.size();
+      const bool closes = is_cjk(ch) && closing.find(ch) != std::string::npos;
+      if (closes && last_cjk == line.size())
+        cut = char_before(cut) > 0 ? char_before(cut) : cut;  // the line's last character goes down with it
+      else if ((!is_cjk(ch) || closes) && last_cjk != std::string::npos &&
+               width_of(line.substr(last_cjk)) <= width / 4)
+        cut = last_cjk;
+      else if ((!is_cjk(ch) || closes) && last_space != std::string::npos &&
+               (last_cjk == std::string::npos || last_space > last_cjk))
+        cut = last_space;
+      if (cut > 0 && char_before(cut) > 0 &&
+          opening.find(line.substr(char_before(cut), cut - char_before(cut))) != std::string::npos)
+        cut = char_before(cut);
+      if (cut == 0)
+        cut = line.size();
+      out += line.substr(0, cut) + "\n";
+      line = line.substr(cut);
+      if (!line.empty() && line[0] == ' ')
+        line.erase(0, 1);
+      last_space = line.rfind(' ');
+      last_cjk = std::string::npos;
+      for (size_t j = 0; j < line.size();)
       {
-        out += line + "\n";
-        line.clear();
-        last_space = std::string::npos;
-        continue;
+        const unsigned char l = static_cast<unsigned char>(line[j]);
+        const size_t n = l < 0x80 ? 1 : (l >> 5) == 6 ? 2 : (l >> 4) == 14 ? 3 : 4;
+        j += n;
+        if (is_cjk(line.substr(j - n, n)))
+          last_cjk = j;
       }
-      if (last_space != std::string::npos)
-      {
-        out += line.substr(0, last_space) + "\n";
-        line = line.substr(last_space + 1);
-      }
-      else
-      {
-        out += line + "\n";
-        line.clear();
-      }
-      last_space = std::string::npos;
     }
     if (ch == " ")
       last_space = line.size();
     line += ch;
+    if (is_cjk(ch))
+      last_cjk = line.size();
   }
   return out + line;
 }
@@ -15441,6 +18078,16 @@ void Menu::Impl::DrawBackground()
 
 void Menu::Impl::DrawCategoryIcon(ImDrawList* dl, Category category, ImVec2 c, float s, ImU32 color)
 {
+  // ((01.26, a player and the owner) Settings -> Console Icons: a console's list drawn as the console, its controller,
+  // or not at all - src/ConsoleArt.h's drawings, else the ones below.)
+  if (const int system = SystemOfList(static_cast<int>(category)); system >= 0)
+  {
+    const std::string mode = Settings::Get("console_icons");
+    if (mode == "none")
+      return;
+    if (DrawConsoleArt(dl, static_cast<SystemId>(system), mode == "controller", c, s, color))
+      return;
+  }
   const float r = s * 0.5f;
   switch (category)
   {
@@ -15941,6 +18588,42 @@ void Menu::Impl::DrawCategoryIcon(ImDrawList* dl, Category category, ImVec2 c, f
     break;
   }
 #endif
+#ifdef EMUSUNI_VITA
+  case Category::VitaGames:
+  {
+    // (with-vita) The PS Vita seen from the front: its long rounded body, the screen in the middle, the D-pad's place
+    // and a stick on the left, the four buttons' place and a stick on the right (no overlap: the colour can be
+    // see-through). A stand-in until Frontend draws the Vita's own icon.
+    const ImU32 hole = IM_COL32(0, 0, 0, 130);
+    dl->AddRectFilled(ImVec2(c.x - r * 0.98f, c.y - r * 0.5f), ImVec2(c.x + r * 0.98f, c.y + r * 0.5f), color, r * 0.48f);
+    dl->AddRectFilled(ImVec2(c.x - r * 0.52f, c.y - r * 0.34f), ImVec2(c.x + r * 0.52f, c.y + r * 0.34f), hole,
+                      r * 0.04f);  // the screen
+    dl->AddCircleFilled(ImVec2(c.x - r * 0.75f, c.y - r * 0.14f), r * 0.12f, hole, 14);  // the D-pad
+    dl->AddCircleFilled(ImVec2(c.x + r * 0.75f, c.y - r * 0.14f), r * 0.12f, hole, 14);  // the buttons
+    dl->AddCircleFilled(ImVec2(c.x - r * 0.7f, c.y + r * 0.22f), r * 0.08f, hole, 12);   // the left stick
+    dl->AddCircleFilled(ImVec2(c.x + r * 0.7f, c.y + r * 0.22f), r * 0.08f, hole, 12);   // the right stick
+    break;
+  }
+#endif
+#ifdef EMUSUNI_MUGEN
+  case Category::MugenGames:
+  {
+    // (01.27, with-mugen) Two fighters' fists meeting: two rounded blocks from either side, a gap between them where
+    // they meet (no overlap: the colour can be see-through). A stand-in until Frontend draws MUGEN's own icon.
+    const ImU32 hole = IM_COL32(0, 0, 0, 130);
+    dl->AddRectFilled(ImVec2(c.x - r * 0.95f, c.y - r * 0.42f), ImVec2(c.x - r * 0.08f, c.y + r * 0.42f), color,
+                      r * 0.22f);
+    dl->AddRectFilled(ImVec2(c.x + r * 0.08f, c.y - r * 0.42f), ImVec2(c.x + r * 0.95f, c.y + r * 0.42f), color,
+                      r * 0.22f);
+    for (int k = 0; k < 3; k++)
+    {
+      const float y = c.y + r * (-0.24f + k * 0.24f);
+      dl->AddRectFilled(ImVec2(c.x - r * 0.3f, y - r * 0.05f), ImVec2(c.x - r * 0.14f, y + r * 0.05f), hole);
+      dl->AddRectFilled(ImVec2(c.x + r * 0.14f, y - r * 0.05f), ImVec2(c.x + r * 0.3f, y + r * 0.05f), hole);
+    }
+    break;
+  }
+#endif
   case Category::Favorites:
     DrawStar(dl, c, r * 0.95f, color);
     break;
@@ -15969,6 +18652,21 @@ void Menu::Impl::DrawCategoryIcon(ImDrawList* dl, Category category, ImVec2 c, f
     break;
   }
   }
+}
+
+// (01.47) A folder (Show Subfolders as Folders): its back with the tab, the front a little lower, manila yellow;
+// `width` wide, about four fifths of it tall, around `c`.
+void Menu::Impl::DrawFolderIcon(ImDrawList* dl, ImVec2 c, float width, float alpha)
+{
+  const float w = width, h = width * 0.78f;
+  const float x0 = c.x - w * 0.5f, x1 = c.x + w * 0.5f, y0 = c.y - h * 0.5f, y1 = c.y + h * 0.5f;
+  const float r = std::max(2.0f, w * 0.05f), tab = h * 0.14f, front = y0 + tab * 2.2f;
+  dl->AddRectFilled(ImVec2(x0 + 6.0f, y0 + 8.0f), ImVec2(x1 + 6.0f, y1 + 8.0f), Rgba(0x000000, alpha * 0.30f), r);
+  dl->AddRectFilled(ImVec2(x0, y0), ImVec2(x0 + w * 0.42f, y0 + tab * 2.0f), Rgba(0xC98F2A, alpha), r);
+  dl->AddRectFilled(ImVec2(x0, y0 + tab), ImVec2(x1, y1), Rgba(0xC98F2A, alpha), r);
+  dl->AddRectFilled(ImVec2(x0, front), ImVec2(x1, y1), Rgba(0xF2C14E, alpha), r);
+  dl->AddLine(ImVec2(x0 + r, front + 2.0f), ImVec2(x1 - r, front + 2.0f), Rgba(0xFFE39A, alpha),
+              std::max(1.5f, w * 0.012f));
 }
 
 // (00.88) The mark of a console that plays online: the Online tab's globe, white on a disc of the theme's colour.
@@ -16024,6 +18722,10 @@ void Menu::Impl::DrawItem(ImDrawList* dl, const Item& item, float y, bool select
       if (selected)
         dl->AddRect(icon_min, icon_max, Rgba(theme.text, alpha * 0.9f), 8.0f, 0, 3.0f);
     }
+  }
+  else if (!item.folder.empty())
+  {
+    DrawFolderIcon(dl, ImVec2(x, y), icon_h * 1.25f, alpha);  // ((01.47) a folder's row)
   }
   else if (item.theme != -1)
   {
@@ -16089,7 +18791,19 @@ void Menu::Impl::DrawItem(ImDrawList* dl, const Item& item, float y, bool select
       DrawAchievementMark(dl, m_bold, ImVec2(sx + MARK_H * 1.75f, sub_y + 4 + MARK_H), MARK_H, game.ra, alpha);
       sx += MARK_H * 1.75f + 16;
     }
+    // ((01.36) A hack - its path through a "hacks" folder: "HACKS" after them.)
+    if (InHacksFolder(game.rom.path))
+    {
+      constexpr float MARK_H = 26.0f;
+      const float mw = HackMarkWidth(m_bold, MARK_H);
+      DrawHackMark(dl, m_bold, ImVec2(sx + mw, sub_y + 4 + MARK_H), MARK_H, alpha);
+      sx += mw + 16;
+    }
   }
+  if (item.check >= 0)  // ((01.28) a box row: its box first, what it is after it)
+    sx += DrawCheckBox(dl, ImVec2(sx, sub_y + 17), 28.0f, item.check == 1, Rgba(theme.text, alpha * 0.75f),
+                       Rgba(theme.wave, alpha), Rgba(0xFFFFFF, alpha)) +
+          14;
   if (!item.detail.empty())
     Text(dl, m_font, 26.0f, ImVec2(sx, sub_y + 1), Rgba(theme.text, alpha * 0.75f), item.detail);
   if (menu_scale != 1.0f)
@@ -16129,7 +18843,7 @@ void Menu::Impl::DrawSidePanel(ImDrawList* dl, float dt)
   dl->AddLine(ImVec2(x0, 0), ImVec2(x0, H), Rgba(theme.wave, 0.8f * m_panel.slide), 2.0f);
   const ImU32 text = Rgba(theme.text, m_panel.slide);
   Text(dl, m_bold, 40, ImVec2(x0 + 50, 140), text, Fit(m_bold, 40, m_panel.title, width - 100));
-  if (m_panel.setting == SET_FIND_COVER && m_preview != ImTextureID{})
+  if ((m_panel.setting == SET_FIND_COVER || m_panel.setting == SET_COVER_FILE) && m_preview != ImTextureID{})
   {
     // The selected picture, top right (190 tall at most, its own shape).
     const float box_w = 300.0f, box_h = 190.0f;
@@ -16420,6 +19134,10 @@ void Menu::Impl::DrawSidePanel(ImDrawList* dl, float dt)
                    "any case.";
         }
       }
+      else if (row.key.rfind("load:", 0) == 0)
+        help = "Cross: starts the game in this state.";  // (01.27: Triangle -> Load State)
+      else if (row.key.rfind("ctlstick:", 0) == 0)
+        help = Controls::StickHelp(static_cast<size_t>(std::atoi(row.key.c_str() + 9)));  // (01.27)
       else if (row.key == "__ctlreset__")
         help = "Back to the default layout.";
       else if (row.key == "__ctlscope__")
@@ -16501,7 +19219,9 @@ void Menu::Impl::DrawSidePanel(ImDrawList* dl, float dt)
                "Off: none, and the games' files aren't read for it.";
       else if (row.key.rfind("del:", 0) == 0)
         help = "Cross: delete it.";
-      else if (row.key.rfind("cheat:", 0) == 0 || row.key.rfind("cheatall:", 0) == 0)
+      else if (row.key.rfind("cheat:", 0) == 0)  // ((01.36) Square deletes one: AskDeleteCheat)
+        help = "Applies the next time the game starts, or now from the in-game menu (L3+R3).\nSquare twice deletes it.";
+      else if (row.key.rfind("cheatall:", 0) == 0)
         help = "Applies the next time the game starts, or now from the in-game menu (L3+R3).";
       else if (row.key == "cheatfind")
         help = "Looks for this game's cheats in libretro's collection (RetroArch's): you choose the "
@@ -16585,7 +19305,7 @@ void Menu::Impl::DrawHints(ImDrawList* dl)
   {
     // (00.80) The keyboard's buttons (src/TextKeyboard.h), from the right - over a panel too (a text asked for from
     // it: the keyboard has the buttons).
-    const auto hints = TextKeyboard::Hints(m_board.GetMode());
+    const auto hints = TextKeyboard::Hints(m_board.GetMode(), m_board.OnText());
     for (const TextKeyboard::Hint& h : hints)
     {
       if (h.right)
@@ -16593,6 +19313,13 @@ void Menu::Impl::DrawHints(ImDrawList* dl)
     }
     for (auto it = hints.rbegin(); it != hints.rend(); ++it)
     {
+      // ((01.52) the D-Pad's too - the way to the text's cursor - where there is room left for it)
+      if (std::string(it->glyph) == "D-Pad" &&
+          x - TextWidth(m_font, 28, it->label) - PS4Glyphs::Width("D-Pad", 36) - 52.0f > 60.0f)
+      {
+        hint(it->label, it->glyph);
+        continue;
+      }
       if (it->right || std::string(it->glyph) == "D-Pad")
         continue;
       if (std::string(it->glyph) != "L1/R1")
@@ -16649,6 +19376,7 @@ void Menu::Impl::DrawHints(ImDrawList* dl)
     x -= 40.0f;
     if (m_online_page == PAGE_TOP)
     {
+      hint(NextPeriodButton(m_top_days), "Triangle");  // ((01.91) its period)
       hint("Create Room", "Cross");
       return;
     }
@@ -16662,7 +19390,13 @@ void Menu::Impl::DrawHints(ImDrawList* dl)
     }
     if (m_online_page == PAGE_PLAYERS)
     {
-      hint(m_players_days ? "Since Ever" : "Last 7 Days", "Triangle");  // ((01.07) the ranking's period)
+      hint(NextPeriodButton(m_players_days), "Triangle");  // ((01.07) the ranking's period; (01.91) three)
+      return;
+    }
+    if (m_online_page == PAGE_ELO)
+    {
+      hint("Next Game", "Triangle");  // ((01.91) the ELO ranking's games)
+      hint("Previous Game", "Square");
       return;
     }
     hint("Join with Code", "Triangle");
@@ -16679,10 +19413,13 @@ void Menu::Impl::DrawHints(ImDrawList* dl)
   {
     const auto& items = m_items[m_category];
     const bool game = !items.empty() && items[m_selected[m_category]].game >= 0;
+    const bool folder = !items.empty() && !items[m_selected[m_category]].folder.empty();  // ((01.47) a folder's row)
     if (IsGameList(m_category))
     {
       if (!m_search.empty())
         hint("Clear Search", "Circle");
+      else if (!FolderLine(m_category).empty())
+        hint("Back", "Circle");  // ((01.47) up to the folder above)
       hint("Search", "R2");
       if (game)
         hint("Favorite", "L2");
@@ -16691,11 +19428,11 @@ void Menu::Impl::DrawHints(ImDrawList* dl)
       if (m_ra_marks)
         hint("RA Filter", "Touchpad");  // (00.80)
     }
-    if (IsSettingsPage(m_category))
+    if (IsSettingsPage(m_category) || (m_category == static_cast<int>(Category::Settings) && m_settings_group >= 0))
       hint("Back", "Circle");
     if (game)
       hint("Options", "Triangle");
-    hint(game ? "Play" : "Select", "Cross");
+    hint(game ? "Play" : folder ? "Open" : "Select", "Cross");
   }
 }
 
@@ -16720,9 +19457,15 @@ void Menu::Impl::DrawPageTitle(ImDrawList* dl, Category category, const std::str
                                const std::string& sub, float alpha, float sub_alpha)
 {
   const Theme& theme = CurrentTheme();
-  constexpr float X = 90.0f, Y = 150.0f, ICON = 76.0f;
-  DrawCategoryIcon(dl, category, ImVec2(X + ICON * 0.5f, Y + 46.0f), ICON, Rgba(theme.text, alpha));
-  const float x = X + ICON + 26.0f;
+  constexpr float X = 90.0f, Y = 150.0f, BASE = 76.0f;
+  // ((01.26) Settings -> Icon Size and Console Icons: a console's icon bigger or smaller - its top where it was -, or
+  // none: the title at the icon's place.)
+  const bool console = SystemOfList(static_cast<int>(category)) >= 0;
+  const bool none = console && Settings::Get("console_icons") == "none";
+  const float ICON = none ? 0.0f : console ? BASE * ConsoleIconScale() : BASE;
+  if (!none)
+    DrawCategoryIcon(dl, category, ImVec2(X + ICON * 0.5f, Y + 8.0f + ICON * 0.5f), ICON, Rgba(theme.text, alpha));
+  const float x = none ? X : X + ICON + 26.0f;
   Text(dl, m_bold, 50, ImVec2(x, Y), Rgba(theme.text, alpha), title);
   Text(dl, m_bold, 26, ImVec2(x + 2, Y + 64), Rgba(theme.wave, sub_alpha), sub, false);
 }
@@ -16756,6 +19499,15 @@ std::vector<std::pair<std::string, std::string>> Menu::Impl::ConsoleInfo(SystemI
   std::vector<std::pair<std::string, std::string>> rows = {{"Plays", note ? note->plays : system.name}};
   if (note && note->bios)
     rows.push_back({"BIOS", note->bios});
+  // ((01.92, Lei on a PS5 in portable mode: "no sé dónde ponerla") Where its BIOS go, written out in full: the portable
+  // data's system folder when it is in use (read from there: Portable::SystemDir, BiosFolders), else this PS4's.
+  const char* bios_sub = id == SystemId::PS1                          ? "" :
+                         id == SystemId::ARCADE                       ? "/fbneo" :
+                         id == SystemId::NAOMI || id == SystemId::ATOMISWAVE ? "/dc" :
+                         id == SystemId::SATURN                       ? "/saturn" :
+                                                                        nullptr;
+  if (bios_sub)
+    rows.push_back({"BIOS Folder", (Portable::Active() ? Portable::DataFolder() : m_data_dir) + "/system" + bios_sub});
   rows.push_back({"Files", files});
   // The folders written out in full, one per place, as the app makes them and looks in them (MakeFolders,
   // Library::FindPlaces) in their own spelling: on a USB drive as a PC shows it ("USB: Roms/psp", with the drive
@@ -16879,6 +19631,7 @@ float Menu::Impl::DrawConsoleInfo(ImDrawList* dl, SystemId id, float alpha)
 void Menu::Impl::Draw(float dt)
 {
   s_menu_scale = MenuScaleOf(Settings::Get("menu_size"));  // (00.85: Settings -> Menu Size, at once)
+  UpdateHiddenTabs(m_category);  // ((01.26) Settings -> Tabs Shown, at once)
   if (Library())
     DrawLibraryBackground();
   else
@@ -16913,11 +19666,24 @@ void Menu::Impl::Draw(float dt)
       const float offset = static_cast<float>(i) - m_category_pos;
       const float x = 470.0f + offset * spacing;
       const float focus = std::max(0.0f, 1.0f - std::abs(offset));
-      const float size = 92.0f + 34.0f * focus;
+      // ((01.26) Settings -> Icon Size and Console Icons: a console's icon bigger or smaller - its bottom where it
+      // was, the name under it in its place - or its name instead of it.)
+      const bool console = SystemOfList(c) >= 0;
+      const float base = 92.0f + 34.0f * focus;
+      const float size = console ? base * ConsoleIconScale() : base;
+      const float icon_y = row_y + (base - size) * 0.5f;
       const float alpha = 0.55f + 0.45f * focus;
-      DrawCategoryIcon(dl, static_cast<Category>(c), ImVec2(x, row_y), size, Rgba(theme.text, alpha));
+      if (console && Settings::Get("console_icons") == "none")
+      {
+        const char* name = TabName(c);
+        const float font = 26.0f + 12.0f * focus * ConsoleIconScale();
+        const float tw = TextWidth(m_bold, font, name);
+        Text(dl, m_bold, font, ImVec2(x - tw * 0.5f, row_y - font * 0.6f), Rgba(theme.text, alpha), name);
+      }
+      else
+        DrawCategoryIcon(dl, static_cast<Category>(c), ImVec2(x, icon_y), size, Rgba(theme.text, alpha));
       if (PlaysOnline(c))
-        DrawOnlineMark(dl, ImVec2(x + size * 0.46f, row_y - size * 0.40f), size * 0.36f, alpha);
+        DrawOnlineMark(dl, ImVec2(x + size * 0.46f, icon_y - size * 0.40f), size * 0.36f, alpha);
       if (focus > 0.05f)
       {
         // Under Settings' icon, the name of its page when one is open.
@@ -16973,6 +19739,15 @@ void Menu::Impl::Draw(float dt)
     if (ViewFilterOn() && IsGameList(c))
       Text(dl, m_font, 26, ImVec2(150.0f, H - (RaFilterOn() ? 224.0f : 190.0f)), Rgba(0xFFC83C, switch_alpha),
            ViewFilterLine(c));
+    // ((01.47) The folder open in a console's list, under its name.)
+    const std::string folder_line = FolderLine(c);
+    if (!folder_line.empty())
+    {
+      const std::string shown = Fit(m_font, 26, PS4Lang::T(folder_line), W - 160.0f);
+      const float fw = TextWidth(m_font, 26, shown);
+      Text(dl, m_font, 26, ImVec2(std::max(60.0f, 470.0f - fw * 0.5f), row_y + 116.0f),
+           Rgba(theme.text, 0.85f * switch_alpha), shown, false);
+    }
     DrawEmblem(dl, ImVec2(110, 90), 70, 0.9f);
     // The version under the emblem.
     const std::string version = std::string("v") + App::VERSION;
@@ -17337,12 +20112,15 @@ void Menu::Impl::DrawCover(ImDrawList* dl, int index, ImVec2 a, ImVec2 b, ImVec2
   }
   // RetroAchievements' mark (00.77): "RA" in the cover's bottom right corner for a game with achievements (gold when
   // completed), as big as the cover (30 pixels tall for the selected one).
-  if (m_ra_marks && game.ra.state == Achievements::LibraryInfo::State::Known)
-  {
-    const float mark_h = std::clamp(h * 0.075f, 12.0f, 30.0f);
-    const float inset = std::max(4.0f, h * 0.025f);
+  const float mark_h = std::clamp(h * 0.075f, 12.0f, 30.0f);
+  const float inset = std::max(4.0f, h * 0.025f);
+  const bool ra_mark = m_ra_marks && game.ra.state == Achievements::LibraryInfo::State::Known;
+  if (ra_mark)
     DrawAchievementMark(dl, m_bold, ImVec2(c.x - inset, c.y - inset), mark_h, game.ra, alpha);
-  }
+  // ((01.36) A hack - its path through a "hacks" folder: "HACKS" in the same corner, left of "RA".)
+  if (InHacksFolder(game.rom.path))
+    DrawHackMark(dl, m_bold, ImVec2(c.x - inset - (ra_mark ? mark_h * 1.75f + inset : 0.0f), c.y - inset), mark_h,
+                 alpha);
 }
 
 void Menu::Impl::DrawLibrary(ImDrawList* dl, float dt)
@@ -17463,6 +20241,12 @@ void Menu::Impl::DrawLibrary(ImDrawList* dl, float dt)
 #ifdef EMUSUNI_OPENBOR
   case Category::OpenborGames:
 #endif
+#ifdef EMUSUNI_VITA
+  case Category::VitaGames:
+#endif
+#ifdef EMUSUNI_MUGEN
+  case Category::MugenGames:
+#endif
   case Category::Favorites:
     DrawLibraryGames(dl, alpha, m_category);
     break;
@@ -17482,7 +20266,12 @@ void Menu::Impl::DrawLibraryGames(ImDrawList* dl, float alpha, int c)
   const int list_system = SystemOfList(c);  // a console's tab, else -1
   const auto& items = m_items[c];
   const int count = static_cast<int>(items.size());
-  const bool any = count > 0 && items[0].game >= 0;
+  // ((01.47) a console's list opens on its folders' rows - Show Subfolders as Folders - before its games)
+  const bool any = count > 0 && (items[0].game >= 0 || !items[0].folder.empty());
+  int folder_rows = 0;
+  while (folder_rows < count && !items[static_cast<size_t>(folder_rows)].folder.empty())
+    folder_rows++;
+  const int games_here = count - folder_rows;
   // While the search keyboard is up (k: 0 -> 1) the covers move up and shrink above it, and the
   // title under them makes way.
   const float k = m_keyboard_slide;
@@ -17493,7 +20282,9 @@ void Menu::Impl::DrawLibraryGames(ImDrawList* dl, float alpha, int c)
   if (RaFilterOn() && (any || m_ra_emptied[c]))
     sub = RaFilterHiddenLine(c) + "  -  " + SortName();  // (00.89: was "With achievements: 438 of 793")
   else if (any)
-    sub = std::to_string(count) + (count == 1 ? " game" : " games") + "  -  " + SortName();
+    sub = (folder_rows > 0 ? std::to_string(folder_rows) + (folder_rows == 1 ? " folder  -  " : " folders  -  ") :
+                             std::string()) +
+          std::to_string(games_here) + (games_here == 1 ? " game" : " games") + "  -  " + SortName();
   else if (m_all_covered[c])
     sub = "0 games  -  " + SortName();
   else if (!m_search.empty())
@@ -17505,6 +20296,8 @@ void Menu::Impl::DrawLibraryGames(ImDrawList* dl, float alpha, int c)
     sub = ViewFilterLine(c) + "  -  " + (m_view_emptied[c] ? "0 games  -  " + SortName() : sub);
   if (!m_search.empty())
     sub += "  -  Search: " + m_search;
+  if (const std::string folder_line = FolderLine(c); !folder_line.empty())
+    sub = folder_line + "  -  " + sub;  // ((01.47) the folder open: first)
   if (m_dl_thread.joinable() && !m_dl_done)
   {
     sub += "  -  Downloading covers " + std::to_string(m_dl_progress.load()) + " / " +
@@ -17613,7 +20406,8 @@ void Menu::Impl::DrawLibraryGames(ImDrawList* dl, float alpha, int c)
            ImVec2(W * 0.5f - TextWidth(m_font, 28, lines[i]) * 0.5f, y + 60.0f + 48.0f * static_cast<float>(i)),
            Rgba(theme.text, alpha * 0.75f), lines[i]);
     }
-    if (list_system >= 0)
+    const std::string boxes = Settings::Get("help_boxes");  // ((01.26) Settings -> Help Boxes)
+    if (list_system >= 0 && boxes != "tip" && boxes != "none")
       DrawConsoleInfo(dl, static_cast<SystemId>(list_system), alpha * (1.0f - k));
     return;
   }
@@ -17663,7 +20457,7 @@ void Menu::Impl::DrawLibraryGames(ImDrawList* dl, float alpha, int c)
     if (Cover(game, &aspect) != ImTextureID{})
       aspect = std::clamp(aspect, 0.55f, 1.45f);
     else
-      aspect = 0.72f;
+      aspect = game < 0 && !items[i].folder.empty() ? 1.0f : 0.72f;  // ((01.47) a folder: as wide as it is tall)
     const float w = h * aspect;
     const float side = d < 0.0f ? -1.0f : 1.0f;
     const float cx = W * 0.5f + side * (near * 330.0f + far * 230.0f) * spread;
@@ -17701,16 +20495,42 @@ void Menu::Impl::DrawLibraryGames(ImDrawList* dl, float alpha, int c)
     }
     lo = std::max(lo, 0.0f);
     hi = std::min(hi, W);
+    if (p.game < 0)
+    {
+      // ((01.47) A folder's row: the folder on the covers' floor, its name on its front, lit when selected.)
+      const Item& row = items[static_cast<size_t>(p.index)];
+      const float fw = p.cc.x - p.dd.x, fh = fw * 0.78f;
+      const ImVec2 f0(p.dd.x, std::max(p.cc.y, p.dd.y) - fh), f1(p.cc.x, std::max(p.cc.y, p.dd.y));
+      if (row.folder.empty() || fw < 4.0f)
+        continue;
+      DrawFolderIcon(dl, ImVec2((f0.x + f1.x) * 0.5f, (f0.y + f1.y) * 0.5f), fw, p.alpha);
+      if (p.index == selected && p.ad < 0.5f)
+        dl->AddRect(ImVec2(f0.x - 6.0f, f0.y - 6.0f), ImVec2(f1.x + 6.0f, f1.y + 6.0f),
+                    Rgba(CurrentTheme().wave, p.alpha), 10.0f, 0, 4.0f);
+      const float size = std::max(18.0f, fh * 0.11f), pad = std::max(8.0f, fw * 0.06f);
+      dl->PushClipRect(ImVec2(f0.x + pad, f0.y), ImVec2(f1.x - pad, f1.y - pad * 0.5f), true);
+      dl->AddText(m_bold, size, ImVec2(f0.x + pad, f0.y + fh * 0.36f),
+                  IM_COL32(70, 45, 0, static_cast<int>(std::clamp(p.alpha, 0.0f, 1.0f) * 255.0f)), row.label.c_str(),
+                  nullptr, fw - pad * 2.0f);
+      dl->PopClipRect();
+      continue;
+    }
     DrawCover(dl, p.game, p.a, p.b, p.cc, p.dd, p.alpha, p.index == selected && p.ad < 0.5f ? 2 : 1,
               hi > lo ? (lo + hi) * 0.5f : -1.0f);
   }
   const float info_alpha = alpha * (1.0f - k);
+  // ((01.26, the owner) Settings -> Help Boxes: both, one of them, or none.)
+  const std::string boxes = Settings::Get("help_boxes");
+  const bool console_box = boxes != "tip" && boxes != "none", tip_box = boxes != "console" && boxes != "none";
   // The console's box at the bottom left, over the covers' reflections (it fades out under the keyboard).
-  const float box_right =
-      list_system >= 0 ? DrawConsoleInfo(dl, static_cast<SystemId>(list_system), info_alpha) : 0.0f;
+  const float box_right = list_system >= 0 && console_box ?
+                              DrawConsoleInfo(dl, static_cast<SystemId>(list_system), info_alpha) :
+                              0.0f;
   const float pulse = 0.65f + 0.35f * std::sin(m_time * 3.0f);
   const float gw = PS4Glyphs::Width("Triangle", 40);
-  if (info_alpha > 0.01f)
+  const Item& chosen = items[static_cast<size_t>(std::clamp(selected, 0, count - 1))];
+  const bool on_folder = chosen.game < 0;  // ((01.47) a folder's row: no Triangle, its name and Open below)
+  if (info_alpha > 0.01f && !on_folder)
     PS4Glyphs::Draw(dl, m_bold, "Triangle", W * 0.5f - gw * 0.5f, selected_top - 44, 40, info_alpha * pulse);
   // The 3DS's tip at the bottom right (00.79, the owner: "si no les carga un juego a la primera, pueden apretar L3 y R3
   // y reiniciar el juego hasta que cargue"): a 3DS game that doesn't start the first time does after the in-game menu's
@@ -17720,7 +20540,7 @@ void Menu::Impl::DrawLibraryGames(ImDrawList* dl, float alpha, int c)
   // 849 px with its three lines (every label, English and Spanish), 819 px with four -, above the hints' line (972 px);
   // it fades out under the search keyboard and a side panel.
   float tip_left = W;
-  if (list_system == static_cast<int>(SystemId::THREEDS) && info_alpha > 0.01f)
+  if (list_system == static_cast<int>(SystemId::THREEDS) && info_alpha > 0.01f && tip_box)
   {
     constexpr float RIGHT = W - 64.0f, BOTTOM = 962.0f, BOX_W = 400.0f, PAD = 14.0f, HEAD = 26.0f, SIZE = 25.0f,
                     LINE = 30.0f;
@@ -17763,22 +20583,31 @@ void Menu::Impl::DrawLibraryGames(ImDrawList* dl, float alpha, int c)
   // console's box: then just right of it (and the line under it too) - and left of the 3DS's tip (00.79).
   const float left = box_right > 0.0f && k < 0.5f ? box_right + 24.0f : 80.0f;
   const float right = tip_left < W && k < 0.5f ? tip_left - 24.0f : W - 80.0f;
-  const Game& game = m_games[items[selected].game];
-  const float title_size =
-      k > 0.5f ? 34.0f : TextWidth(m_bold, 46, game.rom.title) > right - left - 40.0f ? 36.0f : 46.0f;
-  const std::string title = Fit(m_bold, title_size, game.rom.title, right - left);
+  // ((01.47) a folder's row: its name, then "Folder" and its games)
+  const std::string& name = on_folder ? chosen.label : m_games[static_cast<size_t>(chosen.game)].rom.title;
+  const float title_size = k > 0.5f ? 34.0f : TextWidth(m_bold, 46, name) > right - left - 40.0f ? 36.0f : 46.0f;
+  const std::string title = Fit(m_bold, title_size, name, right - left);
   const float tw = TextWidth(m_bold, title_size, title);
   Text(dl, m_bold, title_size, ImVec2(std::max(left, W * 0.5f - tw * 0.5f), 800.0f - 290.0f * k),
        Rgba(theme.text, alpha), title);
   if (info_alpha < 0.01f)
     return;
-  const System& system = GetSystem(game.rom.system);
-  std::string info = game.rom.region.find("Japan") == 0 ? system.name_japan : system.name;
-  if (!game.rom.region.empty())
-    info += "  -  " + game.rom.region;
-  info += "  -  " + PlayedText(game.played);
-  if (!m_prefs.default_game.empty() && game.rom.path == m_prefs.default_game)
-    info += "  -  Starts when EmuSuNi opens";
+  std::string info;
+  if (on_folder)
+  {
+    info = "Folder  -  " + chosen.detail;
+  }
+  else
+  {
+    const Game& game = m_games[static_cast<size_t>(chosen.game)];
+    const System& system = GetSystem(game.rom.system);
+    info = game.rom.region.find("Japan") == 0 ? system.name_japan : system.name;
+    if (!game.rom.region.empty())
+      info += "  -  " + game.rom.region;
+    info += "  -  " + PlayedText(game.played);
+    if (!m_prefs.default_game.empty() && game.rom.path == m_prefs.default_game)
+      info += "  -  Starts when EmuSuNi opens";
+  }
   if (TextWidth(m_font, 26, info) > right - left)
     info = Fit(m_font, 26, info, right - left);  // (only a line too long for the place between the boxes)
   const float iw = TextWidth(m_font, 26, info);
@@ -17788,10 +20617,11 @@ void Menu::Impl::DrawLibraryGames(ImDrawList* dl, float alpha, int c)
   dl->AddRectFilled(b0, b1, Rgba(theme.wave, info_alpha * 0.18f), 14.0f);
   dl->AddRect(b0, b1, Rgba(theme.wave, info_alpha * 0.95f), 14.0f, 0, 2.5f);
   const float cw = PS4Glyphs::Width("Cross", 38);
-  const float pw = TextWidth(m_bold, 32, "Play");
+  const char* does = on_folder ? "Open" : "Play";
+  const float pw = TextWidth(m_bold, 32, does);
   const float px = W * 0.5f - (cw + 14 + pw) * 0.5f;
   PS4Glyphs::Draw(dl, m_bold, "Cross", px, by + bh * 0.5f, 38, info_alpha);
-  Text(dl, m_bold, 32, ImVec2(px + cw + 14, by + 12), Rgba(theme.text, info_alpha), "Play");
+  Text(dl, m_bold, 32, ImVec2(px + cw + 14, by + 12), Rgba(theme.text, info_alpha), does);
 }
 
 // The keyboard (00.80, src/TextKeyboard.h): the search's - a field with what is typed and how many games match - or a
@@ -17854,31 +20684,62 @@ void Menu::Impl::DrawKeyboard(ImDrawList* dl, float dt)
     }
   }
   auto width = [this](const std::string& text) { return m_bold->CalcTextSizeA(36, FLT_MAX, 0.0f, text.c_str()).x; };
-  std::string typed = search ? m_search : m_board.Display();
+  const std::string shown = search ? m_search : m_board.Display();
+  // ((01.52) The cursor where the keys type - the end, unless moved -, always in view: the text's end shown as before
+  // when it's longer than the field, its part around the cursor when the cursor is before that; "..." for what's cut.)
+  const size_t cursor = search && m_board.Text() != m_search ? shown.size() :
+                                                                std::min(m_board.DisplayCursor(), shown.size());
   const float room = f1.x - 24.0f - tx - (found.empty() ? 0.0f : TextWidth(m_bold, 28, found) + 24.0f);
   const float dots_w = width("...");
-  bool cut = false;
-  while (!typed.empty() && width(typed) > room - (cut ? dots_w : 0.0f))
+  const auto next = [&shown](size_t at) {
+    return std::min(shown.size(), at + TextKeyboard::CharBytes(static_cast<unsigned char>(shown[at])));
+  };
+  const auto before = [&shown](size_t at) {
+    do
+      at--;
+    while (at > 0 && (static_cast<unsigned char>(shown[at]) & 0xC0) == 0x80);
+    return at;
+  };
+  const auto part_w = [&](size_t from, size_t to) { return width(shown.substr(from, to - from)); };
+  size_t from = 0, to = shown.size();
+  if (part_w(from, to) > room)
   {
-    typed.erase(0, std::min(typed.size(), TextKeyboard::CharBytes(static_cast<unsigned char>(typed[0]))));
-    cut = true;
+    while (from < to && part_w(from, to) > room - dots_w)
+      from = next(from);
+    if (cursor < from)
+    {
+      from = cursor;
+      for (int i = 0; i < 3 && from > 0; i++)
+        from = before(from);
+      while (to > from && part_w(from, to) > room - (from > 0 ? dots_w : 0.0f) - dots_w)
+        to = before(to);
+    }
   }
+  if (m_board.OnText())
+    dl->AddRect(f0, f1, Rgba(theme.wave, a), 12.0f, 0, 4.0f);  // (the D-Pad on the text: the field lit)
   float cursor_x = tx;
-  if (typed.empty() && search)
+  if (shown.empty() && search)
   {
     Text(dl, m_font, 30, ImVec2(tx, f0.y + 13), Rgba(theme.text, 0.45f * a), "Type a game's name", false);
   }
-  else if (!typed.empty())
+  else if (!shown.empty())
   {
-    if (cut)
+    float x = tx;
+    if (from > 0)
     {
-      dl->AddText(m_bold, 36, ImVec2(tx, f0.y + 10), Rgba(theme.text, 0.5f * a), "...");
-      cursor_x += dots_w;
+      dl->AddText(m_bold, 36, ImVec2(x, f0.y + 10), Rgba(theme.text, 0.5f * a), "...");
+      x += dots_w;
     }
-    dl->AddText(m_bold, 36, ImVec2(cursor_x, f0.y + 10), Rgba(theme.text, a), typed.c_str());
-    cursor_x += width(typed);
+    const std::string visible = shown.substr(from, to - from);
+    dl->AddText(m_bold, 36, ImVec2(x, f0.y + 10), Rgba(theme.text, a), visible.c_str());
+    cursor_x = x + part_w(from, std::clamp(cursor, from, to));
+    if (to < shown.size())
+      dl->AddText(m_bold, 36, ImVec2(x + width(visible), f0.y + 10), Rgba(theme.text, 0.5f * a), "...");
   }
-  if (std::fmod(m_time, 1.0f) < 0.6f)
+  // (A blinking bar; on the text, always there and wider.)
+  if (m_board.OnText())
+    dl->AddRectFilled(ImVec2(cursor_x + 1, f0.y + 9), ImVec2(cursor_x + 6, f1.y - 9), Rgba(theme.wave, a));
+  else if (std::fmod(m_time, 1.0f) < 0.6f)
     dl->AddRectFilled(ImVec2(cursor_x + 3, f0.y + 13), ImVec2(cursor_x + 6, f1.y - 13), Rgba(theme.wave, a));
   if (!found.empty())
   {
@@ -17965,7 +20826,8 @@ void Menu::Impl::DrawToast(ImDrawList* dl, float dt)
   if (m_toast_time <= 0.0f)
     return;
   m_toast_time -= dt;
-  const float a = std::clamp(std::min(m_toast_time / 0.3f, (2.2f - m_toast_time) / 0.12f), 0.0f, 1.0f);
+  // ((01.91) The fade in from its own length: until 01.90 every toast's from 2.2 s, a longer one unseen till then.)
+  const float a = std::clamp(std::min(m_toast_time / 0.3f, (m_toast_length - m_toast_time) / 0.12f), 0.0f, 1.0f);
   const Theme& theme = CurrentTheme();
   const float tw = TextWidth(m_bold, 30, m_toast);
   const float icon_w = m_toast_icon ? 40.0f : 0.0f;
@@ -18083,6 +20945,12 @@ void Menu::Impl::DrawLibraryList(ImDrawList* dl, float alpha)
     DrawOnlineTable(dl, alpha, 90.0f, W - 90.0f, 258.0f, 960.0f, false);
     return;
   }
+  else if (!themes && m_settings_group >= 0 && m_settings_group < static_cast<int>(SettingsGroups().size()))
+  {
+    // ((01.26) A group of Settings open: its name and what it holds.)
+    const SettingsGroup& group = SettingsGroups()[static_cast<size_t>(m_settings_group)];
+    DrawPageTitle(dl, Category::Settings, group.name, group.detail, alpha, alpha * 0.85f);
+  }
   else
     DrawPageTitle(dl, themes ? Category::Themes : Category::Settings, themes ? "Themes" : "Settings",
                   themes ? "Colours and wallpapers (PNG in " + UserDir() + "/themes)" :
@@ -18130,9 +20998,14 @@ void Menu::Impl::DrawLibraryList(ImDrawList* dl, float alpha)
       dl->AddRect(s0, s1, Rgba(theme.text, alpha * 0.4f), 6.0f, 0, 1.5f);
       tx = X + 170;
     }
+    float dr = right - 34;  // ((01.28) a box row: its box at the right, what it is before it)
+    if (item.check >= 0)
+      dr -= DrawCheckBox(dl, ImVec2(dr - 40, y + 36), 40.0f, item.check == 1, Rgba(theme.text, alpha * 0.75f),
+                         Rgba(theme.wave, alpha), Rgba(0xFFFFFF, alpha)) +
+            20;
     const float dw = TextWidth(m_font, 26, item.detail);
     Text(dl, sel ? m_bold : m_font, 32, ImVec2(tx, y + 18), Rgba(theme.text, alpha), item.label);
-    Text(dl, m_font, 26, ImVec2(right - 34 - std::min(dw, 900.0f), y + 22), Rgba(theme.text, alpha * 0.7f),
+    Text(dl, m_font, 26, ImVec2(dr - std::min(dw, 900.0f), y + 22), Rgba(theme.text, alpha * 0.7f),
          Fit(m_font, 26, item.detail, 900.0f));
   }
   dl->PopClipRect();
@@ -18163,7 +21036,7 @@ void Menu::Impl::DrawLibraryHints(ImDrawList* dl)
   if (m_keyboard)
   {
     // (00.80) The keyboard's buttons (src/TextKeyboard.h): the search's, or a text asked for.
-    for (const TextKeyboard::Hint& h : TextKeyboard::Hints(m_board.GetMode()))
+    for (const TextKeyboard::Hint& h : TextKeyboard::Hints(m_board.GetMode(), m_board.OnText()))
     {
       if (h.right)
         right(h.glyph, h.label);
@@ -18191,6 +21064,7 @@ void Menu::Impl::DrawLibraryHints(ImDrawList* dl)
     {
       left("Cross", "Create Room");
       right("Options", "Online Settings");
+      right("Triangle", NextPeriodButton(m_top_days));  // ((01.91) its period)
       return;
     }
     if (m_online_page == PAGE_CHAT)
@@ -18205,7 +21079,14 @@ void Menu::Impl::DrawLibraryHints(ImDrawList* dl)
     if (m_online_page == PAGE_PLAYERS)
     {
       right("Options", "Online Settings");
-      right("Triangle", m_players_days ? "Since Ever" : "Last 7 Days");  // ((01.07) the ranking's period)
+      right("Triangle", NextPeriodButton(m_players_days));  // ((01.07) the ranking's period; (01.91) three)
+      return;
+    }
+    if (m_online_page == PAGE_ELO)
+    {
+      right("Options", "Online Settings");
+      right("Triangle", "Next Game");  // ((01.91) the ELO ranking's games)
+      right("Square", "Previous Game");
       return;
     }
     left("Cross", mine ? "Go to Your Room" : OnlineRowWatch() ? "Watch" : "Join");
@@ -18218,13 +21099,19 @@ void Menu::Impl::DrawLibraryHints(ImDrawList* dl)
   }
   const bool games = IsGameList(m_category);
   const auto& items = m_items[m_category];
-  const bool has_game = games && !items.empty() && items[0].game >= 0;
+  // ((01.47) The row selected: a game's, or a folder's - Open, and no Favorite or Options.)
+  const int at = m_selected[m_category];
+  const Item* row = at >= 0 && at < static_cast<int>(items.size()) ? &items[static_cast<size_t>(at)] : nullptr;
+  const bool on_folder = games && row && !row->folder.empty();
+  const bool has_game = games && row && row->game >= 0;
   left("D-Pad", "Browse");
-  left("Cross", games ? "Play" : "Select");
-  if (IsSettingsPage(m_category))
+  left("Cross", on_folder ? "Open" : games ? "Play" : "Select");
+  if (IsSettingsPage(m_category) || (m_category == static_cast<int>(Category::Settings) && m_settings_group >= 0))
     left("Circle", "Back");
   if (games && !m_search.empty())
     left("Circle", "Clear Search");
+  else if (games && !FolderLine(m_category).empty())
+    left("Circle", "Back");  // ((01.47) up to the folder above)
   if (games)
   {
     right("Options", "Order and Filters");  // ((01.18) until 01.17: Sort, the next order at once)
@@ -18256,6 +21143,15 @@ bool Menu::Impl::Run(Library::Game* result)
   LoadSaves();
   g_start_step = "the menu: its lists";
   ApplyPreferences();
+  if (!m_folders_started)
+  {
+    // ((01.47) The app's first menu: its console's list on the folder of the game played last, found below. Back from a
+    // game, each list is in the folder it was left in.)
+    m_folders_started = true;
+    std::array<std::string, CATEGORY_COUNT> last;
+    last.fill(m_prefs.last_game);
+    OpenFoldersOf(last);
+  }
   BuildItems();
   g_start_step = "the menu: the rest before its first frame";
   m_launch = -1;
@@ -18372,6 +21268,15 @@ bool Menu::Impl::Run(Library::Game* result)
       Log(std::string("first start: language list (suggested ") + code + ")");
     }
   }
+#ifdef EMUSUNI_VITA
+  // (with-vita) A PS Vita game that couldn't start for want of the firmware: the firmware's panel (Copy the Firmware)
+  // instead of the words alone.
+  if (Vita::IsMissingMessage(m_pending_error))
+  {
+    m_pending_error.clear();
+    OpenVitaFirmwarePanel();
+  }
+#endif
   if (!m_pending_error.empty())
   {
     m_panel = {};
@@ -18404,7 +21309,16 @@ bool Menu::Impl::Run(Library::Game* result)
     // ((01.23) Back from a match of any room: its room again, the host's alone too - Back to the Room.)
     const bool back = m_online_back;
     m_online_back = false;
-    if (!m_panel.open && v.phase == Netplay::Phase::Room && (!v.host || other || back))
+    // ((01.91, the owner) A spectator who chose Join the Match: the room it joins now as a player - its panel, as a
+    // Join's: asking the host when need be, then its match under way.)
+    const bool rejoined = Netplay::TakeJoinedFromWatching();
+    if (rejoined)
+    {
+      m_online_found = NetProto::LobbyGame::Looking;
+      m_online_game = -1;
+      m_online_library_sent = false;
+    }
+    if (!m_panel.open && (rejoined || (v.phase == Netplay::Phase::Room && (!v.host || other || back))))
     {
       OpenOnlineRoom();
       if (v.host && v.asking < 0)
@@ -18486,6 +21400,7 @@ bool Menu::Impl::Run(Library::Game* result)
     }
 #ifdef EMUSUNI_3DS
     Update3dsInstall();  // ((01.09) a CIA's install as it goes)
+    Update3dsTextures();  // ((01.42) a texture pack's count, its install as it goes)
 #endif
     UpdatePatchedCopy();  // ((01.22) an Arcade game's patched romset's copy as it goes)
     UpdateCheatFinder();
@@ -18496,6 +21411,9 @@ bool Menu::Impl::Run(Library::Game* result)
       BuildVoiceRows();
     UpdateFind(dt);
     UpdateUpdater();
+#ifdef EMUSUNI_VITA
+    UpdateVitaFirmware();  // (with-vita: the firmware's download as it goes)
+#endif
     UpdatePortable();  // (00.87: the copy of the player's data, a drive's question, the warnings)
     UpdateOnline();  // (00.23: the room as it goes; the match's start)
     // Without Cover: the games whose covers were just saved leave the lists, each list keeping its
@@ -18527,6 +21445,20 @@ bool Menu::Impl::Run(Library::Game* result)
       if (m_launch_online && Netplay::LinkRoom())
         SetGbLinkMatch();  // (00.95: the Game Boy link cable's two games, src/GbLink.h)
       TellInstallFolders(m_games[m_launch].rom.system);  // ((01.22) for its in-game menu's Updates, DLC and Mods)
+      {
+        // ((01.66) its cover's file for its start's own screen - the PS Vita's loading screen)
+        std::string cover;
+        for (const std::string& name : CoverNames(m_games[m_launch].rom))
+        {
+          const auto it = m_cover_files.find(name);
+          if (it != m_cover_files.end())
+          {
+            cover = it->second;
+            break;
+          }
+        }
+        Emulator::SetStartCover(m_games[m_launch].rom.key, cover);
+      }
       *result = m_games[m_launch].rom;
       picked = true;
       break;

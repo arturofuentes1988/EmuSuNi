@@ -26,5 +26,5 @@ void main()
 {
   AF3 color;
   FsrRcasF(color.r, color.g, color.b, AU2(gl_FragCoord.xy - pc.Origin.xy), pc.Const0);
-  FragColor = AF4(color, 1.0);
+  FragColor = AF4(Grade(color), 1.0);
 }

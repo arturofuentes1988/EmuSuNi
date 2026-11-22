@@ -69,6 +69,14 @@ std::vector<std::string> GameFiles(const Game& game);
 // "Name (Track N).bin" beside it, N from 2 on without a gap, as Redump names them; none for any other file, or when
 // it is alone (its data track is then the whole disc). The game is started with a .cue made for them (Emulator.cpp).
 std::vector<std::string> LoneTracks(const std::string& path);
+// (01.47, a player: "como hace EmulationStation") Each game's folder for the menu's folders (Settings -> Show
+// Subfolders as Folders): its file's folder under the console's folder it was found in (`folders`: Found::folders),
+// "Hacks/Spanish"; "" right in it. A game's own folder isn't one: the folder its file is named after
+// ("Shenmue/disc.gdi", a PSP game's "ULUS10041/EBOOT.PBP"), a disc's ("Disc 1"), a MUGEN game's, and one holding
+// that game alone, named as it or of several discs ("Final Fantasy VII (USA)/Final Fantasy VII (USA).cue"): the game
+// is in the folder above. One spelling for a folder in any letters' case (two drives). Reads no drive.
+std::vector<std::string> BrowseFolders(const std::vector<Game>& games,
+                                       const std::array<std::vector<std::string>, SYSTEM_COUNT>& folders);
 
 // ---- Where the games are found (00.62) ----
 // The USB drives connected now, as the app sees them: /usb0 ... /usb7 that have something in them (an empty one
@@ -108,6 +116,17 @@ std::string PathKey(const std::string& path, const std::vector<std::string>& dri
 std::vector<std::string> ConsoleFolders(const System& system, const std::string& chosen, const Places& places);
 // Is the folder the console's Roms/<key> of data_dir or of a USB drive (any letters' case)?
 bool IsRomsFolder(const std::string& folder, const std::string& key, const std::string& data_dir);
+// (01.91) The console's folder a game's folder is under: the nearest of it and the folders above it that is the
+// console's Roms/<key> (IsRomsFolder) or its folder chosen in Game Folders (SetChosenFolders); "" when none is.
+// (An Arcade clone's parent is looked for up to it: src/Arcade.h FoldersAbove.)
+std::string ConsoleRoot(const std::string& folder, SystemId system, const std::string& data_dir);
+// The consoles' folders chosen in Game Folders (each one's default when none is: the menu's), for ConsoleRoot.
+void SetChosenFolders(const std::array<std::string, SYSTEM_COUNT>& chosen);
+// (01.91, the owner: "¿funcionará para todas las consolas?") The folders above a game's folder, nearest first, up to
+// `root` (ConsoleRoot's), that one included - none above it, none when it isn't under it: where a BIOS or a parent
+// "next to the games" is looked for too (the Saturn's BIOS; the NAOMI's and the Atomiswave's BIOS zips, a clone's parent
+// zip and GD-ROM image: src/Naomi.h). (The Arcade's own, with 01.36's "hacks" folder: src/Arcade.h FoldersAbove.)
+std::vector<std::string> FoldersAbove(const std::string& folder, const std::string& root);
 // Every console's games: Scan() of each of its ConsoleFolders() (chosen[id]: its folder in Game Folders, else
 // its default one). A folder that holds another console's games too (the same one, or one inside the other)
 // has its .zip files opened to see whose they are; a file found through two folders is one game.

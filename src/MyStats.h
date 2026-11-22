@@ -28,6 +28,8 @@ void Load(const std::string& data_dir);
 // A game starts (src/Emulator.cpp: its Run), online or not; ends (its time added, the file saved).
 void GameStarted(const std::string& path, const std::string& console, bool online);
 void GameEnded();
+// ((01.81) Rename Files With My Names) A game's numbers under its file's new path; false: none, or that path has some.
+bool RenamePath(const std::string& old_path, const std::string& new_path);
 // Every game played, the most played first.
 std::vector<Game> Games();
 }  // namespace MyStats

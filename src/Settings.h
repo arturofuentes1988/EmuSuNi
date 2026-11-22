@@ -26,6 +26,13 @@ struct Choice
 
 // The consoles a setting is for: bits of SystemId.
 constexpr uint32_t FOR_ALL = (1u << SYSTEM_COUNT) - 1;
+// ((01.76) Quality and the GPU Upscaler: the PS Vita's picture is always Smooth Edges. (01.88) Every console in a build
+// without it: SystemId::VITA is with-vita's only.)
+#ifdef EMUSUNI_VITA
+constexpr uint32_t FOR_ALL_BUT_VITA = FOR_ALL & ~(1u << static_cast<int>(SystemId::VITA));
+#else
+constexpr uint32_t FOR_ALL_BUT_VITA = FOR_ALL;
+#endif
 constexpr uint32_t FOR_SNES = 1u << static_cast<int>(SystemId::SNES);
 constexpr uint32_t FOR_NES = 1u << static_cast<int>(SystemId::NES);
 constexpr uint32_t FOR_N64 = 1u << static_cast<int>(SystemId::N64);
@@ -49,6 +56,10 @@ constexpr uint32_t FOR_PCE = 1u << static_cast<int>(SystemId::PCE);
 constexpr uint32_t FOR_A2600 = 1u << static_cast<int>(SystemId::A2600);
 constexpr uint32_t FOR_A7800 = 1u << static_cast<int>(SystemId::A7800);
 constexpr uint32_t FOR_JAGUAR = 1u << static_cast<int>(SystemId::JAGUAR);
+constexpr uint32_t FOR_OPENBOR = 1u << static_cast<int>(SystemId::OPENBOR);  // ((01.82) its Bezel)
+#ifdef EMUSUNI_VITA
+constexpr uint32_t FOR_VITA = 1u << static_cast<int>(SystemId::VITA);  // ((01.72) with-vita)
+#endif
 static_assert(SYSTEM_COUNT <= 32, "the consoles' masks are 32-bit");
 // Atari's consoles (00.90): the 2600, the 7800 and the Jaguar.
 constexpr uint32_t FOR_ATARI = FOR_A2600 | FOR_A7800 | FOR_JAGUAR;
@@ -77,6 +88,9 @@ struct Setting
   bool live;  // takes effect while a game runs (else: next game start)
   const char* help;
   uint32_t systems = FOR_ALL;
+  // ((01.91) Only on a game's settings pages - Triangle -> Game Settings, the in-game menu's Settings -, not in Settings'
+  // lists: the PS Vita Motion Sensor, the owner's "en el menú l3 y r3 ajustes de juego y en triángulo".)
+  bool per_game = false;
 };
 
 inline bool AppliesTo(const Setting& setting, SystemId system)
@@ -130,6 +144,9 @@ void CopyGameToGlobal(const std::string& game_id);
 
 void ResetGlobal(const std::string& key);
 void ResetGame(const std::string& game_id);
+// ((01.81) Rename Files With My Names) A game's own settings under its new key (its file's new name); false: it has
+// none, or the new key has some already (left as they are).
+bool RenameGame(const std::string& old_id, const std::string& new_id);
 // The game's console has no settings of its own anymore (its games follow the global ones).
 void ResetConsole(const std::string& game_id);
 void ResetAll();

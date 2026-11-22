@@ -46,6 +46,8 @@
 #                                        PAUSE, SELECT, RESET
 #   assets/xmb/bezels/atarijaguar-console.png the Atari Jaguar: black with red lines, 64-BIT, the pad's D-pad, C B A and
 #                                        its number pad
+#   assets/xmb/bezels/openbor-console[-169].png  OpenBOR (01.82): a street at night, brick walls, neon signs, wet
+#                                        asphalt; a 4:3 window and a 16:9 one (1600x900) for the wide mods
 #   (00.80 to 00.82 also had the Sega CD's, the 32X's, the PC Engine CD's, the Neo Geo Pockets' and the WonderSwans':
 #   gone in 00.83 with those consoles.)
 #   assets/xmb/bezels/nds-console[-wide|-tall|-169].png  the DS in white, a window for each DS Screens view
@@ -1893,6 +1895,119 @@ def tv_wide():
     return image
 
 
+def openbor_console(rect):
+    """(01.82) OpenBOR's games, beat 'em ups most of them: a street at night around the picture - brick walls lit by
+    neon signs (OPEN and a heart left, an arrow to the picture, 24H and a star right), lit windows above, wet asphalt
+    that mirrors the neon, a steel rim. Only the street: no game's or project's name, logo or character. A 4:3 window,
+    and a 16:9 one (1600x900) for the wide mods (480x272, 960x540)."""
+    rnd = random.Random(1987)
+    x0, y0, x1, y1 = scaled(rect)
+    image = vertical_gradient((W, H), (18, 12, 38), (4, 3, 10))
+    street = int(H * 0.80)  # where the walls meet the pavement
+    # The walls: rows of bricks, each a little lighter or darker, half a brick offset row by row, in their mortar.
+    bw, bh, mortar = 64 * S, 26 * S, 3 * S
+    wall = Image.new("RGBA", (W, street), (30, 22, 24, 255))
+    wdraw = ImageDraw.Draw(wall)
+    for row, y in enumerate(range(0, street, bh)):
+        for x in range(-(bw // 2 if row % 2 else 0), W, bw):
+            shade = rnd.uniform(0.72, 1.12)
+            wdraw.rectangle((x + mortar, y + mortar, x + bw - 1, y + bh - 1),
+                            fill=(int(96 * shade), int(40 * shade), int(34 * shade), 255))
+    # The night on them: darker at the top and near the street.
+    dark = Image.new("L", (1, street))
+    for y in range(street):
+        t = y / max(1, street - 1)
+        dark.putpixel((0, y), int(175 - 120 * math.sin(math.pi * min(1.0, t * 1.1))))
+    shade = Image.new("RGBA", (W, street), (4, 2, 10, 255))
+    shade.putalpha(dark.resize((W, street)))
+    wall.alpha_composite(shade)
+    image.paste(wall, (0, 0))
+    # The pavement: wet asphalt, a kerb line.
+    image.paste(vertical_gradient((W, H - street), (22, 22, 30), (6, 6, 10)), (0, street))
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((0, street, W, street + 6 * S), fill=(58, 56, 64, 255))
+    # Lit windows high on the walls, a warm light behind half-drawn blinds.
+    parts = regions(rect)
+    sides = [parts[k] for k in ("left", "right") if k in parts]
+    for (bx0, by0, bx1, by1) in sides:
+        pw = bx1 - bx0
+        for i, wx in enumerate((bx0 + pw * 0.22, bx0 + pw * 0.58)):
+            ww, wh = pw * 0.26, 46 * S
+            wy = 40 * S + (i % 2) * 6 * S
+            draw.rectangle((wx, wy, wx + ww, wy + wh), fill=(250, 196, 104, 255))
+            draw.rectangle((wx, wy, wx + ww, wy + wh * 0.45), fill=(150, 104, 60, 255))
+            draw.line((wx + ww / 2, wy, wx + ww / 2, wy + wh), fill=(40, 30, 28, 255), width=3 * S)  # (the mullion)
+            draw.rectangle((wx - 4 * S, wy - 4 * S, wx + ww + 4 * S, wy + wh + 4 * S), outline=(20, 16, 18, 255),
+                           width=4 * S)
+    # The neon signs, each a tube with its glow.
+    signs = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    sdraw = ImageDraw.Draw(signs)
+    PINK, CYAN, YELLOW_N, VIOLET = (255, 60, 170, 255), (60, 230, 255, 255), (255, 220, 70, 255), (170, 90, 255, 255)
+    lights = []  # each sign's middle, colour and size: its light on the bricks and on the wet street
+    if len(sides) == 2:
+        (lx0, _, lx1, _), (rx0, _, rx1, _) = sides
+        k = (lx1 - lx0) / (240 * S)  # the panels' width against the 4:3 window's
+        lc, rc = (lx0 + lx1) // 2, (rx0 + rx1) // 2
+        tube = max(3, int(6 * S * k))
+        lights = [((lc, int(H * 0.30)), VIOLET, 130 * S * k), ((lc, int(H * 0.54)), PINK, 110 * S * k),
+                  ((rc, int(H * 0.28)), CYAN, 120 * S * k), ((rc, int(H * 0.47)), YELLOW_N, 100 * S * k),
+                  ((rc, int(H * 0.62)), VIOLET, 70 * S * k)]
+        # OPEN in a box, left.
+        oy = int(H * 0.30)
+        text_at(signs, "OPEN", (lc, oy), int(30 * S * k), PINK, spacing=0.10)
+        box_w, box_h = int(196 * S * k), int(76 * S * k)
+        sdraw.rounded_rectangle((lc - box_w // 2, oy - box_h // 2, lc + box_w // 2, oy + box_h // 2), radius=int(14 * S * k),
+                                outline=VIOLET, width=tube)
+        # A heart below it.
+        hy, hs = int(H * 0.54), 4.2 * S * k
+        heart = [(lc + 16 * math.sin(t) ** 3 * hs, hy - (13 * math.cos(t) - 5 * math.cos(2 * t) - 2 * math.cos(3 * t) -
+                                                         math.cos(4 * t)) * hs) for t in [i * math.pi / 40 for i in range(81)]]
+        sdraw.line(heart, fill=PINK, width=tube, joint="curve")
+        # An arrow to the picture, right.
+        ay, aw = int(H * 0.28), int(170 * S * k)
+        tip, tail = rc - aw // 2, rc + aw // 2
+        sdraw.line((tail, ay, tip + 6 * S, ay), fill=CYAN, width=tube)
+        sdraw.line((tip + int(40 * S * k), ay - int(36 * S * k), tip, ay, tip + int(40 * S * k), ay + int(36 * S * k)),
+                   fill=CYAN, width=tube, joint="curve")
+        # 24H, and a star.
+        text_at(signs, "24H", (rc, int(H * 0.47)), int(40 * S * k), YELLOW_N, spacing=0.10)
+        sy, sr = int(H * 0.62), 34 * S * k
+        star = [(rc + (sr if i % 2 == 0 else sr * 0.42) * math.sin(i * math.pi / 5),
+                 sy - (sr if i % 2 == 0 else sr * 0.42) * math.cos(i * math.pi / 5)) for i in range(11)]
+        sdraw.line(star, fill=VIOLET, width=tube, joint="curve")
+    # Their light: a pool of each colour on the bricks around it, and its streak on the wet street below (the
+    # asphalt mirrors a light as a long smear down from the kerb).
+    pools = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    pdraw = ImageDraw.Draw(pools)
+    streaks = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    rdraw = ImageDraw.Draw(streaks)
+    for (cx, cy), colour, size in lights:
+        pdraw.ellipse((cx - size, cy - size * 0.8, cx + size, cy + size * 0.8), fill=colour[:3] + (70,))
+        half = size * 0.22
+        rdraw.rectangle((cx - half, street + 10 * S, cx + half, H), fill=colour[:3] + (120,))
+    image.alpha_composite(pools.filter(ImageFilter.GaussianBlur(40 * S)))
+    streaks = streaks.filter(ImageFilter.GaussianBlur(14 * S))
+    fade = Image.new("L", (W, H), 0)
+    fdraw = ImageDraw.Draw(fade)
+    for y in range(street + 6 * S, H):
+        fdraw.line((0, y, W, y), fill=int(255 * (1 - (y - street) / max(1, H - street)) ** 0.6))
+    streaks.putalpha(Image.composite(streaks.split()[3], Image.new("L", (W, H), 0), fade))
+    image.alpha_composite(streaks)
+    glow(image, signs, 12 * S, 3)
+    # Each tube's white-hot core.
+    core = signs.filter(ImageFilter.GaussianBlur(1 * S))
+    core.putalpha(core.split()[3].point(lambda a: int(a * 0.45)))
+    white = Image.new("RGBA", (W, H), (255, 240, 250, 0))
+    white.putalpha(core.split()[3])
+    image.alpha_composite(white)
+    # The steel rim around the picture.
+    draw = ImageDraw.Draw(image)
+    ring(draw, rect, 10, (44, 46, 54, 255), 10)
+    ring(draw, rect, 2, (120, 124, 136, 255), 2)
+    cut_box(image, rect)
+    return image
+
+
 def frames(name, make):
     """A shared frame in every window: frame-<name>.png and its -169, -wide and -tall windows."""
     return {"frame-" + name + shape: (lambda make=make, rect=rect: make(rect)) for shape, rect in WINDOWS.items()}
@@ -1916,6 +2031,7 @@ BEZELS = {
     "pce-console": pce_console,
     "atari2600-console": atari2600_console, "atari7800-console": atari7800_console,
     "atarijaguar-console": atarijaguar_console,
+    "openbor-console": lambda: openbor_console(WINDOWS[""]), "openbor-console-169": lambda: openbor_console(WINDOWS["-169"]),
     **{"nds-console" + shape: (lambda shape=shape: nds_console(shape)) for shape in NDS_WINDOWS},
     **{"3ds-console" + shape: (lambda shape=shape: ds3_console(shape)) for shape in DS3_WINDOWS},
 }

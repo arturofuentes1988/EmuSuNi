@@ -325,25 +325,37 @@ std::string GdromFile(const Set& set)
   return set.gdrom.empty() ? std::string() : set.name + "/" + set.gdrom + ".chd";
 }
 
-std::vector<std::string> Missing(const Set& set, const std::string& folder, const std::string& system_dir)
+std::vector<std::string> Missing(const Set& set, const std::string& folder, const std::vector<std::string>& above,
+                                 const std::string& system_dir)
 {
-  return Missing(set, folder, system_dir, FileExists);
+  return Missing(set, folder, above, system_dir, FileExists);
 }
 
-std::vector<std::string> Missing(const Set& set, const std::string& folder, const std::string& system_dir,
-                                 const std::function<bool(const std::string&)>& exists)
+std::vector<std::string> Missing(const Set& set, const std::string& folder, const std::vector<std::string>& above,
+                                 const std::string& system_dir, const std::function<bool(const std::string&)>& exists)
 {
   std::vector<std::string> missing;
-  // The BIOS: <system>/dc/<zip>, then beside the game (Flycast's findNaomiBios, a .zip, then a .7z).
-  if (!AnyFile(exists, system_dir + "/dc/" + set.bios, {".zip", ".7z"}) &&
-      !AnyFile(exists, folder + "/" + set.bios, {".zip", ".7z"}))
+  // The BIOS: <system>/dc/<zip>, then beside the game (Flycast's findNaomiBios, a .zip, then a .7z), (01.91) then in
+  // the folders above it.
+  bool bios = AnyFile(exists, system_dir + "/dc/" + set.bios, {".zip", ".7z"}) ||
+              AnyFile(exists, folder + "/" + set.bios, {".zip", ".7z"});
+  for (const std::string& dir : above)
+    bios = bios || AnyFile(exists, dir + "/" + set.bios, {".zip", ".7z"});
+  if (!bios)
     missing.push_back(BiosZip(set));
-  // A clone's parent: beside it (OpenArchive: .7z, .7Z, .zip, .ZIP).
-  if (!set.parent.empty() && !AnyFile(exists, folder + "/" + set.parent, {".zip", ".7z", ".ZIP", ".7Z"}))
+  // A clone's parent: beside it (OpenArchive: .7z, .7Z, .zip, .ZIP), (01.91) else above it.
+  bool parent = set.parent.empty() || AnyFile(exists, folder + "/" + set.parent, {".zip", ".7z", ".ZIP", ".7Z"});
+  for (const std::string& dir : above)
+    parent = parent || AnyFile(exists, dir + "/" + set.parent, {".zip", ".7z", ".ZIP", ".7Z"});
+  if (!parent)
     missing.push_back(set.parent + ".zip");
-  // A GD-ROM game's disc: <folder>/<set>/<gdrom>.chd, else its parent's folder (GDCartridge::Init).
-  if (!set.gdrom.empty() && !exists(folder + "/" + GdromFile(set)) &&
-      (set.parent.empty() || !exists(folder + "/" + set.parent + "/" + set.gdrom + ".chd")))
+  // A GD-ROM game's disc: <folder>/<set>/<gdrom>.chd, else its parent's folder (GDCartridge::Init), (01.91) beside
+  // the game or above it.
+  bool disc = set.gdrom.empty() || exists(folder + "/" + GdromFile(set)) ||
+              (!set.parent.empty() && exists(folder + "/" + set.parent + "/" + set.gdrom + ".chd"));
+  for (const std::string& dir : above)
+    disc = disc || (!set.parent.empty() && exists(dir + "/" + set.parent + "/" + set.gdrom + ".chd"));
+  if (!disc)
     missing.push_back(GdromFile(set));
   return missing;
 }
@@ -362,7 +374,8 @@ std::string LoadError(const std::string& core_message, const Set* set, const std
   {
     // Not there, or there without the files the game boots from (another BIOS's zip, another version).
     if (absent(bios))
-      return "This game needs its board's BIOS:\n" + bios + "\nCopy it next to the game, or to:\n" + system_dir + "/dc";
+      return "This game needs its board's BIOS:\n" + bios + "\nCopy it next to the game,\nin a folder above it, or to:\n" +
+             system_dir + "/dc";  // ((01.91) a folder above it too, up to Roms/naomi or Roms/atomiswave)
     return "The BIOS zip has none of the files\nthis game boots from:\n" + bios + "\n(MAME's set of that name works)";
   }
   if (has("Naomi GDROM") || has(".chd"))
@@ -381,7 +394,7 @@ std::string LoadError(const std::string& core_message, const Set* set, const std
     if (at != std::string::npos)
       error += "\nMissing file:\n" + core_message.substr(at + 12);
     if (set && !set->parent.empty() && absent(set->parent + ".zip"))
-      error += "\nZips not found:\n" + set->parent + ".zip\nCopy it next to the game's zip";
+      error += "\nZips not found:\n" + set->parent + ".zip\nCopy it next to the game's zip\nor in a folder above it";
     return error;
   }
   if (has("Cannot open"))
@@ -506,17 +519,25 @@ std::string ImageTitle(const std::string& file_title, const Image& image, const 
   return TitleCase(header);
 }
 
-std::vector<std::string> ImageMissing(const std::string& folder, const std::string& system_dir)
+std::vector<std::string> ImageMissing(const std::string& folder, const std::vector<std::string>& above,
+                                      const std::string& system_dir)
 {
-  return ImageMissing(folder, system_dir, FileExists);
+  return ImageMissing(folder, above, system_dir, FileExists);
 }
 
-std::vector<std::string> ImageMissing(const std::string& folder, const std::string& system_dir,
+std::vector<std::string> ImageMissing(const std::string& folder, const std::vector<std::string>& above,
+                                      const std::string& system_dir,
                                       const std::function<bool(const std::string&)>& exists)
 {
-  // (loadDecryptedRom: always naomi.zip; findNaomiBios: system/dc, then the image's folder; a .zip, then a .7z.)
+  // (loadDecryptedRom: always naomi.zip; findNaomiBios: system/dc, then the image's folder, (01.91) then the folders
+  // above it; a .zip, then a .7z.)
   if (AnyFile(exists, system_dir + "/dc/naomi", {".zip", ".7z"}) || AnyFile(exists, folder + "/naomi", {".zip", ".7z"}))
     return {};
+  for (const std::string& dir : above)
+  {
+    if (AnyFile(exists, dir + "/naomi", {".zip", ".7z"}))
+      return {};
+  }
   return {"naomi.zip"};
 }
 }  // namespace Naomi

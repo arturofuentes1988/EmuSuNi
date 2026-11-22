@@ -67,9 +67,11 @@ private:
     Cheats,
     CheatSearch,  // Find Cheats Online: libretro's lists for this game
     CheatPick,    // one list's codes, to choose from
+    CheatImport,  // ((01.89) Import Cheats: the drives' folders and .cht files; Replace or Cancel when it has some)
     Controls,     // this console's buttons on the DualShock 4 (src/Controls.h): applied back in the game
     Achievements,  // RetroAchievements (00.73, src/Achievements.h): the game's achievements, unlocked or not
     Extras,        // (01.22, src/GameExtras.h) the 3DS's Updates, DLC and Mods, the Arcade's Patched Romset
+    Room,          // (01.24, the owner) online, the host's Room Settings: Entry, Spectators, Late Joining in the match
   };
   struct Row
   {
@@ -92,6 +94,9 @@ private:
   void Change(int direction);
   // What the row does (translated), shown small under the list.
   std::string RowHelp(const Row& row) const;
+  // (01.57) A setting the game starts again for as the menu closes, from where it was (src/Emulator.cpp): the N64
+  // Resolution, not online.
+  bool RestartsForIt(const std::string& key) const;
   std::string SlotLabel(int slot) const;
   void UpdatePicture();
 
@@ -128,6 +133,11 @@ private:
   CheatDownload::Finder::State m_finder_state = CheatDownload::Finder::State::Idle;
   int m_finder_mb = -1;
   int m_search_selected = 0;  // the list chosen last (back from its codes)
+  // ((01.89) Import Cheats, as the menu's (src/Cheats.h ImportFile): the folder shown ("" the places; cheat_file_dir),
+  // the file chosen while Replace / Cancel is asked, the row to select once the rows are made.)
+  std::string m_import_dir, m_import_file, m_import_select;
+  void ImportRows(std::vector<Row>* rows);
+  void ImportActivate(const std::string& key);
   // The Achievements page (00.73): made again now and then while it is shown (the game's achievements may come
   // meanwhile), its rows from Achievements::List().
   float m_achievements_refresh = 0.0f;
@@ -140,6 +150,11 @@ private:
   // removal asked twice (the player and when).
   void OnlineRows(std::vector<Row>* rows);
   void OnlineActivate(const std::string& key, int direction);
+  // (01.24, the owner) The host's Room Settings during the match (Netplay::View's): Entry always, Spectators when the
+  // room may be watched, Late Joining when a player may join its match - each row as the room's own menu says it;
+  // Cross, Left or Right switch it (the room's toasts).
+  void RoomRows(std::vector<Row>* rows);
+  void RoomChange(const std::string& key);
   // (01.07) Our country as the others see it ("": none shown - no "I'm from ...").
   static std::string MyCountry();
   float m_online_refresh = 0.0f;
@@ -149,9 +164,14 @@ private:
   int m_chat_phrase = 1;
   uint32_t m_chat_seen = 0;
   bool m_chat_primed = false;
+  bool m_seat_said = false;  // ((01.91) a spectator: a player's place free in the match, said once)
   void DrawChat(ImDrawList* dl, float a);
   int m_kick_asked = -1;
   float m_kick_time = 0.0f;
+  // (01.36) Cheats: Square on a code asks, Square again on it within 3 s deletes it (AskDeleteCheat).
+  int m_cheat_delete_asked = -1;
+  float m_cheat_delete_time = 0.0f;
+  void AskDeleteCheat();
   // (00.86) A game played alone while our online room stays open: a player asking to join it - Accept Player (the
   // game ends, the room opens) and Reject Player under Resume Game while the request lasts (the rows below them keep
   // their selection as these come and go).

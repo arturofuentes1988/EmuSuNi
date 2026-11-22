@@ -12,7 +12,9 @@
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <mutex>
 #include <set>
+#include <string_view>
 
 #include <minizip/unzip.h>
 #include <strings.h>
@@ -815,6 +817,12 @@ bool IsGameOf(Reader& reader, const std::filesystem::path& path, const System& s
     const Naomi::Set* set = Naomi::Find(path.stem().string());
     return set && Naomi::Plays(system.id, *set);
   }
+#ifdef EMUSUNI_VITA
+  // (with-vita) A PS Vita game is a .vpk or the .zip of a decrypted dump, never opened here (the core reads it and
+  // installs it): any .zip in the Vita's own folder; none in a folder other consoles share (a .zip there is theirs).
+  if (system.id == SystemId::VITA && HasExtension(name, {".zip"}))
+    return !open_zips;
+#endif
   if (HasExtension(name, {".zip"}))
     return !system.by_path && (!open_zips || reader.ZipSystem(path.string()) == &system);  // no zipped CDs
   // A PlayStation disc's .bin without its .cue (00.81: two players' games didn't show; the core reads it as one data
@@ -903,8 +911,9 @@ const std::set<std::string>& GenericNames()
 // An arcade game from its driver (src/Arcade.h): the romset's name in lower case is its id (the
 // drive's letters' case doesn't matter, the core's does), the driver's full name its title (a clone's
 // with its parent's), the region what the name says, no tags; its covers by the full name, then the
-// parent's; the zips it may need and hasn't got beside it, in system/fbneo or in system.
-void ArcadeGame(Reader& reader, Game* game, const std::string& folder)
+// parent's; the zips it may need and hasn't got beside it, (01.91) in the folders above it up to `root` (the console's
+// folder it was found under: Arcade::FoldersAbove), in system/fbneo or in system.
+void ArcadeGame(Reader& reader, Game* game, const std::string& folder, const std::string& root)
 {
   game->id = Lower(game->id);
   game->key = GetSystem(SystemId::ARCADE).prefix + game->id;
@@ -917,17 +926,19 @@ void ArcadeGame(Reader& reader, Game* game, const std::string& folder)
   game->cover_names = {Arcade::CoverName(driver->title)};
   if (const Arcade::Driver* parent = Arcade::Parent(*driver))
     game->cover_names.push_back(Arcade::CoverName(parent->title));
-  game->missing = Arcade::Missing(*driver, folder, SystemFolder(SystemId::ARCADE),
+  game->missing = Arcade::Missing(*driver, folder, Arcade::FoldersAbove(folder, root), SystemFolder(SystemId::ARCADE),
                                   [&reader](const std::string& path) { return reader.Exists(path); });
 }
 
 // A NAOMI or Atomiswave game from Flycast's set (src/Naomi.h), as an arcade game: the set's name in lower case is
 // its id, its full name its title (a clone's with its parent's), the region what the name says, no tags; its
 // covers by the full name, then the parent's; what it needs that isn't there (its BIOS's zip, a clone's parent, a
-// GD-ROM game's disc image) in the places the core looks.
-void BoardGame(Reader& reader, Game* game, const std::string& folder)
+// GD-ROM game's disc image) in the places the core looks - (01.91) the folders above it up to `root` too (the console's
+// folder it was found under: FoldersAbove).
+void BoardGame(Reader& reader, Game* game, const std::string& folder, const std::string& root)
 {
   const auto exists = [&reader](const std::string& path) { return reader.Exists(path); };
+  const std::vector<std::string> above = FoldersAbove(folder, root);
   // A NAOMI cartridge image (.dat, .bin): its file's name is its id, as a console's ROM's; its title its set's name
   // when the file's or the header's names one (Naomi::MatchImage), else the file's (or the header's), with the
   // file's own region and tags; its covers by the file's name (libretro's names for these dumps), then the set's and
@@ -945,7 +956,7 @@ void BoardGame(Reader& reader, Game* game, const std::string& folder)
         game->cover_names.push_back(Arcade::CoverName(parent->title));
     }
     game->title = Naomi::ImageTitle(game->title, image, set);
-    game->missing = Naomi::ImageMissing(folder, SystemFolder(game->system), exists);
+    game->missing = Naomi::ImageMissing(folder, above, SystemFolder(game->system), exists);
     return;
   }
   game->id = Lower(game->id);
@@ -959,7 +970,7 @@ void BoardGame(Reader& reader, Game* game, const std::string& folder)
   game->cover_names = {Arcade::CoverName(set->title)};
   if (const Naomi::Set* parent = Naomi::Parent(*set))
     game->cover_names.push_back(Arcade::CoverName(parent->title));
-  game->missing = Naomi::Missing(*set, folder, SystemFolder(game->system), exists);
+  game->missing = Naomi::Missing(*set, folder, above, SystemFolder(game->system), exists);
 }
 
 // The name a file's folder gives it - the folder's, or the game's folder above a folder per disc named
@@ -974,6 +985,43 @@ void FolderName(const std::filesystem::path& folder, int depth, int stem_disc, s
 void ScanFolder(Reader& reader, const std::filesystem::path& folder, int depth, const System& system, bool open_zips,
                 std::vector<Game>* games)
 {
+#ifdef EMUSUNI_MUGEN
+  // (01.27, with-mugen) A MUGEN game is a folder of its own in MUGEN's folder, as Ikemen GO's release has it: one with
+  // external/script/main.lua (Ikemen's own scripts), named after the folder; its path that file (the core runs the
+  // game from its folder). Nothing inside a game's folder is a game of its own (its chars, stages, ...).
+  // (01.68) Or a classic MUGEN game's folder, data/system.def without external/: the engine's own scripts come from
+  // the app (/app0/mugen, port/mugen/ikemen/emusuni_retro.go); its path that file.
+  if (system.id == SystemId::MUGEN)
+  {
+    if (depth > 0)
+      return;
+    for (const Reader::Entry& entry : reader.List(folder.string()).entries)
+    {
+      if (reader.Stopped())
+        return;
+      if (!entry.folder || entry.name.empty() || entry.name[0] == '.' ||
+          strcasecmp(entry.name.c_str(), PORTABLE_FOLDER) == 0)
+        continue;
+      std::filesystem::path script = folder / entry.name / "external" / "script" / "main.lua";
+      if (!reader.Exists(script.string()))
+      {
+        script = folder / entry.name / "data" / "system.def";
+        if (!reader.Exists(script.string()))
+          continue;
+      }
+      Game game;
+      game.path = script.string();
+      game.id = entry.name;
+      game.system = system.id;
+      game.key = system.prefix + game.id;
+      game.size = reader.Size(game.path);
+      ParseName(game.id, &game.title, &game.region, &game.tags);
+      games->push_back(std::move(game));
+      reader.GameFound();
+    }
+    return;
+  }
+#endif
   const size_t first = games->size();
   // A CD's .cue or .gdi here: its tracks aren't cartridges (below), for a console of .bin files.
   const bool bin = !system.by_path && HasOwnExtension(system, ".bin");
@@ -1059,10 +1107,14 @@ void ScanFolder(Reader& reader, const std::filesystem::path& folder, int depth, 
     game.key = system.prefix + game.id;
     game.size = reader.Size(game.path);
     ParseName(game.id, &game.title, &game.region, &game.tags);
+    // ((01.91) The console's folder this scan started in: `depth` folders up.)
+    std::filesystem::path root = folder;
+    for (int up = 0; up < depth; up++)
+      root = root.parent_path();
     if (system.id == SystemId::ARCADE)
-      ArcadeGame(reader, &game, folder.string());
+      ArcadeGame(reader, &game, folder.string(), root.string());
     else if (IsFlycastBoard(system.id))
-      BoardGame(reader, &game, folder.string());
+      BoardGame(reader, &game, folder.string(), root.string());
     games->push_back(std::move(game));
     reader.GameFound();
   }
@@ -1472,6 +1524,146 @@ std::vector<std::string> LoneTracks(const std::string& path)
   return tracks;
 }
 
+std::vector<std::string> BrowseFolders(const std::vector<Game>& games,
+                                       const std::array<std::vector<std::string>, SYSTEM_COUNT>& folders)
+{
+  // (30 000 games at the start, before the menu's first frame: no std::filesystem::path per game, and each folder
+  // looked up as a part of one string per game - "<console>|hacks/spanish" - not made again for each of its levels.)
+  std::array<std::vector<std::string>, SYSTEM_COUNT> roots;
+  for (size_t id = 0; id < roots.size(); id++)
+  {
+    for (std::string folder : folders[id])
+    {
+      while (folder.size() > 1 && folder.back() == '/')
+        folder.pop_back();
+      roots[id].push_back(std::move(folder));
+    }
+  }
+  const auto stem_of = [](const std::string& path) {
+    const size_t name = path.rfind('/') + 1;  // (npos + 1: 0)
+    const size_t dot = path.rfind('.');
+    return path.substr(name, dot != std::string::npos && dot > name ? dot - name : std::string::npos);
+  };
+  std::vector<std::vector<std::string>> parts(games.size());
+  for (size_t i = 0; i < games.size(); i++)
+  {
+    const Game& game = games[i];
+    const size_t id = static_cast<size_t>(game.system);
+#ifdef EMUSUNI_MUGEN
+    if (game.system == SystemId::MUGEN)
+      continue;  // (each game a folder right in MUGEN's: ScanFolder)
+#endif
+    if (id >= roots.size())
+      continue;
+    // The console's folder it was found in: the longest its path starts with.
+    size_t root = 0;
+    for (const std::string& folder : roots[id])
+    {
+      if (folder.size() > root && game.path.size() > folder.size() + 1 &&
+          game.path.compare(0, folder.size(), folder) == 0 && game.path[folder.size()] == '/')
+        root = folder.size();
+    }
+    if (root == 0)
+      continue;
+    for (size_t from = root + 1, slash; (slash = game.path.find('/', from)) != std::string::npos; from = slash + 1)
+    {
+      if (slash > from && game.path.compare(from, slash - from, ".") != 0)
+        parts[i].push_back(game.path.substr(from, slash - from));
+    }
+    if (parts[i].empty())
+      continue;
+    // The folder its file is named after (ScanFolder's FolderName), and a disc's own.
+    const std::string stem = stem_of(game.path);
+    if (GetSystem(game.system).by_path && !IsRomsetSystem(game.system) &&
+        (BareDiscLabel(stem) > 0 || GenericNames().count(Lower(stem)) > 0))
+    {
+      const bool disc = BareDiscLabel(parts[i].back()) > 0;
+      parts[i].pop_back();
+      if (disc && !parts[i].empty())
+        parts[i].pop_back();
+    }
+    while (!parts[i].empty() && BareDiscLabel(parts[i].back()) > 0)
+      parts[i].pop_back();
+  }
+  // Each game's folders as one string in lower case after its console's number - "3|hacks/spanish" - and where each
+  // level of it ends ("3|hacks", "3|hacks/spanish"); the same folder in any letters' case is the same key.
+  std::vector<std::string> keys(games.size());
+  std::vector<std::vector<size_t>> ends(games.size());
+  for (size_t i = 0; i < games.size(); i++)
+  {
+    if (parts[i].empty())
+      continue;
+    keys[i] = std::to_string(static_cast<int>(games[i].system)) + "|";
+    for (const std::string& name : parts[i])
+    {
+      keys[i] += (keys[i].back() == '|' ? "" : "/") + Lower(name);
+      ends[i].push_back(keys[i].size());
+    }
+  }
+  // A folder holding one game alone (nothing else all the way down), named as it - its title, its file's name - or of
+  // several discs (an .m3u, discs side by side): the game's own. Once more for the folder above it then.
+  const auto plain = [](const std::string& name) {
+    std::string title, region, tags, out;
+    ParseName(name, &title, &region, &tags);
+    for (const unsigned char c : title)
+    {
+      if (std::isalnum(c) || c >= 0x80)
+        out += static_cast<char>(std::tolower(c));
+    }
+    return out;
+  };
+  for (int round = 0; round < 4; round++)
+  {
+    std::unordered_map<std::string_view, int> under;  // a folder's key -> its games, all the way down
+    under.reserve(games.size());
+    for (size_t i = 0; i < games.size(); i++)
+    {
+      for (const size_t end : ends[i])
+        under[std::string_view(keys[i]).substr(0, end)]++;
+    }
+    std::vector<size_t> own;  // (taken out of their folder after the count: its keys point into the strings)
+    for (size_t i = 0; i < games.size(); i++)
+    {
+      if (ends[i].empty() || under[std::string_view(keys[i]).substr(0, ends[i].back())] != 1)
+        continue;
+      const Game& game = games[i];
+      const std::string folder = plain(parts[i].back());
+      const bool named = !folder.empty() && (folder == plain(game.title) || folder == plain(game.id) ||
+                                             folder == plain(stem_of(game.path)));
+      if (named || game.discs.size() > 1 || HasExtension(game.path, {".m3u"}))
+        own.push_back(i);
+    }
+    if (own.empty())
+      break;
+    for (const size_t i : own)
+    {
+      parts[i].pop_back();
+      ends[i].pop_back();
+      keys[i].resize(ends[i].empty() ? 0 : ends[i].back());
+      if (ends[i].empty())
+        keys[i].clear();
+    }
+  }
+  // One spelling for each folder: the first game's, level by level ("Hacks" and a second drive's "hacks" one folder).
+  std::vector<std::string> result(games.size());
+  std::unordered_map<std::string_view, std::string> spelling;  // a folder's key -> its path
+  spelling.reserve(games.size());
+  for (size_t i = 0; i < games.size(); i++)
+  {
+    const std::string* path = nullptr;
+    for (size_t d = 0; d < ends[i].size(); d++)
+    {
+      const auto [found, added] = spelling.try_emplace(std::string_view(keys[i]).substr(0, ends[i][d]));
+      if (added)
+        found->second = path ? *path + "/" + parts[i][d] : parts[i][d];
+      path = &found->second;
+    }
+    if (path)
+      result[i] = *path;
+  }
+  return result;
+}
+
 namespace
 {
 // One folder of one console (Scan's work) with the read's Reader: by title, then by file name. (00.85: the titles in
@@ -1776,6 +1968,54 @@ bool IsRomsFolder(const std::string& folder, const std::string& key, const std::
     return false;
   const std::string top = path.substr(0, path.size() - tail.size());
   return top == Lower(TidyPath(data_dir)) || (DriveRootLength(top) > 0 && DriveRootLength(top) == top.size());
+}
+
+namespace
+{
+std::mutex s_chosen_mutex;
+std::array<std::string, SYSTEM_COUNT> s_chosen;  // ((01.91) SetChosenFolders')
+}  // namespace
+
+void SetChosenFolders(const std::array<std::string, SYSTEM_COUNT>& chosen)
+{
+  std::lock_guard lock(s_chosen_mutex);
+  s_chosen = chosen;
+}
+
+std::string ConsoleRoot(const std::string& folder, SystemId system, const std::string& data_dir)
+{
+  std::string chosen;
+  {
+    std::lock_guard lock(s_chosen_mutex);
+    chosen = Lower(TidyPath(s_chosen[static_cast<size_t>(system)]));
+  }
+  const std::string key = GetSystem(system).key;
+  for (std::string dir = TidyPath(folder); !dir.empty() && dir != "/";)
+  {
+    if (IsRomsFolder(dir, key, data_dir) || (!chosen.empty() && Lower(dir) == chosen))
+      return dir;
+    const size_t slash = dir.find_last_of('/');
+    if (slash == std::string::npos || slash == 0)
+      break;
+    dir.resize(slash);
+  }
+  return {};
+}
+
+std::vector<std::string> FoldersAbove(const std::string& folder, const std::string& root)
+{
+  std::vector<std::string> above;
+  std::string dir = TidyPath(folder);
+  const std::string top = TidyPath(root);
+  if (top.empty() || dir.size() <= top.size() || dir[top.size()] != '/' || Lower(dir.substr(0, top.size())) != Lower(top))
+    return above;
+  // (Each one as the game's path spells it: on a USB drive the letters' case may differ from the root's.)
+  while (dir.size() > top.size())
+  {
+    dir.resize(dir.find_last_of('/'));
+    above.push_back(dir);
+  }
+  return above;
 }
 
 Found ScanAll(const std::array<std::string, SYSTEM_COUNT>& chosen, const Places& places, ScanProgress* progress,

@@ -28,5 +28,5 @@ void main()
   const vec3 lobe_rgb = max(-hit_min, hit_max);
   const float limit = 0.25 - 1.0 / 16.0;
   const float lobe = max(-limit, min(max(lobe_rgb.r, max(lobe_rgb.g, lobe_rgb.b)), 0.0)) * pc.Origin.z;
-  FragColor = vec4((lobe * (b + l + h + r) + e) / (4.0 * lobe + 1.0), 1.0);
+  FragColor = vec4(Grade((lobe * (b + l + h + r) + e) / (4.0 * lobe + 1.0)), 1.0);
 }

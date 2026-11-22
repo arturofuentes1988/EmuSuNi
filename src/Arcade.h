@@ -44,15 +44,26 @@ std::string Title(const Driver& driver);
 std::string Region(const Driver& driver);
 // libretro's thumbnail name of a title: the characters &*/:`<>?\|" made '_' (the server's names).
 std::string CoverName(const std::string& title);
+// (01.91, a tester: Roms/arcade/Clones/hypsptsp.zip and Roms/arcade/88games.zip) The folders above a game's folder its
+// parent's and BIOS's sets are looked for in too, nearest first: each one up to `root` - the console's folder the game
+// is under -, that one included, none above it. No root: a folder named "hacks"'s parent alone (01.36), as
+// before. The same list for Missing and for the core (SetCoreFolders), so both find the same zips. (The root:
+// Library::ConsoleRoot.)
+std::vector<std::string> FoldersAbove(const std::string& folder, const std::string& root);
+// The core's FoldersAbove for the game it loads next (scripts/build-arcade-core.sh fbneo_emusuni_folders): it looks
+// in them after the game's own folder, before system/fbneo and system.
+void SetCoreFolders(const std::vector<std::string>& folders);
 // The zips the game may need that aren't there - its BIOS set's (neogeo.zip) and its parent's -, looked
-// for beside the game, in system/fbneo and in system (where the core looks); none when all are there.
+// for beside the game, (01.91) in the folders above it (`above`: FoldersAbove's), in system/fbneo and in
+// system (where the core looks); none when all are there.
 // "May": the core takes the ROMs it finds from any zip by their CRCs, so a non-merged set (a clone's zip
 // with its parent's files) works without them; they are what a split set lacks when the core refuses it.
-std::vector<std::string> Missing(const Driver& driver, const std::string& folder, const std::string& system_dir);
+std::vector<std::string> Missing(const Driver& driver, const std::string& folder, const std::vector<std::string>& above,
+                                 const std::string& system_dir);
 // The same, each zip looked for with `exists` (00.85: the Library's read answers from the folders it has read
 // already, instead of asking the drive again for every game).
-std::vector<std::string> Missing(const Driver& driver, const std::string& folder, const std::string& system_dir,
-                                 const std::function<bool(const std::string&)>& exists);
+std::vector<std::string> Missing(const Driver& driver, const std::string& folder, const std::vector<std::string>& above,
+                                 const std::string& system_dir, const std::function<bool(const std::string&)>& exists);
 // The message for a game the core refused, from its error screen's text (scripts/build-arcade-core.sh's
 // fbneo_emusuni_error) and the zips Missing() found not to be there: the reason in the app's words, the
 // romsets and the first few ROMs it names, and where the zips go. '\n' between the lines: each of English
@@ -63,7 +74,8 @@ std::string LoadError(const std::string& core_text, const std::vector<std::strin
 // (00.90) The same, told apart when the game's zip (game_path) or its parent's or BIOS set's has the ROMs the core
 // lacks under their names but with other contents: a romset of another version (MAME's, another FinalBurn Neo's).
 std::string LoadError(const std::string& core_text, const std::vector<std::string>& not_found,
-                      const std::string& system_dir, const std::string& game_path);
+                      const std::string& system_dir, const std::string& game_path,
+                      const std::vector<std::string>& above = {});
 // A picture turned (libretro's rotation: 0 as it is, 1 = 90 degrees anticlockwise, 2 = 180, 3 = 270):
 // RGB565 rows of `pitch` bytes into `out` (rows of the new width), whose size goes to *w and *h.
 void Rotate(const uint16_t* in, size_t pitch, unsigned width, unsigned height, unsigned rotation,

@@ -101,7 +101,10 @@ constexpr size_t MAX_REGION = 12, MAX_RELAY_NAME = 24;
 // ("USA, Rev 1"): at most MAX_GAME_VERSION bytes, GAME_VERSION_LETTERS letters.
 constexpr size_t COUNTRY_SIZE = 2, MAX_GAME_VERSION = 48, GAME_VERSION_LETTERS = 28;
 // (01.05) The games most played online (TopGamesList): how many, their titles' bytes at most, the days counted.
-constexpr int TOP_GAMES = 12, TOP_DAYS = 7;
+// (01.91, the owner) The Online tab's games most played and players' ranking: TOP_DAYS_MONTH days at first, TOP_DAYS
+// or since ever (0) with Triangle - a server before it answers TopGames' 0 with TOP_DAYS's and TopPlayers' 30 with
+// TOP_DAYS's (the answer says its days).
+constexpr int TOP_GAMES = 12, TOP_DAYS = 7, TOP_DAYS_MONTH = 30;
 constexpr size_t MAX_TOP_TITLE = 48;
 constexpr size_t COOKIE_SIZE = 16;
 constexpr size_t MAC_SIZE = 16;
@@ -137,6 +140,7 @@ enum class Type : uint8_t
   RoomNote = 13,
   // (01.05, the owner) The games most played online (cookie, nonce, U8 days) -> TopGamesList: the main server's
   // room_log of those days, by game - counts only (no nickname, no address, no code). A server before it drops it.
+  // ((01.91) Days 1 to TOP_DAYS_MONTH, or 0 since ever: room_log's whole 180 days.)
   TopGames = 14,
   // (01.07, the owner: "un chat mundial") The world chat (WORLD CHAT below): its lines since one, a line said, a line
   // reported. A server before it drops them.
@@ -198,6 +202,13 @@ enum class Type : uint8_t
   // its spectators (an app before it never lets one in).
   Watch = 50,
   WatchAck = 51,
+  // (01.91, the owner: "un ranking ELO de los 10 juegos más jugados en línea") The ELO ranking (ELO RANKING below):
+  // console -> main server, a ranked match's result as this console saw it, and the list of a game; main server ->
+  // console, a result counted and a list. A server before it drops them; an app before it sends none.
+  EloResult = 52,
+  EloTop = 53,
+  EloCounted = 54,
+  EloList = 55,
 };
 
 // Why the server refused a request.
@@ -294,6 +305,11 @@ enum class ControlKind : uint8_t
   // input before it is in - the state of that frame the same on every console - resets the core and goes on. Only when
   // every player's app has CAP_RESET. The spectators get the host's state again after it.
   ResetAt = 21,
+  // (01.91, the owner: "pueda unirse a una partida cuando haya una plaza abierta") The host to its spectators: U8 1 a
+  // player's place is free in the match under way (late joining on, no one joining now, a member's place and a
+  // controller port left), 0 not any more. The spectator may then join it as a player - a Join, as any player late. An
+  // app before it acknowledges it and does nothing (OnControl's default); a host before it never sends it.
+  Seat = 22,
 };
 constexpr uint8_t JOIN_NONE = 0xFF;
 
@@ -936,7 +952,12 @@ constexpr uint8_t ROOM_CHAT_STORED = 1;  // the server keeps the room's chat (Ro
 //   WorldChat(cookie, nonce, U32 since) -> WorldLines(U32 nonce, U32 the newest line's number, U8 WORLD_* flags, Str
 //              the asker's country as the lines show it ("" not known: no PHRASE_FROM), U8 count, each line
 //              WriteWorldLine - the oldest first, as many as fit: asked again from the last one). since 0: the last
-//              ones.
+//              ones ((01.24) the newest of the last 50 that fit: one answer).
+//   (01.24, the owner: "quiero que haya más historial") WorldChat(cookie, nonce, U32 since, U32 before): the lines
+//              just before `before` (the newest of them that fit, written the oldest first), WORLD_OLDER in the
+//              answer's flags; count 0: none older. A server before 01.24 reads no `before`: its answer the lines
+//              since `since`, without WORLD_OLDER (the app then asks for no older line). The main server's line numbers
+//              are its chat_log rows: the same after a restart (it reads its last WORLD_KEPT lines again).
 //   WorldSay(cookie, nonce, Str app version, Str nickname, U8 flags - FLAG_NO_COUNTRY, WORLD_NOTICE_SEEN -, the chat
 //              key (WORLD_KEY_SIZE: random, made once by the app - netplay.ini's chat_key -, never the PS4's or a
 //              user's, nor the statistics' id), U8 the phrase's number (ChatPhrase; 0: text) then Str its parameter
@@ -950,9 +971,10 @@ constexpr uint8_t ROOM_CHAT_STORED = 1;  // the server keeps the room's chat (Ro
 // WORLD_STORED - every line 30 days for moderation, with a keyed hash of the address (never the address). A line is
 // taken only from an app that showed the player that notice (WORLD_NOTICE_SEEN).
 constexpr size_t WORLD_KEY_SIZE = 16, PLAYER_CODE_SIZE = 8, MAX_PHRASE_PARAM = 8;
-constexpr int WORLD_KEPT = 50;
+constexpr int WORLD_KEPT = 200;           // ((01.24) 50 before)
 constexpr uint8_t WORLD_NOTICE_SEEN = 32;  // (WorldSay's flags: the notice under the chat was shown)
 constexpr uint8_t WORLD_STORED = 1;        // (WorldLines' flags: the server keeps the lines 30 days)
+constexpr uint8_t WORLD_OLDER = 2;         // ((01.24) WorldLines' flags: the answer to `before` - older lines)
 enum class WorldResult : uint8_t
 {
   Sent = 0,
@@ -1034,6 +1056,51 @@ inline std::string PlayerCode(const uint8_t mac[32])
   for (size_t i = 0; i < PLAYER_CODE_SIZE; i++)
     code += CODE_ALPHABET[mac[i] % (sizeof(CODE_ALPHABET) - 1)];
   return code;
+}
+
+// ---- (01.91, the owner) The ELO ranking: each of ELO_GAMES' 1-against-1 matches, its winner read from the game's
+// memory (src/Elo.h) by both players' consoles ----
+//   EloResult(the server's auth - code, member, token -, ELO_VERSION, Str the game's key, U32 the match's frame when
+//              this console saw its end, U8 the port that won (0: port 1, 1: port 2), U8 port 1's member, U8 port 2's
+//              member): sent once per match by a ranked player's console (PLAYER_RANKED), never a spectator's. The
+//              server counts a match once both those members said the same within ELO_PAIR_SECONDS (two consoles,
+//              both ranked, the same game and winner, frames within ELO_PAIR_FRAMES): the winner's rating up, the
+//              loser's down (ELO_K; ELO_START at the first), each one's wins and losses one more; then it answers both
+//              with EloCounted. Not counted: a lone report, two that differ (ELO_DIFFERENT, logged by both), a player
+//              not ranked (ELO_NOT_RANKED), the same two players' ELO_PAIR_DAY-th match of a game in a day (UTC) and
+//              after (ELO_TOO_MANY).
+//   EloCounted(Str the game's key, U8 EloOutcome, U16 port 1's rating then, I16 its change, U16 port 2's rating, I16
+//              its change).
+//   EloTop(cookie, nonce, Str the game's key, the chat key (WORLD_KEY_SIZE: our own place, by its code - nothing
+//              kept of the question)) -> EloList(U32 nonce, Str the game's key, U16 the players ranked (ELO_MIN_MATCHES
+//              matches or more), U8 count, each (the best first, ELO_TOP at most) Str nickname, Str country ("" not
+//              shown), U16 rating, U16 wins, U16 losses; then ours: U16 our position (0: not ranked yet), U16 rating,
+//              U16 wins, U16 losses).
+// The server keeps each player's rating by its code (the chat's: an HMAC of its chat key), never an address, and its
+// country only as the rooms show it.
+constexpr uint8_t ELO_VERSION = 1;
+constexpr const char* ELO_GAMES[] = {"snes-ki",   "arc-mk",      "snes-umk3", "arc-kof97", "arc-mk2",
+                                     "arc-kof2002", "snes-smk", "arc-sf2ce", "arc-kof98", "snes-mk2"};
+constexpr int ELO_GAME_COUNT = static_cast<int>(sizeof(ELO_GAMES) / sizeof(ELO_GAMES[0]));
+constexpr size_t MAX_ELO_GAME = 16;
+constexpr int ELO_START = 1000, ELO_K = 32, ELO_MIN_MATCHES = 5, ELO_TOP = 20, ELO_PAIR_DAY = 20;
+constexpr double ELO_PAIR_SECONDS = 120.0;
+constexpr uint32_t ELO_PAIR_FRAMES = 600;
+enum class EloOutcome : uint8_t
+{
+  Counted = 0,
+  Different = 1,  // the two consoles saw two results
+  NotRanked = 2,  // a player doesn't appear in the ranking
+  TooMany = 3,    // the same two players' matches of that game today: enough
+};
+inline bool IsEloGame(const std::string& key)
+{
+  for (const char* g : ELO_GAMES)
+  {
+    if (key == g)
+      return true;
+  }
+  return false;
 }
 
 // AllRooms' rooms: their flags, then the code when it is public. (01.05) Watchable, and its spectators' count in the

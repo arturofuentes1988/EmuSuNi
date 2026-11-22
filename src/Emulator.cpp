@@ -16,7 +16,9 @@
 #include <ctime>
 #include <deque>
 #include <filesystem>
+#include <fstream>
 #include <functional>
+#include <iterator>
 #include <map>
 #include <mutex>
 #include <set>
@@ -34,6 +36,7 @@
 #include "AchievementsSnes.h"
 #include "AchievementsUi.h"
 #include "Arcade.h"
+#include "ArcadeCheats.h"  // ((01.26) FinalBurn Neo's cheats: its options, the player's choices per game)
 #include "AssetPack.h"  // (00.90: the built-in bezels are in xmb/assets.zip in the package)
 #include "BezelProject.h"
 #include "Cheats.h"
@@ -52,6 +55,7 @@
 #include "Multiplayer.h"
 #include "Naomi.h"
 #include "Netplay.h"
+#include "NetplayLibrary.h"
 #include "NetplayUi.h"
 #include "MyStats.h"
 #include "UsageStats.h"
@@ -67,10 +71,17 @@
 #include "Systems.h"
 #ifdef EMUSUNI_3DS
 #include "ThreeDsCia.h"  // ((01.09) a game's Mods: On / Off)
+#include "ThreeDsTextures.h"  // ((01.42) a game's Texture Pack: On / Off)
 #endif
 #include "Touchpad.h"
 #include "Tour.h"
 #include "Upscaler.h"
+#ifdef EMUSUNI_VITA
+#include "Vita.h"  // (with-vita: the PS Vita's firmware)
+#endif
+#ifdef EMUSUNI_MUGEN
+#include "MugenGo.h"  // (with-mugen: Go's runtime before the first MUGEN game)
+#endif
 #include "VulkanFunctions.h"
 
 #ifdef EMUSUNI_N64
@@ -121,6 +132,66 @@ extern "C" int emusuni_3ds_wait_image(uint64_t serial, uint32_t timeout_ms);
 extern "C" double emusuni_3ds_image_worker_ms(uint64_t serial);
 // (01.10) port/ps4_n64.c: a 3DS game loads (its GPU commands' and DSP's threads are logged once a game).
 extern "C" void emusuni_3ds_game_starts(void);
+#endif
+#ifdef EMUSUNI_VITA
+// (01.72) port/ps4_vita_stats.cpp (the PS Vita core, set 0172): the pictures the game itself showed since the core was
+// loaded (its sceDisplaySetFrameBuf calls, not the screen's refreshes, which are 60 whatever the game does). ((01.77,
+// the owner: «a ratos se vuelve loco y varía de 30 a 0… como que superpone algunos números») The counter takes it
+// once a second, as the other consoles' pictures: 01.72 to 01.75 drew the core's 1-second rate anew every frame, its
+// digits changing every refresh.) Global in the core's object from scripts/build-vita-core.sh's APP_GLOBALS on; this
+// weak one stands in without it - "not known": the counter says the core's pictures, as for the other consoles.
+constexpr unsigned long long VITA_PICTURES_UNKNOWN = ~0ull;
+extern "C" __attribute__((weak)) unsigned long long emusuni_vita_pictures_total(void)
+{
+  return VITA_PICTURES_UNKNOWN;
+}
+#endif
+// (01.78) port/ps4_n64.c: the N64 game's own pictures since the app started (its VI origin's changes; never reset) -
+// ParaLLEl-RDP gives one image a VI, 60 a second whatever the game draws: Ocarina of Time shows 20. The counter takes it
+// once a second. A weak one stands in without it (a build without that file): "not known", the core's pictures.
+constexpr unsigned long long N64_PICTURES_UNKNOWN = ~0ull;
+extern "C" __attribute__((weak)) unsigned long long emusuni_n64_pictures_total(void)
+{
+  return N64_PICTURES_UNKNOWN;
+}
+#ifdef EMUSUNI_VITA
+// ((01.77, the owner: a game at 30 shown 1-2-1-3 refreshes a picture?) How long each of the game's pictures stays on
+// the screen: a core run shows the newest picture the game has made (its threads run apart from the runs), so a
+// picture first shows at the run its count grew and stays until the next one grows it - 1, 2, 3 or 4+ runs (one a
+// refresh) -, and a run in which it grew by 2 or more left pictures never shown. For the pacing line every 10 s.)
+struct VitaCadence
+{
+  unsigned long long seen = VITA_PICTURES_UNKNOWN;
+  int runs = 0;  // the runs the newest picture has been shown so far
+  std::array<int, 4> held{};
+  int skipped = 0;
+
+  void Run()
+  {
+    const unsigned long long total = emusuni_vita_pictures_total();
+    if (total == VITA_PICTURES_UNKNOWN)
+      return;
+    if (seen != VITA_PICTURES_UNKNOWN && total > seen)
+    {
+      if (runs > 0)
+        held[std::min(runs, 4) - 1]++;
+      skipped += static_cast<int>(std::min<unsigned long long>(total - seen - 1, 1000));
+      runs = 0;
+    }
+    seen = total;
+    runs++;
+  }
+  // The window's line, and a new window.
+  void Log()
+  {
+    if (seen == VITA_PICTURES_UNKNOWN)
+      return;
+    LogF("pacing: the PS Vita game's pictures shown 1, 2, 3, 4+ refreshes each: %d, %d, %d, %d; %d never shown",
+         held[0], held[1], held[2], held[3], skipped);
+    held = {};
+    skipped = 0;
+  }
+};
 #endif
 
 // Mesa's PS4 layer (ac_ps4_drm.c): the GPU's busy time and the span it covers (GPU clock ticks,
@@ -230,6 +301,28 @@ std::array<uint16_t, MAX_PLAYERS> s_buttons{};  // the console's buttons per inp
 retro_game_info_ext s_info_ext = {};
 std::string s_info_path, s_info_dir, s_info_name, s_info_extension;
 std::string s_message;  // the core's newest message (SET_MESSAGE), shown by the in-game menu
+// (01.66, the owner: "la pantalla de carga inicial ... hazla más bonita") The PS Vita's start, drawn by the app: while
+// Vita3K prepares a game it hands its pictures over by the CPU (a black one with a grey bar: not shown), the game's by
+// the GPU - the first of those ends it. Its steps come as messages ("Installing the title...", in English, when they
+// change): the screen's line, in the player's language, not a toast.
+bool s_vita_loading = false;
+std::string s_vita_step;
+#ifdef EMUSUNI_VITA
+// (01.67, the owner: "el touch aún no funciona bien (¿no puedes traducir el movimiento a la palanca?)") The PS Vita's
+// pointer: L3's short press turns it on or off (held, L3 is the PS TV's as before; with R3, the in-game menu). On, the
+// left stick moves a cursor over the Vita's screen and Cross touches there - held, a drag -: neither reaches the game.
+// The cursor is drawn where it is, and where a finger is on the touchpad too. (x, y: 0..1 over the Vita's screen.)
+struct VitaPointer
+{
+  bool on = false, down = false, shown = false, hinted = false;
+  bool touching = false;  // ((01.69) touching the screen this frame: the touchpad's or the pointer's)
+  int recent = 0;         // ((01.69) frames the cursor still shows after the touchpad or a touch)
+  float x = 0.5f, y = 0.5f;
+};
+VitaPointer s_vita_pointer;
+#endif
+// (01.66) The game's cover for its start (the menu's index has it: SetStartCover), taken once by that game's Run.
+std::string s_start_cover_game, s_start_cover_path;
 // (00.81) What SwanStation's log says as a PlayStation game loads (CoreLog): the disc image couldn't be opened (its
 // reason; the core then starts the BIOS without a disc: a black screen), a LibCrypt-protected disc without its .sbi
 // (started anyway: scripts/build-ps1-core.sh).
@@ -264,12 +357,27 @@ bool s_3ds_r3 = false;
 // How long R3 has been held, and was at the pass before (the DS's and the 3DS's swap when the in-game menu opens with
 // R3 held: the swap is a shorter press, made as R3 is let go; 00.68).
 float s_r3_held = 0.0f, s_r3_was = 0.0f;
+// (01.31, the owner: "en 3ds y ds se use el l3 para cambiar entre las disposiciones de pantallas") L3 on the DS and the
+// 3DS: a short press shows the next Screen Layout (TakeL3Press, NextScreenLayout); held from L3_HOLD on, it is what
+// Controls puts on L3 (the DS's microphone, the 3DS's SELECT) for as long as it is held. With R3 (the in-game menu's
+// L3 + R3) no layout changes.
+constexpr float L3_HOLD = 0.35f;
+struct L3Press
+{
+  bool down = false;     // held at the pass before
+  float held = 0.0f;     // for how long
+  bool through = false;  // held long enough: the game's now
+  bool menu = false;     // R3 too: the in-game menu's, not a layout
+};
+L3Press s_l3;
 int s_3ds_scale = 0, s_3ds_new = -1;
 // The left stick's furthest push since the last speed line (the log: the PSP's stick, 00.40).
 int s_stick_max = 0;
 // The DS's or the 3DS's touchpad in the last 10 s (the log): frames with a finger on it, frames with the stylus down,
 // taps (Touchpad.h).
 int s_touch_frames = 0, s_tap_frames = 0, s_touch_taps = 0;
+// (01.24) With 3DS Right Stick: D-Pad, the frames in the last 10 s its directions pressed the 3DS's D-pad (the log).
+int s_stick_dpad_frames = 0;
 // The PSP's resolution and multisampling: as the settings say, also while the game runs (since 00.62 the
 // core makes its swapchain and framebuffers again: scripts/build-psp-core.sh); with the file
 // data_dir/psp-resolution-at-start, as the game started (00.39-00.61: a change while it ran zoomed in).
@@ -339,6 +447,11 @@ bool s_hw_image_set = false;
 bool s_3ds_handover = false;
 uint64_t s_hw_image_serial = 0;
 bool s_frame_hw = false;  // the newest frame is the core's image
+// (01.72, the master: «investiga eso de los fps para todas las consolas») The pictures the core gave (VideoRefresh with
+// one: not a duplicated frame's NULL - the PSP's, MUGEN's while it loads -, nor a rollback's frames run again): the
+// counter's FPS, the game's own pictures a second (Flycast's 30 in Jet Set Radio, a slow game's), which the TV's 60
+// refreshes hid.
+uint64_t s_pictures = 0;
 // (00.85) The game's picture as the screen showed it when the in-game menu opened, for a core that draws its own image
 // (no pixels of it here: s_frame is NULL): its states' thumbnails (SaveState). Empty: none (a core with pixels).
 ImageRGBA s_menu_picture;
@@ -438,6 +551,8 @@ std::string s_n64_name, s_n64_code;
 // (00.81) Its header's two CRCs (0x10, 0x14): the core's game list (mupen64plus.ini) knows it by them too, and the
 // app's corrections to that list (GameDb::FindN64Correction).
 uint32_t s_n64_crc1 = 0, s_n64_crc2 = 0;
+// (01.58) N64 Widescreen on for this game (N64Widescreen): the picture shown 16:9 (DrawPicture's ratio).
+bool s_n64_widescreen = false;
 
 // An N64 ROM's header (0x40 bytes) in the cartridge's byte order, whatever the file's (.z64 as the cartridge, .v64
 // with its bytes swapped in pairs, .n64 in fours); zeros for a file too short.
@@ -516,6 +631,78 @@ const N64AccurateTitle* N64AccurateGame(const std::string& code)
   return nullptr;
 }
 
+// (01.58, the owner) N64 Widescreen, "16:9 (experimental)": the games whose 3D is made 16:9 by a few words of their own
+// code (the aspect they give their perspective, 4:3, made 16:9), written by the core at every VI where that code is
+// (scripts/build-n64-core.sh: the option mupen64plus-emusuni-ram-patches). Worked out here from each game's own code
+// (no one else's cheat codes), each checked on the PC with ParaLLEl-RDP (the edges of the screen, the HUD). The picture
+// is then shown 16:9 (DrawPicture's ratio); the 2D (the HUD, the menus) stays as drawn and looks wider. Off, the same
+// words are given the other way round: a state saved with it on is put back. A game by its header's CRCs (one version).
+struct N64WidescreenTitle
+{
+  uint32_t crc1, crc2;
+  const char* name;
+  const char* patches;  // "ADDRESS:EXPECTED:VALUE ..." (hex, 32-bit words of the N64's memory)
+};
+const N64WidescreenTitle* N64Widescreen(uint32_t crc1, uint32_t crc2)
+{
+  // The Legend of Zelda: Ocarina of Time (USA, Rev 2: "NTSC 1.2"): its guPerspective (0x800D0DB0, libultra's, which
+  // every 3D view calls - the playing field, the cutscenes, the pause menu's pages) passes on its aspect argument with
+  // mfc1 a3,f14 after a mfc1 a2,f12 that changes nothing (a2 still holds the field of view): those two words become
+  // lui a3,0x3FE3 / ori a3,a3,0x8E39, the aspect 16:9 (1.7778) whatever the caller gave (4:3: 320x240 views, 4/3
+  // constants). The actors' culling follows (it projects with the same matrix). PC, 01.58: the Hyrule Field intro, the
+  // Kokiri Forest flight, Link's house with the HUD and the pause menu - more of the world at the sides, an actor
+  // there drawn, the HUD and the pause menu's buttons wider (ovals).
+  // The owner's European cartridges: the aspect each caller gives multiplied by 4/3 (1.3359, a lui alone), so a split
+  // screen's views (Mario Kart 64's two players: 8:3 each) widen too. In the same libultra guPerspective the two moves
+  // to f12 and back (a2) and the move back of the aspect become lui at,0x3FAB / mtc1 at,f12 / mul.s f12,f14,f12, and
+  // guPerspectiveF (called from there only) keeps f12 instead of a3 where it reads the aspect back (sw a3 -> swc1 f12).
+  // Super Mario 64 also culls its objects by a fixed angle (obj_is_in_view: fov * 0.5 + 1 degree, no aspect): 0.5
+  // becomes 0.664, about 4/3 more width at its usual 45 degrees, else the far ones vanish in the new sides. PC, 01.58:
+  // SM64's title and its demo (with the HUD; objects at the sides drawn only with the culling word); Mario Kart 64's
+  // title, a one-player demo race and the two-player split screen (both views widened, karts in shape; no piece of the
+  // track seen missing); Majora's Mask's Clock Town intro (a character at the side drawn); Banjo-Kazooie's intro and
+  // the title's Spiral Mountain flight (Rare's own guPerspectiveF: the aspect at 68(sp), read once). Super Smash Bros.
+  // reaches its perspective another way (not done); GoldenEye 007 has its own 16:9 (Options: Ratio 16:9 and the app's
+  // Aspect Ratio 16:9).
+  static const N64WidescreenTitle GAMES[] = {
+      {0x693BA2AE, 0xB7F14E9F, "The Legend of Zelda: Ocarina of Time (USA, Rev 2)",
+       "000D0DD0:44066000:3C073FE3 000D0DD4:44077000:34E78E39"},
+      {0xA03CF036, 0xBCC1C5D2, "Super Mario 64 (Europe)",
+       "002F1D84:44866000:3C013FAB 002F1DA0:44066000:44816000 002F1DA4:44077000:460C7302 002F1B5C:AFA7003C:E7AC003C "
+       "0026D440:3C013F00:3C013F2A"},
+      {0xC3B6DE9D, 0x65D2DE76, "Mario Kart 64 (Europe)",
+       "000CF3C4:44866000:3C013FAB 000CF3E0:44066000:44816000 000CF3E4:44077000:460C7302 000CF19C:AFA7003C:E7AC003C"},
+      {0xE97955C6, 0xBC338D38, "The Legend of Zelda: Majora's Mask (Europe)",
+       "0008ACF4:44866000:3C013FAB 0008AD10:44066000:44816000 0008AD14:44077000:460C7302 0008AACC:AFA7003C:E7AC003C"},
+      {0x733FCCB1, 0x444892F9, "Banjo-Kazooie (Europe)",
+       "00246E08:44866000:3C013FAB 00246E24:44066000:44816000 00246E28:44077000:460C7302 00246B0C:AFA70044:E7AC0044"},
+  };
+  for (const N64WidescreenTitle& game : GAMES)
+  {
+    if (game.name && crc1 == game.crc1 && crc2 == game.crc2)
+      return &game;
+  }
+  return nullptr;
+}
+
+// The core's option for a listed game: its words to write (on), or to put back (off).
+std::string N64WidescreenPatches(const N64WidescreenTitle& game, bool on)
+{
+  if (on)
+    return game.patches;
+  std::string back;
+  unsigned address = 0, expected = 0, value = 0;
+  int used = 0;
+  for (const char* text = game.patches; std::sscanf(text, " %x:%x:%x%n", &address, &expected, &value, &used) == 3;
+       text += used)
+  {
+    char entry[40];
+    std::snprintf(entry, sizeof(entry), "%s%08X:%08X:%08X", back.empty() ? "" : " ", address, value, expected);
+    back += entry;
+  }
+  return back;
+}
+
 // The name in an N64 ROM's header (0x20, 20 characters).
 std::string N64Name(const std::vector<uint8_t>& rom)
 {
@@ -548,6 +735,30 @@ constexpr unsigned SENSOR_ACCELEROMETER_X = 0, SENSOR_ACCELEROMETER_Y = 1, SENSO
 constexpr float MAX_TILT = 7.0f;  // m/s^2 (about 45 degrees): mGBA's scale keeps it inside 32 bits
 constexpr float MAX_TURN = 3.8f;  // rad/s
 
+// (01.27) The 3DS's motion sensors with 3DS Motion Sensor: DualShock 4 (src/Settings.cpp 3ds_motion): the controller's
+// accelerometer and gyroscope are the 3DS's, held as a 3DS is held (the controller's face is the lower screen's).
+// Azahar's libretro core reads them through the sensor interface only with its citra_enable_motion on
+// (Build3dsVariables), in the 3DS's own axes: the acceleration in G, the turn in rad/s (citra_libretro/input/
+// input_factory.cpp LibRetroMotion). The 3DS's axes are the controller's with y the other way, as Azahar's own SDL
+// input turns a controller's (input_common/sdl/sdl_impl.cpp): x, -y, z for the acceleration, -x, y, -z for the turn.
+// The game loop writes them, the core's emulation thread reads them: each value on its own.
+struct Motion3ds
+{
+  bool on = false;    // for this game, as it started
+  bool said = false;  // its first reading logged
+  std::atomic<float> axes[6] = {0.0f, -1.0f, 0.0f, 0.0f, 0.0f, 0.0f};  // libretro's 6 ids; lying flat at first
+};
+Motion3ds s_motion3ds;
+#ifdef EMUSUNI_VITA
+// (01.88) The PS Vita's motion sensors with PS Vita Motion Sensor: DualShock 4 (src/Settings.cpp vita_motion; the
+// owner: "prefiero que vaya en ajustes de la consola"): the DualShock 4's accelerometer and gyroscope are the Vita's,
+// the controller's face as the Vita's screen (Rayman's tilt). Vita3K's libretro core (libretro_input.cpp) takes RetroArch's readings - m/s^2 and
+// rad/s, turned into G (over -g) and turns a second (over 2 pi) - and, unlike its SDL input, turns no axes: they are
+// given here in the axes it gives a controller (motion.cpp: SDL's x, -z, y). ScePadData's acceleration and angular
+// velocity are in SDL's axes (see Motion3ds). The 6 values: libretro's ids.
+Motion3ds s_motion_vita;
+#endif
+
 bool SensorState(unsigned port, enum retro_sensor_action action, unsigned)
 {
   const int what = static_cast<int>(action);
@@ -560,6 +771,14 @@ float SensorInput(unsigned port, unsigned id)
 {
   if (port != 0)
     return 0.0f;
+#ifdef EMUSUNI_VITA
+  // (01.88) The PS Vita's motion sensors (vita_motion): ((01.91) lying still while off - BuildVitaVariables' -, so
+  // the setting changes while the game plays.)
+  if (s_system == SystemId::VITA)
+    return id < 6 ? s_motion_vita.axes[id].load(std::memory_order_relaxed) : 0.0f;
+#endif
+  if (s_system == SystemId::THREEDS)  // (01.27) 3DS Motion Sensor
+    return s_motion3ds.on && id < 6 ? s_motion3ds.axes[id].load(std::memory_order_relaxed) : 0.0f;
   const Tilt& t = s_tilt;
   const float g = 9.81f;
   switch (id)
@@ -621,6 +840,25 @@ bool StickMovesStylus(const OrbisPadData& data, float screen_w, float screen_h)
   s_stylus.x = std::clamp(s_stylus.x + sx * speed, 0.0f, screen_w - 1.0f);
   s_stylus.y = std::clamp(s_stylus.y + sy * speed, 0.0f, screen_h - 1.0f);
   return true;
+}
+
+// (01.24) 3DS Right Stick: D-Pad - a stick's directions as the D-pad's buttons (libretro's bits, as s_buttons has
+// them): each axis past the same dead zone as the D-pad's Left Stick (Controls::PadButtons: 50 of 128), both of them
+// a diagonal. Pushed all the way, the eight directions get about the same share of the stick's circle.
+uint16_t StickDpad(uint8_t stick_x, uint8_t stick_y)
+{
+  constexpr int DEAD = 50;
+  const int x = static_cast<int>(stick_x) - 128, y = static_cast<int>(stick_y) - 128;
+  uint16_t out = 0;
+  if (y < -DEAD)
+    out |= 1u << RETRO_DEVICE_ID_JOYPAD_UP;
+  if (y > DEAD)
+    out |= 1u << RETRO_DEVICE_ID_JOYPAD_DOWN;
+  if (x < -DEAD)
+    out |= 1u << RETRO_DEVICE_ID_JOYPAD_LEFT;
+  if (x > DEAD)
+    out |= 1u << RETRO_DEVICE_ID_JOYPAD_RIGHT;
+  return out;
 }
 
 // The log's note of a touch left alone as resting in these 10 s (Touchpad::Pick), its count started again; "" none.
@@ -769,7 +1007,9 @@ void CoreLog(enum retro_log_level level, const char* format, ...)
 {
   if (level < RETRO_LOG_INFO)
     return;
-  char line[512];
+  // (01.69) 2048, not 512: the 3DS core's 600-frame lines are longer than that and their last counts ("held pages")
+  // never reached the log (01.68's console test). Log.cpp's LogF takes the whole line.
+  char line[2048];
   va_list args;
   va_start(args, format);
   vsnprintf(line, sizeof(line), format, args);
@@ -932,14 +1172,22 @@ void BuildN64Variables(const std::string& g)
   s_variables[prefix + "parallel-rdp-super-sampled-read-back"] =
       Settings::Get("n64_fb_effects", g) == "smooth" ? "True" : "False";
   s_variables[prefix + "aspect"] = "4:3";
+  // (01.58) N64 Widescreen: a listed game's words written (on) or put back (off); none for the others.
+  const N64WidescreenTitle* wide = N64Widescreen(s_n64_crc1, s_n64_crc2);
+  s_n64_widescreen = wide && Settings::Get("n64_widescreen", g) == "on";
+  s_variables[prefix + "emusuni-ram-patches"] = wide ? N64WidescreenPatches(*wide, s_n64_widescreen) : std::string();
+  if (wide)
+    LogF("n64: N64 Widescreen %s for %s", s_n64_widescreen ? "on (16:9, experimental)" : "off (4:3)", wide->name);
   s_variables[prefix + "Framerate"] = "Original";
   // N64 CPU Timing (N64CountPerOp).
   std::string count_source;
   s_variables[prefix + "CountPerOp"] = N64CountPerOp(g, &count_source);
   s_variables[prefix + "virefresh"] = "Auto";
   s_variables[prefix + "pak1"] = Settings::Get("n64_pak", g);
+  // (01.58) Players 2-4: Controller Pak (Players 2-4), a Memory Pak unless chosen (a Rumble Pak: their pads shake too).
+  const std::string pak_others = Settings::Get("n64_pak_others", g);
   for (const char* pak : {"pak2", "pak3", "pak4"})
-    s_variables[prefix + pak] = "memory";
+    s_variables[prefix + pak] = pak_others;
   s_variables[prefix + "astick-deadzone"] = "15";
   s_variables[prefix + "astick-sensitivity"] = "100";
   // Independent C-button Controls: every N64 button on a RetroPad button of its own, as
@@ -1148,6 +1396,45 @@ void LogScreens(const std::string& game, const char* when)
        when, options.layout.c_str(), options.swapped ? "the touch screen" : "the top screen",
        s_r3_swap.load() ? " (R3)" : "", options.small_size, options.small_position.c_str(), options.gap.c_str(),
        layout.width, layout.height);
+}
+
+// (01.31) Player 1's pad on a DS or a 3DS (L3Press): L3 kept from the game until it has been held for L3_HOLD; true as a
+// shorter press, without R3, is let go.
+bool TakeL3Press(OrbisPadData* data, bool live, float dt)
+{
+  const bool l3 = live && (data->buttons & ORBIS_PAD_BUTTON_L3) != 0;
+  bool short_press = false;
+  if (l3)
+  {
+    if (!s_l3.down)
+      s_l3 = {};
+    s_l3.held += dt;
+    s_l3.menu = s_l3.menu || (data->buttons & ORBIS_PAD_BUTTON_R3) != 0;
+    s_l3.through = s_l3.through || s_l3.held >= L3_HOLD;
+    if (!s_l3.through)
+      data->buttons &= ~static_cast<uint32_t>(ORBIS_PAD_BUTTON_L3);
+  }
+  else if (s_l3.down)
+    short_press = !s_l3.through && !s_l3.menu;
+  s_l3.down = l3;
+  return short_press;
+}
+
+// (01.31) L3's short press: the screens' next Screen Layout - the in-game menu's list, in its order, round - kept as
+// the menu keeps it (where the game's settings come from: This Console unless chosen otherwise); R3's swap stays. Its
+// name on the screen.
+void NextScreenLayout(const std::string& game, IngameMenu& menu)
+{
+  const std::string key = s_system == SystemId::THREEDS ? "3ds_layout" : "nds_layout";
+  const Settings::Setting* setting = Settings::Find(key);
+  if (!setting)
+    return;
+  Settings::UseConsoleByDefault(game);
+  const std::string next = Settings::Step(*setting, Settings::Get(key, game), 1);
+  Settings::Set(key, next, game);
+  s_screens_seen = ScreensSeen(game);
+  LogScreens(game, "L3: the next layout");
+  menu.Toast("Screen Layout: " + Settings::LabelOf(*setting, next));
 }
 
 // (00.95) The DNS the DS's firmware gets for the games' Nintendo Wi-Fi Connection (DS Wi-Fi, nds_wifi): a server that
@@ -1756,12 +2043,19 @@ void ApplyDeadZone(std::array<int16_t, 2>* stick, float zone)
   (*stick)[1] = static_cast<int16_t>(std::clamp(y * scale * 32767.0f, -32767.0f, 32767.0f));
 }
 
+bool ThreedsRememberNewOnly();  // (01.36, below)
+
 // Why a 3DS game didn't start, in the app's words where Azahar's are English sentences (and one a number).
 std::string ThreedsFailure(const std::string& message)
 {
   const auto has = [&message](const char* part) { return message.find(part) != std::string::npos; };
   if (has("Unknown error: 13"))  // ResultStatus::ErrorN3DSApplication (core.h): a New 3DS-only game on the original 3DS
-    return "This game is made for the New 3DS only\n(Settings, Emulation: New 3DS Mode, On)";
+  {
+    // ((01.36) New 3DS Mode out of the menu - its SMDH said nothing: the game remembered, a New 3DS from its next start.)
+    if (ThreedsRememberNewOnly())
+      return "This game is made for the New 3DS only\nStart it again: it starts as a New 3DS";
+    return "This game is made for the New 3DS only";
+  }
   if (has("decrypted"))
     return "This game is encrypted\nOnly decrypted dumps run (.3ds, .cci, .cxi)";
   if (has("format is not supported") || has("Failed to obtain loader"))
@@ -1777,8 +2071,15 @@ std::string ThreedsFailure(const std::string& message)
 // Accurate Shader Multiplication and 3DS Right Eye, Auto by the lists below -, kept for the game as its size is.
 uint64_t s_3ds_title = 0;
 bool s_3ds_accurate_mul = false, s_3ds_right_eye = false;
+// (01.36) Its SMDH says New 3DS only (ThreedsNew3dsOnly), and why New 3DS Mode is what it is (the log's title ID line).
+bool s_3ds_new_only = false;
+const char* s_3ds_new_why = "";
 // (00.85) Azahar's GPU timing emulation for the game (ThreedsGpuTimingsGame), kept for it as the two above.
 bool s_3ds_gpu_timings = false;
+// (01.42) Its texture pack (src/ThreeDsTextures.h) for this start: Texture Pack On, a picture in its folder and the GPU
+// memory for it (EnoughMemory); and the GPU memory free when the pack was left out for want of it (-1: it wasn't).
+bool s_3ds_textures = false;
+int s_3ds_textures_short = -1;
 
 uint64_t ThreedsTitleId(const std::string& path)
 {
@@ -1827,6 +2128,183 @@ bool ThreedsAccurateMulGame(uint64_t title)
   return std::find(std::begin(GAMES), std::end(GAMES), title) != std::end(GAMES);
 }
 
+// (01.36, the owner: the three options out of the menu) The games that break without the right eye drawn - 00.81 to
+// 01.17's list, from the git history: with Azahar's Disable Right Eye Render Majora's Mask 3D's blur effects freeze the
+// screen (azahar #791), Kingdom Hearts 3D's and Pokémon Super Mystery Dungeon's bottom screen stays black (#1005), Fire
+// Emblem Warriors' too, Minecraft: New Nintendo 3DS Edition (upstream's hack list), Metroid: Samus Returns (00.89: the
+// elevators' background dark). Every other game leaves it out (faster): the black starts of 01.17 were fixed by
+// 3ds-black-uniforms in 01.22 (the 3DS specialist's 3ds-0135 test: DKC, Castlevania, Kirby, Super Mario 3D Land and
+// Luigi's Mansion 2 open without it). (The core's own list - Luigi's Mansion 1 and 2, Rayman Origins - draws it anyway.)
+// (01.37) Castlevania: Mirror of Fate too: without it Azahar's guess takes one in three of its left-eye pictures for
+// the right eye and leaves it out, so the screen shows one from 2 frames before (the mountains come and go; the 3DS
+// specialist's 3ds-0136 test, point 2). Its real right eye is drawn elsewhere, so leaving it out saved nothing there.
+bool ThreedsLeftEyeSkipsGame(uint64_t title)
+{
+  static const uint64_t GAMES[] = {
+      0x0004000000096600, 0x000400000009E500, 0x00040000000BAC00,  // Castlevania: Mirror of Fate: USA, EUR, JPN
+  };
+  return std::find(std::begin(GAMES), std::end(GAMES), title) != std::end(GAMES);
+}
+
+bool ThreedsRightEyeGame(uint64_t title)
+{
+  if (ThreedsLeftEyeSkipsGame(title))
+    return true;
+  static const uint64_t GAMES[] = {
+      0x0004000000125500, 0x0004000000125600, 0x00040000000D6E00,  // Majora's Mask 3D: USA, EUR, JPN
+      0x00040000001BB200, 0x00040000001BFB00, 0x00040000001BFC00,  // Metroid: Samus Returns: USA, EUR, JPN
+      0x000400000008D300, 0x0004000000095500, 0x000400000004EE00,  // Kingdom Hearts 3D: USA, EUR, JPN
+      0x0004000000174600, 0x0004000000174400,                      // Pokémon Super Mystery Dungeon: USA, EUR
+      0x000400000F70CC00, 0x000400000F70CD00,                      // Fire Emblem Warriors: USA, EUR
+      0x00040000001B8700, 0x000400000017CA00, 0x000400000017FD00,  // Minecraft: New 3DS Edition: USA, EUR, JPN
+  };
+  return std::find(std::begin(GAMES), std::end(GAMES), title) != std::end(GAMES);
+}
+
+// (01.36) A game made only for the New 3DS, as Azahar tells it (AppLoader_NCCH::IsN3DSExclusive, which refuses such a
+// game on the original 3DS: "Unknown error: 13"): its SMDH - the ExeFS's "icon" - with flag bit 12 (0x1000, the flags
+// at 0x2028). From a .3ds/.cci's first partition or a .cxi's own NCCH, unencrypted (the core runs no encrypted one);
+// false when it can't be read (a .3dsx: Azahar's own answer is false there too).
+bool ThreedsNew3dsOnly(const std::string& path)
+{
+  std::FILE* file = std::fopen(path.c_str(), "rb");
+  if (!file)
+    return false;
+  auto read_at = [file](uint64_t offset, void* out, size_t size) {
+    return std::fseek(file, static_cast<long>(offset), SEEK_SET) == 0 && std::fread(out, 1, size, file) == size;
+  };
+  auto u32_at = [](const uint8_t* p) {
+    return static_cast<uint32_t>(p[0]) | static_cast<uint32_t>(p[1]) << 8 | static_cast<uint32_t>(p[2]) << 16 |
+           static_cast<uint32_t>(p[3]) << 24;
+  };
+  bool only = false;
+  uint8_t header[0x200] = {};
+  uint64_t ncch = 0;
+  bool there = read_at(0, header, sizeof(header));
+  if (there && std::memcmp(header + 0x100, "NCSD", 4) == 0)
+  {
+    ncch = static_cast<uint64_t>(u32_at(header + 0x120)) * 0x200;
+    there = read_at(ncch, header, sizeof(header));
+  }
+  // "NCCH", its flags' NoCrypto bit (0x04 at 0x18F), the ExeFS's offset and size (media units of 0x200) at 0x1A0.
+  if (there && std::memcmp(header + 0x100, "NCCH", 4) == 0 && (header[0x18F] & 0x04) != 0 &&
+      u32_at(header + 0x1A4) != 0)
+  {
+    const uint64_t exefs = ncch + static_cast<uint64_t>(u32_at(header + 0x1A0)) * 0x200;
+    uint8_t files[0x200] = {};
+    if (read_at(exefs, files, sizeof(files)))
+    {
+      // Ten files of 16 bytes: the name (8), its offset after this header, its size.
+      for (int i = 0; i < 10; i++)
+      {
+        const uint8_t* entry = files + i * 16;
+        if (std::memcmp(entry, "icon\0\0\0\0", 8) != 0 || u32_at(entry + 12) < 0x36C0)
+          continue;
+        const uint64_t smdh = exefs + 0x200 + u32_at(entry + 8);
+        uint8_t magic[4] = {}, flags[4] = {};
+        if (read_at(smdh, magic, 4) && std::memcmp(magic, "SMDH", 4) == 0 && read_at(smdh + 0x2028, flags, 4))
+          only = (u32_at(flags) & 0x1000) != 0;
+      }
+    }
+  }
+  std::fclose(file);
+  return only;
+}
+
+// (01.36) The games Azahar refused as New 3DS-only although their SMDH didn't say it (ThreedsNew3dsOnly couldn't read
+// it): their title IDs, one per line, in <data>/3ds-new-only.txt - New 3DS from their next start (ThreedsFailure).
+std::string ThreedsNewOnlyFile()
+{
+  return Portable::UserDir() + "/3ds-new-only.txt";
+}
+bool ThreedsRememberedNewOnly(uint64_t title)
+{
+  if (title == 0)
+    return false;
+  char id[20];
+  std::snprintf(id, sizeof(id), "%016llx", static_cast<unsigned long long>(title));
+  std::ifstream file(ThreedsNewOnlyFile());
+  for (std::string line; std::getline(file, line);)
+  {
+    if (line.rfind(id, 0) == 0)
+      return true;
+  }
+  return false;
+}
+bool ThreedsRememberNewOnly()
+{
+  if (s_3ds_title == 0 || s_3ds_new == 1)
+    return false;  // (a .3dsx, or a New 3DS already: nothing to do the next time)
+  if (ThreedsRememberedNewOnly(s_3ds_title))
+    return true;
+  char line[20];
+  std::snprintf(line, sizeof(line), "%016llx\n", static_cast<unsigned long long>(s_3ds_title));
+  std::ifstream before(ThreedsNewOnlyFile());
+  const std::string text((std::istreambuf_iterator<char>(before)), std::istreambuf_iterator<char>());
+  const bool ok = WriteTextFile(ThreedsNewOnlyFile(), text + line);
+  LogF("3ds: title ID %016llx refused on the original 3DS (error 13): a New 3DS from its next start%s",
+       static_cast<unsigned long long>(s_3ds_title), ok ? "" : " (couldn't be written)");
+  return ok;
+}
+
+// (01.36) A test file of /data/EmuSuNi for a 3DS option out of the menu: -1 none, 1 there (on in every game), 0 with
+// the word off in it (off in every game) - as the core's own 3ds-right-eye.
+int ThreedsTestFile(const char* name)
+{
+  std::ifstream file(std::string("/data/EmuSuNi/") + name);
+  if (!file)
+    return -1;
+  std::string word;
+  file >> word;
+  return word == "off" ? 0 : 1;
+}
+
+// (01.29) The games whose Miis are the game - Miitopia (and its Casting Call) and Tomodachi Life -, every region's
+// title ID in Azahar's own compatibility list (azahar-emu/compatibility-list, compatibility_list.json, read
+// 2026-11-13): without a real 3DS's Mii data their Miis have no faces (#69; ThreedsMiiDataThere).
+bool ThreedsMiiGame(uint64_t title)
+{
+  static const uint64_t GAMES[] = {
+      0x00040000001B4E00, 0x00040000001B4F00, 0x0004000000178800,  // Miitopia
+      0x00040000001B8C00,                                          // Miitopia: Casting Call
+      0x000400000008C300, 0x000400000008C400, 0x000400000008C500, 0x0004000000120C00,  // Tomodachi Life
+  };
+  return std::find(std::begin(GAMES), std::end(GAMES), title) != std::end(GAMES);
+}
+
+// (01.29) Is a real 3DS's Mii data (the system archive 0004009B00010202) in its folder as the core reads it: a
+// decrypted NCCH of that title (the core: "Encrypted NCCH are not supported") named 00000000.app, or any .app of it
+// with a .tmd beside it (the core then takes the content's name from the .tmd). Without it the core loads its
+// open-source stand-in, whose eyes, eyebrows and mouths are empty: Miis without faces.
+bool ThreedsMiiDataThere(const std::string& folder)
+{
+  auto mii_ncch = [](const std::filesystem::path& path) {
+    std::FILE* file = std::fopen(path.c_str(), "rb");
+    if (!file)
+      return false;
+    uint8_t header[0x200] = {};
+    const bool read = std::fread(header, 1, sizeof(header), file) == sizeof(header);
+    std::fclose(file);
+    uint64_t program = 0;
+    for (int i = 7; i >= 0; i--)
+      program = program << 8 | header[0x118 + i];
+    // "NCCH" at 0x100, the program ID at 0x118, the flags' NoCrypto bit (0x04) at 0x18F.
+    return read && std::memcmp(header + 0x100, "NCCH", 4) == 0 && program == 0x0004009B00010202 &&
+           (header[0x18F] & 0x04) != 0;
+  };
+  if (mii_ncch(folder + "/00000000.app"))
+    return true;
+  bool tmd = false, app = false;
+  std::error_code ec;
+  for (std::filesystem::directory_iterator it(folder, ec), end; !ec && it != end; it.increment(ec))
+  {
+    const std::string ext = it->path().extension().string();
+    tmd = tmd || ext == ".tmd";
+    app = app || (ext == ".app" && mii_ncch(it->path()));
+  }
+  return tmd && app;
+}
+
 // The games that need Azahar's GPU timing emulation (00.85): Luigi's Mansion 2, whose render thread expects the 3DS's
 // GPU to take its time (azahar #2095: with it, the game "no longer needs the delay render thread option to be
 // playable"; without, it stutters and crashes as it goes into the mansion - azahar #1878, on the libretro core; a
@@ -1845,7 +2323,7 @@ bool ThreedsGpuTimingsGame(uint64_t title)
 // PICA shaders'), the vertex shaders on the GPU (Vulkan, on the app's device), accurate multiplication and the right
 // eye per game (00.81), 3DS Resolution (1x to 4x: the Quality levels' since 00.71; 1x only from 00.64 to 00.70), no
 // texture filters, HLE sound, the screens side by side (the app places them since 00.80: DualScreens), the touchpad as
-// the touch screen (the right stick is the C-stick), no motion, no 3D. Every
+// the touch screen (the right stick is the C-stick), motion only with 3DS Motion Sensor (01.27), no 3D. Every
 // option the core declares is answered (core_settings.cpp declares 34, EmuSuNi's right eye with them since 00.81 and
 // its GPU timings since 00.85: its build script): one it isn't given gets the default
 // of its code, not the one it declares. (Checked against the core's source by the PC tests.)
@@ -1859,16 +2337,33 @@ void Build3dsVariables(const std::string& g)
   if (s_3ds_scale == 0)
   {
     s_3ds_scale = std::clamp(Settings::GetInt("3ds_resolution", g), 1, 4);
-    s_3ds_new = Settings::Get("3ds_new", g) == "on" ? 1 : 0;
-    // (00.81: the core applies both when the game takes the GPU, at its start: kept for the game as well.)
-    const std::string mul = Settings::Get("3ds_accurate_mul", g), eye = Settings::Get("3ds_right_eye", g);
-    s_3ds_accurate_mul = mul == "on" || (mul != "off" && ThreedsAccurateMulGame(s_3ds_title));
-    // (01.18) Auto draws the right eye in every game. From 00.81 to 01.17 it was left out but in the games known to
-    // break without it (Majora's Mask 3D, Metroid: Samus Returns, Kingdom Hearts 3D, Pokémon Super Mystery Dungeon,
-    // Fire Emblem Warriors, Minecraft: New 3DS Edition), and Azahar's disabler opened Castlevania and DKC black on
-    // the PS4 (scripts/build-3ds-core.sh). Not Drawn still leaves it out: faster in the games that draw both eyes.
-    s_3ds_right_eye = eye != "skip";
+    // ((01.36, the owner: New 3DS Mode, Accurate Shader Multiplication and 3DS Right Eye out of the menu - hidden,
+    // Settings.cpp) Each one by the game alone; the values chosen before, every game's or one's, aren't read (an old
+    // choice can't leave a game broken). A test file of /data/EmuSuNi still sets one for every game (ThreedsTestFile):
+    // 3ds-new, 3ds-accurate-mul; the right eye's is the core's own, 3ds-right-eye.)
+    // New 3DS: the games made only for it (their SMDH, or refused once with error 13), the original 3DS for the rest -
+    // the lightest, and nearly every game runs on it.
+    const int new_file = ThreedsTestFile("3ds-new");
+    const bool remembered = !s_3ds_new_only && ThreedsRememberedNewOnly(s_3ds_title);
+    s_3ds_new = new_file >= 0 ? new_file : s_3ds_new_only || remembered ? 1 : 0;
+    s_3ds_new_why = new_file >= 0       ? "/data/EmuSuNi/3ds-new" :
+                    s_3ds_new_only      ? "its SMDH: New 3DS only" :
+                    remembered          ? "refused on the original 3DS before (3ds-new-only.txt)" :
+                                          "not a New 3DS-only game";
+    // (00.81: the core applies both when the game takes the GPU, at its start: kept for the game as well.) Accurate
+    // multiplication: in the games known to need it (ThreedsAccurateMulGame; off in all of them, Froakie white again).
+    const int mul_file = ThreedsTestFile("3ds-accurate-mul");
+    s_3ds_accurate_mul = mul_file >= 0 ? mul_file == 1 : ThreedsAccurateMulGame(s_3ds_title);
+    // The right eye: left out (faster) but in the games that break without it (ThreedsRightEyeGame, 00.81 to 01.17's
+    // list; from 01.18 to 01.35 drawn in every game).
+    s_3ds_right_eye = ThreedsRightEyeGame(s_3ds_title);
     s_3ds_gpu_timings = ThreedsGpuTimingsGame(s_3ds_title);
+    // (01.27) 3DS Motion Sensor (Motion3ds): the core reads it as its input devices are made, at the game's start.
+    s_motion3ds.on = Settings::Get("3ds_motion", g) == "ds4";
+    s_motion3ds.said = false;
+    const float flat[6] = {0.0f, -1.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+    for (int i = 0; i < 6; i++)
+      s_motion3ds.axes[i].store(flat[i], std::memory_order_relaxed);
   }
   set("is_new_3ds", s_3ds_new == 1 ? "New 3DS" : "Old 3DS");
   set("use_cpu_jit", "enabled");
@@ -1897,9 +2392,9 @@ void Build3dsVariables(const std::string& g)
   // Accurate multiplication in the GPU's shaders: Off in most games (the same pictures, a little less GPU work), On in
   // those that draw wrong without it (00.81: 3DS Accurate Shader Multiplication; Off for every game until 00.80).
   set("shaders_accurate_mul", s_3ds_accurate_mul ? "enabled" : "disabled");
-  // The right eye's picture: drawn unless 3DS Right Eye says Not Drawn for the game (01.18; 00.81 to 01.17: left out
-  // but in the games that need it). The core's file /data/EmuSuNi/3ds-right-eye draws it in every game, or with the
-  // word off leaves it out in every game.
+  // The right eye's picture: (01.36) left out but in the games that need it (ThreedsRightEyeGame; 01.18 to 01.35 drawn
+  // unless 3DS Right Eye said Not Drawn). The core's file /data/EmuSuNi/3ds-right-eye draws it in every game, or with
+  // the word off leaves it out in every game.
   set("emusuni_right_eye", s_3ds_right_eye ? "enabled" : "disabled");
   // Azahar's GPU timing emulation: for the games that need it (00.85: ThreedsGpuTimingsGame, Luigi's Mansion 2).
   set("emusuni_gpu_timings", s_3ds_gpu_timings ? "enabled" : "disabled");
@@ -1907,6 +2402,12 @@ void Build3dsVariables(const std::string& g)
   // (01.09) The game's LayeredFS mods (saves/3ds/Azahar/load/mods/<title ID>): its Updates, DLC and Mods -> Mods (on
   // unless turned off for it; a core before 01.09 loads them whenever their folder is there).
   set("emusuni_mods", s_3ds_title == 0 || ThreeDsCia::ModsOn(s_3ds_title) ? "enabled" : "disabled");
+  // (01.46, the owner) Each of them one by one: its update and its DLC on or off, and the mods in folders of their own
+  // that are on (load/mods/<title ID>/<a mod>/, split by '|'; the main one is emusuni_mods). A core that doesn't ask
+  // for them (ThreeDsCia::ExtrasCaps 0) loads its update and DLC, and only the main mod.
+  set("emusuni_update", s_3ds_title == 0 || ThreeDsCia::UpdateOn(s_3ds_title) ? "enabled" : "disabled");
+  set("emusuni_dlc", s_3ds_title == 0 || ThreeDsCia::DlcOn(s_3ds_title) ? "enabled" : "disabled");
+  set("emusuni_mod_folders", s_3ds_title == 0 ? std::string() : ThreeDsCia::ModFolders(s_save_dir, s_3ds_title));
 #endif
   set("use_disk_shader_cache", "enabled");  // (saves/3ds/Azahar/shaders)
   set("resolution_factor", std::to_string(s_3ds_scale));
@@ -1914,7 +2415,10 @@ void Build3dsVariables(const std::string& g)
   // Mansion 2 and textures missing in Castlevania); an old settings.ini's 3ds_texture_filter does nothing.
   set("texture_filter", "none");
   set("texture_sampling", "GameControlled");
-  set("custom_textures", "disabled");
+  // (01.42) The game's texture pack (saves/3ds/Azahar/load/textures/<title ID>): its Updates, DLC and Mods -> Texture
+  // Pack, decided at its start (EnoughMemory). The core's own file /data/EmuSuNi/3ds-custom-textures still turns it on
+  // for every game, as a test.
+  set("custom_textures", s_3ds_textures ? "enabled" : "disabled");
   set("dump_textures", "disabled");
   // The screens: side by side, always, never swapped by the core (720x240 times the resolution, the touch screen on
   // the right: ThreedsLayout): the app places them as the screens' settings say, and R3 swaps them there
@@ -1937,7 +2441,7 @@ void Build3dsVariables(const std::string& g)
   set("enable_mouse_touchscreen", "disabled");
   set("enable_touch_touchscreen", "enabled");
   set("enable_touch_pointer_timeout", "enabled");
-  set("enable_motion", "disabled");
+  set("enable_motion", s_motion3ds.on ? "enabled" : "disabled");  // (01.27: the sensor interface, Motion3ds)
   set("motion_sensitivity", "1.0");
 }
 
@@ -1979,6 +2483,74 @@ void BuildOpenborVariables(const std::string&)
   s_variables["openbor_analog"] = "disabled";
   s_variables["openbor_rumble"] = "enabled";
   s_variables["openbor_gamma"] = "0";
+}
+
+#endif
+#ifdef EMUSUNI_VITA
+// (with-vita) Vita3K's options, the few that aren't its defaults: no mapping of the guest's memory into the GPU's
+// (the app's device has no buffer device addresses; the default of the core's build for EmuSuNi too), no network of
+// the Vita's (the core's build has none: scripts/build-vita-core.sh), no camera of the PS4's (a plain colour). The
+// rest as the core has them: Vulkan, the Vita's own resolution, the recompiler, Cross to confirm.
+void BuildVitaVariables(const std::string& g)
+{
+  s_variables["vita3k_memory_mapping"] = "disabled";
+  s_variables["vita3k_http_enable"] = "disabled";
+  s_variables["vita3k_psn_signed_in"] = "disabled";
+  s_variables["vita3k_front_camera"] = "color";
+  s_variables["vita3k_back_camera"] = "color";
+  // (01.88) PS Vita Motion Sensor (vita_motion, MotionVita): read here, as the 3DS's 3ds_motion, before the core asks
+  // for the sensor interface at its init. Lying flat until the controller answers.
+  s_motion_vita.on = Settings::Get("vita_motion", g) == "ds4";
+  s_motion_vita.said = false;
+  const float flat[6] = {0.0f, 0.0f, 9.80665f, 0.0f, 0.0f, 0.0f};
+  for (int k = 0; k < 6; k++)
+    s_motion_vita.axes[k].store(flat[k], std::memory_order_relaxed);
+  LogF("vita: motion: %s", s_motion_vita.on ? "the DualShock 4's accelerometer and gyroscope (PS Vita Motion Sensor)"
+                                            : "off (PS Vita Motion Sensor: DualShock 4 turns it on)");
+  // (01.67, the owner: "quiero que los juegos de vita se me muestren en español") The games' language: the menus'
+  // one, as the 3DS's - the Vita's system language (vita3k_sys_lang: SceSystemParamLang's numbers), which a game
+  // follows when it has that language and the system dialogs show. English (United States) for the rest. The
+  // app's Portuguese is Brazil's and its Chinese the simplified one. Read by the core when the game starts.
+  static const std::pair<const char*, const char*> LANGUAGES[] = {
+      {"es", "3"}, {"fr", "2"}, {"de", "4"}, {"it", "5"}, {"pt", "17"}, {"ja", "0"},
+      {"ru", "8"}, {"ko", "9"}, {"nl", "6"}, {"zh", "11"}, {"pl", "16"}, {"tr", "19"}};
+  const std::string language = Settings::Get("language");
+  std::string number = "1";
+  for (const auto& [code, value] : LANGUAGES)
+  {
+    if (language == code)
+      number = value;
+  }
+  // ((01.72, the owner: MotorStorm RC (Japan) [PCSC00014] "me lo detectó en coreano") A Japanese or Asian game - its
+  // title ID in its name: PCSC, PCSG (Japan), PCSD, PCSH (Asia) -, which may not have the menus' language and read
+  // Spanish's number as another: English, unless the menus are in Japanese, Korean or Chinese. PS Vita Language
+  // (vita_language) chosen for the game: that one. Said in the log, with why.
+  std::string why = "the menus' language (" + language + ")";
+  std::string id;
+  for (size_t i = 0; i + 9 <= g.size() && id.empty(); i++)
+  {
+    bool match = (i == 0 || !std::isalnum(static_cast<unsigned char>(g[i - 1]))) &&
+                 (i + 9 == g.size() || !std::isalnum(static_cast<unsigned char>(g[i + 9])));
+    for (size_t j = 0; j < 9 && match; j++)
+      match = j < 4 ? std::isupper(static_cast<unsigned char>(g[i + j])) != 0 :
+                      std::isdigit(static_cast<unsigned char>(g[i + j])) != 0;
+    if (match)
+      id = g.substr(i, 9);
+  }
+  const bool asian = id.size() == 9 && id.compare(0, 3, "PCS") == 0 && std::strchr("CGDH", id[3]) != nullptr;
+  if (asian && language != "ja" && language != "ko" && language != "zh")
+  {
+    number = "1";
+    why = "a Japanese or Asian game (" + id + "): English, the menus being " + language;
+  }
+  const std::string chosen = Settings::Get("vita_language", g);
+  if (!chosen.empty() && chosen != "auto")
+  {
+    number = chosen;
+    why = "PS Vita Language chosen for the game";
+  }
+  s_variables["vita3k_sys_lang"] = number;
+  LogF("vita: system language %s: %s", number.c_str(), why.c_str());
 }
 
 #endif
@@ -2194,6 +2766,10 @@ void BuildVariables()
   else if (s_system == SystemId::OPENBOR)
     BuildOpenborVariables(s_game_id);
 #endif
+#ifdef EMUSUNI_VITA
+  else if (s_system == SystemId::VITA)
+    BuildVitaVariables(s_game_id);
+#endif
   else
     BuildSnesVariables(s_game_id);
   // (00.23) The PlayStation's Multitap, the Saturn's 6 Player Adaptors: options of their cores.
@@ -2264,7 +2840,8 @@ void VulkanWaitSyncIndex(void*)
 
 void VulkanLockQueue(void*)
 {
-  s_display->LockQueue();
+  // ((01.87) The "gpu:" line's longest hold by a core: the core's code that took the lock, where this returns to.)
+  s_display->LockQueue(__builtin_return_address(0));
 }
 
 void VulkanUnlockQueue(void*)
@@ -2363,6 +2940,13 @@ bool Environment(unsigned command, void* data)
       s_dc_reboot = true;  // (not shown: Run() starts the console again)
       return true;
     }
+    // ((01.66) The PS Vita's steps - they end in "..." -: its loading screen's line. Its failures as before.)
+    const size_t length = std::strlen(message->msg);
+    if (IsVita(s_system) && length > 3 && std::strcmp(message->msg + length - 3, "...") == 0)
+    {
+      s_vita_step = message->msg;
+      return true;
+    }
     s_message = message->msg;
     return true;
   }
@@ -2377,7 +2961,14 @@ bool Environment(unsigned command, void* data)
            s_system == SystemId::SATURN || s_system == SystemId::PCE || IsAtari(s_system);
   case RETRO_ENVIRONMENT_GET_SENSOR_INTERFACE:
   {
-    if (!IsHandheld(s_system) || !data)
+    // (01.27) The 3DS's only with 3DS Motion Sensor: DualShock 4 (Motion3ds).
+    bool vita_motion = false;
+#ifdef EMUSUNI_VITA
+    // (01.88) PS Vita Motion Sensor (MotionVita): ((01.91) the core has it always - a Vita lying still while it is off
+    // -, so turning it on or off in the in-game menu works at once.)
+    vita_motion = s_system == SystemId::VITA;
+#endif
+    if (!(IsHandheld(s_system) || (s_system == SystemId::THREEDS && s_motion3ds.on) || vita_motion) || !data)
       return false;
     auto* sensors = static_cast<retro_sensor_interface*>(data);
     sensors->set_sensor_state = SensorState;
@@ -2467,6 +3058,9 @@ bool Environment(unsigned command, void* data)
     s_core_keys.clear();
     for (const auto* variable = static_cast<const retro_variable*>(data); variable && variable->key; variable++)
       s_core_keys.insert(variable->key);
+    // ((01.26) The Arcade's cheats, for the in-game menu: src/ArcadeCheats.h.)
+    if (s_system == SystemId::ARCADE)
+      ArcadeCheats::Declare(static_cast<const retro_variable*>(data));
     return true;
   }
   case RETRO_ENVIRONMENT_SET_GEOMETRY:
@@ -2495,7 +3089,8 @@ bool Environment(unsigned command, void* data)
     const auto* variable = static_cast<const retro_variable*>(data);
     if (s_system != SystemId::ARCADE || !variable || !variable->key)
       return false;
-    s_variables[variable->key] = variable->value ? variable->value : "";
+    // ((01.26) A cheat the player chose: that value instead of the default - off line; src/ArcadeCheats.h.)
+    s_variables[variable->key] = ArcadeCheats::Starting(variable->key, variable->value ? variable->value : "");
     s_variables_changed = true;
     return true;
   }
@@ -2519,8 +3114,13 @@ void VideoRefresh(const void* pixels, unsigned width, unsigned height, size_t pi
 {
   if (pixels)
     StartGuard::Picture();  // (the start watchdog: a picture came)
+  // ((01.66) The PS Vita: a picture by the CPU while it prepares the game, by the GPU once the game runs.)
+  if (pixels && IsVita(s_system))
+    s_vita_loading = pixels != RETRO_HW_FRAME_BUFFER_VALID;
   if (Netplay::Replaying())
     return;  // (00.23: online, a rollback's frames run again aren't shown - the frame after them is)
+  if (pixels)
+    s_pictures++;  // ((01.72) the counter's FPS)
   if (pixels == RETRO_HW_FRAME_BUFFER_VALID)
   {
     // The core's own image (set_image): nothing to upload.
@@ -2678,6 +3278,37 @@ struct Pads
   std::array<float, MAX_PLAYERS> flip{};
   float age = 0.0f;
   std::vector<std::pair<int, bool>> changes;
+  // (01.27, the PS1's specialist: v00.24's "player 2 not detected") Each player's failed open as last logged (its user,
+  // the error: it is tried again every second, logged once), the players whose controller couldn't be opened not told
+  // yet (the in-game menu's toast), the signed-in users as last logged.
+  std::array<std::pair<int32_t, int>, MAX_PLAYERS> open_failed{};
+  std::vector<int> failed;
+  std::string users_logged = "-";
+
+  // scePadOpen's errors (the PS4's libScePad: SCE_PAD_ERROR_*), for the log.
+  static const char* OpenError(int code)
+  {
+    switch (static_cast<uint32_t>(code))
+    {
+    case 0x80920001u:
+      return "invalid argument";
+    case 0x80920002u:
+      return "invalid port type";
+    case 0x80920004u:
+      return "already opened";
+    case 0x80920005u:
+      return "the pad library not initialized";
+    case 0x80920007u:
+      return "no controller connected";
+    case 0x80920008u:
+      return "no handle left";
+    case 0x80920101u:
+      return "not permitted";
+    case 0x809200FFu:
+      return "fatal error";
+    }
+    return "unknown error";
+  }
 
   void Open()
   {
@@ -2707,6 +3338,19 @@ struct Pads
     OrbisUserServiceLoginUserIdList users;
     std::memset(&users, 0xFF, sizeof(users));
     sceUserServiceGetLoginUserIdList(&users);
+    // (01.27) The signed-in users in the log at the game's start and whenever they change (a controller's user signing
+    // in: the PS4 gives the game a controller only once someone chose a user on it).
+    std::string list;
+    for (const int32_t user : users.userId)
+    {
+      if (user >= 0)
+        list += (list.empty() ? "" : ", ") + std::to_string(user);
+    }
+    if (list != users_logged)
+    {
+      users_logged = list;
+      LogF("pads: signed-in users: %s", list.empty() ? "none" : list.c_str());
+    }
     auto signed_in = [&users](int32_t user) {
       return user >= 0 && std::find(std::begin(users.userId), std::end(users.userId), user) != std::end(users.userId);
     };
@@ -2733,13 +3377,26 @@ struct Pads
       Pad& pad = pads[i];
       if (pad.user == user && (user < 0 || pad.handle >= 0))
         continue;
+      if (pad.user >= 0 && pad.user != user)
+        LogF("pads: player %zu's user %d signed out: its controller closed", i + 1, pad.user);
       Release(pad);
       pad.user = user;
       if (user >= 0)
       {
         pad.handle = scePadOpen(user, ORBIS_PAD_PORT_TYPE_STANDARD, 0, nullptr);
-        if (log || pad.handle >= 0)
+        if (pad.handle >= 0)
+        {
           LogF("pads: player %zu = user %d (pad %#x)", i + 1, user, static_cast<unsigned>(pad.handle));
+          open_failed[i] = {};
+        }
+        else if (log || open_failed[i] != std::make_pair(user, pad.handle))
+        {
+          // (01.27) Why, once per user and error (tried again every second), and the in-game menu's toast.
+          open_failed[i] = {user, pad.handle};
+          LogF("pads: player %zu = user %d: its controller can't be opened (scePadOpen %#x: %s); tried again every "
+               "second", i + 1, user, static_cast<unsigned>(pad.handle), OpenError(pad.handle));
+          failed.push_back(static_cast<int>(i));
+        }
       }
     }
   }
@@ -3169,6 +3826,12 @@ GpuFilter::Mode GpuMode(const std::string& game)
   // Resolution are left out; the NTSC filter's picture goes through it).
   if (CrtLook(game) != 0)
     return GpuFilter::Mode::Crt;
+  // ((01.76, the owner: «el escalador por gpu… ocultarlo del menú y dejar nativamente que funcione»; «uno para que no se
+  // vea como diente de sierra») The PS Vita: always Smooth Edges - SMAA on its 960x544, Catmull-Rom to the screen -
+  // whatever its Quality or GPU Upscaler were before (both are off its pages, Settings.cpp FOR_ALL_BUT_VITA). Its
+  // loading pictures, by the CPU, as they are (Smooth Edges would take them for pixel art: MMPX).
+  if (IsVita(s_system))
+    return s_frame_hw ? GpuFilter::Mode::Edges : GpuFilter::Mode::Off;
   // (The 3DS's picture, drawn by the GPU, takes the GPU Upscaler as the other 3D consoles' since 00.71, below: until
   // then Azahar's own only.)
   // A vertical NAOMI or Atomiswave game: its picture is turned as it is drawn (DrawPicture), which of the filters only
@@ -3238,6 +3901,36 @@ bool GpuRedraws(GpuFilter::Mode mode)
          mode == GpuFilter::Mode::Crt;
 }
 
+// ((01.72, the master: the owner found Uncharted on the PS Vita too dark) Graphics > Brightness and Saturation,
+// percents in settings.ini: drawn by the GPU filter's last pass, GpuFilter.h Source; Tube TV keeps its own look.
+// ((01.76, the owner: «el de gamma se lo podrías sacar») Gamma is off the menus and 1.0 always: a picture_gamma saved
+// before (1.20 to 1.50 on Uncharted and SFxT) isn't read.)
+void SetColours(GpuFilter::Source* source, const std::string& game)
+{
+  auto percent = [&game](const char* key) {
+    const std::string value = Settings::Get(key, game);
+    char* end = nullptr;
+    const long number = std::strtol(value.c_str(), &end, 10);
+    return end != value.c_str() && number >= 0 && number <= 400 ? static_cast<float>(number) / 100.0f : 1.0f;
+  };
+  source->brightness = percent("picture_brightness");
+  source->gamma = 1.0f;
+  source->saturation = percent("picture_saturation");
+}
+
+// The mode a picture is drawn with: the GPU Upscaler's (GpuMode), or - it being Off and the colours not the picture's
+// own - HD Sharpen's pass without sharpening (plain: read smooth or sharp as Texture Filtering would draw it), which
+// draws them. Not for a vertical NAOMI or Atomiswave game (drawn turned by ImGui's quad; the filters can't).
+GpuFilter::Mode WithColours(GpuFilter::Mode gpu, GpuFilter::Source* source, const std::string& game, bool smooth)
+{
+  SetColours(source, game);
+  if (gpu != GpuFilter::Mode::Off || !source->Graded() || (IsFlycastBoard(s_system) && (s_rotation & 3) != 0))
+    return gpu;
+  source->plain = true;
+  source->plain_smooth = smooth;
+  return GpuFilter::Mode::Sharpen;
+}
+
 Picture PlacePicture(const std::string& game, bool framed)
 {
   Picture picture;
@@ -3295,6 +3988,8 @@ Picture PlacePicture(const std::string& game, bool framed)
     ratio = frame_w / std::max(1.0f, frame_h);
   else if (s_system == SystemId::PS1 && Settings::Get("ps1_widescreen", game) == "on" && aspect != "stretch")
     ratio = 16.0f / 9.0f;  // the widescreen hack's picture
+  else if (s_system == SystemId::N64 && s_n64_widescreen && aspect != "stretch")
+    ratio = 16.0f / 9.0f;  // (01.58) N64 Widescreen: the game's own 16:9 3D, not stretched (Aspect Ratio aside)
   else if (s_system == SystemId::PSP && (aspect == "auto" || aspect == "pixel"))
     ratio = static_cast<float>(s_frame_w) / std::max(1.0f, static_cast<float>(s_frame_h));  // its 16:9 screen
   else if (s_system == SystemId::THREEDS && (aspect == "auto" || aspect == "pixel"))
@@ -3417,8 +4112,13 @@ void DrawScreens(ImDrawList* dl, const ScreensSource& src, const Screens& screen
     const DualScreens::Rect& r = screens.source[layout.shown[i].screen];
     from[i] = {r.x * src.scale, r.y * src.scale, r.w * src.scale, r.h * src.scale};
   }
-  auto base = [&src]() {
-    GpuFilter::Source source;
+  // ((01.72) The colours - Brightness, Gamma, Saturation - when the screens are one picture at one size: Large Screen +
+  // Small's small screen is drawn without the filter, so neither of the two takes them there.)
+  const bool smooth_all = src.upscaled || Settings::Get("filter", game) == "smooth";
+  GpuFilter::Source graded;
+  const GpuFilter::Mode mode = layout.same_scale ? WithColours(gpu, &graded, game, smooth_all) : gpu;
+  auto base = [&src, &graded]() {
+    GpuFilter::Source source = graded;
     source.view = src.view;
     source.layout = src.layout;
     source.exact = src.exact;
@@ -3449,7 +4149,7 @@ void DrawScreens(ImDrawList* dl, const ScreensSource& src, const Screens& screen
     }
     filtered[0] = filtered[1] = GpuFilter::Draw(dl, gpu, source, picture.min, picture.max);
   }
-  else if (gpu != GpuFilter::Mode::Off && (!s_texture_scaled || threeds || !GpuRedraws(gpu)))
+  else if (mode != GpuFilter::Mode::Off && (!s_texture_scaled || threeds || !GpuRedraws(mode)))
   {
     GpuFilter::Source source = base();
     if (layout.same_scale)
@@ -3465,7 +4165,7 @@ void DrawScreens(ImDrawList* dl, const ScreensSource& src, const Screens& screen
         source.parts[i] = {rounded(from[i].x), rounded(from[i].y), rounded(from[i].w), rounded(from[i].h),
                            rounded(at.x * px), rounded(at.y * px)};
       }
-      filtered[0] = filtered[1] = GpuFilter::Draw(dl, gpu, source, picture.min, picture.max);
+      filtered[0] = filtered[1] = GpuFilter::Draw(dl, mode, source, picture.min, picture.max);
     }
     else
     {
@@ -3480,8 +4180,7 @@ void DrawScreens(ImDrawList* dl, const ScreensSource& src, const Screens& screen
     }
   }
   // What no filter drew: each screen from the image, half a texel inside when smooth (the other screen is beside it
-  // in the image); the small screen of Large Screen + Small always smooth.
-  const bool smooth_all = src.upscaled || Settings::Get("filter", game) == "smooth";
+  // in the image); the small screen of Large Screen + Small always smooth (smooth_all: above).
   for (int i = 0; i < count; i++)
   {
     if (filtered[i])
@@ -3532,14 +4231,24 @@ void DrawPicture(ImDrawList* dl, Display& display, const std::string& game)
       return;
     const Picture picture = PlacePicture(game);
     const GpuFilter::Mode gpu = GpuMode(game);
-    // The PSP's picture keeps the PSP's alpha (often 0): read as opaque, else it is blended away.
-    VkImageView view = s_hw_image.image_view;
-    if (s_system == SystemId::PSP)
-    {
-      const VkImageView opaque = display.OpaqueView(s_hw_image.create_info);
-      if (opaque != VK_NULL_HANDLE)
-        view = opaque;
-    }
+    // The core's image read as opaque (alpha 1) where ImGui's quad draws it, which blends it over black by its alpha.
+    // The PSP's keeps the PSP's alpha (often 0); ((01.76) the PS Vita's too: with no GPU scaler, God of War was black
+    // and Uncharted dark; and every core's drawn by the GPU, as their alpha isn't a picture's either: the PlayStation's
+    // the VRAM's mask bit, the N64's the RDP's coverage.) The GPU filters read only the colours and write alpha 1: they
+    // take the image as it is. OpaqueView waits for the frame EndFrame records next - as ExternalTexture does right
+    // after it, so no wait more - and is asked once a frame (the 3DS's two screens share it: a second call would
+    // destroy the view the first screen's descriptor holds).
+    const VkImageView view = s_hw_image.image_view;
+    VkImageView opaque = VK_NULL_HANDLE;
+    bool opaque_asked = false;
+    auto quad_view = [&display, &opaque, &opaque_asked, view]() {
+      if (!opaque_asked)
+      {
+        opaque_asked = true;
+        opaque = display.OpaqueView(s_hw_image.create_info);
+      }
+      return opaque != VK_NULL_HANDLE ? opaque : view;
+    };
     // The 3DS's two screens: placed by the app (00.80), from Azahar's image of both side by side.
     Screens screens;
     if (CurrentScreens(game, &screens))
@@ -3556,25 +4265,11 @@ void DrawPicture(ImDrawList* dl, Display& display, const std::string& game)
       src.uv_h = static_cast<float>(s_frame_h);
       src.upscaled = s_3ds_scale > 1;  // (above Native always smooth, as Texture Filtering promises)
       const VkImageLayout layout = s_hw_image.image_layout;
-      src.texture = [&display, view, layout](bool smooth) { return display.ExternalTexture(view, layout, smooth); };
+      src.texture = [&display, &quad_view, layout](bool smooth) {
+        return display.ExternalTexture(quad_view(), layout, smooth);
+      };
       DrawScreens(dl, src, screens, picture, game, gpu);
       return;
-    }
-    if (gpu != GpuFilter::Mode::Off)
-    {
-      GpuFilter::Source source;
-      source.view = view;
-      source.layout = s_hw_image.image_layout;
-      source.width = s_frame_w;
-      source.height = s_frame_h;
-      source.kind = GpuFilter::Source::Kind::Drawn;  // the cores' 3D
-      if (gpu == GpuFilter::Mode::Crt)
-        CrtScreens(&source, picture, game);
-      if (GpuFilter::Draw(dl, gpu, source, picture.min, picture.max))
-      {
-        DrawScanlines(dl, picture, game);
-        return;
-      }
     }
     // Above Native (2x, 4x) always smooth, as Texture Filtering promises: sharp (nearest) drops
     // whole columns of the 2560-wide picture and doubles some rows on the way to the screen.
@@ -3584,7 +4279,25 @@ void DrawPicture(ImDrawList* dl, Display& display, const std::string& game)
                           s_system == SystemId::THREEDS ? s_3ds_scale > 1 :
                                                           s_frame_w >= 1280;
     const bool smooth = upscaled || Settings::Get("filter", game) == "smooth";
-    const ImTextureID image = display.ExternalTexture(view, s_hw_image.image_layout, smooth);
+    // ((01.72) The colours too: WithColours.)
+    GpuFilter::Source source;
+    const GpuFilter::Mode mode = WithColours(gpu, &source, game, smooth);
+    if (mode != GpuFilter::Mode::Off)
+    {
+      source.view = view;
+      source.layout = s_hw_image.image_layout;
+      source.width = s_frame_w;
+      source.height = s_frame_h;
+      source.kind = GpuFilter::Source::Kind::Drawn;  // the cores' 3D
+      if (mode == GpuFilter::Mode::Crt)
+        CrtScreens(&source, picture, game);
+      if (GpuFilter::Draw(dl, mode, source, picture.min, picture.max))
+      {
+        DrawScanlines(dl, picture, game);
+        return;
+      }
+    }
+    const ImTextureID image = display.ExternalTexture(quad_view(), s_hw_image.image_layout, smooth);
     if (IsFlycastBoard(s_system) && (s_rotation & 3) != 0)
     {
       // A vertical NAOMI or Atomiswave game (SET_ROTATION: libretro's quarter turns anticlockwise): the image's
@@ -3624,25 +4337,27 @@ void DrawPicture(ImDrawList* dl, Display& display, const std::string& game)
     DrawScreens(dl, src, screens, picture, game, gpu);
     return;
   }
-  if (gpu != GpuFilter::Mode::Off && (!s_texture_scaled || !GpuRedraws(gpu)))
+  // A picture made bigger is always drawn smooth (it is rarely an exact multiple of the TV's
+  // lines). Smooth stays half a texel inside: around the picture are older, bigger ones.
+  const bool smooth = s_texture_scaled || Settings::Get("filter", game) == "smooth";
+  // ((01.72) The colours too: WithColours.)
+  GpuFilter::Source source;
+  const GpuFilter::Mode mode = WithColours(gpu, &source, game, smooth);
+  if (mode != GpuFilter::Mode::Off && (!s_texture_scaled || !GpuRedraws(mode)))
   {
-    GpuFilter::Source source;
     source.view = display.GameView();
     source.width = s_texture_w;
     source.height = s_texture_h;
     source.exact = false;
     source.kind = GpuFilter::Source::Kind::PixelArt;
-    if (gpu == GpuFilter::Mode::Crt)
+    if (mode == GpuFilter::Mode::Crt)
       CrtScreens(&source, picture, game);
-    if (GpuFilter::Draw(dl, gpu, source, picture.min, picture.max))
+    if (GpuFilter::Draw(dl, mode, source, picture.min, picture.max))
     {
       DrawScanlines(dl, picture, game);
       return;
     }
   }
-  // A picture made bigger is always drawn smooth (it is rarely an exact multiple of the TV's
-  // lines). Smooth stays half a texel inside: around the picture are older, bigger ones.
-  const bool smooth = s_texture_scaled || Settings::Get("filter", game) == "smooth";
   const float inset = smooth ? 0.5f : 0.0f;
   const ImVec2 uv0(inset / Display::GAME_TEXTURE_W, inset / Display::GAME_TEXTURE_H);
   const ImVec2 uv1((s_texture_w - inset) / Display::GAME_TEXTURE_W,
@@ -4179,6 +4894,86 @@ bool SaveState(int slot)
   return true;
 }
 
+// (01.57, the owner) The N64 Resolution changed in the in-game menu: ParaLLEl-RDP's size is made as the game starts
+// (changing it in the running core, our 4x's buffers with it, is a risk on the PS4's GPU memory), so the game's state is
+// kept apart - "<slot 0's file>-restart": no slot of the player's, nor Continue's, and Saved Data doesn't list it -,
+// the game starts again (Result::Restart) and loads it as its first thing. Taken once, within a minute, by that game.
+std::string s_restart_game;
+std::chrono::steady_clock::time_point s_restart_time;
+
+std::string RestartStatePath(const std::string& game_id)
+{
+  return Saves::StatePath(game_id, 0) + "-restart";
+}
+
+bool SaveRestartState()
+{
+  std::vector<uint8_t> state;
+  const std::string path = RestartStatePath(s_game_id);
+  if (!SerializeCore(&state) || !WriteDataFile(path, state.data(), state.size()))
+  {
+    LogLine("state: the N64 Resolution's restart state couldn't be kept: the game goes on as it is");
+    std::remove(path.c_str());
+    return false;
+  }
+  Achievements::StateSaved(path);
+  s_restart_game = s_game_id;
+  s_restart_time = std::chrono::steady_clock::now();
+  LogF("state: kept for the start again with the new N64 Resolution (%zu bytes)", state.size());
+  return true;
+}
+
+// The start again's state, loaded (true), or none for this game (*asked false) / one that didn't load (*asked true).
+bool LoadRestartState(const std::string& game_id, bool* asked)
+{
+  const std::string path = RestartStatePath(game_id);
+  *asked = s_restart_game == game_id && std::chrono::steady_clock::now() - s_restart_time < std::chrono::minutes(1);
+  s_restart_game.clear();
+  if (!*asked)
+  {
+    std::remove(path.c_str());  // (one left by a start that didn't come)
+    std::remove((path + ".ra").c_str());
+    return false;
+  }
+  std::vector<uint8_t> data(Saves::Size(path));
+  FILE* file = data.empty() ? nullptr : fopen(path.c_str(), "rb");
+  const bool read = file && fread(data.data(), 1, data.size(), file) == data.size();
+  if (file)
+    fclose(file);
+  const bool ok = read && s_core->unserialize(data.data(), data.size());
+  if (ok)
+    Achievements::StateLoaded(path);
+  std::remove(path.c_str());
+  std::remove((path + ".ra").c_str());
+  LogF("state: the start again with the new N64 Resolution: its state %s", ok ? "loaded" : read ? "refused" : "unread");
+  return ok;
+}
+
+// (01.27) Triangle -> Load State's slot for the game's next start (LoadStateAtStart): -1 none, or another game's, or
+// asked more than a minute ago (a start that didn't come). Taken once.
+std::mutex s_start_slot_mutex;
+std::string s_start_slot_game;
+int s_start_slot = -1;
+std::chrono::steady_clock::time_point s_start_slot_time;
+
+int TakeStartSlot(const std::string& game_key)
+{
+  std::lock_guard lock(s_start_slot_mutex);
+  const int slot = s_start_slot;
+  const bool fresh = std::chrono::steady_clock::now() - s_start_slot_time < std::chrono::minutes(1);
+  s_start_slot = -1;
+  if (slot < 0)
+    return -1;
+  if (game_key != s_start_slot_game || !fresh)
+  {
+    LogF("state: Load State's slot %d for %s not used (%s)", slot, s_start_slot_game.c_str(),
+         fresh ? "another game started" : "asked more than a minute ago");
+    return -1;
+  }
+  LogF("state: started from Load State: slot %d", slot);
+  return slot;
+}
+
 bool LoadState(int slot)
 {
   // (Read at its size: a Dreamcast state is ~36 MB, and a string grown on the way took 64 MB.)
@@ -4268,6 +5063,15 @@ struct Stats
   std::array<int64_t, 8> flip_frame{};
   int64_t counted = -1, counted_frame = -1;
   std::array<int, 4> steps{};
+  // (01.72) The PS Vita: the pictures the game itself showed in the last second (its core's count), which the counter
+  // shows instead of the TV's; -1 for the other consoles.
+  float game_fps = -1.0f;
+  unsigned long long vita_at = ~0ull;  // ((01.77) the core's count at the counter's last second; ~0: not known)
+  unsigned long long n64_at = ~0ull;   // ((01.78) the same for the N64's own pictures)
+  // (01.72) The core's pictures a second (s_pictures), shown by the counter (-1: not a second's worth yet); s_pictures
+  // at the counter's last second and at the log's window's start.
+  float pictures_fps = -1.0f;
+  uint64_t pictures_at = 0, pictures10_at = 0;
 };
 
 // The p-th percentile (0-100) of the values (reorders them).
@@ -4299,6 +5103,56 @@ void CountShownFlips(Stats& stats, int64_t shown)
   stats.counted = shown;
 }
 
+// (01.39, the 3DS specialist's 3ds-0137 test: Luigi's Mansion 2's passes of 160-250 ms and more on a room's change, its
+// core's frames 20-60 ms; the pacing's own time is cut at 250 ms) What a pass spent its time on.
+struct PassParts
+{
+  double core = 0.0, core_most = 0.0;  // the core's runs (s_core->run, Netplay::RunFrame)
+  int runs = 0;
+  double handover = 0.0;  // the drawing's wait for the 3DS's picture from the core's Vulkan worker
+  double gpu = 0.0;       // its waits for the GPU (Display: its frames' fences)
+  double flip = 0.0;      // its wait for the TV (Display: its image off screen)
+  double work = 0.0;      // the drawing's own work
+  bool beside = false;    // the drawing beside the core (another thread): beside_wait, the wait for it after the core
+  double beside_wait = 0.0;
+  bool quiet = true;  // the menu open in it, or the game's first pass: not said
+};
+
+// A pass over 100 ms in the log, as it was; 8 lines at most each 10 s, the others counted.
+struct LongPasses
+{
+  Clock::time_point window{};
+  int said = 0, left = 0;
+};
+
+void LogLongPass(LongPasses& passes, const PassParts& parts, double pass_ms, Clock::time_point now)
+{
+  if (parts.quiet || pass_ms <= 100.0)
+    return;
+  if (passes.said == 0 || now - passes.window >= std::chrono::seconds(10))
+  {
+    if (passes.left > 0)
+      LogF("pacing: %d more passes over 100 ms in the 10 s before, not said one by one", passes.left);
+    passes.window = now;
+    passes.said = passes.left = 0;
+  }
+  if (passes.said >= 8)
+  {
+    passes.left++;
+    return;
+  }
+  passes.said++;
+  const double drawing = parts.handover + parts.gpu + parts.flip + parts.work;
+  const double rest = pass_ms - parts.core - (parts.beside ? parts.beside_wait : drawing);
+  char beside[64] = "";
+  if (parts.beside)
+    std::snprintf(beside, sizeof(beside), " beside it (waited for %.1f after the core)", parts.beside_wait);
+  LogF("pacing: a pass of %.0f ms: the core %.1f ms (%d runs, the longest %.1f); the drawing%s %.1f ms: the "
+       "picture's handover %.1f, waiting for the GPU %.1f, for the flip %.1f, its own work %.1f; the rest %.1f",
+       pass_ms, parts.core, parts.runs, parts.core_most, beside, drawing, parts.handover, parts.gpu, parts.flip,
+       parts.work, std::max(0.0, rest));
+}
+
 // A new 10 s window for the speed and pacing lines.
 void ResetWindow(Stats& stats, const Display::FlipState& flip)
 {
@@ -4310,6 +5164,7 @@ void ResetWindow(Stats& stats, const Display::FlipState& flip)
   stats.core_runs = 0;
   stats.core_max = 0.0f;
   stats.emulated10 = 0;
+  stats.pictures10_at = s_pictures;  // ((01.72) the core's pictures in the window: from here)
   stats.pass_ms.clear();
   stats.run_ms.clear();
   stats.per_pass = {};
@@ -4343,14 +5198,125 @@ void LogPacing(Stats& stats, const Display::FlipState& flip)
        run_max);
 }
 
+// (01.66, the owner: "la pantalla de carga inicial ... hazla más bonita") The PS Vita's loading screen, the app's own:
+// a night-blue gradient with the PS Vita's blue glowing behind the game's cover (or a card with the console's name),
+// its name, the core's step in the player's language, a bar whose light runs along it and how long it has taken. The
+// core prepares the game inside its run, some seconds in one: the screen then stays as it was drawn, which reads well
+// still (the bar a bar, its light where it stopped).
+void DrawVitaLoading(ImDrawList* dl, ImFont* regular, ImFont* bold, const std::string& title, ImTextureID cover,
+                     float cover_aspect, float seconds)
+{
+  const float W = static_cast<float>(Display::WIDTH), H = static_cast<float>(Display::HEIGHT);
+  const auto rgba = [](uint32_t rgb, float alpha) {
+    return IM_COL32((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF, static_cast<int>(std::clamp(alpha, 0.0f, 1.0f) * 255));
+  };
+  constexpr uint32_t BLUE = 0x2F6BFF, LIGHT = 0x8FB4FF;
+  dl->AddRectFilledMultiColor(ImVec2(0, 0), ImVec2(W, H), rgba(0x101A3E, 1), rgba(0x0B1230, 1), rgba(0x04060F, 1),
+                              rgba(0x070A1C, 1));
+  // The cover's place: left of the middle, 480 tall, its own shape (a card when there is none).
+  const float ch = 480.0f, cw = ch * std::clamp(cover ? cover_aspect : 0.62f, 0.55f, 1.45f);
+  const ImVec2 cc(W * 0.30f, H * 0.47f);
+  for (int i = 8; i >= 1; i--)  // (the glow: rings of the PS Vita's blue, faint outwards)
+    dl->AddCircleFilled(cc, 140.0f + 46.0f * static_cast<float>(i), rgba(BLUE, 0.022f), 64);
+  const ImVec2 c0(cc.x - cw * 0.5f, cc.y - ch * 0.5f), c1(cc.x + cw * 0.5f, cc.y + ch * 0.5f);
+  dl->AddRectFilled(ImVec2(c0.x + 10, c0.y + 16), ImVec2(c1.x + 10, c1.y + 16), rgba(0x000000, 0.45f), 18.0f);
+  if (cover)
+  {
+    dl->AddImageRounded(ImTextureRef(cover), c0, c1, ImVec2(0, 0), ImVec2(1, 1), IM_COL32_WHITE, 18.0f);
+  }
+  else
+  {
+    // (Rounded as a cover: its colour, lighter at the top - ImGui's gradients have square corners.)
+    dl->AddRectFilled(c0, c1, rgba(0x14337C, 1), 18.0f);
+    for (int band = 1; band <= 8; band++)  // (eight faint layers from the top: a gradient without a line)
+      dl->AddRectFilled(c0, ImVec2(c1.x, c0.y + ch * static_cast<float>(band) / 8.0f), rgba(0x4C78E0, 0.045f), 18.0f,
+                        ImDrawFlags_RoundCornersTop);
+    const char* name = "PS Vita";
+    const ImVec2 size = bold->CalcTextSizeA(64, FLT_MAX, 0.0f, name);
+    dl->AddText(bold, 64, ImVec2(cc.x - size.x * 0.5f, cc.y - size.y * 0.5f), rgba(0xFFFFFF, 0.92f), name);
+  }
+  dl->AddRect(c0, c1, rgba(LIGHT, 0.35f), 18.0f, 0, 2.0f);
+  // The words: the console, the game's name (two lines at most), the step, its note when it is a long one.
+  const float x = W * 0.30f + 480.0f * 0.5f + 150.0f, width = W - 140.0f - x;
+  float y = cc.y - 170.0f;
+  dl->AddText(bold, 30, ImVec2(x, y), rgba(LIGHT, 1), "PS VITA");
+  y += 52.0f;
+  const ImVec2 title_size = bold->CalcTextSizeA(56, FLT_MAX, width, title.c_str());
+  dl->PushClipRect(ImVec2(x, y), ImVec2(x + width, y + 56.0f * 2.4f), true);
+  dl->AddText(bold, 56, ImVec2(x, y), rgba(0xFFFFFF, 1), title.c_str(), nullptr, width);
+  dl->PopClipRect();
+  y += std::min(title_size.y, 56.0f * 2.4f) + 34.0f;
+  const std::string step = PS4Lang::T(s_vita_step.empty() ? "Preparing the title..." : s_vita_step);
+  dl->AddText(regular, 34, ImVec2(x, y), rgba(0xFFFFFF, 0.88f), step.c_str(), nullptr, width);
+  y += 52.0f;
+  const bool long_step = s_vita_step.rfind("Installing", 0) == 0 || s_vita_step == "Preparing the firmware...";
+  if (long_step)
+  {
+    const std::string note = PS4Lang::T("Only the first time: it can take a few minutes");
+    dl->AddText(regular, 26, ImVec2(x, y), rgba(LIGHT, 0.75f), note.c_str(), nullptr, width);
+  }
+  y += 64.0f;
+  // The bar: its track, and a light running along it every 1.8 s (quiet when the core holds the screen).
+  const float bar_w = std::min(width, 760.0f), bar_h = 10.0f;
+  dl->AddRectFilled(ImVec2(x, y), ImVec2(x + bar_w, y + bar_h), rgba(0xFFFFFF, 0.12f), bar_h * 0.5f);
+  const float run = std::fmod(seconds, 1.8f) / 1.8f, light = 240.0f;
+  const float l0 = x - light + (bar_w + light) * run;
+  const float a0 = std::max(x, l0), a1 = std::min(x + bar_w, l0 + light);
+  if (a1 > a0)
+  {
+    dl->PushClipRect(ImVec2(x, y), ImVec2(x + bar_w, y + bar_h), true);
+    const float mid = l0 + light * 0.5f;
+    dl->AddRectFilledMultiColor(ImVec2(l0, y), ImVec2(mid, y + bar_h), rgba(BLUE, 0.0f), rgba(LIGHT, 1),
+                                rgba(LIGHT, 1), rgba(BLUE, 0.0f));
+    dl->AddRectFilledMultiColor(ImVec2(mid, y), ImVec2(l0 + light, y + bar_h), rgba(LIGHT, 1), rgba(BLUE, 0.0f),
+                                rgba(BLUE, 0.0f), rgba(LIGHT, 1));
+    dl->PopClipRect();
+  }
+  char elapsed[16];
+  const int whole = static_cast<int>(seconds);
+  std::snprintf(elapsed, sizeof(elapsed), "%d:%02d", whole / 60, whole % 60);
+  dl->AddText(regular, 26, ImVec2(x + bar_w + 22.0f, y - 10.0f), rgba(0xFFFFFF, 0.55f), elapsed);
+}
+
+#ifdef EMUSUNI_VITA
+// (01.67) The PS Vita's cursor over its picture: the pointer's (L3) or the touchpad's (01.69: a trackpad) - a white
+// ring with a dark edge and a dot, filled while it touches; the PS Vita's blue while the pointer is on.
+void DrawVitaCursor(ImDrawList* dl, const std::string& game)
+{
+  if (!s_vita_pointer.shown || s_vita_loading || !s_frame_hw)
+    return;
+  const Picture picture = PlacePicture(game);
+  const ImVec2 at(picture.min.x + s_vita_pointer.x * (picture.max.x - picture.min.x),
+                  picture.min.y + s_vita_pointer.y * (picture.max.y - picture.min.y));
+  const bool touching = s_vita_pointer.touching;
+  const ImU32 ring = s_vita_pointer.on ? IM_COL32(143, 180, 255, 255) : IM_COL32(255, 255, 255, 235);
+  if (touching)
+    dl->AddCircleFilled(at, 22.0f, s_vita_pointer.on ? IM_COL32(47, 107, 255, 110) : IM_COL32(255, 255, 255, 80), 32);
+  dl->AddCircle(at, 18.0f, IM_COL32(0, 0, 0, 150), 32, 6.0f);
+  dl->AddCircle(at, 18.0f, ring, 32, 3.0f);
+  dl->AddCircleFilled(at, 4.5f, IM_COL32(0, 0, 0, 150), 16);
+  dl->AddCircleFilled(at, 3.0f, ring, 16);
+}
+#endif
+
 void DrawStats(ImDrawList* dl, ImFont* bold, const Stats& stats, bool fps, bool graphs, float fill)
 {
   if (fps)
   {
     char text[64];
-    snprintf(text, sizeof(text), "%.0f FPS  %.0f%%", stats.fps, stats.speed);
-    dl->AddRectFilled(ImVec2(30, 26), ImVec2(30 + bold->CalcTextSizeA(30, FLT_MAX, 0, text).x + 30, 76),
-                      IM_COL32(0, 0, 0, 150), 10);
+    // ((01.72) The PS Vita: the game's own pictures a second, without a percent - the game's own rate, 30 or 60,
+    // isn't known, and its core's speed is always the TV's.)
+    // ((01.72) The others: the core's pictures a second - not the TV's refreshes, always 60 -, and the game's speed.)
+    if (stats.game_fps >= 0.0f)
+      snprintf(text, sizeof(text), "%.0f FPS", stats.game_fps);
+    else
+      snprintf(text, sizeof(text), "%.0f FPS  %.0f%%", stats.pictures_fps >= 0.0f ? stats.pictures_fps : stats.fps,
+               stats.speed);
+    // ((01.77) The box as wide as three digits' text at least: it doesn't jump with the number.)
+    const char* widest = stats.game_fps >= 0.0f ? "888 FPS" : "888 FPS  888%";
+    const float width =
+        std::max(bold->CalcTextSizeA(30, FLT_MAX, 0, text).x, bold->CalcTextSizeA(30, FLT_MAX, 0, widest).x);
+    dl->AddRectFilled(ImVec2(30, 26), ImVec2(30 + width + 30, 76), IM_COL32(0, 0, 0, 150), 10);
     dl->AddText(bold, 30, ImVec2(45, 34), IM_COL32(255, 255, 255, 235), text);
   }
   if (graphs)
@@ -4376,6 +5342,31 @@ void DrawStats(ImDrawList* dl, ImFont* bold, const Stats& stats, bool fps, bool 
   }
 }
 }  // namespace
+
+bool N64WidescreenListed(const std::string& rom_path)
+{
+  std::vector<uint8_t> header(0x40);
+  FILE* file = std::fopen(rom_path.c_str(), "rb");
+  if (!file)
+    return false;
+  const bool read = std::fread(header.data(), 1, header.size(), file) == header.size();
+  std::fclose(file);
+  return read && N64Widescreen(N64Crc(header, 0x10), N64Crc(header, 0x14)) != nullptr;
+}
+
+void LoadStateAtStart(const std::string& game_key, int slot)
+{
+  std::lock_guard lock(s_start_slot_mutex);
+  s_start_slot_game = game_key;
+  s_start_slot = slot;
+  s_start_slot_time = std::chrono::steady_clock::now();
+}
+
+void SetStartCover(const std::string& game_key, const std::string& path)
+{
+  s_start_cover_game = game_key;
+  s_start_cover_path = path;
+}
 
 // One pass's drawing on a thread of its own while the emulation thread runs the next frames: the
 // DS's core takes most of a refresh (Mario Kart DS: 15-17 ms of 16.7), the drawing 2-3 ms more,
@@ -4486,11 +5477,39 @@ static bool EnoughMemory(const Library::Game& game, std::string* error)
   const int cold = MemoryGuard::ColdMiB(system.key);
   const int own = s_nds_started ? 0 : MemoryGuard::OwnStacksMiB(system.key);
   const int extra = MemoryGuard::ExtraFromText(ReadTextFile(std::string(App::DATA_DIR) + "/memory-guard"));
-  const MemoryGuard::Decision decision = MemoryGuard::Decide(
-      FlexibleFreeMiB(), FlexibleMostMiB(), cold + (upscaler ? MemoryGuard::UPSCALER_MIB : 0), own, extra);
+  // (01.42) A 3DS game's texture pack (src/ThreeDsTextures.h): its loading thread's stack in this memory, and the
+  // core's cap for its pictures in the GPU's (direct) memory - with less than that free, and some to spare, the game
+  // starts without it this time (said: Run's toast).
+  int textures_mib = 0;
+  s_3ds_textures = false;
+  s_3ds_textures_short = -1;
+#ifdef EMUSUNI_3DS
+  if (game.system == SystemId::THREEDS)
+  {
+    const uint64_t title = ThreedsTitleId(game.path);
+    if (title != 0 && ThreeDsTextures::On(title) &&
+        ThreeDsTextures::HasPng(ThreeDsTextures::InstalledFolder(Portable::UserDir() + "/saves/3ds", title)))
+    {
+      const int gpu_free = ThreeDsTextures::GpuFreeMiB();
+      const int gpu_need = ThreeDsTextures::GPU_MIB + ThreeDsTextures::GPU_MARGIN_MIB;
+      s_3ds_textures = gpu_free < 0 || gpu_free >= gpu_need;
+      s_3ds_textures_short = s_3ds_textures ? -1 : gpu_free;
+      textures_mib = s_3ds_textures ? ThreeDsTextures::THREAD_MIB : 0;
+      LogF("memory (before game): its texture pack: GPU memory %s, %d MiB needed (the core's cap %d, %d to spare): %s",
+           gpu_free < 0 ? "free not known" : (std::to_string(gpu_free) + " MiB free").c_str(), gpu_need,
+           ThreeDsTextures::GPU_MIB, ThreeDsTextures::GPU_MARGIN_MIB,
+           s_3ds_textures ? "on" : "left out this time");
+    }
+  }
+#endif
+  const MemoryGuard::Decision decision =
+      MemoryGuard::Decide(FlexibleFreeMiB(), FlexibleMostMiB(),
+                          cold + (upscaler ? MemoryGuard::UPSCALER_MIB : 0) + textures_mib, own, extra);
   std::string parts = "its threads " + std::to_string(cold);
   if (upscaler)
     parts += ", the CPU upscaler's " + std::to_string(MemoryGuard::UPSCALER_MIB);
+  if (textures_mib > 0)
+    parts += ", its texture pack's thread " + std::to_string(textures_mib);
   if (own > 0)
     parts += ", its 1 MiB stacks " + std::to_string(own);
   if (extra != 0)
@@ -4642,6 +5661,18 @@ static StartGuard::Limits StartLimits(SystemId system)
   case SystemId::THREEDS:
   case SystemId::SATURN:
     return {30.0f, 60.0f, 90.0f};
+#ifdef EMUSUNI_VITA
+  // (with-vita) The PS Vita's first start installs the firmware and the game (minutes, the core's own progress on the
+  // screen meanwhile): the longest times there are.
+  case SystemId::VITA:
+    return {120.0f, 120.0f, 180.0f};
+#endif
+#ifdef EMUSUNI_MUGEN
+  // (01.27, with-mugen) A MUGEN game's first picture comes after Go's start (its test, once per version) and Ikemen's
+  // own load of its scripts, screenpack and fonts: not measured on the PS4 yet.
+  case SystemId::MUGEN:
+    return {60.0f, 90.0f, 120.0f};
+#endif
   case SystemId::ARCADE:
     return {30.0f, 45.0f, 90.0f};
   case SystemId::PCE:  // (00.82: cartridges, a picture at their first frame)
@@ -4771,6 +5802,11 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   } netplay_end{online};
   s_game_id = game.key;
   s_message.clear();
+  s_vita_step.clear();  // ((01.66) its loading screen: from its first step; drawn from the start)
+  s_vita_loading = IsVita(game.system);
+#ifdef EMUSUNI_VITA
+  s_vita_pointer = {};  // ((01.67) off at each start, in the middle)
+#endif
   s_ps1_disc_error.clear();
   s_ps1_libcrypt = false;
   s_ps1_openbios = false;
@@ -4788,10 +5824,12 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   s_jaguar_key = -1;
   s_r3_swap = false;
   s_3ds_r3 = false;
+  s_l3 = {};  // (01.31)
   s_screens_seen.clear();
   s_3ds_scale = 0;
   s_3ds_new = -1;
   s_3ds_title = 0;
+  s_3ds_new_only = false;  // (01.36)
   s_3ds_cursor = 0;
   s_3ds_at = {};
   // The stylus starts in the middle of the touch screen: the 3DS's 320x240, the DS's 256x192.
@@ -4806,6 +5844,7 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
     s_stylus.y = 96.0f;
   }
   s_touch_frames = s_tap_frames = s_touch_taps = 0;
+  s_stick_dpad_frames = 0;
   for (auto& player : s_analog)
     player = {};
   s_triggers = {};
@@ -4863,8 +5902,10 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   if (s_system == SystemId::SATURN)
   {
     // The Saturn: its BIOS (512 KiB: the owner's keeps its own name) found here in system/saturn, system or the
-    // game's folder, and given to the core by its path (EMUSUNI_SATURN_BIOS: scripts/build-saturn-core.sh); the
-    // backup memory (the games' saves, one file for all) in saves/saturn/yabasanshiro.
+    // game's folder - (01.91, the owner) or a folder above it, up to Roms/saturn: a game in its own folder ("Panzer
+    // Dragoon (Europe)/...cue") finds one left in Roms/saturn -, and given to the core by its path
+    // (EMUSUNI_SATURN_BIOS: scripts/build-saturn-core.sh); the backup memory (the games' saves, one file for all) in
+    // saves/saturn/yabasanshiro.
     s_system_dir += "/saturn";
     s_save_dir += "/saturn";
     MakeDirs(s_system_dir);
@@ -4872,13 +5913,19 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
     uint32_t crc = 0;
     // (00.87: the portable data's system/saturn and system first, then this PS4's - src/Portable.h.)
     std::vector<std::string> bios_folders = Portable::BiosFolders("saturn");
-    bios_folders.push_back(std::filesystem::path(game.path).parent_path().string());
+    const std::string game_folder = std::filesystem::path(game.path).parent_path().string();
+    bios_folders.push_back(game_folder);
+    for (const std::string& above :
+         Library::FoldersAbove(game_folder, Library::ConsoleRoot(game_folder, SystemId::SATURN, App::DATA_DIR)))
+      bios_folders.push_back(above);  // ((01.91) nearest first, up to Roms/saturn)
     const std::string bios = SaturnTest::FindSaturnBios(bios_folders, &crc);
     if (bios.empty())
     {
-      LogF("saturn: no BIOS (a .bin of 512 KiB) in %s, system or the game's folder", s_system_dir.c_str());
+      LogF("saturn: no BIOS (a .bin of 512 KiB) in %s, system, the game's folder or the folders above it up to "
+           "Roms/saturn", s_system_dir.c_str());
+      // ((01.92) EmuSuNi's own folder written out in full: the portable data's when it is in use (BiosFolders' first).)
       *error = "No Saturn BIOS found.\nBIOS: the USA one, 512 KB (any name with \"bios\" in it),\n"
-               "in the same folder or in /data/EmuSuNi/system/saturn.";
+               "in the game's folder, a folder above it,\nor in EmuSuNi's BIOS folder:\n" + bios_folders.front();
       return Result::Failed;
     }
     LogF("saturn: BIOS %s (CRC32 %08x: %s)", bios.c_str(), static_cast<unsigned>(crc),
@@ -4918,16 +5965,83 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
     MakeDirs(s_save_dir);
   }
 #endif
+#ifdef EMUSUNI_VITA
+  // (with-vita) The PS Vita: Vita3K's own folder is system/vita3k (the firmware it installs from the .PUP files there,
+  // the games it installs, its caches); the games' saves in saves/psvita/vita3k. Without the firmware a game shows
+  // nothing: said here (the menu then says which files to bring and copies them, src/Vita.h) instead of starting it.
+  if (s_system == SystemId::VITA)
+  {
+    s_save_dir += "/psvita";
+    MakeDirs(s_save_dir);
+    MakeDirs(s_system_dir + "/vita3k");
+    const Vita::Firmware firmware = Vita::FindFirmware(s_system_dir);
+    LogF("vita: firmware in %s/vita3k: %s", s_system_dir.c_str(), Vita::Describe(firmware).c_str());
+    if (!firmware.Ready())
+    {
+      *error = Vita::MissingMessage(firmware, s_system_dir);
+      return Result::Failed;
+    }
+#ifdef EMUSUNI_VITA_NOKEYS
+    // (with-vita-nokeys) This build's core has none of Sony's keys inside: they are a file of the player's
+    // (src/Vita.h). Without it the firmware can't be installed and no game starts (the system's modules, which
+    // every game loads, are encrypted on the disk): said here, the core isn't asked.
+    {
+      const Vita::Keys keys = Vita::FindKeys(s_system_dir);
+      LogF("vita: keys: %s", Vita::DescribeKeys(keys, s_system_dir).c_str());
+      if (keys != Vita::Keys::Ready)
+      {
+        LogF("vita: keys: needed for %s: not started",
+             firmware.Installed() ? "the system's modules" : "the firmware's install");
+        *error = Vita::KeysMessage(keys, s_system_dir, !firmware.Installed());
+        return Result::Failed;
+      }
+    }
+#endif
+    if (!firmware.Installed())
+      LogLine("vita: the core installs the firmware at this start (a minute or more, its progress on the screen)");
+    Vita::RemoveCopiedFiles(s_system_dir);  // (installed at an earlier start: the app's copies of its .PUP files go)
+  }
+#endif
+#ifdef EMUSUNI_MUGEN
+  // (01.27, with-mugen) MUGEN: Go's runtime starts before its first game of the session, after its checks and once per
+  // version its test (src/MugenGo.h, the log's "mugen: go:" lines); a PS4 where it can't run, or where it closed the
+  // app the last time, is said here instead of starting the game. The game itself writes in its own folder (its
+  // save/config.ini, its logs), as Ikemen GO does beside its executable.
+  if (s_system == SystemId::MUGEN)
+  {
+    std::string why;
+    if (!MugenGo::Prepare(App::DATA_DIR, &why))
+    {
+      *error = why;
+      return Result::Failed;
+    }
+  }
+#endif
   // A NAOMI or Atomiswave game: its board's EEPROM and flash (the operator menu's settings, the high scores) in
   // saves/naomi/reicast and saves/atomiswave/reicast, made by the core and named after the zip; system/dc (Flycast's
   // own folder) can hold the BIOS zips, which it also finds beside the game. What the game needs and isn't there is
   // said here, before the core is started (below), or if the core refuses it.
   std::vector<std::string> board_missing;
   s_board_set = nullptr;
+  unsetenv("EMUSUNI_FOLDERS_ABOVE");  // ((01.91) a board game's only: below)
   if (IsFlycastBoard(s_system))
   {
     s_save_dir += s_system == SystemId::NAOMI ? "/naomi" : "/atomiswave";
     MakeDirs(s_save_dir);
+    // ((01.91, the owner) A game in a folder below Roms/naomi or Roms/atomiswave: its BIOS zip, a clone's parent zip
+    // and its parent's GD-ROM image looked for in the folders above it too, up to the console's - by the core as well
+    // (EMUSUNI_FOLDERS_ABOVE: scripts/build-dc-core.sh), so both find the same files.)
+    const std::string board_folder = std::filesystem::path(game.path).parent_path().string();
+    const std::vector<std::string> board_above =
+        Library::FoldersAbove(board_folder, Library::ConsoleRoot(board_folder, s_system, App::DATA_DIR));
+    std::string above_list;
+    for (const std::string& above : board_above)
+    {
+      above_list += (above_list.empty() ? "" : "\n") + above;
+      LogF("naomi: its BIOS and parent also looked for in %s", above.c_str());
+    }
+    if (!above_list.empty())
+      setenv("EMUSUNI_FOLDERS_ABOVE", above_list.c_str(), 1);
     // A cartridge image (.dat, .bin): no set of Flycast's list (its own board, inputs and picture), naomi.zip.
     const bool image = Naomi::IsImageName(game.path);
     s_board_set = image ? nullptr : Naomi::Find(game.id);
@@ -4935,13 +6049,13 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
     {
       std::error_code size_error;
       const auto bytes = std::filesystem::file_size(game.path, size_error);
-      board_missing = Naomi::ImageMissing(std::filesystem::path(game.path).parent_path().string(), s_system_dir);
+      board_missing = Naomi::ImageMissing(board_folder, board_above, s_system_dir);
       LogF("naomi: %s, a NAOMI cartridge image of %u MiB (Flycast plays it as it is); BIOS naomi.zip", game.id.c_str(),
            size_error ? 0u : static_cast<unsigned>(bytes >> 20));
     }
     if (s_board_set)
     {
-      board_missing = Naomi::Missing(*s_board_set, std::filesystem::path(game.path).parent_path().string(), s_system_dir);
+      board_missing = Naomi::Missing(*s_board_set, board_folder, board_above, s_system_dir);
       LogF("naomi: %s, %s, \"%s\"; BIOS %s, cartridge %u MiB%s%s%s%s", game.id.c_str(),
            Naomi::BoardName(*s_board_set).c_str(), s_board_set->title.c_str(), Naomi::BiosZip(*s_board_set).c_str(),
            static_cast<unsigned>(s_board_set->size >> 20), s_board_set->vertical ? ", vertical" : "",
@@ -4949,8 +6063,8 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
            s_board_set->linked ? ", linked boards" : "");
     }
     for (const std::string& file : board_missing)
-      LogF("naomi: %s isn't where the core looks for it (beside the game, or %s/dc for a BIOS)", file.c_str(),
-           s_system_dir.c_str());
+      LogF("naomi: %s isn't where the core looks for it (beside the game or above it, or %s/dc for a BIOS)",
+           file.c_str(), s_system_dir.c_str());
     // What makes Flycast refuse the game is said here instead (00.64): its refusal is a C++ exception, and on the PS4
     // one doesn't come back to its catch - the app ends without a word. The board's BIOS not there, a GD-ROM game's
     // disc image not there, a zip whose name isn't its set's in small letters where the drive tells case apart (the
@@ -5002,11 +6116,17 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   // any zip it knows of, so a non-merged set (a clone's zip with its parent's files, a full one's with the
   // BIOS's too) starts without them.
   std::vector<std::string> arcade_not_found;
+  std::vector<std::string> arcade_above;  // ((01.91) the folders above the game's, up to Roms/arcade: Arcade::FoldersAbove)
   if (s_system == SystemId::ARCADE)
   {
     const Arcade::Driver* driver = Arcade::Find(game.id);
+    const std::string folder = std::filesystem::path(game.path).parent_path().string();
+    arcade_above = Arcade::FoldersAbove(folder, Library::ConsoleRoot(folder, SystemId::ARCADE, App::DATA_DIR));
+    Arcade::SetCoreFolders(arcade_above);  // (the core looks in them too, after the game's folder)
+    for (const std::string& above : arcade_above)
+      LogF("arcade: its parent and BIOS sets also looked for in %s", above.c_str());
     if (driver)
-      arcade_not_found = Arcade::Missing(*driver, std::filesystem::path(game.path).parent_path().string(), s_system_dir);
+      arcade_not_found = Arcade::Missing(*driver, folder, arcade_above, s_system_dir);
     for (const std::string& zip : arcade_not_found)
       LogF("arcade: %s isn't beside %s (the core goes on without it)", zip.c_str(), game.id.c_str());
     // FinalBurn Neo's folders (saves/fbneo: the games' NVRAM; system/fbneo: hiscore.dat, samples,
@@ -5014,6 +6134,9 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
     // first time (scripts/package.sh).
     MakeDirs(s_system_dir + "/fbneo/patched");
     MakeDirs(s_save_dir + "/fbneo");
+    // ((01.26) Its cheats: the player's choices for this game - none online -, a file downloaded for it put in place.)
+    ArcadeCheats::Begin(Portable::UserDir() + "/cheats/" + game.key + ".fbneo", online, s_system_dir + "/fbneo/cheats",
+                        game.id);
     // (01.05) A patched romset is the core's first choice (BuildArcadeVariables): the log says when one is there.
     for (const char* ext : {".zip", ".7z"})
     {
@@ -5063,6 +6186,8 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   s_n64_crc1 = s_system == SystemId::N64 ? N64Crc(rom, 0x10) : 0;
   s_n64_crc2 = s_system == SystemId::N64 ? N64Crc(rom, 0x14) : 0;
   s_3ds_title = s_system == SystemId::THREEDS ? ThreedsTitleId(game.path) : 0;  // (00.81: before Build3dsVariables)
+  // ((01.36) New 3DS Mode out of the menu: what its SMDH says, read before Build3dsVariables as the title ID.)
+  s_3ds_new_only = s_system == SystemId::THREEDS && ThreedsNew3dsOnly(game.path);
   if (s_system == SystemId::PSP)
   {
     // (00.81, GitHub issue #19: what a PSP game's speed and stick depend on, in a player's log. Frame Skip is PPSSPP's
@@ -5152,12 +6277,20 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
          scope == Settings::Scope::Game ? "This Game" : scope == Settings::Scope::Console ? "This Console" : "All Games",
          Settings::Get("quality", game.key).c_str(), Settings::Get("quality").c_str(), s_3ds_scale, where.w, where.h,
          screens.c_str(), Settings::Get("gpu_filter", game.key).c_str());
-    // (00.81) The title ID, and what Auto made of the two settings for it (the players' graphics errors).
-    LogF("3ds: title ID %016llx; Accurate Shader Multiplication %s (%s), right eye %s (3DS Right Eye %s)%s",
-         static_cast<unsigned long long>(s_3ds_title), s_3ds_accurate_mul ? "on" : "off",
-         Settings::Get("3ds_accurate_mul", game.key).c_str(), s_3ds_right_eye ? "drawn" : "not drawn",
-         Settings::Get("3ds_right_eye", game.key).c_str(),
-         FileExists("/data/EmuSuNi/3ds-right-eye") ? "; /data/EmuSuNi/3ds-right-eye: drawn in every game" : "");
+    // (00.81) The title ID, and what was made of the three for it - (01.36) by the game alone, the menu has them no more
+    // (the players' graphics errors).
+    const int eye_file = ThreedsTestFile("3ds-right-eye");
+    LogF("3ds: title ID %016llx; %s 3DS (%s); Accurate Shader Multiplication %s (%s); right eye %s (%s)",
+         static_cast<unsigned long long>(s_3ds_title), s_3ds_new == 1 ? "New" : "Old", s_3ds_new_why,
+         s_3ds_accurate_mul ? "on" : "off",
+         ThreedsTestFile("3ds-accurate-mul") >= 0 ? "/data/EmuSuNi/3ds-accurate-mul" :
+         ThreedsAccurateMulGame(s_3ds_title)       ? "a game known to need it" :
+                                                     "not one of the games that need it",
+         eye_file == 1 ? "drawn" : eye_file == 0 ? "not drawn" : s_3ds_right_eye ? "drawn" : "not drawn",
+         eye_file >= 0                        ? "/data/EmuSuNi/3ds-right-eye, the core's" :
+         ThreedsLeftEyeSkipsGame(s_3ds_title) ? "without it the left eye skips pictures in this game" :
+         ThreedsRightEyeGame(s_3ds_title)     ? "a game that breaks without it" :
+                                                "left out: faster");
     // (00.85) The GPU timing emulation (Luigi's Mansion 2), and the vertex shaders on the CPU (the diagnosis file).
     LogF("3ds: GPU timings %s%s; vertex shaders on the %s",
          s_3ds_gpu_timings ? "emulated (the game's list)" : "not emulated",
@@ -5168,6 +6301,28 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
     if (s_3ds_title != 0)
       LogF("3ds: mods %s (%s)", ThreeDsCia::ModsOn(s_3ds_title) ? "on" : "off (the game's Updates, DLC and Mods)",
            ThreeDsCia::HasMods(s_save_dir, s_3ds_title) ? "its folder has some" : "none in its folder");
+    // (01.46) Each of them: the update's and DLC's switches, the mods in folders of their own (what the core does of
+    // them: its caps).
+    if (s_3ds_title != 0)
+    {
+      const std::vector<ThreeDsCia::Mod> mods = ThreeDsCia::ListMods(s_save_dir, s_3ds_title);
+      std::string own;
+      for (const ThreeDsCia::Mod& mod : mods)
+      {
+        if (!mod.main)
+          own += (own.empty() ? "" : ", ") + mod.name + (ThreeDsCia::ModOn(s_3ds_title, mod) ? " on" : " off");
+      }
+      LogF("3ds: update %s, DLC %s; mods in folders of their own: %s (the core's extras caps %d)",
+           ThreeDsCia::UpdateOn(s_3ds_title) ? "on" : "off", ThreeDsCia::DlcOn(s_3ds_title) ? "on" : "off",
+           own.empty() ? "none" : own.c_str(), ThreeDsCia::ExtrasCaps());
+    }
+    // (01.42) Its texture pack: on, off, or on but left out this time (the GPU memory: EnoughMemory's line).
+    if (s_3ds_title != 0 && (s_3ds_textures || s_3ds_textures_short >= 0 || ThreeDsTextures::On(s_3ds_title)))
+      LogF("3ds: texture pack %s (%s)",
+           s_3ds_textures                ? "on" :
+           s_3ds_textures_short >= 0     ? "left out this time: too little GPU memory free" :
+                                           "on, but no picture in its folder",
+           ThreeDsTextures::InstalledFolder(s_save_dir, s_3ds_title).c_str());
 #endif
   }
   LogScreens(game.key, "the game's start");
@@ -5466,13 +6621,20 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
     }
     if (s_system == SystemId::THREEDS)
       *error = ThreedsFailure(*error);
+    // (01.29) A DS game whose ROM found no memory (melonDS DS: "Not enough memory for the ROM (512 MiB)",
+    // scripts/build-nds-core.sh): in the app's words, back to the menu (until 01.28 new's failure ended the app).
+    if (s_system == SystemId::NDS && error->find("Not enough memory for the ROM") != std::string::npos)
+    {
+      LogF("nds: %s", error->c_str());
+      *error = "Not enough memory for this game";
+    }
     if (error->find("disksys.rom") != std::string::npos)
       *error += "\nCopy the BIOS disksys.rom to\n" + s_system_dir;
 #ifdef EMUSUNI_ARCADE
     if (s_system == SystemId::ARCADE)
     {
       std::string reason = fbneo_emusuni_error();
-      *error = Arcade::LoadError(reason, arcade_not_found, s_system_dir, game.path);  // (00.90: another version)
+      *error = Arcade::LoadError(reason, arcade_not_found, s_system_dir, game.path, arcade_above);  // (00.90)
       std::replace(reason.begin(), reason.end(), '\n', '|');
       LogF("arcade: %s refused: %s", game.id.c_str(), reason.c_str());
       s_core->unload_game();  // what the load set up before it failed: FinalBurn Neo frees it here
@@ -5599,10 +6761,36 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   auto apply_cheats = [&]() {
     if (!online)
       menu.CheatList().ApplyToCore(*s_core, s_system);
+    // ((01.26) The Arcade's: FinalBurn Neo's options, read by the core on its next frame - src/ArcadeCheats.h; online
+    // none.)
+    if (arcade && ArcadeCheats::TakeChanges(&s_variables))
+      s_variables_changed = true;
   };
-  apply_cheats();
+  // (01.36, report 5VT63M: Streets of Rage's red screen, its codes on) Genesis Plus GX writes a Mega Drive code for the
+  // cartridge (a Game Genie's) into the game's ROM itself, and a game that adds its ROM up as it starts (Sega's red
+  // screen when the sum is wrong) stops there. Its codes go in after CHEATS_AFTER_START frames of the game, at the start
+  // and after a Reset (the ROM as it was first), as the player did by hand; a change in the in-game menu meanwhile waits
+  // too (cheats_wait).
+  constexpr int CHEATS_AFTER_START = 300;  // 5 s of the game
+  int cheats_wait = 0;
+  const auto codes_after_start = [&]() {
+    const auto& entries = menu.CheatList().Entries();
+    return s_system == SystemId::MD && !online &&
+           std::any_of(entries.begin(), entries.end(), [](const Cheats::Entry& entry) { return entry.enabled; });
+  };
+  if (codes_after_start())
+  {
+    cheats_wait = CHEATS_AFTER_START;
+    LogF("cheats: the Mega Drive's in after %d frames of the game (a ROM's sum checked as it starts)",
+         CHEATS_AFTER_START);
+  }
+  else
+    apply_cheats();
   if (!menu.CheatList().Entries().empty())
     LogF("cheats: %zu codes", menu.CheatList().Entries().size());
+  if (arcade && !ArcadeCheats::List().empty())
+    LogF("cheats: the arcade game has %zu, %d as the player chose them%s", ArcadeCheats::List().size(),
+         ArcadeCheats::Given(), online ? " (online: none, the defaults)" : "");
   // Changing the disc (the in-game menu's Disc): the lid stays open for 1.5 s of the game - a game sees
   // it open, as on the console - then the disc chosen goes in.
   int disc_lid_open = 0;
@@ -5647,8 +6835,21 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   bool resume_pending = false;
   // (Not after the start watchdog restarted EmuSuNi because the start stopped while that state loaded: SkipContinue.)
   // (00.95: nor in a link cable match: its game's Continue is mGBA's, of the game alone.)
-  const bool resume_state = Settings::GetOn("resume", game.key) && Saves::Modified(Saves::StatePath(game.key, 0)) &&
-                            !StartGuard::SkipContinue() && !s_gblink;
+  // ((01.27) Triangle -> Load State: that slot instead, Continue on or off - LoadStateAtStart.)
+  const int start_slot = TakeStartSlot(game.key);
+  const int resume_slot = start_slot >= 0 ? start_slot : 0;
+  // ((01.57) Started again for the N64 Resolution: its state kept apart instead of Continue's or a slot's.)
+  bool restart_asked = false;
+  const bool restarted = s_system == SystemId::N64 && LoadRestartState(game.key, &restart_asked);
+  if (restart_asked)
+    menu.Toast(restarted ? "N64 Resolution changed: the game goes on where it was" :
+                           "N64 Resolution changed: the game started again (its state couldn't be loaded)",
+               4.0f);
+  const bool resume_state = !restart_asked && (start_slot >= 0 || Settings::GetOn("resume", game.key)) &&
+                            Saves::Modified(Saves::StatePath(game.key, resume_slot)) && !StartGuard::SkipContinue() &&
+                            !s_gblink;
+  const std::string resume_toast =
+      resume_slot > 0 ? "Loaded slot " + std::to_string(resume_slot) : std::string("Continuing where you left off");
   if (resume_state)
   {
     if (s_system == SystemId::PSP || s_system == SystemId::SATURN)
@@ -5656,8 +6857,8 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
     else
     {
       StartGuard::Step(StartGuard::CONTINUE_STEP);
-      if (LoadState(0))
-        menu.Toast("Continuing where you left off");
+      if (LoadState(resume_slot))
+        menu.Toast(resume_toast);
     }
   }
   if (s_system == SystemId::DC)
@@ -5689,9 +6890,33 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
     static bool told = false;
     LogF("ps1: no BIOS file in %s: the built-in OpenBIOS starts the game%s", s_system_dir.c_str(),
          told ? "" : ", the player told");
+    // ((01.92, Lei on a PS5) The folder written out in full: the portable data's when it is in use - its BIOS are
+    // read from there (Portable::SystemDir) -, else this PS4's.)
+    const std::string bios_dir = Portable::Active() ? Portable::DataFolder() + "/system" : s_system_dir;
     if (!told)
-      menu.Toast("No PS1 BIOS: fewer games start. Put one (scph5501.bin...) in /data/EmuSuNi/system", 10.0f);
+      menu.Toast("No PS1 BIOS: fewer games start. Put one (scph5501.bin...) in " + bios_dir, 10.0f);
     told = true;
+  }
+  if (s_system == SystemId::THREEDS && ThreedsMiiGame(s_3ds_title))
+  {
+    // (01.29) Miitopia, Tomodachi Life without a real 3DS's Mii data: Miis without faces (#69 - the core's open-source
+    // stand-in has no eyes, eyebrows or mouths). The file is Nintendo's, never in the package or on a server: the player
+    // takes it from their own 3DS. Said once a game in a session, as the PS1 BIOS is; the log every time. (Its own
+    // lines: the folder's path is too long for one; the texts translated here, the whole toast then untranslated.)
+    const std::string nand = s_save_dir + "/Azahar/nand/00000000000000000000000000000000/";
+    const std::string file = "title/0004009b/00010202/content/00000000.app";
+    if (!ThreedsMiiDataThere(nand + "title/0004009b/00010202/content"))
+    {
+      static std::set<uint64_t> told;
+      const bool tell = told.insert(s_3ds_title).second;
+      LogF("3ds: no Mii data (a decrypted 0004009B00010202 from a 3DS) as %s%s: the Miis without faces%s", nand.c_str(),
+           file.c_str(), tell ? ", the player told" : "");
+      if (tell)
+        menu.Toast(std::string(PS4Lang::T("Miis will have no faces: a 3DS system file (the Mii data) is missing.")) +
+                       "\n" + PS4Lang::T("Take it from your own 3DS, decrypted, and save it as:") + "\n" + nand + "\n" +
+                       file,
+                   15.0f);
+    }
   }
   if (IsFlycastBoard(s_system))
   {
@@ -5702,6 +6927,9 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   // A start again (the start watchdog, src/StartGuard.h): why, over the console's own toast.
   if (!StartGuard::RetryToast().empty())
     menu.Toast(StartGuard::RetryToast(), 8.0f);
+  // (01.42) A 3DS game's texture pack left out for want of GPU memory (EnoughMemory).
+  if (s_system == SystemId::THREEDS && s_3ds_textures_short >= 0)
+    menu.Toast("Too little memory for its texture pack: the game started without it.", 8.0f);
   // (00.23) Online: the game loaded (Continue's state too): the host sends its state, a guest waits for it; the frames
   // run once both have it (Netplay::FramesThisPass).
   if (online)
@@ -5714,16 +6942,43 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
 
   Pads pads;
   pads.Open();
-  // Tilt Sensor: DualShock 4 Motion - player 1's motion sensors on.
+  // (01.27) The players the game takes at once (NetplayLibrary: the cartridge consoles' and the Arcade's lists; 0: not
+  // known - a disc's), or its adapter's for 3 or more (a PlayStation's Multitap disc, Auto or On): a game for 2 or more
+  // that starts with one controller gets a hint (below), once a game while the app runs.
+  int game_players = 0;
+  {
+    // (Only the consoles the list has, a Game Gear's link games left out: the list stays in memory, ~2 MB - never
+    // loaded for a disc console's game.)
+    static const char* const LISTED[] = {"nes", "snes", "md", "sms", "sg1000", "pce", "atari2600", "arcade"};
+    const std::string console = GetSystem(game.system).key;
+    uint32_t crc = 0;
+    uint64_t size = 0;
+    if (std::find(std::begin(LISTED), std::end(LISTED), console) != std::end(LISTED))
+    {
+      NetplayLibrary::Lookup(game.path, &crc, &size);
+      game_players = NetplayLibrary::Players(console, game.id, crc);
+    }
+  }
+  bool pads_said = false;
+  static std::set<std::string> s_pads_hinted;
+  // Tilt Sensor: DualShock 4 Motion - player 1's motion sensors on. (01.27) And 3DS Motion Sensor: DualShock 4.
   bool motion_on = false;
   auto update_motion = [&]() {
     const int handle = pads.pads[0].handle;
-    if (!IsHandheld(s_system) || handle < 0 || s_tilt.motion == motion_on)
+    const bool threeds = s_system == SystemId::THREEDS;
+    bool vita = false, vita_want = false;
+#ifdef EMUSUNI_VITA
+    vita = s_system == SystemId::VITA;  // (01.88) the PS Vita's motion sensors (vita_motion)
+    vita_want = s_motion_vita.on;       // ((01.91) here: s_motion_vita is with-vita's only - a build without it)
+#endif
+    const bool want = threeds ? s_motion3ds.on : vita ? vita_want : s_tilt.motion;
+    if ((!IsHandheld(s_system) && !threeds && !vita) || handle < 0 || want == motion_on)
       return;
-    const int result = emusuni_pad_set_motion(handle, s_tilt.motion);
-    motion_on = s_tilt.motion;
+    const int result = emusuni_pad_set_motion(handle, want);
+    motion_on = want;
     s_tilt.calibrate = true;
-    LogF("gb: DualShock 4 motion sensors %s (%#x)", motion_on ? "on" : "off", static_cast<unsigned>(result));
+    LogF("%s: DualShock 4 motion sensors %s (%#x)", threeds ? "3ds" : vita ? "vita" : "gb", motion_on ? "on" : "off",
+         static_cast<unsigned>(result));
   };
   update_motion();
   // The emulation thread first on its core while a game runs: a background thread on the same core
@@ -5811,6 +7066,7 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   Stats stats;
   stats.pass_ms.reserve(4096);
   stats.run_ms.reserve(4096);
+  stats.pictures_at = s_pictures;  // (and pictures10_at: ResetWindow)
   ResetWindow(stats, display.GetFlipState());
   FramePacer pacer;
   VblankCheck vblank_check;
@@ -5845,12 +7101,35 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   DcFrames dc_frames;  // (Flycast: the console's frames per picture)
 #endif
   PspFrames psp_frames;  // (the PSP: its vblanks per run, Frame Skip on)
+#ifdef EMUSUNI_VITA
+  VitaCadence vita_cadence;  // ((01.77) the PS Vita: how long each of the game's pictures stays on the screen)
+#endif
   int psp_heavy_passes = 0;  // (PSP Frame Rate Auto: passes in a row the core couldn't keep up)
   int skip_counter = 0;
   float sram_timer = 0.0f;
   bool slow_last = false;
   Result result = Result::Menu;
   bool quit = false;
+  // ((01.57) The N64 Resolution the game started with: another one chosen in the in-game menu starts it again.)
+  std::string n64_resolution = Settings::Get("n64_resolution", game.key);
+  // ((01.66) The PS Vita's loading screen: the game's cover (the menu's, 640 pixels a side at most), its time since it
+  // began - again after a load in the game, "Closing the title...".)
+  ImTextureID vita_cover{};
+  float vita_cover_aspect = 0.75f;
+  auto vita_since = Clock::now();
+  bool vita_was_loading = s_vita_loading;
+  if (IsVita(s_system) && s_start_cover_game == game.key && !s_start_cover_path.empty())
+  {
+    ImageRGBA picture;
+    if (LoadPicture(s_start_cover_path, &picture, 640, 640) && picture.width > 0 && picture.height > 0)
+    {
+      vita_cover = display.CreateTexture(picture.pixels.data(), picture.width, picture.height);
+      vita_cover_aspect = static_cast<float>(picture.width) / static_cast<float>(picture.height);
+    }
+    LogF("vita: the loading screen's cover %s", vita_cover ? s_start_cover_path.c_str() : "couldn't be read");
+  }
+  s_start_cover_game.clear();
+  s_start_cover_path.clear();
   uint32_t menu_pad_held = 0;
   // Back from the in-game menu, player 1's pad reaches the game once every button is up (the press that closed
   // the menu isn't the game's).
@@ -5859,13 +7138,20 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   float memory_log = 0.0f;
   float audio_log = 0.0f;  // play time since the sound's last health line
   uint32_t join_noticed = 0;  // (00.86: the last request to join our room said in the game)
+  PassParts pass_parts;      // ((01.39) the pass before's, for a long one's line: LogLongPass)
+  LongPasses long_passes;
   StartGuard::Step("the game runs");
   while (!quit)
   {
     StartGuard::Beat();  // (the start watchdog: the emulation thread goes on)
     const auto now = Clock::now();
-    const float dt = std::clamp(std::chrono::duration<float>(now - last).count(), 0.0f, 0.25f);
+    const float pass_s = std::chrono::duration<float>(now - last).count();  // ((01.39) the real time, uncut)
+    const float dt = std::clamp(pass_s, 0.0f, 0.25f);
     last = now;
+    if (!menu.IsOpen())
+      LogLongPass(long_passes, pass_parts, pass_s * 1000.0, now);
+    pass_parts = {};
+    pass_parts.quiet = menu.IsOpen();
     ImGuiIO& io = ImGui::GetIO();
     io.DeltaTime = dt > 0.0f ? dt : 1.0f / 60.0f;
 
@@ -5879,6 +7165,34 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
       menu.Toast("Controller " + n + (connected ? " connected: Player " : " disconnected: Player ") + n, 3.0f);
     }
     pads.changes.clear();
+    // (01.27) A signed-in user's controller the PS4 didn't give the app (Pads: why, in the log).
+    for (const int player : pads.failed)
+      menu.Toast("Player " + std::to_string(player + 1) + "'s controller couldn't be opened", 4.0f);
+    pads.failed.clear();
+    // (01.27, v00.24's "player 2 not detected") 9 s in (after the start's own toasts, 8 s at most): the controllers there
+    // in the log; a game for 2 or more players with player 1's alone - not online, not a Game Boy's - says how to add one
+    // (the PS4 gives the app a controller once a user is chosen on it).
+    if (!pads_said && pads.age >= 9.0f)
+    {
+      pads_said = true;
+      std::string there;
+      for (size_t i = 0; i < pads.pads.size(); i++)
+      {
+        if (pads.pads[i].ok)
+          there += (there.empty() ? "" : ", ") + std::to_string(i + 1);
+      }
+      const int adapter_players =
+          s_adapter != Multiplayer::Adapter::None ? Multiplayer::MaxPlayers(s_adapter) : 0;
+      const int wanted = std::max(game_players, adapter_players);
+      const bool alone = there == "1" || there.empty();
+      const bool hint = wanted >= 2 && alone && !online && !IsHandheld(s_system) && !Tour::Active() &&
+                        s_pads_hinted.insert(game.key).second;
+      const std::string takes = wanted > 0 ? std::to_string(wanted) : "?";
+      LogF("pads: 9 s in: the controllers of players %s; the game takes %s players%s",
+           there.empty() ? "none" : there.c_str(), takes.c_str(), hint ? ": the hint for another controller shown" : "");
+      if (hint)
+        menu.Toast("One controller only: for Player 2, turn on another one and choose a PS4 user on it", 8.0f);
+    }
     // (01.07) PPSSPP stopped the game (CoreLog: s_psp_stopped): said over it, again and again while the menu is
     // closed.
     if (s_psp_stopped && !menu.IsOpen())
@@ -5935,6 +7249,7 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
       {
         // (R3's press made no swap of the DS's or the 3DS's screens: forgotten, so letting it go swaps none.)
         s_nds_r3 = s_3ds_r3 = false;
+        s_l3 = {};  // ((01.31) nor a layout from L3 let go after it)
         StopRumble();
         // (00.85) The game's picture as the screen shows it, before the menu covers it: a state's thumbnail when the
         // core draws its own image.
@@ -6001,6 +7316,14 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
             s_core->reset();
             return true;
           });
+        else if (codes_after_start())
+        {
+          // ((01.36) The Mega Drive: its ROM as it was for the start's sum, the codes after it - cheats_wait.)
+          s_core->cheat_reset();
+          s_core->reset();
+          cheats_wait = CHEATS_AFTER_START;
+          LogF("cheats: reset - the Mega Drive's in again after %d frames", CHEATS_AFTER_START);
+        }
         else
           s_core->reset();
         Achievements::Reset();  // (the achievements' progress from the start too)
@@ -6067,7 +7390,7 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
         if (Multiplayer::HasAdapter(s_system) && adapter.adapter != adapter_before)
           PlugAdapter(adapter, adapter_before, "Multiplayer Adapter changed in the in-game menu");
       }
-      if (menu.TakeCheatsChanged())
+      if (menu.TakeCheatsChanged() && cheats_wait == 0)  // ((01.36) waiting: they go in with the wait's end)
         apply_cheats();
       if (!menu.IsOpen())
       {
@@ -6089,6 +7412,26 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
         stats.counted = -1;
         menu_release.Start();  // (the game sees player 1's pad again once every button is up)
         menu_opener.Closed();  // (and a hold of the menu's buttons counts again once they were let go)
+        // ((01.57, the owner) The N64 Resolution changed as the menu closes: the game starts again with it and goes on
+        // from its state (SaveRestartState; main.cpp runs it again). Online, or the state not kept: the next start's.)
+        const std::string resolution = Settings::Get("n64_resolution", game.key);
+        if (s_system == SystemId::N64 && resolution != n64_resolution && !quit)
+        {
+          if (!online && SaveRestartState())
+          {
+            LogF("game: N64 Resolution %s -> %s: the game starts again from its state", n64_resolution.c_str(),
+                 resolution.c_str());
+            result = Result::Restart;
+            quit = true;
+          }
+          else
+          {
+            menu.Toast(online ? "Online, the N64 Resolution changes at the next game start" :
+                                "The N64 Resolution couldn't change now: next time a game starts",
+                       3.0f);
+            n64_resolution = resolution;  // (not asked again at every closing)
+          }
+        }
       }
     }
     if (quit)
@@ -6106,9 +7449,25 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
       display.BeginFrame();
       ImGui::NewFrame();
       ImDrawList* dl = ImGui::GetBackgroundDrawList();
-      DrawPicture(dl, display, game.key);
-      DrawBezel(dl);
+      if (s_vita_loading && IsVita(s_system))
+      {
+        // ((01.66) The PS Vita preparing the game: the app's screen instead of the core's picture.)
+        if (!vita_was_loading)
+          vita_since = Clock::now();
+        DrawVitaLoading(dl, regular, bold, game.title, vita_cover, vita_cover_aspect,
+                        std::chrono::duration<float>(Clock::now() - vita_since).count());
+      }
+      else
+      {
+        DrawPicture(dl, display, game.key);
+        DrawBezel(dl);
+      }
+      vita_was_loading = s_vita_loading;
       ImDrawList* fg = ImGui::GetForegroundDrawList();
+#ifdef EMUSUNI_VITA
+      if (IsVita(s_system))
+        DrawVitaCursor(fg, game.key);  // ((01.67) the pointer's or a finger's, over the picture, under the menu)
+#endif
       DrawStats(fg, bold, stats, Settings::GetOn("show_fps", game.key),
                 Settings::GetOn("perf_overlay", game.key), audio.Fill());
       if (online)
@@ -6144,8 +7503,14 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
       }
 #endif
       display.EndFrame();
-      pass_draw_wait = display.TakeWaitMs() + handover_ms;
+      double flip_wait = 0.0;
+      const double display_wait = display.TakeWaitMs(&flip_wait);
+      pass_draw_wait = display_wait + handover_ms;
       pass_draw_ms = std::chrono::duration<double, std::milli>(Clock::now() - draw_start).count();
+      pass_parts.handover += handover_ms;  // ((01.39) LogLongPass)
+      pass_parts.gpu += display_wait - flip_wait;
+      pass_parts.flip += flip_wait;
+      pass_parts.work += std::max(0.0, pass_draw_ms - pass_draw_wait);
       if (!tour.shot.empty())
         Tour::SaveShot(display, tour.shot);
     };
@@ -6170,10 +7535,62 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
       bool fast = false;
       for (int i = 0; i < MAX_PLAYERS; i++)
       {
-        const auto& pad = i == 0 ? player1 : pads.pads[i];
+        // ((01.27) Its sticks as Controls' sensitivity and dead zone make them, for all that reads them below: the
+        // core's analog values, the D-pad's Left Stick, the sticks' directions as buttons, the stylus, the tilt.)
+        Pads::Pad pad = i == 0 ? player1 : pads.pads[i];
+        Controls::TuneSticks(layout, &pad.data);
+        // ((01.31) L3 on the DS and the 3DS: a short press the next Screen Layout, held the game's - L3Press. (01.67)
+        // On the PS Vita: the pointer on or off.)
+        if (i == 0 && (TwoScreens() || IsVita(s_system)) && !menu.IsOpen() &&
+            TakeL3Press(&pad.data, pad.ok && !touring, dt))
+        {
+#ifdef EMUSUNI_VITA
+          if (IsVita(s_system))
+          {
+            s_vita_pointer.on = !s_vita_pointer.on;
+            s_vita_pointer.down = false;
+            LogF("vita: the pointer %s (L3)", s_vita_pointer.on ? "on" : "off");
+            menu.Toast(s_vita_pointer.on ? "Pointer on: the left stick moves it, Cross touches (L3: off)" :
+                                           "Pointer off",
+                       s_vita_pointer.on ? 4.0f : 2.0f);
+          }
+          else
+#endif
+            NextScreenLayout(game.key, menu);
+        }
+#ifdef EMUSUNI_VITA
+        // ((01.67) The pointer on: the left stick moves the cursor - faster the further it is pushed, as fast up and
+        // down as across the Vita's 960 x 544 -, Cross touches; both kept from the game.)
+        if (i == 0 && IsVita(s_system))
+        {
+          const bool live = s_vita_pointer.on && pad.ok && !touring && !menu.IsOpen();
+          s_vita_pointer.down = live && (pad.data.buttons & ORBIS_PAD_BUTTON_CROSS) != 0;
+          if (live)
+          {
+            constexpr float DEAD = 0.12f, SPEED = 0.85f;  // (the whole screen's width in 1.2 s, pushed all the way)
+            const auto speed = [](uint8_t value) {
+              const float n = std::clamp((static_cast<float>(value) - 128.0f) / 127.0f, -1.0f, 1.0f);
+              const float m = std::max(0.0f, (std::abs(n) - DEAD) / (1.0f - DEAD));
+              return (n < 0 ? -1.0f : 1.0f) * m * m * SPEED;
+            };
+            s_vita_pointer.x = std::clamp(s_vita_pointer.x + speed(pad.data.leftStick.x) * dt, 0.0f, 1.0f);
+            s_vita_pointer.y =
+                std::clamp(s_vita_pointer.y + speed(pad.data.leftStick.y) * dt * (960.0f / 544.0f), 0.0f, 1.0f);
+            pad.data.buttons &= ~static_cast<uint32_t>(ORBIS_PAD_BUTTON_CROSS);
+            pad.data.leftStick.x = pad.data.leftStick.y = 128;
+          }
+          // (Once the game shows its first picture: how to get the pointer, said once.)
+          if (!s_vita_loading && !s_vita_pointer.hinted && s_frame_hw)
+          {
+            s_vita_pointer.hinted = true;
+            menu.Toast("Touchpad: slide to move the cursor, click to touch. L3: the left stick and Cross", 6.0f);
+          }
+        }
+#endif
         s_buttons[i] = pad.ok && !touring ? Controls::PadButtons(layout, pad.data) : 0;
         if (s_system == SystemId::N64 || s_system == SystemId::PS1 || s_system == SystemId::PSP ||
-            IsFlycast(s_system) || s_system == SystemId::ARCADE || s_system == SystemId::THREEDS)
+            IsFlycast(s_system) || s_system == SystemId::ARCADE || s_system == SystemId::THREEDS ||
+            IsVita(s_system))  // (with-vita: the PS Vita's two sticks)
         {
           // The analog sticks: the N64's control stick and C buttons, the DualShock's two sticks, the
           // PSP's and the Dreamcast's stick (the left one), an arcade game's wheel, paddle or dial
@@ -6249,6 +7666,45 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
             s_tilt.turn = 0.0f;
           }
         }
+        if (i == 0 && s_system == SystemId::THREEDS && s_motion3ds.on)
+        {
+          // (01.27) 3DS Motion Sensor: ScePadData's acceleration (G) and angular velocity (rad/s) after its orientation
+          // - OpenOrbis names them vel and acell - in the 3DS's axes (Motion3ds). None yet (all 0 until the sensors
+          // answer) or no controller: the 3DS as it was, not turning.
+          const vec_float3& a = pad.data.vel;
+          const vec_float3& w = pad.data.acell;
+          const bool fresh = pad.ok && !touring && (a.x != 0.0f || a.y != 0.0f || a.z != 0.0f);
+          const float now[6] = {a.x, -a.y, a.z, -w.x, w.y, -w.z};
+          for (int k = fresh ? 0 : 3; k < 6; k++)
+            s_motion3ds.axes[k].store(fresh ? now[k] : 0.0f, std::memory_order_relaxed);
+          if (fresh && !s_motion3ds.said)
+          {
+            s_motion3ds.said = true;
+            LogF("3ds: motion: the DualShock 4 held now: %.2f %.2f %.2f G, %.2f %.2f %.2f rad/s", a.x, a.y, a.z, w.x,
+                 w.y, w.z);
+          }
+        }
+#ifdef EMUSUNI_VITA
+        if (i == 0 && s_system == SystemId::VITA && s_motion_vita.on)
+        {
+          // (01.88) The PS Vita's motion sensors (MotionVita): ScePadData's acceleration (G) and angular velocity
+          // (rad/s) - OpenOrbis names them vel and acell - as RetroArch gives them (m/s^2, rad/s), in the axes Vita3K
+          // gives a controller (x, -z, y). None yet or no controller: the Vita as it was, not turning.
+          const vec_float3& a = pad.data.vel;
+          const vec_float3& w = pad.data.acell;
+          const bool fresh = pad.ok && !touring && (a.x != 0.0f || a.y != 0.0f || a.z != 0.0f);
+          constexpr float G = 9.80665f;
+          const float now[6] = {a.x * G, -a.z * G, a.y * G, w.x, -w.z, w.y};
+          for (int k = fresh ? 0 : 3; k < 6; k++)
+            s_motion_vita.axes[k].store(fresh ? now[k] : 0.0f, std::memory_order_relaxed);
+          if (fresh && !s_motion_vita.said)
+          {
+            s_motion_vita.said = true;
+            LogF("vita: motion: the DualShock 4 held now: %.2f %.2f %.2f G, %.2f %.2f %.2f rad/s", a.x, a.y, a.z, w.x,
+                 w.y, w.z);
+          }
+        }
+#endif
         if (i == 0 && s_system == SystemId::JAGUAR)
         {
           // (00.90) The touchpad (1920x942) is the Jaguar's number pad, its twelve keys laid out as on the pad: three
@@ -6335,12 +7791,23 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
           if (s_stylus.taps != taps_before)
             s_touch_taps++;
           // (01.15) 3DS Right Stick: Stylus - the right stick moves the stylus as on the DS (the Tap button touches)
-          // and the game gets no C-stick; C-Stick (the default) as until 01.14.
+          // and the game gets no C-stick; C-Stick (the default) as until 01.14. (01.24, GitHub #74, #67, #57) D-Pad:
+          // its directions press the 3DS's D-pad with the D-pad's own (StickDpad), no C-stick either; here, before
+          // the match takes this pass's buttons online (NetplayLocalInputs), so the other consoles get the same.
+          const std::string right_stick = Settings::Get("3ds_right_stick", game.key);
           bool stick = false;
-          if (Settings::Get("3ds_right_stick", game.key) == "stylus")
+          if (right_stick == "stylus")
           {
             s_analog[0][1] = {};
             stick = !finger && live && StickMovesStylus(pad.data, 320.0f, 240.0f);
+          }
+          else if (right_stick == "dpad")
+          {
+            s_analog[0][1] = {};
+            const uint16_t dpad = live ? StickDpad(pad.data.rightStick.x, pad.data.rightStick.y) : 0;
+            s_buttons[0] |= dpad;
+            if (dpad != 0)
+              s_stick_dpad_frames++;
           }
           if (finger)
             s_touch_frames++;
@@ -6361,6 +7828,38 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
             s_pointer.pressed = s_stylus.down;
           }
         }
+#ifdef EMUSUNI_VITA
+        // (After 01.47, the PS Vita's specialist) The touchpad is the PS Vita's touch screen, direct: where the finger
+        // is on the pad is where it is on the screen, and it touches while it rests there. Uncharted: Golden Abyss's
+        // title ("Touch to Start") and its menus take nothing else. With L2 held the core sends the touch to the
+        // rear panel. The core's log says in how many refreshes there was a finger ("vita: gfx:").
+        // ((01.69, the owner: «el pad de Vita debe ser trackpad») The touchpad as a laptop's trackpad over the Vita's
+        // 960 x 544, the DS's and the 3DS's way (src/Touchpad.h): the finger moves the cursor from where it is without
+        // touching; the touchpad's click - Controls' Tap the Screen - touches where it is, held while the finger moves a
+        // drag; a short, still tap touches too. One cursor with L3's pointer (the left stick moves it, Cross touches).
+        // Shown while the pointer is on, and 3 s after the touchpad or a touch.)
+        if (i == 0 && IsVita(s_system))
+        {
+          const bool live = pad.ok && !touring;
+          Touchpad::Touch touches[2];
+          const int count = PadTouches(pad.data.touch, live, touches);
+          const bool click = live && layout.tap && (pad.data.buttons & layout.tap);
+          s_stylus.x = s_vita_pointer.x * 959.0f;  // (where L3's pointer left the cursor)
+          s_stylus.y = s_vita_pointer.y * 543.0f;
+          const bool finger = Touchpad::Frame(s_stylus, touches, count, click, 960.0f, 544.0f, false);
+          s_vita_pointer.x = s_stylus.x / 959.0f;
+          s_vita_pointer.y = s_stylus.y / 543.0f;
+          s_vita_pointer.touching = s_stylus.down || (s_vita_pointer.on && s_vita_pointer.down);
+          s_pointer.x = static_cast<int16_t>(s_vita_pointer.x * 65534.0f - 32767.0f);
+          s_pointer.y = static_cast<int16_t>(s_vita_pointer.y * 65534.0f - 32767.0f);
+          s_pointer.pressed = s_vita_pointer.touching;
+          if (finger || s_vita_pointer.touching)
+            s_vita_pointer.recent = 180;
+          else if (s_vita_pointer.recent > 0)
+            s_vita_pointer.recent--;
+          s_vita_pointer.shown = s_vita_pointer.on || s_vita_pointer.recent > 0;
+        }
+#endif
       }
       // (00.23) Online: this pass's local players to the match (src/Netplay.h); no fast forward; RetroAchievements
       // paused (a rollback's frames run again, a prediction's would count).
@@ -6652,6 +8151,12 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
         // achievements checked against its memory - nothing when the game has none. (00.23: not online.)
         if (!online)
           Achievements::DoFrame();
+        // ((01.36) The Mega Drive's codes after its start: cheats_wait.)
+        if (cheats_wait > 0 && --cheats_wait == 0)
+        {
+          apply_cheats();
+          LogF("cheats: the Mega Drive's in now");
+        }
         // The 3DS (00.70): a game drawing at 30 FPS alternates a heavy frame (its picture) and a light one, and once
         // the heavy ones pass a refresh the heavy mode ran one frame a pass, a light frame waiting a whole refresh by
         // itself (00.69's log, Hey! Pikmin's busy scenes: frames of 34 and 5 ms, 51 ms for two, 62% speed). A light
@@ -6680,9 +8185,16 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
         // (The PSP: 1, but with Frame Skip on a run lasts until its next picture, 2 to 10 vblanks: PspFrames.)
         if (s_system == SystemId::PSP)
           covered = psp_frames.Take();
+#ifdef EMUSUNI_VITA
+        if (IsVita(s_system))
+          vita_cadence.Run();
+#endif
         stats.core_ms += run_ms;
         stats.core_runs += covered;
         stats.core_max = std::max(stats.core_max, run_ms);
+        pass_parts.core += run_ms;  // ((01.39) LogLongPass)
+        pass_parts.core_most = std::max(pass_parts.core_most, static_cast<double>(run_ms));
+        pass_parts.runs++;
         const double frame_ms = run_ms / covered;
         core_avg = core_avg <= 0.0 ? frame_ms : core_avg * 0.9 + frame_ms * 0.1;
         if (s_system == SystemId::PSP)
@@ -6714,7 +8226,10 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
       }
       if (overlap)
       {
+        const auto beside_start = Clock::now();
         drawer.Wait();
+        pass_parts.beside = true;  // ((01.39) LogLongPass)
+        pass_parts.beside_wait = std::chrono::duration<double, std::milli>(Clock::now() - beside_start).count();
         s_defer_frame = false;
         TakePendingFrame();
         drawn = true;
@@ -6725,8 +8240,8 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
       {
         resume_pending = false;
         StartGuard::Step(StartGuard::CONTINUE_STEP);
-        if (LoadState(0))
-          menu.Toast("Continuing where you left off");
+        if (LoadState(resume_slot))  // ((01.27) Triangle -> Load State's slot, else Continue's)
+          menu.Toast(resume_toast);
         StartGuard::Step("the game runs");
       }
       if (s_shutdown)
@@ -6735,6 +8250,15 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
         *error = s_message.empty() ? "The emulator couldn't start this game" : s_message;
         if (s_system == SystemId::THREEDS)
           *error = ThreedsFailure(*error);
+#ifdef EMUSUNI_VITA
+        // (01.30) The PS Vita's firmware, there as .PUP files, couldn't be installed (the core's one sentence, from
+        // scripts/build-vita-core.sh): the menu's two lines, in its languages.
+        if (s_system == SystemId::VITA && error->rfind("The PS Vita's firmware couldn't be installed", 0) == 0)
+          *error = "The PS Vita's firmware couldn't be installed.\nCheck that the PS4 has 1 GB free and try again.";
+        // (The core's last word was a step of its progress - "Preparing the title..." -, no reason: the menu's own.)
+        else if (s_system == SystemId::VITA && error->size() > 3 && error->compare(error->size() - 3, 3, "...") == 0)
+          *error = "The emulator couldn't start this game";
+#endif
         s_message.clear();
         result = Result::Failed;
         quit = true;
@@ -6788,10 +8312,11 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
       }
       // (01.20) A 3DS game whose picture stays black at its start is no longer reset by itself (01.16 to 01.19: at
       // 10 s, twice at most a load; the owner's decision). The core's 3ds-black-watch still writes the log's lines.
-      // The core's messages (the Famicom Disk System's disk side, a missing BIOS).
+      // The core's messages (the Famicom Disk System's disk side, a missing BIOS). ((01.78) Two lines - the 3DS
+      // game's save folder not made, and what to do - 6 s, to be read.)
       if (!s_message.empty())
       {
-        menu.Toast(s_message, 3.0f);
+        menu.Toast(s_message, s_message.find('\n') != std::string::npos ? 6.0f : 3.0f);
         s_message.clear();
       }
       // (00.87) The player's data on a USB drive (src/Portable.h): taken out, its next save went to this PS4 - said.
@@ -6855,6 +8380,29 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
       // The counter: the pictures the TV got per second (smoothness) and the game's speed.
       stats.fps = stats.frames / stats.fps_time;
       stats.speed = static_cast<float>(stats.emulated / stats.fps_time / s_game_fps * 100.0);
+      // ((01.72) And the core's pictures: what the counter says as FPS.)
+      stats.pictures_fps = static_cast<float>(static_cast<double>(s_pictures - stats.pictures_at) / stats.fps_time);
+      stats.pictures_at = s_pictures;
+      // ((01.78) The N64: the game's own pictures (its VI origin's changes), not ParaLLEl-RDP's image a VI.)
+      if (s_system == SystemId::N64)
+      {
+        const unsigned long long total = emusuni_n64_pictures_total();
+        if (total != N64_PICTURES_UNKNOWN && stats.n64_at != N64_PICTURES_UNKNOWN && total >= stats.n64_at)
+          stats.pictures_fps = static_cast<float>(static_cast<double>(total - stats.n64_at) / stats.fps_time);
+        stats.n64_at = total;
+      }
+#ifdef EMUSUNI_VITA
+      // ((01.72, the owner: «siempre dice 60 y el juego anda a tirones») The PS Vita's core runs apart from the TV's
+      // refreshes, 60 a second whatever the game shows: the counter says the game's own pictures over this second, from
+      // its core's count (01.77: once a second, as above).
+      if (IsVita(s_system))
+      {
+        const unsigned long long total = emusuni_vita_pictures_total();
+        if (total != VITA_PICTURES_UNKNOWN && stats.vita_at != VITA_PICTURES_UNKNOWN && total >= stats.vita_at)
+          stats.game_fps = static_cast<float>(static_cast<double>(total - stats.vita_at) / stats.fps_time);
+        stats.vita_at = total;
+      }
+#endif
       stats.frames = stats.emulated = 0;
       stats.fps_time = 0.0f;
       // The N64's speed in the log every 10 seconds of play (how well the PS4 keeps up).
@@ -6862,7 +8410,7 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
       // (The Saturn too, 00.69: 00.68's log had its speed only while a GPU filter was on.)
       if ((s_system == SystemId::N64 || s_system == SystemId::PS1 || s_system == SystemId::PSP || IsFlycast(s_system) ||
            s_system == SystemId::NDS || s_system == SystemId::ARCADE || s_system == SystemId::THREEDS ||
-           s_system == SystemId::SATURN || GpuMode(game.key) != GpuFilter::Mode::Off) &&
+           s_system == SystemId::SATURN || IsVita(s_system) || GpuMode(game.key) != GpuFilter::Mode::Off) &&
           !menu.IsOpen() &&
           stats.time10 >= 10.0f)
       {
@@ -6891,13 +8439,19 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
         last_span = span;
         last_completed = completed;
         // (And the regular flexible memory free: the trend up to any close of the app.)
-        LogF("speed: %.1f FPS shown, %.0f%% of the game's speed; the core %.1f ms per frame (most %.1f) of %.1f; "
-             "drawing %.1f ms (%.1f of it waiting); CPU %d; GPU busy %s, %llu MiB, flexible %d MiB free",
+        // ((01.72) With the core's pictures a second: the counter's FPS.)
+        LogF("speed: %.1f FPS shown (the core's pictures %.1f), %.0f%% of the game's speed; the core %.1f ms per frame "
+             "(most %.1f) of %.1f; drawing %.1f ms (%.1f of it waiting); CPU %d; GPU busy %s, %llu MiB, flexible %d MiB "
+             "free",
              stats.time10 > 0.0f ? stats.frames10 / stats.time10 : 0.0f,
+             stats.time10 > 0.0f ? static_cast<double>(s_pictures - stats.pictures10_at) / stats.time10 : 0.0,
              stats.time10 > 0.0f ? stats.emulated10 / stats.time10 / s_game_fps * 100.0 : 0.0,
              stats.core_runs ? stats.core_ms / stats.core_runs : 0.0, stats.core_max, 1000.0 / s_game_fps,
              stats.draws ? stats.draw_ms / stats.draws : 0.0, stats.draws ? stats.draw_wait_ms / stats.draws : 0.0,
              sceKernelGetCurrentCpu(), gpu_busy, static_cast<unsigned long long>(bo_bytes >> 20), FlexibleFreeMiB());
+        // ((01.86) The GPU's "shared queue") The submissions to the GPU and the queue lock over these 10 s (the
+        // switch gpu-submitthread-on: Mesa's PS4 winsys makes its kernel calls on a thread of its own).
+        display.LogGpuSubmissions();
         if (s_system == SystemId::PSP || s_system == SystemId::PS1 || s_system == SystemId::N64 ||
             IsFlycast(s_system) || s_system == SystemId::THREEDS)
         {
@@ -6919,21 +8473,35 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
           // the touchpad reaches the game at all.
           const std::string screens = Settings::Get("3ds_layout", game.key);
           const ThreedsPicture where = ThreedsLayout(s_3ds_scale);
+          // (01.24) 3DS Right Stick: D-Pad, and how many frames its directions pressed the D-pad.
+          const std::string right_stick = Settings::Get("3ds_right_stick", game.key);
+          char dpad_note[80] = "";
+          if (right_stick == "dpad")
+            std::snprintf(dpad_note, sizeof(dpad_note), "; the right stick pressed the D-pad in %d frames",
+                          s_stick_dpad_frames);
           LogF("3ds: picture %ux%u (expected %ux%u), screens %s%s, touch screen at %.0f,%.0f %.0fx%.0f, %s 3DS at %dx; "
                "touchpad (%s%s): %d frames with a finger, %d with the stylus down, %d taps in these 10 s; stylus at "
-               "%.0f,%.0f%s",
+               "%.0f,%.0f%s%s",
                s_frame_w, s_frame_h, where.w, where.h, screens.c_str(), s_r3_swap.load() ? " (R3: swapped)" : "",
                where.touch[0], where.touch[1], where.touch[2], where.touch[3], s_3ds_new == 1 ? "New" : "Old",
                s_3ds_scale, Settings::Get("3ds_touch", game.key) == "touch" ? "direct" : "trackpad",
-               Settings::Get("3ds_right_stick", game.key) == "stylus" ? ", the right stick the stylus" : "",
-               s_touch_frames, s_tap_frames, s_touch_taps, s_stylus.x, s_stylus.y, RestingTouchNote().c_str());
+               right_stick == "stylus" ? ", the right stick the stylus" :
+               right_stick == "dpad"   ? ", the right stick the D-pad" :
+                                         "",
+               s_touch_frames, s_tap_frames, s_touch_taps, s_stylus.x, s_stylus.y, RestingTouchNote().c_str(),
+               dpad_note);
           s_touch_frames = s_tap_frames = s_touch_taps = 0;
+          s_stick_dpad_frames = 0;
         }
         // The GPU filter's own GPU time over the same 10 seconds (timestamps around its passes).
         char filter_time[768];
         if (GpuFilter::TakeGpuTime(filter_time, sizeof(filter_time)))
           LogF("%s", filter_time);
         LogPacing(stats, flip);
+#ifdef EMUSUNI_VITA
+        if (IsVita(s_system))
+          vita_cadence.Log();  // ((01.77) how long the game's pictures stayed: VitaCadence)
+#endif
         ResetWindow(stats, flip);
       }
     }
@@ -7037,6 +8605,9 @@ Result Run(Display& display, const Library::Game& game, ImFont* regular, ImFont*
   menu.ForgetPictures();
   s_menu_picture = ImageRGBA();  // (the thumbnail kept as the in-game menu last opened)
   FreeBezel(display);
+  if (vita_cover)
+    display.DestroyTexture(vita_cover);  // ((01.66) the PS Vita's loading screen's cover)
+  s_vita_loading = false;
   // RetroAchievements (00.73): the game's achievements unloaded (an unlock still on its way goes on being sent), their
   // pictures' textures freed.
   Achievements::GameEnded();

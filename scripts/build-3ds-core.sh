@@ -247,6 +247,84 @@
 #     once and stayed); before a refresh for a new black (at most 4 a renderer), a diagnosis says whether the
 #     blocks' bytes where the draws found them were the CPU's, in memory and as the GPU copies them (off: the word
 #     off in the file). Upstream's |= for the VS block's pending upload (its 1edf59e).
+#   - 01.24: a system save data the PS4 won't make (mkdir refused with EINVAL: v00.24's report T3Z7FV, one PS4
+#     on system 13.09, every 3DS game at its start) no longer stops the game: CECD and NEWS answer every call
+#     "not found" (no StreetPass, no notifications), CFG keeps the console's settings in memory as a new
+#     console's, and PTM leaves the play coins out, each said in the log; a CECD session with no file answers
+#     Read and Write "not found". PC test: EMUSUNI_3DS_TEST_MKDIR_FAIL=<text>[,<text>...]. A surface's
+#     barriers wait for its drawing: its first layout change for everything after it, the attachment stages
+#     from the start (the validation layer's synchronization check: SM3DL, LM2, Toad; off: the word off in
+#     3ds-attachment-sync). The uniform buffer can be a copy's source (01.22's diagnosis copies from it).
+#   - 01.26: the app's cheats: retro_cheat_set and retro_cheat_reset reach Azahar's cheat engine (each code Gateway /
+#     Action Replay lines of 8 + 8 hexadecimal digits, a GatewayCheat on or off by the app's index; a code that
+#     isn't such lines left out with a line in the log); the game's file of cheats stays. A line of that file that
+#     isn't hexadecimal is invalid without an exception.
+#   - 01.30: 3ds-black-uniforms (01.22) also for a reading all clear, every point's alpha 0 and none black: such
+#     a start in a game that clears its screens with a colour of alpha 0 (Yo-kai Watch Blasters' dark grey)
+#     stayed grey, never refreshed.
+#   - 01.32: 3ds-draw-memo: a draw takes the draw before's framebuffer (its regions not marked again) and each
+#     texture unit's surface and sampler while the surfaces' cache is unchanged (a state counter) and the registers
+#     are the same; the word off in /data/EmuSuNi/3ds-draw-memo turns it off.
+#   - 01.34: 3ds-picture-late (off without its file): the GPU's work a frame behind the game. Each command list
+#     is read when sent (its jumps, its draws' indices and vertices) and that memory copied; the list ends for the
+#     game at once (its P3D with the emulated delay it would have had) and runs on the GPU commands' thread from
+#     the copy, the picture drawn there after it. /data/EmuSuNi/3ds-picture-late: empty, every game; title IDs,
+#     those; the word off, none.
+#   - 01.37: Luigi's Mansion: Dark Moon's core 0 with 56 MiB of code cache and the JIT's memory 80 MiB, as
+#     Castlevania's (3ds-jit-big-games): its warm-up compiles ahead most of the code it ran before.
+#   - 01.38: 3ds-flat-uniforms: the top screen one colour with the game drawing in the first minute (SM3DL's
+#     starts on the owner's PS4 after its logo: yellow and white, or both screens blue) has the uniform
+#     blocks uploaded fresh, as a black picture since 01.22, and the log says what the screens show then.
+#   - 01.39: 3ds-slow-picture: a picture drawn more than 50 ms after its VBlank says what the GPU commands'
+#     thread did since the one before (lists, draws, textures, surfaces, GPU waits; at most 4 in 600 pictures).
+#   - 01.40: 3ds-part-skip: a draw whose pipeline lacks only its fragment shader's part is skipped until
+#     a worker has made it, not waited for (40-90 ms each on the PS4: pictures late); 3ds-slow-picture
+#     says the Vulkan worker's waits for pipelines. 3ds-uniforms-check: in a renderer's first minute each
+#     draw that uploads none of a uniform block checks it is bound as the CPU has it (SM3DL's start).
+#   - 01.41: 3ds-uniforms-compare: each draw that asks no upload of the vertex shaders' uniforms compares
+#     them with their last upload and uploads a change the mark missed (SM3DL's start on the PS4: a
+#     stale block 0.8 s, 01.40's check), the first ones said with what happened since. 3ds-uniforms-check
+#     off unless asked (it read the GPU's memory: Dark Moon's uniforms 2-9 s in 600 pictures).
+#     The patch step ends with scripts/3ds-jit-patches.py when it is there (the performance specialist's JIT
+#     improvements, their own file), after every patch of this script.
+#   - 01.42: 3ds-custom-textures, a test: the game's texture pack only with the file
+#     /data/EmuSuNi/3ds-custom-textures, decoded as the draws want them on one thread, the pixels freed
+#     once uploaded, at most 2048 a side and 256 MiB on the GPU (side=N, mib=N in the file).
+#   - 01.46: a game's end: the pages the GPU commands' thread marked and the emulation thread hadn't
+#     taken are marked as it stops (01.45 dropped them and the GPU cache's end hit upstream's UNREACHABLE,
+#     signal 4), a page already as asked is left as it is (said), and after a good start the start
+#     markers of the fast memory and of pipelines by parts go before the end's own steps.
+#   - 01.47: the app's switches for a game's extras: citra_emusuni_update (off: the installed update
+#     left alone), citra_emusuni_dlc (off: the game finds no DLC title, the app's calls still do),
+#     citra_emusuni_mod_folders (mods in folders of their own above the main one, the first on top);
+#     emusuni_3ds_extras_caps says 7.
+#   - 01.50: Castlevania: Mirror of Fate's 3DS GPU time at 150 per cent of Azahar's estimate, not
+#     100 (walking, 29 pictures a second instead of 43, the game's time the same); a number in the file
+#     /data/EmuSuNi/3ds-gpu-time-<title ID> sets a game's own (Castlevania USA back at 100: 100 in
+#     3ds-gpu-time-0004000000096600), and a line says each game's as it starts.
+#   - 01.51: the CPU's reads of pages the GPU's cache holds and hasn't written (Xenoblade: ~19,000 a
+#     frame on the console) read straight from the memory, without the cache's walk of its regions and a
+#     shared pointer's two atomic counts each (3ds-cached-reads-fast; the word off in its file: as before).
+#   - 01.52: Mario Kart 7 and 3ds-picture-late. Its root cause: a command ends for the game when it's sent,
+#     and MK7 put a node of its objects where a list was going to draw a 64x64 picture (immediate mode: no
+#     draw register, so 01.34's reading of the list didn't see it); the picture, read back later, wrote zeros
+#     over the node and the game read the null object for good. Now the pages a command writes (a list's
+#     buffers at each draw, immediate mode's too; a fill's; a copy's output) are held as the GPU cache's from
+#     its sending until it has run: the CPU on them waits for the GPU's work first, as on the 3DS. Also: the
+#     unmapped accesses' log lines cut to 20 a second and a line saying how many more (MK7 hung wrote 18.6 GB
+#     of them); 3ds-picture-late's file takes exclusions (-<title ID>: every game but those); its safety net:
+#     a game that looks hung with it (10,000 unmapped accesses in a second, a frame running 10 s) is
+#     remembered in /data/EmuSuNi/3ds-picture-late-failed and starts without it the next time; each game's
+#     start line says why it is on or off.
+#   - 01.53: 3ds-draw-memo's state counter moved on only by a real change: a region marked valid that was
+#     valid, invalid that was invalid, a dirty region that was all that surface's already change nothing
+#     (Xenoblade's busiest parts: the framebuffer memo hit 0 of 400,000 draws, every draw's marking moving
+#     the counter on and with it the next draw's memos).
+#   - 01.78: the cheat engine (Gateway / Action Replay) can't keep the emulation for good: a condition false
+#     inside a loop (C0 ... D2) never let the loop end (the app frozen with a cheat on, Lei's report); at most
+#     1,000,000 lines a pass; a patch line (E) no longer reads past its code's end.
+#     A game's save that can't be made (its folder refused: Super Mario 3D Land on "Saving..." for good, Lei's
+#     report) is said once: a line in the log with its path, and the app's toast.
 #   - $HOME unset (the PS4): /data/EmuSuNi instead of a failed assertion (the libretro save
 #     directory is where the core's files really go).
 #   - Built as a static library, at -O2 with the profile scripts/3ds-core.profdata.xz (PGO, below),
@@ -4749,7 +4827,16 @@ patch('externals/dynarmic/src/dynarmic/ir/basic_block.cpp',
       '#endif\n')
 patch('externals/dynarmic/src/dynarmic/backend/x64/emit_x64.cpp',
       '#include <iterator>\n',
-      '#include <iterator>\n#ifdef EMUSUNI_PORT\n#include <stdlib.h>\n#endif\n')
+      '#include <iterator>\n#ifdef EMUSUNI_PORT\n#include <stdlib.h>\n'
+      '#if defined(__ORBIS__)\n'
+      '#include <cstddef>\n'
+      '#include <cstdint>\n'
+      '// EmuSuNi (01.41): where each translated block is, for the app\'s CPU profile on the console\n'
+      '// (port/ps4_3ds_profile.cpp: it returns at once without the file /data/EmuSuNi/3ds-cpu-profile).\n'
+      'extern "C" void emusuni_3ds_jit_block(const void* code_begin, std::size_t code_size, const void* entry,\n'
+      '                                      const void* end, std::uint64_t location);\n'
+      '#endif\n'
+      '#endif\n')
 patch('externals/dynarmic/src/dynarmic/backend/x64/emit_x64.cpp',
       '    PerfMapRegister(entrypoint, code.getCurr(), LocationDescriptorToFriendlyName(descriptor));\n'
       '    Patch(descriptor, entrypoint);\n',
@@ -4761,6 +4848,12 @@ patch('externals/dynarmic/src/dynarmic/backend/x64/emit_x64.cpp',
       '    if (emusuni_perf_map) {\n'
       '        PerfMapRegister(entrypoint, code.getCurr(), LocationDescriptorToFriendlyName(descriptor));\n'
       '    }\n'
+      '#endif\n'
+      '#if defined(__ORBIS__)\n'
+      '    // EmuSuNi (01.41): the JIT\'s whole memory (getCode: from before the prelude), the block\'s code and its\n'
+      '    // location (the guest\'s address in the low 32 bits, bit 32 Thumb) to the app\'s CPU profile.\n'
+      '    emusuni_3ds_jit_block(code.getCode(), code.GetTotalCodeSize(), entrypoint, code.getCurr(),\n'
+      '                          descriptor.Value());\n'
       '#endif\n'
       '#else\n'
       '    PerfMapRegister(entrypoint, code.getCurr(), LocationDescriptorToFriendlyName(descriptor));\n'
@@ -18681,6 +18774,5880 @@ patch('src/video_core/renderer_vulkan/renderer_vulkan.cpp',
       '                     B::minute_readings, B::minute_black, B::minute_changed, B::pending_points - black,\n'
       '                     B::pending_points, ::EmuSuNi::BlackUniforms::asked.load(std::memory_order_relaxed));\n')
 
+# --- 01.24: a system save data the PS4 won't make no longer stops the game. Reports H4F3TQ and FA7NXC (v00.23) and
+# T3Z7FV (v00.24), one PS4 on system 13.09, every 3DS game at its start: mkdir of ".../nand/data/<id>/sysdata/"
+# (v00.23) and, once that was there, of ".../sysdata/00010026/" (v00.24, after 01.04's tries and rename) failed with
+# EINVAL, its parent a directory; CECD (StreetPass), the first service to want one, then asserted on its system save
+# data (Unwrap, SIGILL). With every system save data refused (the PC test below), NEWS asserted next the same way, PTM
+# after it, and CFG went on without the console's settings, so the game stopped on a fatal error (ERR:F). So:
+# - CECD and NEWS: an archive that can't be opened or made is a stand-in that answers every call "not found"
+#   (core/file_sys/emusuni_no_archive.h): the game goes on without StreetPass or notifications, and the log says so.
+#   CECD's files that can't be made (eventlog.dat, MBoxList____) are logged, not asserted. A CECD session whose file
+#   didn't open answers Read and Write "not found" (upstream used the file before, or none: a crash), and Open writes
+#   the program ID only into a file it opened. NEWS's news.db that can't be written is its error, not an assert.
+# - CFG: with the stand-in, the console's settings are made as a new console's and kept in memory only (each start);
+#   their save is its error, not an assert.
+# - A state saves the stand-in as no archive, and a state with none gets it back: the states' format is upstream's.
+# - PTM: the play coins' shared extdata that can't be made is logged and left out.
+# - A PC test: EMUSUNI_3DS_TEST_MKDIR_FAIL=<text>[,<text>...] refuses with EINVAL every directory whose path has one
+#   of them, as that PS4 did (common/file_util.cpp, CreateDir).
+patch('src/common/file_util.cpp',
+      '#ifdef EMUSUNI_PORT\n#include <algorithm>\n#include <sys/stat.h>\n#include <time.h>\n#endif\n',
+      '#ifdef EMUSUNI_PORT\n#include <algorithm>\n#include <cstdlib> // (01.24)\n#include <sys/stat.h>\n'
+      '#include <time.h>\n#endif\n')
+patch('src/common/file_util.cpp',
+      "    while (emusuni_dir.size() > 1 && emusuni_dir.back() == '/')\n"
+      '        emusuni_dir.pop_back();\n'
+      '    int err = 0;\n',
+      "    while (emusuni_dir.size() > 1 && emusuni_dir.back() == '/')\n"
+      '        emusuni_dir.pop_back();\n'
+      r'''    // (01.24) A PC test: EMUSUNI_3DS_TEST_MKDIR_FAIL=<text>[,<text>...] refuses, with EINVAL, every
+    // directory whose path has one of them, as a PS4 refused .../sysdata/ and .../sysdata/00010026/ (reports
+    // FA7NXC and T3Z7FV).
+    if (const char* emusuni_fail = std::getenv("EMUSUNI_3DS_TEST_MKDIR_FAIL"); emusuni_fail != nullptr) {
+        const std::string emusuni_list = emusuni_fail;
+        for (size_t at = 0; at < emusuni_list.size();) {
+            const size_t comma = std::min(emusuni_list.find(',', at), emusuni_list.size());
+            if (comma > at && emusuni_dir.find(emusuni_list.substr(at, comma - at)) != std::string::npos) {
+                LOG_ERROR(Common_Filesystem,
+                          "mkdir failed on {}: refused by the test (EMUSUNI_3DS_TEST_MKDIR_FAIL)", path);
+                errno = EINVAL;
+                return false;
+            }
+            at = comma + 1;
+        }
+    }
+'''
+      '    int err = 0;\n')
+addfile('src/core/file_sys/emusuni_no_archive.h', r'''// EmuSuNi (01.24, scripts/build-3ds-core.sh).
+// The stand-in for a system save data that can't be opened or made (a PS4 refused its folder with EINVAL: reports
+// H4F3TQ, FA7NXC and T3Z7FV), for the services that keep theirs open and asserted, or stopped the game, without it
+// (CECD, NEWS, CFG): every call answered "not found" (a file's or a path's), as an archive with nothing in it that
+// can't make anything would. They go on as with nothing saved. Never in a state: their serialize saves no archive in
+// its place, and a state with none gets it back.
+#pragma once
+
+#include <memory>
+#include <string>
+#include "common/logging/log.h"
+#include "core/file_sys/archive_backend.h"
+#include "core/file_sys/directory_backend.h"
+#include "core/file_sys/errors.h"
+#include "core/file_sys/file_backend.h"
+
+namespace FileSys {
+
+inline constexpr const char* EMUSUNI_NO_ARCHIVE = "EmuSuNi: no archive (a system save data that can't be made)";
+
+class EmuSuNiNoArchive final : public ArchiveBackend {
+public:
+    std::string GetName() const override {
+        return EMUSUNI_NO_ARCHIVE;
+    }
+    ResultVal<std::unique_ptr<FileBackend>> OpenFile(const Path&, const Mode&, u32) override {
+        return ResultFileNotFound;
+    }
+    Result DeleteFile(const Path&) const override {
+        return ResultFileNotFound;
+    }
+    Result RenameFile(const Path&, const Path&) const override {
+        return ResultFileNotFound;
+    }
+    Result DeleteDirectory(const Path&) const override {
+        return ResultPathNotFound;
+    }
+    Result DeleteDirectoryRecursively(const Path&) const override {
+        return ResultPathNotFound;
+    }
+    Result CreateFile(const Path&, u64, u32) const override {
+        return ResultFileNotFound;
+    }
+    Result CreateDirectory(const Path&, u32) const override {
+        return ResultPathNotFound;
+    }
+    Result RenameDirectory(const Path&, const Path&) const override {
+        return ResultPathNotFound;
+    }
+    ResultVal<std::unique_ptr<DirectoryBackend>> OpenDirectory(const Path&) override {
+        return ResultPathNotFound;
+    }
+    u64 GetFreeBytes() const override {
+        return 0;
+    }
+};
+
+inline bool EmuSuNiIsNoArchive(const ArchiveBackend* archive) {
+    return archive != nullptr && archive->GetName() == EMUSUNI_NO_ARCHIVE;
+}
+
+// The stand-in, said in the log: whose system save data it stands in for, and what couldn't be done ("opened",
+// "made").
+inline std::unique_ptr<ArchiveBackend> EmuSuNiNoArchiveFor(const char* whose, Result code, const char* what) {
+    LOG_WARNING(Service_FS,
+                "EmuSuNi: {}: its system save data can't be {} ({:#010x}): the game goes on without it, every call "
+                "to it answered not found (01.24)",
+                whose, what, code.raw);
+    return std::make_unique<EmuSuNiNoArchive>();
+}
+
+// A service's archive in a state: the stand-in as none, and none (only ever the stand-in's) as the stand-in again.
+template <class Archive>
+void EmuSuNiSerializeArchive(Archive& ar, std::unique_ptr<ArchiveBackend>& archive) {
+    if constexpr (Archive::is_saving::value) {
+        std::unique_ptr<ArchiveBackend> none;
+        if (EmuSuNiIsNoArchive(archive.get()))
+            ar & none;
+        else
+            ar & archive;
+    } else {
+        ar & archive;
+        if (!archive)
+            archive = std::make_unique<EmuSuNiNoArchive>();
+    }
+}
+
+} // namespace FileSys
+''')
+patch('src/core/hle/service/cecd/cecd.cpp',
+      '#include "core/file_sys/errors.h"\n',
+      '#include "core/file_sys/emusuni_no_archive.h" // EmuSuNi (01.24)\n#include "core/file_sys/errors.h"\n')
+patch('src/core/hle/service/cecd/cecd.cpp',
+      '    DEBUG_SERIALIZATION_POINT;\n    ar & cecd_system_save_data_archive;\n',
+      '    DEBUG_SERIALIZATION_POINT;\n'
+      '    FileSys::EmuSuNiSerializeArchive(ar, cecd_system_save_data_archive); // EmuSuNi (01.24)\n')
+patch('src/core/hle/service/cecd/cecd.cpp',
+      '        if (file_result.Failed()) {\n'
+      '            LOG_DEBUG(Service_CECD, "Failed to open file: {}", path.AsString());\n',
+      '        if (file_result.Failed()) {\n'
+      '            LOG_DEBUG(Service_CECD, "Failed to open file: {}", path.AsString());\n'
+      '            session_data->file.reset(); // EmuSuNi (01.24): not the file of an Open before\n')
+patch('src/core/hle/service/cecd/cecd.cpp',
+      '        if (path_type == CecDataPathType::MboxProgramId) {\n',
+      '        if (path_type == CecDataPathType::MboxProgramId && session_data->file) { // EmuSuNi (01.24): opened\n')
+patch('src/core/hle/service/cecd/cecd.cpp',
+      '    default: // If not directory, then it is a file\n'
+      '        std::vector<u8> buffer(write_buffer_size);\n',
+      r'''    default: // If not directory, then it is a file
+        if (!session_data->file) { // EmuSuNi (01.24): no file open (none could be): not found
+            rb.Push(Result(ErrorDescription::NoData, ErrorModule::CEC, ErrorSummary::NotFound,
+                           ErrorLevel::Status));
+            rb.Push<u32>(0); // No bytes read
+            break;
+        }
+        std::vector<u8> buffer(write_buffer_size);
+''')
+patch('src/core/hle/service/cecd/cecd.cpp',
+      '        read_buffer.Read(buffer.data(), 0, read_buffer_size);\n'
+      '\n'
+      '        if (session_data->file->GetSize() != read_buffer_size) {\n',
+      r'''        read_buffer.Read(buffer.data(), 0, read_buffer_size);
+
+        if (!session_data->file) { // EmuSuNi (01.24): no file open (none could be): not found
+            rb.Push(Result(ErrorDescription::NoData, ErrorModule::CEC, ErrorSummary::NotFound,
+                           ErrorLevel::Status));
+            break;
+        }
+        if (session_data->file->GetSize() != read_buffer_size) {
+''')
+patch('src/core/hle/service/cecd/cecd.cpp',
+      '    // If the archive didn\'t exist, create the files inside\n'
+      '    if (archive_result.Code() != FileSys::ResultNotFound) {\n'
+      '        ASSERT_MSG(archive_result.Succeeded(), "Could not open the CECD SystemSaveData archive!");\n'
+      '        cecd_system_save_data_archive = std::move(archive_result).Unwrap();\n'
+      '    } else {\n'
+      '        // Format the archive to create the directories\n'
+      '        systemsavedata_factory.Format(archive_path, FileSys::ArchiveFormatInfo(), 0, 0, 0);\n'
+      '\n'
+      '        // Open it again to get a valid archive now that the folder exists\n'
+      '        cecd_system_save_data_archive = systemsavedata_factory.Open(archive_path, 0).Unwrap();\n',
+      r'''    // If the archive didn't exist, create the files inside
+    // EmuSuNi (01.24): one that can't be opened or made is the stand-in (core/file_sys/emusuni_no_archive.h), not an
+    // assert: the game goes on without StreetPass.
+    if (archive_result.Code() != FileSys::ResultNotFound) {
+        if (archive_result.Failed()) {
+            cecd_system_save_data_archive = FileSys::EmuSuNiNoArchiveFor(
+                "CECD (StreetPass, 00010026)", archive_result.Code(), "opened");
+            return;
+        }
+        cecd_system_save_data_archive = std::move(archive_result).Unwrap();
+    } else {
+        // Format the archive to create the directories
+        systemsavedata_factory.Format(archive_path, FileSys::ArchiveFormatInfo(), 0, 0, 0);
+
+        // Open it again to get a valid archive now that the folder exists
+        auto emusuni_made = systemsavedata_factory.Open(archive_path, 0);
+        if (emusuni_made.Failed()) {
+            cecd_system_save_data_archive = FileSys::EmuSuNiNoArchiveFor(
+                "CECD (StreetPass, 00010026)", emusuni_made.Code(), "made");
+            return;
+        }
+        cecd_system_save_data_archive = std::move(emusuni_made).Unwrap();
+''')
+patch('src/core/hle/service/cecd/cecd.cpp',
+      '        constexpr u32 eventlog_size = 0x30d54;\n'
+      '        auto eventlog = std::move(eventlog_result).Unwrap();\n',
+      r'''        constexpr u32 eventlog_size = 0x30d54;
+        if (eventlog_result.Failed()) { // EmuSuNi (01.24): logged, not an assert
+            LOG_WARNING(Service_CECD, "EmuSuNi: CECD: its eventlog.dat can't be made ({:#010x})",
+                        eventlog_result.Code().raw);
+            return;
+        }
+        auto eventlog = std::move(eventlog_result).Unwrap();
+''')
+patch('src/core/hle/service/cecd/cecd.cpp',
+      '        constexpr u32 mboxlist_size = 0x18c;\n'
+      '        auto mboxlist = std::move(mboxlist_result).Unwrap();\n',
+      r'''        constexpr u32 mboxlist_size = 0x18c;
+        if (mboxlist_result.Failed()) { // EmuSuNi (01.24): logged, not an assert
+            LOG_WARNING(Service_CECD, "EmuSuNi: CECD: its MBoxList____ can't be made ({:#010x})",
+                        mboxlist_result.Code().raw);
+            return;
+        }
+        auto mboxlist = std::move(mboxlist_result).Unwrap();
+''')
+patch('src/core/hle/service/news/news.cpp',
+      '#include "core/file_sys/errors.h"\n',
+      '#include "core/file_sys/emusuni_no_archive.h" // EmuSuNi (01.24)\n#include "core/file_sys/errors.h"\n')
+patch('src/core/hle/service/news/news.cpp',
+      '    ar & news_system_save_data_archive;\n',
+      '    FileSys::EmuSuNiSerializeArchive(ar, news_system_save_data_archive); // EmuSuNi (01.24)\n')
+patch('src/core/hle/service/news/news.cpp',
+      '    auto result = news_system_save_data_archive->OpenFile(path, mode);\n'
+      '    ASSERT_MSG(result.Succeeded(), "could not open file");\n',
+      '    auto result = news_system_save_data_archive->OpenFile(path, mode);\n'
+      '    if (result.Failed()) // EmuSuNi (01.24): its error, not an assert (the stand-in archive answers not found)\n'
+      '        return result.Code();\n')
+patch('src/core/hle/service/news/news.cpp',
+      '    // Format the SystemSaveData archive 0x00010035\n'
+      '    systemsavedata_factory.Format(archive_path, FileSys::ArchiveFormatInfo(), 0, 0, 0);\n'
+      '\n'
+      '    news->news_system_save_data_archive = systemsavedata_factory.Open(archive_path, 0).Unwrap();\n',
+      r'''    // Format the SystemSaveData archive 0x00010035
+    systemsavedata_factory.Format(archive_path, FileSys::ArchiveFormatInfo(), 0, 0, 0);
+
+    // EmuSuNi (01.24): one that can't be made is the stand-in (core/file_sys/emusuni_no_archive.h), not an assert.
+    auto emusuni_made = systemsavedata_factory.Open(archive_path, 0);
+    if (emusuni_made.Succeeded())
+        news->news_system_save_data_archive = std::move(emusuni_made).Unwrap();
+    else
+        news->news_system_save_data_archive = FileSys::EmuSuNiNoArchiveFor(
+            "NEWS (notifications, 00010035)", emusuni_made.Code(), "made");
+''')
+patch('src/core/hle/service/news/news.cpp',
+      '        // Open it again to get a valid archive now that the folder exists\n'
+      '        news_system_save_data_archive = systemsavedata_factory.Open(archive_path, 0).Unwrap();\n'
+      '    } else {\n'
+      '        ASSERT_MSG(archive_result.Succeeded(), "Could not open the NEWS SystemSaveData archive!");\n'
+      '\n'
+      '        news_system_save_data_archive = std::move(archive_result).Unwrap();\n'
+      '    }\n',
+      r'''        // Open it again to get a valid archive now that the folder exists
+        // EmuSuNi (01.24): one that can't be opened or made is the stand-in (core/file_sys/emusuni_no_archive.h),
+        // not an assert: no notifications are kept.
+        auto emusuni_made = systemsavedata_factory.Open(archive_path, 0);
+        if (emusuni_made.Succeeded())
+            news_system_save_data_archive = std::move(emusuni_made).Unwrap();
+        else
+            news_system_save_data_archive = FileSys::EmuSuNiNoArchiveFor(
+                "NEWS (notifications, 00010035)", emusuni_made.Code(), "made");
+    } else if (archive_result.Succeeded()) {
+        news_system_save_data_archive = std::move(archive_result).Unwrap();
+    } else {
+        news_system_save_data_archive = FileSys::EmuSuNiNoArchiveFor("NEWS (notifications, 00010035)",
+                                                                     archive_result.Code(), "opened");
+    }
+''')
+patch('src/core/hle/service/ptm/ptm.cpp',
+      '        // Open it again to get a valid archive now that the folder exists\n'
+      '        archive = extdata_archive_factory.Open(archive_path, 0).Unwrap();\n'
+      '        // Create the game coin file\n'
+      '        archive->CreateFile(gamecoin_path, sizeof(GameCoin));\n'
+      '    } else {\n'
+      '        ASSERT_MSG(archive_result.Succeeded(), "Could not open the PTM SharedExtSaveData archive!");\n'
+      '        archive = std::move(archive_result).Unwrap();\n'
+      '    }\n',
+      r'''        // Open it again to get a valid archive now that the folder exists
+        // EmuSuNi (01.24): one that can't be opened or made leaves the play coins out (a PS4 that refuses the folder:
+        // report T3Z7FV), said in the log, not an assert.
+        auto emusuni_made = extdata_archive_factory.Open(archive_path, 0);
+        if (emusuni_made.Failed()) {
+            LOG_WARNING(Service_PTM,
+                        "EmuSuNi: PTM: the play coins' shared extdata can't be made ({:#010x}): left out (01.24)",
+                        emusuni_made.Code().raw);
+            return;
+        }
+        archive = std::move(emusuni_made).Unwrap();
+        // Create the game coin file
+        archive->CreateFile(gamecoin_path, sizeof(GameCoin));
+    } else {
+        if (archive_result.Failed()) {
+            LOG_WARNING(Service_PTM,
+                        "EmuSuNi: PTM: the play coins' shared extdata can't be opened ({:#010x}): left out (01.24)",
+                        archive_result.Code().raw);
+            return;
+        }
+        archive = std::move(archive_result).Unwrap();
+    }
+''')
+patch('src/core/hle/service/cfg/cfg.cpp',
+      '#include "core/file_sys/errors.h"\n',
+      '#include "core/file_sys/emusuni_no_archive.h" // EmuSuNi (01.24)\n#include "core/file_sys/errors.h"\n')
+patch('src/core/hle/service/cfg/cfg.cpp',
+      '    ar & cfg_system_save_data_archive;\n',
+      '    FileSys::EmuSuNiSerializeArchive(ar, cfg_system_save_data_archive); // EmuSuNi (01.24)\n')
+patch('src/core/hle/service/cfg/cfg.cpp',
+      '    auto config_result = cfg_system_save_data_archive->OpenFile(path, mode);\n'
+      '    ASSERT_MSG(config_result.Succeeded(), "could not open file");\n',
+      r'''    // EmuSuNi (01.24): with the stand-in (CFG's system save data couldn't be made) the settings stay in
+    // memory; a file that can't be opened is its error, not an assert.
+    if (FileSys::EmuSuNiIsNoArchive(cfg_system_save_data_archive.get()))
+        return ResultSuccess;
+    auto config_result = cfg_system_save_data_archive->OpenFile(path, mode);
+    if (config_result.Failed())
+        return config_result.Code();
+''')
+patch('src/core/hle/service/cfg/cfg.cpp',
+      '    cfg_system_save_data_archive.reset();\n',
+      r'''    cfg_system_save_data_archive.reset();
+
+    // EmuSuNi (01.24): a system save data that can't be opened or made is the stand-in
+    // (core/file_sys/emusuni_no_archive.h), and the console's settings are made as a new console's, kept in memory
+    // only (each start): not a game stopped on CFG's errors (ERR:F).
+    const auto emusuni_in_memory = [this](Result code) {
+        LOG_WARNING(Service_CFG,
+                    "EmuSuNi: CFG: its system save data (00010017) can't be made ({:#010x}): the console's settings "
+                    "made as a new console's, kept in memory only (01.24)",
+                    code.raw);
+        cfg_system_save_data_archive = std::make_unique<FileSys::EmuSuNiNoArchive>();
+        return FormatConfig();
+    };
+''')
+patch('src/core/hle/service/cfg/cfg.cpp',
+      '            return format_result;\n',
+      '            return emusuni_in_memory(format_result); // EmuSuNi (01.24)\n')
+patch('src/core/hle/service/cfg/cfg.cpp',
+      '        if (!new_archive_result.Succeeded()) {\n'
+      '            LOG_ERROR(Service_CFG, "Could not open the CFG SystemSaveData archive!");\n'
+      '            return archive_result.Code();\n',
+      '        if (!new_archive_result.Succeeded()) {\n'
+      '            LOG_ERROR(Service_CFG, "Could not open the CFG SystemSaveData archive!");\n'
+      '            return emusuni_in_memory(new_archive_result.Code()); // EmuSuNi (01.24)\n')
+patch('src/core/hle/service/cfg/cfg.cpp',
+      '        if (!archive_result.Succeeded()) {\n'
+      '            LOG_ERROR(Service_CFG, "Could not open the CFG SystemSaveData archive!");\n'
+      '            return archive_result.Code();\n',
+      '        if (!archive_result.Succeeded()) {\n'
+      '            LOG_ERROR(Service_CFG, "Could not open the CFG SystemSaveData archive!");\n'
+      '            return emusuni_in_memory(archive_result.Code()); // EmuSuNi (01.24)\n')
+
+# --- 01.24, also: a surface's barriers wait for its drawing. Reports 22H975 (01.22) and 3ERTAN (v00.24): Super Mario
+# 3D Land hung the PS4's GPU ("radv/ps4: GPU hang?") or ended silently. On the PC its start, three states saved and
+# the game going on, and Captain Toad -> Poochy -> SM3DL in one run gave the validation layer (1.3.275) nothing to
+# say, GPU-assisted too; its synchronization check found render passes loading a colour image (loadOp LOAD) right
+# after a layout change nothing had made the drawing wait for (SM3DL, LM2 and Toad):
+# - a new surface's first layout change (from undefined) had a barrier from top of pipe to top of pipe: nothing
+#   after it waited for it (Toad: a new surface drawn into at once);
+# - a surface's other barriers (uploads, downloads, copies, blits, with Surface::PipelineStageFlags and AccessFlags)
+#   had the attachment stages only once it had been a framebuffer (is_framebuffer), so the first render pass into an
+#   uploaded or copied surface raced its last layout change (SM3DL, LM2).
+# On AMD's GPUs a layout change can be real work (RADV writes the image's metadata there: CMASK, HTILE on the PS4's
+# GFX7), so a race there is a suspect for the PS4's hangs. Now the first is waited for by everything after it (all
+# commands, memory read and write), and a surface whose format can be an attachment has those stages from the start.
+# The word off in /data/EmuSuNi/3ds-attachment-sync (EMUSUNI_3DS_ATTACHMENT_SYNC=0 on the PC): both as upstream.
+# Also: the uniform buffer can be a copy's source (TRANSFER_SRC), as 01.22's diagnosis of 3ds-black-uniforms copies
+# from it (the validation layer's VUID-vkCmdCopyBuffer-srcBuffer-00118 in DKC and LM2).
+patch('src/video_core/renderer_vulkan/vk_texture_runtime.cpp',
+      '#include <limits>\n',
+      '#include <atomic> // EmuSuNi (01.24)\n#include <limits>\n')
+patch('src/video_core/renderer_vulkan/vk_texture_runtime.cpp',
+      '#include "common/literals.h"\n',
+      '#include "common/emusuni_async.h" // EmuSuNi (01.24): TestFile\n#include "common/literals.h"\n')
+patch('src/video_core/renderer_vulkan/vk_texture_runtime.cpp',
+      'void MakeInitBarriers(vk::ImageAspectFlags aspect, u32 num_images,\n',
+      r'''// EmuSuNi (01.24): a surface's barriers wait for its drawing - its first layout change (from undefined)
+// waited for by everything after it, and a surface whose format can be an attachment with the attachment stages
+// and accesses in its other barriers from the start (upstream: the first from top of pipe to top of pipe, waited
+// for by nothing; the others with them once it was a framebuffer) - unless the word off is in
+// /data/EmuSuNi/3ds-attachment-sync (EMUSUNI_3DS_ATTACHMENT_SYNC=0 on the PC). Read at each renderer's start.
+std::atomic<bool> emusuni_attachment_sync{true};
+
+bool EmuSuNiAttachmentSync(const FormatTraits& traits) {
+    return traits.attachment_support && emusuni_attachment_sync.load(std::memory_order_relaxed);
+}
+
+vk::PipelineStageFlags EmuSuNiInitDstStage() {
+    return emusuni_attachment_sync.load(std::memory_order_relaxed)
+               ? vk::PipelineStageFlags{vk::PipelineStageFlagBits::eAllCommands}
+               : vk::PipelineStageFlags{vk::PipelineStageFlagBits::eTopOfPipe};
+}
+
+vk::AccessFlags EmuSuNiInitDstAccess() {
+    return emusuni_attachment_sync.load(std::memory_order_relaxed)
+               ? vk::AccessFlags{vk::AccessFlagBits::eMemoryRead | vk::AccessFlagBits::eMemoryWrite}
+               : vk::AccessFlags{vk::AccessFlagBits::eNone};
+}
+
+void MakeInitBarriers(vk::ImageAspectFlags aspect, u32 num_images,
+''')
+patch('src/video_core/renderer_vulkan/vk_texture_runtime.cpp',
+      '            .srcAccessMask = vk::AccessFlagBits::eNone,\n'
+      '            .dstAccessMask = vk::AccessFlagBits::eNone,\n'
+      '            .oldLayout = vk::ImageLayout::eUndefined,\n',
+      '            .srcAccessMask = vk::AccessFlagBits::eNone,\n'
+      '            .dstAccessMask = EmuSuNiInitDstAccess(), // EmuSuNi (01.24)\n'
+      '            .oldLayout = vk::ImageLayout::eUndefined,\n')
+patch('src/video_core/renderer_vulkan/vk_texture_runtime.cpp',
+      '            vk::PipelineStageFlagBits::eTopOfPipe, vk::PipelineStageFlagBits::eTopOfPipe,\n'
+      '            vk::DependencyFlagBits::eByRegion, 0, nullptr, 0, nullptr, num_images, barriers.data());\n'
+      '    });\n'
+      '}\n'
+      '\n'
+      'Surface::Surface(TextureRuntime& runtime_, const VideoCore::SurfaceBase& surface,\n',
+      '            vk::PipelineStageFlagBits::eTopOfPipe, EmuSuNiInitDstStage(), // EmuSuNi (01.24)\n'
+      '            vk::DependencyFlagBits::eByRegion, 0, nullptr, 0, nullptr, num_images, barriers.data());\n'
+      '    });\n'
+      '}\n'
+      '\n'
+      'Surface::Surface(TextureRuntime& runtime_, const VideoCore::SurfaceBase& surface,\n')
+patch('src/video_core/renderer_vulkan/vk_texture_runtime.cpp',
+      '            vk::PipelineStageFlagBits::eTopOfPipe, vk::PipelineStageFlagBits::eTopOfPipe,\n'
+      '            vk::DependencyFlagBits::eByRegion, 0, nullptr, 0, nullptr, num_images, barriers.data());\n'
+      '    });\n'
+      '\n'
+      '    custom_format = mat->format;\n',
+      '            vk::PipelineStageFlagBits::eTopOfPipe, EmuSuNiInitDstStage(), // EmuSuNi (01.24)\n'
+      '            vk::DependencyFlagBits::eByRegion, 0, nullptr, 0, nullptr, num_images, barriers.data());\n'
+      '    });\n'
+      '\n'
+      '    custom_format = mat->format;\n')
+patch('src/video_core/renderer_vulkan/vk_texture_runtime.cpp',
+      '            cmdbuf.pipelineBarrier(vk::PipelineStageFlagBits::eTopOfPipe,\n'
+      '                                   vk::PipelineStageFlagBits::eTopOfPipe,\n'
+      '                                   vk::DependencyFlagBits::eByRegion, {}, {}, barriers);\n',
+      '            cmdbuf.pipelineBarrier(vk::PipelineStageFlagBits::eTopOfPipe,\n'
+      '                                   EmuSuNiInitDstStage(), // EmuSuNi (01.24)\n'
+      '                                   vk::DependencyFlagBits::eByRegion, {}, {}, barriers);\n')
+patch('src/video_core/renderer_vulkan/vk_texture_runtime.cpp',
+      '           (is_framebuffer ? attachment_flags : vk::AccessFlagBits::eNone) |\n',
+      '           (is_framebuffer || EmuSuNiAttachmentSync(traits) ? attachment_flags // EmuSuNi (01.24)\n'
+      '                                                            : vk::AccessFlagBits::eNone) |\n')
+patch('src/video_core/renderer_vulkan/vk_texture_runtime.cpp',
+      '           (is_framebuffer ? attachment_flags : vk::PipelineStageFlagBits::eNone) |\n',
+      '           (is_framebuffer || EmuSuNiAttachmentSync(traits) ? attachment_flags // EmuSuNi (01.24)\n'
+      '                                                            : vk::PipelineStageFlagBits::eNone) |\n')
+patch('src/video_core/renderer_vulkan/vk_texture_runtime.cpp',
+      '      num_swapchain_images{num_swapchain_images_} {}\n',
+      r'''      num_swapchain_images{num_swapchain_images_} {
+    // EmuSuNi (01.24): a surface's barriers wait for its drawing, unless the word off is in
+    // /data/EmuSuNi/3ds-attachment-sync (EMUSUNI_3DS_ATTACHMENT_SYNC=0 on the PC).
+    emusuni_attachment_sync.store(
+        EmuSuNi::Async::TestFile("3ds-attachment-sync", "EMUSUNI_3DS_ATTACHMENT_SYNC", 0) >= 0,
+        std::memory_order_relaxed);
+    LOG_INFO(Render_Vulkan,
+             "EmuSuNi: a surface's barriers {} (01.24; the word off in /data/EmuSuNi/3ds-attachment-sync: as "
+             "upstream)",
+             emusuni_attachment_sync.load(std::memory_order_relaxed)
+                 ? "wait for its drawing: its first layout change for everything after it, the attachment stages "
+                   "from the start"
+                 : "as upstream (off)");
+}
+''')
+patch('src/video_core/renderer_vulkan/vk_rasterizer.cpp',
+      '      uniform_buffer{instance, scheduler, vk::BufferUsageFlagBits::eUniformBuffer,\n',
+      '      uniform_buffer{instance, scheduler,\n'
+      '                     vk::BufferUsageFlagBits::eUniformBuffer |\n'
+      '                         vk::BufferUsageFlagBits::eTransferSrc, // EmuSuNi (01.24): 01.22\'s diagnosis\n')
+
+# --- 01.26: the app's cheats (the owner's OK for 01.26, with their download: the app's part is Frontend's). Azahar's
+# cheat engine was already in, reading the game's file cheats/<title ID>.txt at each load (Gateway / Action Replay
+# lines, on with *citra_enabled), but its libretro retro_cheat_set and retro_cheat_reset did nothing, so the app's
+# cheats page couldn't reach it. Now (core/cheats/emusuni_cheats.h):
+# - retro_cheat_set(index, enabled, code): the code is Gateway / Action Replay lines of 8 + 8 hexadecimal digits,
+#   apart by '+', a line's end or ';' (a line's halves by a space, or by '+' too); it becomes a GatewayCheat on or off
+#   as `enabled`, in the place of the app's code at that index. A code that isn't such lines is left out with a line in
+#   the log (and takes out the one at its index) - never an exception.
+# - retro_cheat_reset: the app's cheats out of the engine; the file's stay.
+# - Kept by index across the game's load (a code set before the load goes in once the engine has read the file) and
+#   a save state's load (the engine's list isn't in a state); taken out when the game ends. Through the engine's own
+#   calls only (its header is in core.h).
+# - A line of the game's file that isn't 8 + 8 hexadecimal digits is invalid without std::stoi / stoul, whose
+#   exceptions the PS4 never catches (the app would end at the game's load).
+addfile('src/core/cheats/emusuni_cheats.h', r'''// EmuSuNi (01.26, scripts/build-3ds-core.sh).
+// The app's cheats: retro_cheat_set / retro_cheat_reset, as the app's cheats page gives them to every console's core.
+// Each is a GatewayCheat (Gateway / Action Replay lines of 8 + 8 hexadecimal digits) on or off, kept here by the app's
+// index and put in the cheat engine's list beside the game's own file of cheats (cheats/<title ID>.txt), which stays.
+#pragma once
+
+#include <cstddef>
+#include <map>
+#include <memory>
+#include <mutex>
+#include <optional>
+#include <string>
+#include <vector>
+#include "common/logging/log.h"
+#include "core/cheats/cheats.h"
+#include "core/cheats/gateway_cheat.h"
+
+namespace EmuSuNi::AppCheats {
+
+struct Entry {
+    std::shared_ptr<::Cheats::CheatBase> cheat;
+    bool enabled = false;
+};
+
+inline std::mutex lock;
+inline std::map<unsigned, Entry> entries; // the app's, by its index
+constexpr std::size_t MAX_LINES = 4096;
+
+inline bool IsHex(char c) {
+    return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+}
+
+inline bool IsSeparator(char c) {
+    return c == '+' || c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == ',' || c == ';';
+}
+
+// The code's Gateway lines ("XXXXXXXX YYYYYYYY", upper case): its words of hexadecimal digits apart by '+', spaces,
+// line ends, ',' or ';' - a word of 16 digits is a line, two words of 8 one line's halves. False (with why) for
+// anything else.
+inline bool Parse(const char* code, std::vector<std::string>& lines, std::string& why) {
+    lines.clear();
+    if (code == nullptr) {
+        why = "no code";
+        return false;
+    }
+    const std::string text = code;
+    std::string half;
+    std::size_t at = 0;
+    while (at < text.size()) {
+        if (IsSeparator(text[at])) {
+            at++;
+            continue;
+        }
+        std::size_t end = at;
+        while (end < text.size() && IsHex(text[end]))
+            end++;
+        if (end == at || (end < text.size() && !IsSeparator(text[end]))) {
+            const std::size_t bad = end == at ? at : end;
+            why = "the character '" + std::string(1, text[bad]) + "' at " + std::to_string(bad + 1) +
+                  " isn't a hexadecimal digit or a separator";
+            return false;
+        }
+        std::string word = text.substr(at, end - at);
+        for (char& c : word)
+            c = static_cast<char>(c >= 'a' && c <= 'f' ? c - 'a' + 'A' : c);
+        if (word.size() == 16 && half.empty()) {
+            lines.push_back(word.substr(0, 8) + ' ' + word.substr(8));
+        } else if (word.size() == 8 && half.empty()) {
+            half = word;
+        } else if (word.size() == 8) {
+            lines.push_back(half + ' ' + word);
+            half.clear();
+        } else {
+            why = half.empty() ? "a word of " + std::to_string(word.size()) + " hexadecimal digits (" +
+                                     word.substr(0, 20) + "), not 8 or 16"
+                               : "a line's first half (" + half + ") without its second";
+            return false;
+        }
+        if (lines.size() > MAX_LINES) {
+            why = "more than " + std::to_string(MAX_LINES) + " lines";
+            return false;
+        }
+        at = end;
+    }
+    if (!half.empty()) {
+        why = "a line's first half (" + half + ") without its second";
+        return false;
+    }
+    if (lines.empty()) {
+        why = "no line";
+        return false;
+    }
+    return true;
+}
+
+// The engine's own calls only (its header is in core.h: a change there makes the whole core again). Its list changes
+// only here and at a game's load, which the app's calls never meet (they come after it), so a place found is still
+// that cheat's when it is used.
+inline std::optional<std::size_t> Find(const ::Cheats::CheatEngine& engine, const ::Cheats::CheatBase* cheat) {
+    if (cheat == nullptr)
+        return std::nullopt;
+    const auto list = engine.GetCheats();
+    for (std::size_t at = 0; at < list.size(); at++) {
+        if (list[at].get() == cheat)
+            return at;
+    }
+    return std::nullopt;
+}
+
+// `old` (none: nothing) replaced by `cheat` where it is in the list, else `cheat` added at its end; `cheat` none: `old`
+// taken out. The file's cheats stay.
+inline void Put(::Cheats::CheatEngine& engine, const ::Cheats::CheatBase* old,
+                std::shared_ptr<::Cheats::CheatBase> cheat) {
+    const auto at = Find(engine, old);
+    if (at && cheat)
+        engine.UpdateCheat(*at, std::move(cheat));
+    else if (at)
+        engine.RemoveCheat(*at);
+    else if (cheat)
+        engine.AddCheat(std::move(cheat));
+}
+
+// The app's cheat at `index` (retro_cheat_set): in the engine in the place of its code at that index.
+inline void Set(::Cheats::CheatEngine& engine, unsigned index, bool enabled, const char* code) {
+    std::vector<std::string> lines;
+    std::string why;
+    std::shared_ptr<::Cheats::CheatBase> cheat;
+    if (Parse(code, lines, why)) {
+        std::string text;
+        for (const std::string& line : lines)
+            text += line + '\n';
+        auto gateway = std::make_shared<::Cheats::GatewayCheat>("EmuSuNi #" + std::to_string(index), text, "");
+        gateway->SetEnabled(enabled);
+        cheat = std::move(gateway);
+        LOG_INFO(Core_Cheats, "EmuSuNi: cheats: the app's #{} {}: {} line{}, the first {}", index,
+                 enabled ? "on" : "off", lines.size(), lines.size() == 1 ? "" : "s", lines[0]);
+    } else {
+        LOG_WARNING(Core_Cheats, "EmuSuNi: cheats: the app's #{} left out: {}", index, why);
+    }
+    std::lock_guard guard{lock};
+    const auto old = entries.find(index);
+    Put(engine, old != entries.end() ? old->second.cheat.get() : nullptr, cheat);
+    if (cheat)
+        entries[index] = Entry{cheat, enabled};
+    else if (old != entries.end())
+        entries.erase(old);
+}
+
+// retro_cheat_reset: the app's cheats out of the engine (the game's file's stay).
+inline void Reset(::Cheats::CheatEngine& engine) {
+    std::lock_guard guard{lock};
+    for (const auto& [index, entry] : entries)
+        Put(engine, entry.cheat.get(), nullptr);
+    if (!entries.empty())
+        LOG_INFO(Core_Cheats, "EmuSuNi: cheats: the app's {} taken out", entries.size());
+    entries.clear();
+}
+
+// After the game's load read its file into the engine (a new title's list is the file's alone): the app's back in.
+inline void AfterLoad(::Cheats::CheatEngine& engine) {
+    std::lock_guard guard{lock};
+    std::size_t added = 0;
+    for (const auto& [index, entry] : entries) {
+        if (!Find(engine, entry.cheat.get())) {
+            Put(engine, nullptr, entry.cheat);
+            added++;
+        }
+    }
+    if (added != 0)
+        LOG_INFO(Core_Cheats, "EmuSuNi: cheats: the app's {} put in after the game's load", added);
+}
+
+// The game ends (retro_unload_game): the app's out, none kept for the next game.
+inline void Forget(::Cheats::CheatEngine& engine) {
+    std::lock_guard guard{lock};
+    for (const auto& [index, entry] : entries)
+        Put(engine, entry.cheat.get(), nullptr);
+    entries.clear();
+}
+
+} // namespace EmuSuNi::AppCheats
+''')
+patch('src/core/cheats/gateway_cheat.cpp',
+      '        valid = false;\n        return;\n    }\n    try {\n',
+      r'''        valid = false;
+        return;
+    }
+    // EmuSuNi (01.26): a line that isn't 8 + 8 hexadecimal digits is invalid here, not by std::stoi / stoul's
+    // exceptions, which the PS4 never catches (the app would end): a player's file or a downloaded code.
+    for (std::size_t emusuni_at = 0; emusuni_at < cheat_length; emusuni_at++) {
+        const char c = line[emusuni_at];
+        if (emusuni_at != 8 && !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) {
+            type = CheatType::Null;
+            cheat_line = line;
+            LOG_ERROR(Core_Cheats, "Cheat contains invalid line: {}", line);
+            valid = false;
+            return;
+        }
+    }
+    try {
+''')
+patch('src/core/core.cpp',
+      '#include "core/cheats/cheats.h"\n',
+      '#include "core/cheats/cheats.h"\n#include "core/cheats/emusuni_cheats.h" // EmuSuNi (01.26)\n')
+patch('src/core/core.cpp',
+      '    cheat_engine.LoadCheatFile(title_id);\n    cheat_engine.Connect(process->process_id);\n',
+      '    cheat_engine.LoadCheatFile(title_id);\n'
+      '    EmuSuNi::AppCheats::AfterLoad(cheat_engine); // EmuSuNi (01.26): the app\'s cheats back in\n'
+      '    cheat_engine.Connect(process->process_id);\n')
+patch('src/citra_libretro/citra_libretro.cpp',
+      '#include "citra_libretro/emusuni_room.h"\n',
+      '#include "citra_libretro/emusuni_room.h"\n#include "core/cheats/emusuni_cheats.h" // (01.26)\n')
+patch('src/citra_libretro/citra_libretro.cpp',
+      '    EmuSuNi::JitWarm::End(Core::System::GetInstance());  // EmuSuNi: (citra_libretro/emusuni_jitwarm.h)\n',
+      '    EmuSuNi::JitWarm::End(Core::System::GetInstance());  // EmuSuNi: (citra_libretro/emusuni_jitwarm.h)\n'
+      '    EmuSuNi::AppCheats::Forget(Core::System::GetInstance().CheatEngine()); // (01.26) the app\'s cheats out\n')
+patch('src/citra_libretro/citra_libretro.cpp',
+      'void retro_cheat_reset() {}\n\nvoid retro_cheat_set(unsigned index, bool enabled, const char* code) {}\n',
+      r'''void retro_cheat_reset() {
+#ifdef EMUSUNI_PORT
+    // EmuSuNi (01.26): the app's cheats out (core/cheats/emusuni_cheats.h); the game's file's stay.
+    EmuSuNi::AppCheats::Reset(Core::System::GetInstance().CheatEngine());
+#endif
+}
+
+void retro_cheat_set(unsigned index, bool enabled, const char* code) {
+#ifdef EMUSUNI_PORT
+    // EmuSuNi (01.26): the app's cheat at `index`: Gateway / Action Replay lines, on or off (a code that isn't such
+    // lines is left out, said in the log).
+    EmuSuNi::AppCheats::Set(Core::System::GetInstance().CheatEngine(), index, enabled, code);
+#endif
+}
+''')
+
+# --- 01.30: 3ds-black-uniforms for a picture all clear too. The owner's PS4 (01.29, 2026-11-14) and v00.24's report
+# GMDWZQ: Yo-kai Watch Blasters (00040000001CEC00) started grey and stayed so - none of 3ds-black-watch's 24 points
+# black, every one's alpha 0 -, four starts, in New and in Old 3DS mode, each before the game's first save; its later
+# starts opened. On the PC its draws made to vanish (EMUSUNI_3DS_TEST_SPOIL_UNIFORMS=0, as in the PS4's black starts)
+# leave exactly that, both screens #202020 with alpha 0, the colour the game clears them with; and the refresh, which
+# wanted a black reading, never came. So a reading all clear with the game drawing in the first minute asks for it
+# too: of the 3DS readings in the PS4 logs only Yo-kai's grey starts were all clear (the others at most 16 of 24).
+patch('src/video_core/renderer_vulkan/renderer_vulkan.cpp',
+      '        if (::EmuSuNi::BlackUniforms::on.load(std::memory_order_relaxed) && is_black && new_draws != 0 &&\n'
+      '            since < 60.0 && ::EmuSuNi::BlackUniforms::Ask(static_cast<u32>(2 * B::EVERY))) {\n',
+      r'''        // (01.30) Or a reading all clear (every point's alpha 0, none black): the same start in a game
+        // that clears its screens with a colour of alpha 0 (Yo-kai Watch Blasters' dark grey, #202020).
+        const bool emusuni_clear = !is_black && clear == B::pending_points;
+        if (::EmuSuNi::BlackUniforms::on.load(std::memory_order_relaxed) && (is_black || emusuni_clear) &&
+            new_draws != 0 && since < 60.0 && ::EmuSuNi::BlackUniforms::Ask(static_cast<u32>(2 * B::EVERY))) {
+''')
+patch('src/video_core/renderer_vulkan/renderer_vulkan.cpp',
+      '3ds-black-uniforms: the picture black {:.1f} s after',
+      '3ds-black-uniforms: the picture {} {:.1f} s after')
+patch('src/video_core/renderer_vulkan/renderer_vulkan.cpp',
+      '                        since, new_draws, dt);\n        }\n        if (B::test_log) {\n',
+      '                        emusuni_clear ? "all clear (every point\'s alpha 0: 01.30)" : "black", since,\n'
+      '                        new_draws, dt);\n        }\n        if (B::test_log) {\n')
+patch('src/video_core/renderer_vulkan/renderer_vulkan.cpp',
+      '            if (::EmuSuNi::BlackUniforms::asked.load(std::memory_order_relaxed) != 0) { // (01.22)\n',
+      '            // ((01.30) Not for a reading all clear: its picture isn\'t shown yet.)\n'
+      '            if (::EmuSuNi::BlackUniforms::asked.load(std::memory_order_relaxed) != 0 && !emusuni_clear) {\n')
+
+# --- 01.32: 3ds-draw-memo (C4's first batch, 3ds-0132-c4.md). In Kirby's draws on the PC, the framebuffer's lookup
+# (GetFramebufferSurfaces) and the marking of its regions at each draw's end (FramebufferHelper's InvalidateRegion
+# calls) were 12 % of the GPU commands' time, and each texture unit's surface and sampler 7 %: the same answers draw
+# after draw. A counter of the rasterizer cache's state (every change of a surface's valid regions, of the registered
+# surfaces, of the framebuffers or of the dirty regions moves it on) lets a draw take the draw before's answers while
+# it stands still and the registers are the same. The word off in /data/EmuSuNi/3ds-draw-memo turns it off.
+addfile('src/common/emusuni_draw_memo.h',
+        r'''// EmuSuNi (scripts/build-3ds-core.sh, 01.32): 3ds-draw-memo. The rasterizer cache's state counter,
+// and the switch and account of the draws' memos that rely on it: the framebuffer and the marking of its regions
+// (rasterizer_cache/rasterizer_cache.h) and each texture unit's surface and sampler (the same, called by
+// renderer_vulkan/vk_rasterizer.cpp's SyncTextureUnits).
+#pragma once
+#ifdef EMUSUNI_PORT
+#include <atomic>
+#include <cstdint>
+
+namespace EmuSuNi::DrawMemo {
+// Moved on by every change of a surface's valid regions (SurfaceBase::MarkValid, MarkInvalid), of the registered
+// surfaces, of the framebuffers and of the dirty regions. A memo holds only while it stands still. (The cache is used
+// by one thread at a time: a plain increment.)
+inline std::atomic<std::uint64_t> epoch{1};
+inline void Changed() {
+    epoch.store(epoch.load(std::memory_order_relaxed) + 1, std::memory_order_relaxed);
+}
+inline std::uint64_t Now() {
+    return epoch.load(std::memory_order_relaxed);
+}
+
+// On unless the word off is in /data/EmuSuNi/3ds-draw-memo (EMUSUNI_3DS_DRAW_MEMO=0 on the PC), read at the
+// renderer's start. PC tests: EMUSUNI_3DS_TEST_MEMO_PARTS (1 the framebuffers, 2 the texture units; 3 both) and
+// EMUSUNI_3DS_TEST_MEMO_CHECK (each memo's answer also looked up in full and compared, the differences counted).
+inline bool on = true;
+inline unsigned parts = 3;
+inline bool check = false;
+inline bool Framebuffers() {
+    return on && (parts & 1) != 0;
+}
+inline bool Units() {
+    return on && (parts & 2) != 0;
+}
+
+// Counted where the draws are, read every 600 frames by RasterizerVulkan::TickFrame (an account only).
+enum Count { FbHits, FbLookups, MarksSkipped, Marks, UnitHits, UnitLookups, CheckBad, CountCount };
+inline std::atomic<std::uint64_t> counts[CountCount];
+inline void Add(Count c) {
+    counts[c].store(counts[c].load(std::memory_order_relaxed) + 1, std::memory_order_relaxed);
+}
+} // namespace EmuSuNi::DrawMemo
+#endif
+''')
+patch('src/video_core/rasterizer_cache/surface_base.h',
+      '#include "video_core/rasterizer_cache/utils.h"\n',
+      '#include "video_core/rasterizer_cache/utils.h"\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '#include "common/emusuni_draw_memo.h" // (01.32)\n'
+      '#endif\n')
+patch('src/video_core/rasterizer_cache/surface_base.h',
+      '    void MarkValid(SurfaceInterval interval) {\n'
+      '        invalid_regions.erase(interval);\n'
+      '        modification_tick++;\n'
+      '    }\n'
+      '\n'
+      '    void MarkInvalid(SurfaceInterval interval) {\n'
+      '        invalid_regions.insert(interval);\n'
+      '        modification_tick++;\n'
+      '    }\n',
+      '    void MarkValid(SurfaceInterval interval) {\n'
+      '        invalid_regions.erase(interval);\n'
+      '        modification_tick++;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '        EmuSuNi::DrawMemo::Changed(); // (01.32) common/emusuni_draw_memo.h\n'
+      '#endif\n'
+      '    }\n'
+      '\n'
+      '    void MarkInvalid(SurfaceInterval interval) {\n'
+      '        invalid_regions.insert(interval);\n'
+      '        modification_tick++;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '        EmuSuNi::DrawMemo::Changed(); // (01.32)\n'
+      '#endif\n'
+      '    }\n')
+RC = 'src/video_core/rasterizer_cache/rasterizer_cache.h'
+for old in ('    surface.flags |= SurfaceFlagBits::Registered;\n'
+            '    UpdatePagesCachedCount(surface.addr, surface.size, 1);\n',
+            '    surface.flags &= ~SurfaceFlagBits::Registered;\n'
+            '    UpdatePagesCachedCount(surface.addr, surface.size, -1);\n',
+            'void RasterizerCache<T>::RemoveFramebuffers(SurfaceId surface_id) {\n'):
+    patch(RC, old, old + '#ifdef EMUSUNI_PORT\n'
+                         '    EmuSuNi::DrawMemo::Changed(); // (01.32) common/emusuni_draw_memo.h\n'
+                         '#endif\n')
+patch(RC, '    dirty_regions -= flushed_intervals;\n',
+      '    dirty_regions -= flushed_intervals;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '    if (!flushed_intervals.empty()) {\n'
+      '        EmuSuNi::DrawMemo::Changed(); // (01.32)\n'
+      '    }\n'
+      '#endif\n')
+for old in ('        dirty_regions.set({invalid_interval, region_owner_id});\n',
+            '        dirty_regions.erase(invalid_interval);\n'):
+    patch(RC, old, '#ifdef EMUSUNI_PORT\n        EmuSuNi::DrawMemo::Changed(); // (01.32)\n#endif\n' + old)
+patch(RC, '    dirty_regions.clear();\n',
+      '    dirty_regions.clear();\n#ifdef EMUSUNI_PORT\n    EmuSuNi::DrawMemo::Changed(); // (01.32)\n#endif\n')
+# GetSampler by its id, for the texture units' memo.
+patch(RC,
+      'typename T::Sampler& RasterizerCache<T>::GetSampler(\n'
+      '    const Pica::TexturingRegs::TextureConfig& config) {\n',
+      'typename T::Sampler& RasterizerCache<T>::GetSampler(\n'
+      '    const Pica::TexturingRegs::TextureConfig& config) {\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '    return slot_samplers[EmuSuNiSamplerId(config)];\n'
+      '}\n'
+      '\n'
+      'template <class T>\n'
+      'SamplerId RasterizerCache<T>::EmuSuNiSamplerId(const Pica::TexturingRegs::TextureConfig& config) {\n'
+      '#endif\n')
+patch(RC, '    return slot_samplers[it->second];\n',
+      '#ifdef EMUSUNI_PORT\n    return it->second;\n#else\n    return slot_samplers[it->second];\n#endif\n')
+# The framebuffer: the draw before's, when its registers, viewport and the cache are as then.
+patch(RC,
+      '        static_cast<u32>(std::clamp(viewport_rect.bottom, 0, framebuffer_height)),\n'
+      '    };\n',
+      '        static_cast<u32>(std::clamp(viewport_rect.bottom, 0, framebuffer_height)),\n'
+      '    };\n'
+      r'''#ifdef EMUSUNI_PORT
+    // (01.32) 3ds-draw-memo: the same framebuffer registers, viewport and use as the draw before, with nothing in the
+    // cache changed since (common/emusuni_draw_memo.h): its surfaces and framebuffer as then, already validated.
+    namespace EmuSuNiDM = EmuSuNi::DrawMemo;
+    const bool emusuni_memo = EmuSuNiDM::Framebuffers();
+    EmuSuNiFbKey emusuni_key{};
+    bool emusuni_checking = false;
+    u64 emusuni_check_epoch = 0;
+    if (emusuni_memo) {
+        EmuSuNiDM::Add(EmuSuNiDM::FbLookups);
+        std::memcpy(emusuni_key.config.data(), &config, sizeof(emusuni_key.config));
+        emusuni_key.viewport = {viewport_clamped.left, viewport_clamped.top, viewport_clamped.right,
+                                viewport_clamped.bottom};
+        emusuni_key.flags = (using_color_fb ? 1u : 0u) | (using_depth_fb ? 2u : 0u) |
+                            (regs.framebuffer.IsShadowRendering() ? 4u : 0u);
+        emusuni_key.scale = resolution_scale_factor;
+        if (emusuni_fb.valid && emusuni_fb.epoch == EmuSuNiDM::Now() && emusuni_fb.key == emusuni_key) {
+            EmuSuNiDM::Add(EmuSuNiDM::FbHits);
+            if (!EmuSuNiDM::check) {
+                if (emusuni_fb.color_id) { // (01.21, 3ds-black-watch) a draw into it, as below
+                    namespace BS = EmuSuNi::BlackSurfaces;
+                    const SurfaceId emusuni_color = emusuni_fb.color_id;
+                    BS::Of(emusuni_color.index).draws++;
+                    if (BS::drawn_id.exchange(emusuni_color.index, std::memory_order_relaxed) !=
+                        emusuni_color.index) {
+                        std::scoped_lock lock{BS::mutex};
+                        BS::drawn = BS::Make(emusuni_color.index, slot_surfaces[emusuni_color]);
+                    }
+                }
+                return FramebufferHelper<T>{this, &slot_framebuffers[emusuni_fb.fb_id], config.IsFlipped(),
+                                            regs.rasterizer, emusuni_fb.fb_rect};
+            }
+            emusuni_checking = true; // (PC test) looked up in full below and compared
+            emusuni_check_epoch = EmuSuNiDM::Now();
+        }
+    }
+#endif
+''')
+patch(RC,
+      '    auto [it, new_framebuffer] = framebuffers.try_emplace(fb_params);\n'
+      '    if (new_framebuffer) {\n'
+      '        it->second = slot_framebuffers.insert(runtime, fb_params, color_surface, depth_surface);\n'
+      '    }\n',
+      '    auto [it, new_framebuffer] = framebuffers.try_emplace(fb_params);\n'
+      '    if (new_framebuffer) {\n'
+      '        it->second = slot_framebuffers.insert(runtime, fb_params, color_surface, depth_surface);\n'
+      '    }\n'
+      r'''#ifdef EMUSUNI_PORT
+    if (emusuni_memo) { // (01.32) 3ds-draw-memo: kept for the next draw
+        if (emusuni_checking &&
+            (emusuni_fb.fb_id != it->second || emusuni_fb.fb_rect.left != fb_rect.left ||
+             emusuni_fb.fb_rect.top != fb_rect.top || emusuni_fb.fb_rect.right != fb_rect.right ||
+             emusuni_fb.fb_rect.bottom != fb_rect.bottom || EmuSuNiDM::Now() != emusuni_check_epoch)) {
+            EmuSuNiMemoBad("a framebuffer", emusuni_fb.fb_id.index, it->second.index);
+        }
+        emusuni_fb.key = emusuni_key;
+        emusuni_fb.fb_id = it->second;
+        emusuni_fb.fb_rect = fb_rect;
+        emusuni_fb.color_id = color_id;
+        emusuni_fb.epoch = EmuSuNiDM::Now();
+        emusuni_fb.valid = true;
+    }
+#endif
+''')
+patch(RC,
+      'template <class T>\n'
+      'SurfaceId RasterizerCache<T>::GetTextureSurface(const Pica::Texture::TextureInfo& info,\n',
+      r'''#ifdef EMUSUNI_PORT
+// (01.32) 3ds-draw-memo: a texture unit's surface and sampler, the draw before's when the unit's registers and the
+// cache are as then (a surface not registered, as the small mipmaps' copy, never kept).
+template <class T>
+std::pair<SurfaceId, SamplerId> RasterizerCache<T>::EmuSuNiTextureUnit(
+    u32 unit, const Pica::TexturingRegs::FullTextureConfig& texture) {
+    namespace DM = EmuSuNi::DrawMemo;
+    const bool memo = DM::Units() && unit < emusuni_units.size();
+    EmuSuNiUnitKey key{};
+    bool checking = false;
+    u64 check_epoch = 0;
+    if (memo) {
+        DM::Add(DM::UnitLookups);
+        std::memcpy(key.config.data(), &texture.config, sizeof(key.config));
+        key.format = static_cast<u32>(texture.format);
+        key.scale = resolution_scale_factor;
+        key.filter = static_cast<u32>(filter);
+        key.sampling = static_cast<u32>(Settings::values.texture_sampling.GetValue());
+        const EmuSuNiUnit& last = emusuni_units[unit];
+        if (last.valid && last.epoch == DM::Now() && last.key == key) {
+            DM::Add(DM::UnitHits);
+            if (!DM::check) {
+                return {last.surface, last.sampler};
+            }
+            checking = true;
+            check_epoch = DM::Now();
+        }
+    }
+    const auto info = Pica::Texture::TextureInfo::FromPicaRegister(texture.config, texture.format);
+    const u32 max_level = MipLevels(info.width, info.height, texture.config.lod.max_level) - 1;
+    const SurfaceId surface_id = GetTextureSurface(info, max_level);
+    const SamplerId sampler_id = EmuSuNiSamplerId(texture.config);
+    if (memo) {
+        EmuSuNiUnit& last = emusuni_units[unit];
+        if (checking && (last.surface != surface_id || last.sampler != sampler_id || DM::Now() != check_epoch)) {
+            EmuSuNiMemoBad("a texture unit", last.surface.index, surface_id.index);
+        }
+        last.key = key;
+        last.surface = surface_id;
+        last.sampler = sampler_id;
+        last.epoch = DM::Now();
+        last.valid =
+            surface_id == NULL_SURFACE_ID || True(slot_surfaces[surface_id].flags & SurfaceFlagBits::Registered);
+    }
+    return {surface_id, sampler_id};
+}
+
+// (01.32) 3ds-draw-memo: a draw's end (FramebufferHelper): its framebuffer's regions marked as written by it, unless
+// they are the draw before's with nothing in the cache changed since (marking them again would change nothing).
+// regions: the colour surface's index, address and size, then the depth surface's.
+template <class T>
+void RasterizerCache<T>::EmuSuNiMarkTargets(const std::array<u32, 6>& regions, SurfaceId color_id,
+                                            SurfaceId depth_id) {
+    namespace DM = EmuSuNi::DrawMemo;
+    const bool memo = DM::Framebuffers();
+    if (memo) {
+        DM::Add(DM::Marks);
+        if (emusuni_marks_valid && emusuni_marks_epoch == DM::Now() && emusuni_marks == regions) {
+            DM::Add(DM::MarksSkipped);
+            if (DM::check) {
+                EmuSuNiCheckMarks(regions, color_id, depth_id); // (PC test) as marked?
+            }
+            return;
+        }
+    }
+    if (color_id) {
+        InvalidateRegion(regions[1], regions[2], color_id);
+    }
+    if (depth_id) {
+        InvalidateRegion(regions[4], regions[5], depth_id);
+    }
+    if (memo) {
+        emusuni_marks = regions;
+        emusuni_marks_epoch = DM::Now();
+        emusuni_marks_valid = true;
+    }
+}
+
+// (01.32, PC test EMUSUNI_3DS_TEST_MEMO_CHECK) A marking about to be skipped: each region valid in its surface, all of
+// it dirty and owned by that surface, and every other surface on it invalid there.
+template <class T>
+void RasterizerCache<T>::EmuSuNiCheckMarks(const std::array<u32, 6>& regions, SurfaceId color_id,
+                                           SurfaceId depth_id) {
+    const auto check = [this](SurfaceId id, PAddr addr, u32 size) {
+        if (!id || size == 0) {
+            return;
+        }
+        const SurfaceInterval interval(addr, addr + size);
+        if (!slot_surfaces[id].IsRegionValid(interval)) {
+            EmuSuNiMemoBad("a marked region not valid", addr, size);
+            return;
+        }
+        u32 owned = 0;
+        for (const auto& [region, owner] : RangeFromInterval(dirty_regions, interval)) {
+            if (owner != id) {
+                EmuSuNiMemoBad("a marked region owned by another surface", addr, size);
+                return;
+            }
+            owned += boost::icl::length(region & interval);
+        }
+        if (owned != size) {
+            EmuSuNiMemoBad("a marked region not all dirty", owned, size);
+            return;
+        }
+        ForEachSurfaceInRegion(addr, size, [&](SurfaceId other_id, Surface& other) {
+            const auto sub = other.GetInterval() & interval;
+            if (other_id != id && !boost::icl::is_empty(sub) && !boost::icl::contains(other.invalid_regions, sub)) {
+                EmuSuNiMemoBad("another surface valid in a marked region", addr, size);
+            }
+        });
+    };
+    check(color_id, regions[1], regions[2]);
+    check(depth_id, regions[4], regions[5]);
+}
+
+template <class T>
+void RasterizerCache<T>::EmuSuNiMemoBad(const char* what, u32 a, u32 b) {
+    EmuSuNi::DrawMemo::Add(EmuSuNi::DrawMemo::CheckBad);
+    static u32 told = 0;
+    if (told < 8) {
+        told++;
+        LOG_WARNING(HW_GPU, "EmuSuNi: 3ds-draw-memo check: {} differs from a full lookup ({:#x}, {:#x})", what, a, b);
+    }
+}
+#endif
+
+template <class T>
+SurfaceId RasterizerCache<T>::GetTextureSurface(const Pica::Texture::TextureInfo& info,
+''')
+RB = 'src/video_core/rasterizer_cache/rasterizer_cache_base.h'
+patch(RB, '#include "video_core/rasterizer_cache/texture_cube.h"\n',
+      '#include "video_core/rasterizer_cache/texture_cube.h"\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '#include <array>\n'
+      '#include <cstring>\n'
+      '#include <utility>\n'
+      '#include "common/emusuni_draw_memo.h" // (01.32)\n'
+      '#include "video_core/pica/regs_framebuffer.h"\n'
+      '#include "video_core/pica/regs_texturing.h"\n'
+      '#endif\n')
+patch(RB, '    Sampler& GetSampler(SamplerId sampler_id);\n',
+      '    Sampler& GetSampler(SamplerId sampler_id);\n'
+      r'''#ifdef EMUSUNI_PORT
+    /// (01.32) 3ds-draw-memo (common/emusuni_draw_memo.h): GetSampler's sampler by its id; a texture unit's surface
+    /// and sampler (the draw before's when its registers and the cache are as then); a draw's end, marking its
+    /// framebuffer's regions as written unless they are the draw before's with the cache unchanged.
+    SamplerId EmuSuNiSamplerId(const Pica::TexturingRegs::TextureConfig& config);
+    std::pair<SurfaceId, SamplerId> EmuSuNiTextureUnit(u32 unit,
+                                                       const Pica::TexturingRegs::FullTextureConfig& texture);
+    void EmuSuNiMarkTargets(const std::array<u32, 6>& regions, SurfaceId color_id, SurfaceId depth_id);
+#endif
+''')
+patch(RB, '    Settings::TextureFilter filter;\n',
+      '    Settings::TextureFilter filter;\n'
+      r'''#ifdef EMUSUNI_PORT
+    // (01.32) 3ds-draw-memo: the draw before's framebuffer, the regions its draw marked and each texture unit's
+    // surface and sampler, each with the cache's state counter (EmuSuNi::DrawMemo::Now()) of then.
+    struct EmuSuNiFbKey {
+        std::array<u8, sizeof(Pica::FramebufferRegs::FramebufferConfig)> config;
+        std::array<u32, 4> viewport;
+        u32 flags;
+        u32 scale;
+        bool operator==(const EmuSuNiFbKey&) const = default;
+    };
+    struct EmuSuNiFbMemo {
+        EmuSuNiFbKey key{};
+        FramebufferId fb_id{};
+        Common::Rectangle<u32> fb_rect{};
+        SurfaceId color_id{};
+        u64 epoch = 0;
+        bool valid = false;
+    };
+    EmuSuNiFbMemo emusuni_fb{};
+    std::array<u32, 6> emusuni_marks{};
+    u64 emusuni_marks_epoch = 0;
+    bool emusuni_marks_valid = false;
+    struct EmuSuNiUnitKey {
+        std::array<u8, sizeof(Pica::TexturingRegs::TextureConfig)> config;
+        u32 format;
+        u32 scale;
+        u32 filter;
+        u32 sampling;
+        bool operator==(const EmuSuNiUnitKey&) const = default;
+    };
+    struct EmuSuNiUnit {
+        EmuSuNiUnitKey key{};
+        SurfaceId surface{};
+        SamplerId sampler{};
+        u64 epoch = 0;
+        bool valid = false;
+    };
+    std::array<EmuSuNiUnit, 3> emusuni_units{};
+    void EmuSuNiCheckMarks(const std::array<u32, 6>& regions, SurfaceId color_id, SurfaceId depth_id);
+    void EmuSuNiMemoBad(const char* what, u32 a, u32 b);
+#endif
+''')
+patch('src/video_core/rasterizer_cache/framebuffer_base.h',
+      '        const Common::Rectangle draw_rect_unscaled{draw_rect / fb->Scale()};\n'
+      '        const auto invalidate = [&](SurfaceId surface_id, u32 level) {\n',
+      '        const Common::Rectangle draw_rect_unscaled{draw_rect / fb->Scale()};\n'
+      r'''#ifdef EMUSUNI_PORT
+        // (01.32) 3ds-draw-memo: marked by the cache, which skips the draw before's same regions when nothing changed
+        // since (rasterizer_cache.h, EmuSuNiMarkTargets).
+        std::array<u32, 6> emusuni_regions{};
+        const auto emusuni_region = [&](SurfaceId surface_id, u32 level, std::size_t at) {
+            const auto& surface = res_cache->GetSurface(surface_id);
+            const SurfaceInterval interval = surface.GetSubRectInterval(draw_rect_unscaled, level);
+            emusuni_regions[at] = surface_id.index;
+            emusuni_regions[at + 1] = boost::icl::first(interval);
+            emusuni_regions[at + 2] = boost::icl::length(interval);
+        };
+        if (fb->color_id) {
+            emusuni_region(fb->color_id, fb->color_level, 0);
+        }
+        if (fb->depth_id) {
+            emusuni_region(fb->depth_id, fb->depth_level, 3);
+        }
+        res_cache->EmuSuNiMarkTargets(emusuni_regions, fb->color_id, fb->depth_id);
+        return;
+#endif
+''' + '        const auto invalidate = [&](SurfaceId surface_id, u32 level) {\n')
+VR = 'src/video_core/renderer_vulkan/vk_rasterizer.cpp'
+patch(VR,
+      '        Surface& surface = res_cache.GetTextureSurface(texture);\n'
+      '        Sampler& sampler = res_cache.GetSampler(texture.config);\n'
+      '        const vk::ImageView color_view = framebuffer->ImageView(SurfaceType::Color);\n'
+      '        const bool is_feedback_loop = color_view == surface.FramebufferView();\n'
+      '        const vk::ImageView texture_view =\n'
+      '            is_feedback_loop ? surface.CopyImageView() : surface.ImageView();\n'
+      '        EmuSuNiAddImage(static_cast<u8>(texture_index), 0, texture_view, sampler.Handle(), false);\n',
+      '        // (01.32) 3ds-draw-memo: the draw before\'s surface and sampler when the unit\'s registers and\n'
+      '        // the cache are as then (rasterizer_cache.h, EmuSuNiTextureUnit).\n'
+      '        const auto [emusuni_surface_id, emusuni_sampler_id] =\n'
+      '            res_cache.EmuSuNiTextureUnit(texture_index, texture);\n'
+      '        Surface& surface = res_cache.GetSurface(emusuni_surface_id);\n'
+      '        Sampler& sampler = res_cache.GetSampler(emusuni_sampler_id);\n'
+      '        const vk::ImageView color_view = framebuffer->ImageView(SurfaceType::Color);\n'
+      '        const bool is_feedback_loop = color_view == surface.FramebufferView();\n'
+      '        const vk::ImageView texture_view =\n'
+      '            is_feedback_loop ? surface.CopyImageView() : surface.ImageView();\n'
+      '        EmuSuNiAddImage(static_cast<u8>(texture_index), 0, texture_view, sampler.Handle(), false);\n')
+patch(VR, 'void RasterizerVulkan::TickFrame() {\n#ifdef EMUSUNI_PORT\n',
+      'void RasterizerVulkan::TickFrame() {\n#ifdef EMUSUNI_PORT\n'
+      r'''    { // (01.32) 3ds-draw-memo's account, every 600 frames (common/emusuni_draw_memo.h)
+        namespace DM = EmuSuNi::DrawMemo;
+        static u32 emusuni_frames = 0;
+        static std::array<u64, DM::CountCount> emusuni_at{};
+        if (DM::on && ++emusuni_frames >= 600) {
+            emusuni_frames = 0;
+            std::array<u64, DM::CountCount> d{};
+            for (u32 i = 0; i < DM::CountCount; i++) {
+                const u64 now = DM::counts[i].load(std::memory_order_relaxed);
+                d[i] = now - emusuni_at[i];
+                emusuni_at[i] = now;
+            }
+            LOG_INFO(Render_Vulkan,
+                     "EmuSuNi: 3ds-draw-memo in the last 600 frames: framebuffers {} of {} as the draw before, their "
+                     "marking skipped {} of {}, texture units {} of {}{}",
+                     d[DM::FbHits], d[DM::FbLookups], d[DM::MarksSkipped], d[DM::Marks], d[DM::UnitHits],
+                     d[DM::UnitLookups],
+                     DM::check ? fmt::format(" (checked against full lookups: {} differences)", d[DM::CheckBad])
+                               : std::string{});
+        }
+    }
+''')
+RV = 'src/video_core/renderer_vulkan/renderer_vulkan.cpp'
+patch(RV, '#include "common/emusuni_black_surfaces.h" // (01.21)\n',
+      '#include "common/emusuni_black_surfaces.h" // (01.21)\n#include "common/emusuni_draw_memo.h"      // (01.32)\n')
+patch(RV, '        ::EmuSuNi::BlackUniforms::Reset();\n',
+      '        ::EmuSuNi::BlackUniforms::Reset();\n'
+      r'''        // (01.32) 3ds-draw-memo: on unless the word off is in its file (common/emusuni_draw_memo.h).
+        EmuSuNi::DrawMemo::on = EmuSuNi::Async::TestFile("3ds-draw-memo", "EMUSUNI_3DS_DRAW_MEMO", 0) >= 0;
+#ifndef __ORBIS__
+        if (const char* emusuni_parts = std::getenv("EMUSUNI_3DS_TEST_MEMO_PARTS")) {
+            EmuSuNi::DrawMemo::parts = static_cast<unsigned>(std::atoi(emusuni_parts));
+        }
+        EmuSuNi::DrawMemo::check = std::getenv("EMUSUNI_3DS_TEST_MEMO_CHECK") != nullptr;
+#endif
+        LOG_INFO(Render_Vulkan,
+                 "EmuSuNi: 3ds-draw-memo {} (01.32: a draw takes the draw before's framebuffer and texture units "
+                 "while the surfaces' cache is unchanged; the word off in its file turns it off){}",
+                 EmuSuNi::DrawMemo::on ? "on" : "off",
+                 EmuSuNi::DrawMemo::check ? " - checked against full lookups (PC test)" : "");
+''')
+
+# --- 01.34: 3ds-picture-late (D2, stage 1, 3ds-0134-d2-etapa1.md). With it on for a game, the GPU's work runs a
+# frame behind the game: the GSP's GPU commands (lists, fills, copies) end for the game when it sends them (their
+# interrupts at once, as when they ran inline), the GPU commands' thread (3ds-async-pica) runs them while the game runs
+# on, and the VBlank hands the app the ring's next image at once, the picture drawn into it on that thread after the
+# commands sent before it (the app waits for its serial already, emusuni_3ds_wait_image). The game's next frame runs
+# beside its last one's GPU work; the thread is at most one picture behind. Off unless the file
+# /data/EmuSuNi/3ds-picture-late is there (empty: every game; title IDs in it: those; the word off: off); on the PC
+# EMUSUNI_3DS_PICTURE_LATE (1: every game, or title IDs). A list with more than one P3D request or a jump to another
+# list, and every list while the GPU's timings are emulated, ends when the thread has run it, as before.
+patch('src/common/emusuni_async.h',
+      'inline bool DeferInterrupt(std::uint32_t id, std::uint64_t delay_ns) {\n',
+      '// (01.34) 3ds-picture-late (video_core/gpu.cpp): this game\'s GPU work a frame behind; on the GPU commands\'\n'
+      '// thread, the command it runs had its interrupts signalled when it was sent (its own are dropped).\n'
+      'inline std::atomic<bool> picture_late{false};\n'
+      'inline thread_local bool pica_early = false;\n'
+      'inline thread_local std::uint64_t pica_early_delay = 0; // (the P3D\'s delay it was signalled with)\n'
+      'inline thread_local std::uint32_t pica_early_irq = 0xFF; // (the interrupt it was signalled with; 0xFF: none)\n'
+      'inline thread_local std::uint32_t pica_early_seen = 0;   // (its own interrupts dropped so far)\n'
+      'inline std::atomic<std::uint64_t> early_unmatched{0};    // (signalled when sent, none of its own raised)\n'
+      'inline thread_local bool pica_ignored = false; // (a right-eye list left out: its P3D without its own)\n'
+      'inline bool DeferInterrupt(std::uint32_t id, std::uint64_t delay_ns) {\n')
+AP = 'src/video_core/emusuni_async_pica.h'
+patch(AP, '#include "common/emusuni_stats.h"\n',
+      '#include "common/emusuni_snapshot.h" // (01.34)\n#include "common/emusuni_stats.h"\n')
+patch(AP, '        std::uint64_t seq = 0;       // (01.17) its number (Submit\'s), for WaitFor\n',
+      '        std::uint64_t seq = 0;       // (01.17) its number (Submit\'s), for WaitFor\n'
+      '        bool early = false;          // (01.34) its interrupts signalled when sent (3ds-picture-late)\n'
+      '        std::uint64_t early_delay = 0; // (01.34) the interrupt\'s delay it was signalled with\n'
+      '        std::uint32_t early_irq = 0xFF; // (01.34) and that interrupt (0xFF: none)\n'
+      '        bool waitable = false;       // (01.34) the game may wait for it (Busy, with 3ds-picture-late)\n'
+      '        std::function<void()> task;  // (01.34) or a task: a register the display reads, a picture\n'
+      '        std::shared_ptr<const EmuSuNi::Snapshot::Copy> copy; // (01.34) a list\'s memory as it was sent\n')
+patch(AP, '    std::uint64_t Submit(const Service::GSP::Command& command, std::uint64_t submit_ns = 0) {\n'
+          '        Item item;\n        item.command = command;\n',
+      '    // (01.34) early: its interrupts signalled already (3ds-picture-late); else the emulation thread may wait\n'
+      '    // for them (late, Busy).\n'
+      '    std::uint64_t Submit(const Service::GSP::Command& command, std::uint64_t submit_ns = 0,\n'
+      '                         bool early = false, bool waitable = true,\n'
+      '                         std::shared_ptr<const EmuSuNi::Snapshot::Copy> copy = nullptr,\n'
+      '                         std::uint64_t early_delay = 0, std::uint32_t early_irq = 0xFF) {\n'
+      '        if (waitable) {\n'
+      '            late.fetch_add(1, std::memory_order_acq_rel);\n'
+      '        }\n'
+      '        Item item;\n        item.command = command;\n        item.early = early;\n'
+      '        item.waitable = waitable;\n'
+      '        item.copy = std::move(copy);\n'
+      '        item.early_delay = early_delay;\n'
+      '        item.early_irq = early_irq;\n')
+patch(AP, '    // (01.17) 3ds-pica-strict-games: until the command `seq` (Submit\'s) is finished, then the '
+          'results taken. (Its\n',
+      '    // (01.34) 3ds-picture-late: a task run in order with the commands (a register the display reads, a '
+      'picture).\n'
+      '    std::uint64_t SubmitTask(std::function<void()> task) {\n'
+      '        Item item;\n'
+      '        item.task = std::move(task);\n'
+      '        item.early = true;\n'
+      '        item.seq = ++submitted_seq;\n'
+      '        Push(item);\n'
+      '        return item.seq;\n'
+      '    }\n'
+      '    // (01.17) 3ds-pica-strict-games: until the command `seq` (Submit\'s) is finished, then the results '
+      'taken. (Its\n')
+patch(AP, '    bool Busy() const override {\n        return outstanding.load(std::memory_order_acquire) != 0;\n    }\n',
+      '    bool Busy() const override {\n'
+      '        // (01.34) 3ds-picture-late: only commands whose interrupts the game may wait for (the rest '
+      'runs beside\n'
+      '        // the game\'s next frame: the emulation idles on to its next event, the VBlank).\n'
+      '        if (picture_late.load(std::memory_order_relaxed)) {\n'
+      '            return late.load(std::memory_order_acquire) != 0;\n'
+      '        }\n'
+      '        return outstanding.load(std::memory_order_acquire) != 0;\n'
+      '    }\n')
+patch(AP, '            if (!skip) {\n                RunOne(item);\n            }\n',
+      '            if (!skip) {\n                RunOne(item);\n            }\n'
+      '            if (item.waitable) {\n'
+      '                late.fetch_sub(1, std::memory_order_acq_rel); // (01.34)\n'
+      '            }\n')
+patch(AP, '        if (setjmp(rescue.env) != 0) {\n            Fail(EmuSuNi::Throw::RescuedMessage());\n',
+      '        if (setjmp(rescue.env) != 0) {\n            pica_early = false; // (01.34)\n'
+      '            Snapshot::current = nullptr;\n'
+      '            Fail(EmuSuNi::Throw::RescuedMessage());\n')
+patch(AP, '            if (item.invalidate_size != 0) { // (01.12)\n',
+      '            if (item.task) { // (01.34) 3ds-picture-late\n'
+      '                item.task();\n'
+      '            } else if (item.invalidate_size != 0) { // (01.12)\n')
+patch(AP, '                pica_submit_ns = item.submit_ns; // (01.16: its interrupts\' time, DeferInterrupt)\n'
+          '                execute(item.command);\n',
+      '                pica_submit_ns = item.submit_ns; // (01.16: its interrupts\' time, DeferInterrupt)\n'
+      '                pica_early = item.early;         // (01.34: its own interrupts dropped, gpu.cpp)\n'
+      '                pica_early_delay = item.early_delay;\n'
+      '                pica_early_irq = item.early_irq;\n'
+      '                pica_early_seen = 0;\n'
+      '                Snapshot::current = item.copy.get(); // (01.34: its memory as it was sent, core/memory.cpp)\n'
+      '                execute(item.command);\n'
+      '                if (item.early && item.early_irq != 0xFF && pica_early_seen == 0) {\n'
+      '                    early_unmatched.fetch_add(1, std::memory_order_relaxed); // (01.34: none of its own)\n'
+      '                }\n')
+patch(AP, '        EmuSuNi::Throw::Disarm(rescue);\n    }\n',
+      '        EmuSuNi::Throw::Disarm(rescue);\n        pica_early = false; // (01.34)\n'
+      '        Snapshot::current = nullptr;\n    }\n')
+patch(AP, '    std::atomic<unsigned> queued{0};      // in the queue (the spins\' view of it)\n',
+      '    std::atomic<unsigned> queued{0};      // in the queue (the spins\' view of it)\n'
+      '    std::atomic<unsigned> late{0};        // (01.34) commands not early, given and not finished\n')
+
+GP = 'src/video_core/gpu.cpp'
+patch(GP, 'static Core::TimingEventType* emusuni_strict_event = nullptr;\n#endif\n',
+      'static Core::TimingEventType* emusuni_strict_event = nullptr;\n'
+      '// (01.34) 3ds-picture-late: the last picture\'s task (the thread at most one picture behind) and the account.\n'
+      'static u64 emusuni_late_picture = 0;\n'
+      'static unsigned emusuni_late_frames = 0;\n'
+      'static u64 emusuni_late_count[17] = {};\n'
+      'enum : int { EmuSuNiLatePictures, EmuSuNiLateAsBefore, EmuSuNiLateLists, EmuSuNiLateNoP3D,\n'
+      '             EmuSuNiLateListsBefore, EmuSuNiLateFills, EmuSuNiLateCopies, EmuSuNiLateWaits, EmuSuNiLateWaitUs,\n'
+      '             EmuSuNiLateTasks, EmuSuNiLateJumps, EmuSuNiLateCopyBytes, EmuSuNiLateCopyRanges,\n'
+      '             EmuSuNiLateUnread, EmuSuNiLateQuiet, EmuSuNiLateReadUs, EmuSuNiLateCopyUs };\n'
+      '// (01.34) The registers as the lists sent before left them, as on the GPU (GPU::Execute sets the first '
+      'command\n'
+      '// buffer to the list it sends): 3ds-picture-late reads each list ahead of the GPU commands\' thread.\n'
+      'static Pica::RegsInternal emusuni_shadow{};\n'
+      '// (01.34) The GPU\'s emulated time of the lists read ahead (the thread\'s own DelayGenerator, the same '
+      'counts): a\n'
+      '// list\'s P3D signalled with it. After a list it can\'t follow, or a delay unlike the thread\'s: as before.\n'
+      'static Pica::DelayGenerator emusuni_scan_delay;\n'
+      'static std::atomic<bool> emusuni_delay_differs{false};\n'
+      'static std::atomic<u64> emusuni_delay_diffs{0};\n'
+      '// (01.34) A list read ahead by its headers: its P3D request (the finalize register; the GPU stops there,\n'
+      '// irq_autostop), its jumps to other lists followed, and the memory it will read: its words, and each draw\'s\n'
+      '// indices and vertices (RasterizerAccelerated::AnalyzeVertexArray\'s range). irqs 0: none; false: a jump or a\n'
+      '// draw it can\'t follow.\n'
+      'static bool EmuSuNiScanList(Memory::MemorySystem& memory, PAddr addr, u32 size, u32& irqs, u32& jumps,\n'
+      '                            std::vector<std::pair<PAddr, u32>>& ranges, u64& delay_ns) {\n'
+      '    auto& regs = emusuni_shadow;\n'
+      '    constexpr u32 irq = PICA_REG_INDEX(irq_request);\n'
+      '    constexpr u32 jump0 = PICA_REG_INDEX(pipeline.command_buffer.trigger[0]);\n'
+      '    constexpr u32 jump1 = PICA_REG_INDEX(pipeline.command_buffer.trigger[1]);\n'
+      '    constexpr u32 draw = PICA_REG_INDEX(pipeline.trigger_draw);\n'
+      '    constexpr u32 draw_indexed = PICA_REG_INDEX(pipeline.trigger_draw_indexed);\n'
+      '    regs.pipeline.command_buffer.addr[0].Assign(addr >> 3);\n'
+      '    regs.pipeline.command_buffer.size[0].Assign(size >> 3);\n'
+      '    irqs = 0;\n'
+      '    jumps = 0;\n'
+      '    u32 read = 0;\n'
+      '    const auto draw_ranges = [&](bool indexed) {\n'
+      '        const auto& attributes = regs.pipeline.vertex_attributes;\n'
+      '        const PAddr base = attributes.GetPhysicalBaseAddress();\n'
+      '        const u32 count = regs.pipeline.num_vertices;\n'
+      '        if (count == 0) {\n'
+      '            return true;\n'
+      '        }\n'
+      '        u32 first = regs.pipeline.vertex_offset, last = first + count - 1;\n'
+      '        if (indexed) {\n'
+      '            const PAddr where = base + regs.pipeline.index_array.offset;\n'
+      '            const bool wide = regs.pipeline.index_array.format != 0;\n'
+      '            MemoryRef data = memory.GetPhysicalRef(where);\n'
+      '            if (!data || data.GetSize() < count * (wide ? 2u : 1u)) {\n'
+      '                return false;\n'
+      '            }\n'
+      '            ranges.emplace_back(where, count * (wide ? 2u : 1u));\n'
+      '            const u8* bytes = data.GetPtr();\n'
+      '            if (wide) { // (as AnalyzeVertexArray)\n'
+      '                const auto [low, high] = Common::FindMinMax(\n'
+      '                    {reinterpret_cast<const u16*>(bytes), static_cast<std::size_t>(count)});\n'
+      '                first = low;\n'
+      '                last = high;\n'
+      '            } else {\n'
+      '                const auto [low, high] = Common::FindMinMax({bytes, static_cast<std::size_t>(count)});\n'
+      '                first = low;\n'
+      '                last = high;\n'
+      '            }\n'
+      '        }\n'
+      '        for (const auto& loader : attributes.attribute_loaders) {\n'
+      '            if (loader.component_count != 0 && loader.byte_count != 0) {\n'
+      '                ranges.emplace_back(base + loader.data_offset + first * loader.byte_count,\n'
+      '                                    (last - first + 1) * loader.byte_count);\n'
+      '            }\n'
+      '        }\n'
+      '        return true;\n'
+      '    };\n'
+      '    for (;;) {\n'
+      '        const u32* words = reinterpret_cast<const u32*>(memory.GetPhysicalPointer(addr));\n'
+      '        const u32 count = size / 4;\n'
+      '        if (words == nullptr || count == 0 || (read += count) > (1u << 21)) {\n'
+      '            return false; // (and at most 8 MiB of lists read: a list that never ends)\n'
+      '        }\n'
+      '        ranges.emplace_back(addr, size);\n'
+      '        bool jumped = false;\n'
+      '        for (u32 i = 0; i + 1 < count && !jumped;) {\n'
+      '            const u32 header = words[i + 1];\n'
+      '            const u32 id = header & 0xFFFF, extra = (header >> 20) & 0xFF, mask = (header >> 16) & 0xF;\n'
+      '            const u32 bytes = ((mask & 1) != 0 ? 0xFFu : 0u) | ((mask & 2) != 0 ? 0xFF00u : 0u) |\n'
+      '                              ((mask & 4) != 0 ? 0xFF0000u : 0u) | ((mask & 8) != 0 ? 0xFF000000u : 0u);\n'
+      '            const bool group = (header >> 31) != 0;\n'
+      '            if (!group && extra != 0 && id != irq && id != draw && id != draw_indexed && id != jump0 &&\n'
+      '                id != jump1) {\n'
+      '                // (One register written again and again - a uniform\'s, a shader\'s or immediate '
+      'data\'s port:\n'
+      '                // its last value is what the registers keep.)\n'
+      '                if (id < Pica::RegsInternal::NUM_REGS && i + 1 + extra < count) {\n'
+      '                    regs.reg_array[id] = (regs.reg_array[id] & ~bytes) | (words[i + 1 + extra] & bytes);\n'
+      '                    emusuni_scan_delay.AddCommands(1 + extra);\n'
+      '                }\n'
+      '                i += 2 + extra;\n'
+      '                i += i & 1;\n'
+      '                continue;\n'
+      '            }\n'
+      '            for (u32 k = 0; k <= extra && i + 1 + k < count; k++) {\n'
+      '                const u32 reg = group ? id + k : id;\n'
+      '                const u32 value = k == 0 ? words[i] : words[i + 1 + k];\n'
+      '                if (reg < Pica::RegsInternal::NUM_REGS) {\n'
+      '                    emusuni_scan_delay.AddCommands(1);\n'
+      '                }\n'
+      '                if (reg == irq) {\n'
+      '                    irqs = 1;\n'
+      '                    delay_ns = emusuni_scan_delay.CalculateAndResetDelay();\n'
+      '                    return true;\n'
+      '                }\n'
+      '                if (reg < Pica::RegsInternal::NUM_REGS) {\n'
+      '                    regs.reg_array[reg] = (regs.reg_array[reg] & ~bytes) | (value & bytes);\n'
+      '                }\n'
+      '                if (reg == draw || reg == draw_indexed) {\n'
+      '                    emusuni_scan_delay.AddVertices(regs.pipeline.num_vertices, '
+      'regs.pipeline.triangle_topology);\n'
+      '                    if (!draw_ranges(reg == draw_indexed)) {\n'
+      '                        return false;\n'
+      '                    }\n'
+      '                } else if (reg == jump0 || reg == jump1) {\n'
+      '                    addr = regs.pipeline.command_buffer.GetPhysicalAddress(reg == jump0 ? 0 : 1);\n'
+      '                    size = regs.pipeline.command_buffer.GetSize(reg == jump0 ? 0 : 1);\n'
+      '                    if (++jumps > 8192 || addr == 0 || size == 0) {\n'
+      '                        return false;\n'
+      '                    }\n'
+      '                    jumped = true;\n'
+      '                    break;\n'
+      '                }\n'
+      '            }\n'
+      '            i += 2 + extra;\n'
+      '            i += i & 1;\n'
+      '        }\n'
+      '        if (!jumped) {\n'
+      '            return true;\n'
+      '        }\n'
+      '    }\n'
+      '}\n'
+      '// (01.34) The ranges a list will read, copied now (merged where they touch; none past 16 MiB): the GPU '
+      'commands\'\n'
+      '// thread reads the copy (core/memory.cpp, common/emusuni_snapshot.h). Null: as before.\n'
+      'static std::shared_ptr<const EmuSuNi::Snapshot::Copy> EmuSuNiCopy(Memory::MemorySystem& memory,\n'
+      '                                                                  std::vector<std::pair<PAddr, u32>>& '
+      'ranges) {\n'
+      '    std::sort(ranges.begin(), ranges.end());\n'
+      '    auto copy = std::make_shared<EmuSuNi::Snapshot::Copy>();\n'
+      '    u64 total = 0;\n'
+      '    for (const auto& [start, size] : ranges) {\n'
+      '        if (size == 0) {\n'
+      '            continue;\n'
+      '        }\n'
+      '        if (!copy->ranges.empty()) {\n'
+      '            auto& last = copy->ranges.back();\n'
+      '            const u64 last_end = static_cast<u64>(last.start) + last.size;\n'
+      '            if (start <= last_end) {\n'
+      '                const u64 end = std::max<u64>(last_end, static_cast<u64>(start) + size);\n'
+      '                total += end - last_end;\n'
+      '                last.size = static_cast<u32>(end - last.start);\n'
+      '                continue;\n'
+      '            }\n'
+      '        }\n'
+      '        copy->ranges.push_back({start, size, static_cast<u32>(total)});\n'
+      '        total += size;\n'
+      '        if (total > (16u << 20)) {\n'
+      '            return nullptr;\n'
+      '        }\n'
+      '    }\n'
+      '    if (total > (16u << 20)) {\n'
+      '        return nullptr;\n'
+      '    }\n'
+      '    copy->mem = std::make_shared<EmuSuNi::Snapshot::RawMem>(static_cast<std::size_t>(total));\n'
+      '    for (const auto& range : copy->ranges) {\n'
+      '        MemoryRef source = memory.GetPhysicalRef(range.start);\n'
+      '        if (!source || source.GetSize() < range.size) {\n'
+      '            return nullptr;\n'
+      '        }\n'
+      '        std::memcpy(copy->mem->GetPtr() + range.offset, source.GetPtr(), range.size);\n'
+      '    }\n'
+      '    return copy;\n'
+      '}\n'
+      '// (01.34) 3ds-picture-late for this title: the file /data/EmuSuNi/3ds-picture-late (none: off; empty: every\n'
+      '// game; the word off: off; else the title IDs in it, 16 hex digits each); on the PC EMUSUNI_3DS_PICTURE_LATE\n'
+      '// (unset or 0: off; 1: every game; else title IDs).\n'
+      'static bool EmuSuNiPictureLateFor(u64 title) {\n'
+      '    std::string text;\n'
+      '#if defined(__ORBIS__)\n'
+      '    std::FILE* file = std::fopen("/data/EmuSuNi/3ds-picture-late", "rb");\n'
+      '    if (file == nullptr) {\n'
+      '        return false;\n'
+      '    }\n'
+      '    char buffer[4096];\n'
+      '    text.assign(buffer, std::fread(buffer, 1, sizeof(buffer), file));\n'
+      '    std::fclose(file);\n'
+      '#else\n'
+      '    const char* env = std::getenv("EMUSUNI_3DS_PICTURE_LATE");\n'
+      '    if (env == nullptr || std::strcmp(env, "0") == 0) {\n'
+      '        return false;\n'
+      '    }\n'
+      '    if (std::strcmp(env, "1") == 0) {\n'
+      '        return true;\n'
+      '    }\n'
+      '    text = env;\n'
+      '#endif\n'
+      '    bool listed = false;\n'
+      '    std::string word;\n'
+      '    text += \' \';\n'
+      '    for (const char c : text) {\n'
+      '        if (std::isalnum(static_cast<unsigned char>(c))) {\n'
+      '            word += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));\n'
+      '            continue;\n'
+      '        }\n'
+      '        if (word == "off") {\n'
+      '            return false;\n'
+      '        }\n'
+      '        if (word.size() == 16 && word.find_first_not_of("0123456789abcdef") == std::string::npos) {\n'
+      '            listed = true;\n'
+      '            if (std::strtoull(word.c_str(), nullptr, 16) == title) {\n'
+      '                return true;\n'
+      '            }\n'
+      '        }\n'
+      '        word.clear();\n'
+      '    }\n'
+      '    return !listed;\n'
+      '}\n'
+      '#endif\n')
+patch(GP, '    handler = [inner = std::move(handler)](Service::GSP::InterruptId id, u64 delay_ns) {\n'
+          '        if (!EmuSuNi::Async::DeferInterrupt(static_cast<u32>(id), delay_ns)) {\n',
+      '    handler = [inner = std::move(handler)](Service::GSP::InterruptId id, u64 delay_ns) {\n'
+      '        if (EmuSuNi::Async::pica_early) {\n'
+      '            // (01.34) 3ds-picture-late: signalled when the command was sent (GPU::Execute); a list\'s P3D\n'
+      '            // with another delay than read ahead: the lists as before from then on.\n'
+      '            // (Any interrupt: another one, or another delay while the GPU\'s timings are emulated - GSP uses\n'
+      '            // the delay only then. A right-eye list Azahar leaves out gives it without its commands\' time;\n'
+      '            // the one signalled when sent had it, as with both eyes drawn: not a difference.)\n'
+      '            EmuSuNi::Async::pica_early_seen++;\n'
+      '            if (static_cast<u32>(id) != EmuSuNi::Async::pica_early_irq ||\n'
+      '                (delay_ns != EmuSuNi::Async::pica_early_delay &&\n'
+      '                 Settings::values.simulate_3ds_gpu_timings.GetValue() && !EmuSuNi::Async::pica_ignored)) {\n'
+      '                emusuni_delay_differs = true;\n'
+      '                emusuni_delay_diffs.fetch_add(1, std::memory_order_relaxed);\n'
+      '            }\n'
+      '            return;\n'
+      '        }\n'
+      '        if (!EmuSuNi::Async::DeferInterrupt(static_cast<u32>(id), delay_ns)) {\n')
+patch(GP, '        if (emusuni_takes && (!emusuni_pica->Inline() || emusuni_pica->Busy())) {\n'
+          '            const u64 emusuni_seq =\n'
+          '                emusuni_pica->Submit(command, '
+          'static_cast<u64>(impl->timing.GetGlobalTimeUs().count()) * 1000);\n',
+      '        const bool emusuni_late = EmuSuNi::Async::picture_late.load(std::memory_order_relaxed);\n'
+      '        if (emusuni_takes && (emusuni_late || !emusuni_pica->Inline() || emusuni_pica->Busy())) {\n'
+      '            // (01.34) 3ds-picture-late: the command ends for the game now, its interrupt signalled with the\n'
+      '            // delay it would have had (a list: its one P3D request, with the GPU\'s timings not '
+      'emulated; none\n'
+      '            // for a list without one); the thread runs it beside the game.\n'
+      '            bool emusuni_early = false, emusuni_signal = false, emusuni_waitable = !emusuni_late;\n'
+      '            std::shared_ptr<const EmuSuNi::Snapshot::Copy> emusuni_copy;\n'
+      '            Service::GSP::InterruptId emusuni_irq = Service::GSP::InterruptId::P3D;\n'
+      '            u64 emusuni_delay = 0;\n'
+      '            if (emusuni_late) {\n'
+      '                using Service::GSP::CommandId;\n'
+      '                using Service::GSP::InterruptId;\n'
+      '                switch (command.id) {\n'
+      '                case CommandId::SubmitCmdList: {\n'
+      '                    const auto& list = command.submit_gpu_cmdlist;\n'
+      '                    const auto read_start = std::chrono::steady_clock::now(); // (its reading and '
+      'copy\'s time)\n'
+      '                    SCOPE_EXIT({\n'
+      '                        emusuni_late_count[EmuSuNiLateReadUs] += static_cast<u64>(\n'
+      '                            std::chrono::duration_cast<std::chrono::microseconds>(\n'
+      '                                std::chrono::steady_clock::now() - read_start)\n'
+      '                                .count());\n'
+      '                    });\n'
+      '                    u32 irqs = 0, jumps = 0;\n'
+      '                    std::vector<std::pair<PAddr, u32>> ranges;\n'
+      '                    const bool known = EmuSuNiScanList(impl->memory, VirtualToPhysicalAddress(list.address),\n'
+      '                                                       list.size, irqs, jumps, ranges, emusuni_delay);\n'
+      '                    if (!known) {\n'
+      '                        emusuni_delay_differs = true; // (its GPU time unknown from here on: as before)\n'
+      '                    }\n'
+      '                    // (Its memory copied now: what the game writes after this is not what the list reads.)\n'
+      '                    if (known && !emusuni_delay_differs.load(std::memory_order_relaxed)) {\n'
+      '                        const auto copy_start = std::chrono::steady_clock::now();\n'
+      '                        emusuni_copy = EmuSuNiCopy(impl->memory, ranges);\n'
+      '                        emusuni_late_count[EmuSuNiLateCopyUs] += static_cast<u64>(\n'
+      '                            std::chrono::duration_cast<std::chrono::microseconds>(\n'
+      '                                std::chrono::steady_clock::now() - copy_start)\n'
+      '                                .count());\n'
+      '                    }\n'
+      '                    if (emusuni_copy != nullptr) {\n'
+      '                        emusuni_late_count[EmuSuNiLateCopyBytes] += emusuni_copy->mem->GetSize();\n'
+      '                        emusuni_late_count[EmuSuNiLateCopyRanges] += emusuni_copy->ranges.size();\n'
+      '                        emusuni_late_count[EmuSuNiLateJumps] += jumps != 0 ? 1 : 0;\n'
+      '                    } else if (known) {\n'
+      '                        emusuni_late_count[EmuSuNiLateUnread]++; // (too big, or a range it can\'t read)\n'
+      '                    }\n'
+      '                    if (emusuni_copy != nullptr && irqs == 1) {\n'
+      '                        emusuni_early = true;\n'
+      '                        emusuni_signal = true;\n'
+      '                        emusuni_late_count[EmuSuNiLateLists]++;\n'
+      '                    } else if (emusuni_copy != nullptr) {\n'
+      '                        // (Read through without a request: nothing for the game to wait for; an interrupt it\n'
+      '                        // finds after all comes from the thread as before.)\n'
+      '                        emusuni_late_count[EmuSuNiLateQuiet]++;\n'
+      '                    } else {\n'
+      '                        // (A jump or a draw it can\'t follow, the GPU\'s timings emulated, or no copy: '
+      'as before,\n'
+      '                        // the game waits for it.)\n'
+      '                        emusuni_waitable = true;\n'
+      '                        emusuni_late_count[EmuSuNiLateListsBefore]++;\n'
+      '                    }\n'
+      '                    break;\n'
+      '                }\n'
+      '                case CommandId::MemoryFill: {\n'
+      '                    // (GPU::MemoryFill\'s: with both buffers PSC0 for the second only.)\n'
+      '                    const auto& fill = command.memory_fill;\n'
+      '                    const bool second = fill.start2 != 0;\n'
+      '                    std::remove_reference_t<decltype(impl->pica.regs.memory_fill_config[0])> config{};\n'
+      '                    config.address_start = VirtualToPhysicalAddress(second ? fill.start2 : fill.start1) >> 3;\n'
+      '                    config.address_end = VirtualToPhysicalAddress(second ? fill.end2 : fill.end1) >> 3;\n'
+      '                    config.control = second ? fill.control2 : fill.control1;\n'
+      '                    emusuni_early = true;\n'
+      '                    emusuni_signal = config.trigger.Value() != 0 && config.GetStartAddress() != 0;\n'
+      '                    emusuni_irq = second && fill.start1 == 0 ? InterruptId::PSC1 : InterruptId::PSC0;\n'
+      '                    emusuni_delay = DelayGenerator::CalculateDelayNanoseconds(\n'
+      '                        DelayGenerator::GetCopyMode(true, config.IsVRAM()), true,\n'
+      '                        config.GetEndAddress() - config.GetStartAddress());\n'
+      '                    emusuni_late_count[EmuSuNiLateFills]++;\n'
+      '                    break;\n'
+      '                }\n'
+      '                case CommandId::DisplayTransfer:\n'
+      '                case CommandId::TextureCopy: {\n'
+      '                    // (GPU::MemoryTransfer\'s delay, from the registers Execute sets.)\n'
+      '                    std::remove_reference_t<decltype(impl->pica.regs.display_transfer_config)> config{};\n'
+      '                    if (command.id == CommandId::DisplayTransfer) {\n'
+      '                        const auto& copy = command.display_transfer;\n'
+      '                        config.input_address = VirtualToPhysicalAddress(copy.in_buffer_address) >> 3;\n'
+      '                        config.output_address = VirtualToPhysicalAddress(copy.out_buffer_address) >> 3;\n'
+      '                        config.input_size = copy.in_buffer_size;\n'
+      '                        config.output_size = copy.out_buffer_size;\n'
+      '                        config.flags = copy.flags;\n'
+      '                    } else {\n'
+      '                        const auto& copy = command.texture_copy;\n'
+      '                        config.input_address = VirtualToPhysicalAddress(copy.in_buffer_address) >> 3;\n'
+      '                        config.output_address = VirtualToPhysicalAddress(copy.out_buffer_address) >> 3;\n'
+      '                        config.texture_copy.size = copy.size;\n'
+      '                        config.texture_copy.input_size = copy.in_width_gap;\n'
+      '                        config.texture_copy.output_size = copy.out_width_gap;\n'
+      '                        config.flags = copy.flags;\n'
+      '                    }\n'
+      '                    const auto mode = DelayGenerator::GetCopyMode(config.IsInputVRAM(), '
+      'config.IsOutputVRAM());\n'
+      '                    emusuni_delay =\n'
+      '                        config.is_texture_copy\n'
+      '                            ? DelayGenerator::CalculateDelayNanoseconds(mode, true, config.texture_copy.size)\n'
+      '                            : DelayGenerator::CalculateDelayNanoseconds(\n'
+      '                                  mode, true,\n'
+      '                                  config.input_width * config.input_height * '
+      'BytesPerPixel(config.input_format));\n'
+      '                    emusuni_early = true;\n'
+      '                    emusuni_signal = true;\n'
+      '                    emusuni_irq = InterruptId::PPF;\n'
+      '                    emusuni_late_count[EmuSuNiLateCopies]++;\n'
+      '                    break;\n'
+      '                }\n'
+      '                default: // (a cache flush: nothing to signal)\n'
+      '                    emusuni_early = true;\n'
+      '                    break;\n'
+      '                }\n'
+      '                if (EmuSuNi::Async::early_unmatched.exchange(0, std::memory_order_relaxed) != 0) {\n'
+      '                    emusuni_delay_differs = true; // (one signalled when sent raised none of its own)\n'
+      '                    emusuni_delay_diffs.fetch_add(1, std::memory_order_relaxed);\n'
+      '                }\n'
+      '                if (emusuni_delay_differs.load(std::memory_order_relaxed) && emusuni_copy == nullptr &&\n'
+      '                    emusuni_early) {\n'
+      '                    // (After an interrupt unlike the thread\'s: fills and copies as before too.)\n'
+      '                    emusuni_early = emusuni_signal = false;\n'
+      '                    emusuni_waitable = true;\n'
+      '                }\n'
+      '            }\n'
+      '            const u64 emusuni_seq = emusuni_pica->Submit(\n'
+      '                command, static_cast<u64>(impl->timing.GetGlobalTimeUs().count()) * 1000, emusuni_early,\n'
+      '                emusuni_waitable, std::move(emusuni_copy), emusuni_delay,\n'
+      '                emusuni_signal ? static_cast<u32>(emusuni_irq) : 0xFFu);\n'
+      '            if (emusuni_signal) {\n'
+      '                impl->signal_interrupt(emusuni_irq, emusuni_delay);\n'
+      '            }\n')
+patch(GP, 'void GPU::SetBufferSwap(u32 screen_id, const Service::GSP::FrameBufferInfo& info) {\n'
+          '#ifdef EMUSUNI_PORT\n',
+      'void GPU::SetBufferSwap(u32 screen_id, const Service::GSP::FrameBufferInfo& info) {\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '    if (emusuni_pica && EmuSuNi::Async::picture_late.load(std::memory_order_relaxed) &&\n'
+      '        !EmuSuNi::Async::OnPicaThread()) {\n'
+      '        // (01.34) 3ds-picture-late: the screens\' registers are the pictures\' (drawn on the GPU commands\'\n'
+      '        // thread): set there, in order with its commands.\n'
+      '        emusuni_late_count[EmuSuNiLateTasks]++;\n'
+      '        emusuni_pica->SubmitTask([this, screen_id, info] { SetBufferSwap(screen_id, info); });\n'
+      '        return;\n'
+      '    }\n')
+patch(GP, 'void GPU::SetColorFill(const Pica::ColorFill& fill) {\n#ifdef EMUSUNI_PORT\n',
+      'void GPU::SetColorFill(const Pica::ColorFill& fill) {\n#ifdef EMUSUNI_PORT\n'
+      '    if (emusuni_pica && EmuSuNi::Async::picture_late.load(std::memory_order_relaxed) &&\n'
+      '        !EmuSuNi::Async::OnPicaThread()) {\n'
+      '        emusuni_late_count[EmuSuNiLateTasks]++; // (01.34) as SetBufferSwap\n'
+      '        emusuni_pica->SubmitTask([this, fill] { SetColorFill(fill); });\n'
+      '        return;\n'
+      '    }\n')
+patch(GP, 'void GPU::WriteReg(VAddr addr, u32 data) {\n#ifdef EMUSUNI_PORT\n',
+      'void GPU::WriteReg(VAddr addr, u32 data) {\n#ifdef EMUSUNI_PORT\n'
+      '    if ((addr & 0xFFFFF000) == VADDR_LCD && emusuni_pica &&\n'
+      '        EmuSuNi::Async::picture_late.load(std::memory_order_relaxed) && !EmuSuNi::Async::OnPicaThread()) {\n'
+      '        emusuni_late_count[EmuSuNiLateTasks]++; // (01.34) the LCD\'s registers: as SetBufferSwap\n'
+      '        emusuni_pica->SubmitTask([this, addr, data] { WriteReg(addr, data); });\n'
+      '        return;\n'
+      '    }\n')
+patch(GP, '    EmuSuNiDrain(EmuSuNi::Async::DrainVBlank);\n'
+          '    if (emusuni_pica) {\n'
+          '        emusuni_pica->FrameEnd();\n'
+          '    }\n'
+          '#endif\n'
+          '    // Signal to GSP that GPU interrupt has occurred\n'
+          '    impl->signal_interrupt(Service::GSP::InterruptId::PDC0, 0);\n'
+          '    impl->signal_interrupt(Service::GSP::InterruptId::PDC1, 0);\n'
+          '\n'
+          '    // Present renderered frame.\n'
+          '    impl->renderer->SwapBuffers();\n',
+      '    // (01.34) 3ds-picture-late: no wait here; the picture handed over now, drawn on that thread later.\n'
+      '    const bool emusuni_late = emusuni_pica && EmuSuNi::Async::picture_late.load(std::memory_order_relaxed);\n'
+      '    if (!emusuni_late) {\n'
+      '        EmuSuNiDrain(EmuSuNi::Async::DrainVBlank);\n'
+      '        if (emusuni_pica) {\n'
+      '            emusuni_pica->FrameEnd();\n'
+      '        }\n'
+      '    }\n'
+      '#endif\n'
+      '    // Signal to GSP that GPU interrupt has occurred\n'
+      '    impl->signal_interrupt(Service::GSP::InterruptId::PDC0, 0);\n'
+      '    impl->signal_interrupt(Service::GSP::InterruptId::PDC1, 0);\n'
+      '\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '    if (emusuni_late) {\n'
+      '        // The thread at most one picture behind: the last one drawn before this one is handed over.\n'
+      '        if (emusuni_late_picture != 0) {\n'
+      '            const auto t0 = std::chrono::steady_clock::now();\n'
+      '            emusuni_pica->WaitFor(emusuni_late_picture);\n'
+      '            const auto us = std::chrono::duration_cast<std::chrono::microseconds>(\n'
+      '                std::chrono::steady_clock::now() - t0);\n'
+      '            emusuni_late_count[EmuSuNiLateWaits]++;\n'
+      '            emusuni_late_count[EmuSuNiLateWaitUs] += static_cast<u64>(us.count());\n'
+      '        }\n'
+      '        VideoCore::RendererBase::EmuSuNiSwap emusuni_swap;\n'
+      '        if (impl->renderer->EmuSuNiSwapEarly(emusuni_swap)) {\n'
+      '            emusuni_late_picture =\n'
+      '                emusuni_pica->SubmitTask([this, emusuni_swap] { '
+      'impl->renderer->EmuSuNiSwapLate(emusuni_swap); });\n'
+      '            emusuni_late_count[EmuSuNiLatePictures]++;\n'
+      '        } else {\n'
+      '            EmuSuNiDrain(EmuSuNi::Async::DrainVBlank); // (a second window, a screenshot, a new size: '
+      'as before)\n'
+      '            emusuni_late_picture = 0;\n'
+      '            impl->renderer->SwapBuffers();\n'
+      '            emusuni_late_count[EmuSuNiLateAsBefore]++;\n'
+      '        }\n'
+      '        if (++emusuni_late_frames == 600) {\n'
+      '            const auto& c = emusuni_late_count;\n'
+      '            LOG_INFO(HW_GPU,\n'
+      '                     "EmuSuNi: 3ds-picture-late in the last 600 frames: {} pictures a frame late, {} as '
+      'before; "\n'
+      '                     "lists ended when sent {} (and {} without an interrupt; {} with jumps), as before '
+      '{} ({} "\n'
+      '                     "without a copy); fills {} and copies {} ended when sent; {} display registers set '
+      'on the "\n'
+      '                     "thread; the lists\' memory copied: {} KiB in {} ranges, {} ms reading and copying '
+      'them ({} copying); "\n'
+      '                     "waited for the picture before {} ms ({} times); interrupts unlike the thread\'s {}{}",\n'
+      '                     c[EmuSuNiLatePictures], c[EmuSuNiLateAsBefore], c[EmuSuNiLateLists], c[EmuSuNiLateQuiet],\n'
+      '                     c[EmuSuNiLateJumps], c[EmuSuNiLateListsBefore], c[EmuSuNiLateUnread], '
+      'c[EmuSuNiLateFills],\n'
+      '                     c[EmuSuNiLateCopies], c[EmuSuNiLateTasks], c[EmuSuNiLateCopyBytes] / 1024,\n'
+      '                     c[EmuSuNiLateCopyRanges], c[EmuSuNiLateReadUs] / 1000, c[EmuSuNiLateCopyUs] / 1000,\n'
+      '                     c[EmuSuNiLateWaitUs] / 1000, c[EmuSuNiLateWaits], emusuni_delay_diffs.exchange(0),\n'
+      '                     emusuni_delay_differs.load() ? " (the commands as before from then on)" : "");\n'
+      '            if (EmuSuNi::Snapshot::check) {\n'
+      '                LOG_INFO(HW_GPU, "EmuSuNi: 3ds-picture-late check (a PC test): reads outside a list\'s '
+      'copy {}, "\n'
+      '                                 "ranges the game wrote after sending their list {}",\n'
+      '                         EmuSuNi::Snapshot::misses.exchange(0), EmuSuNi::Snapshot::overwritten.exchange(0));\n'
+      '            }\n'
+      '            emusuni_late_frames = 0;\n'
+      '            std::fill(std::begin(emusuni_late_count), std::end(emusuni_late_count), 0);\n'
+      '        }\n'
+      '    } else\n'
+      '#endif\n'
+      '    // Present renderered frame.\n'
+      '    impl->renderer->SwapBuffers();\n')
+patch(GP, 'void GPU::ApplyPerProgramSettings(u64 program_ID) {\n#ifdef EMUSUNI_PORT\n'
+          '    EmuSuNiDrain(EmuSuNi::Async::DrainGsp); // (01.10)\n',
+      'void GPU::ApplyPerProgramSettings(u64 program_ID) {\n#ifdef EMUSUNI_PORT\n'
+      '    EmuSuNiDrain(EmuSuNi::Async::DrainGsp); // (01.10)\n'
+      '    { // (01.34) 3ds-picture-late for this game (with the GPU commands\' thread only)\n'
+      '        const bool emusuni_on = emusuni_pica != nullptr && EmuSuNiPictureLateFor(program_ID);\n'
+      '        EmuSuNi::Async::picture_late.store(emusuni_on, std::memory_order_relaxed);\n'
+      '#if !defined(__ORBIS__)\n'
+      '        const char* emusuni_check = std::getenv("EMUSUNI_3DS_TEST_SNAPSHOT_CHECK"); // (a PC test)\n'
+      '        EmuSuNi::Snapshot::check = emusuni_check != nullptr && std::strcmp(emusuni_check, "1") == 0;\n'
+      '#endif\n'
+      '        emusuni_late_picture = 0;\n'
+      '        emusuni_late_frames = 0;\n'
+      '        std::fill(std::begin(emusuni_late_count), std::end(emusuni_late_count), 0);\n'
+      '        emusuni_shadow = Pica::RegsInternal{}; // (a new game\'s GPU: its registers from zero)\n'
+      '        emusuni_scan_delay.CalculateAndResetDelay();\n'
+      '        emusuni_delay_differs = false;\n'
+      '        emusuni_delay_diffs = 0;\n'
+      '        EmuSuNi::Async::early_unmatched = 0;\n'
+      '        LOG_INFO(HW_GPU,\n'
+      '                 "EmuSuNi: 3ds-picture-late {} for {:016X} (01.34: the GPU\'s work a frame behind the game, "\n'
+      '                 "its picture handed over at once and drawn on the GPU commands\' thread; the file "\n'
+      '                 "/data/EmuSuNi/3ds-picture-late)",\n'
+      '                 emusuni_on ? "on" : "off", program_ID);\n'
+      '    }\n')
+
+RB = 'src/video_core/renderer_base.h'
+patch(RB, '    virtual void SwapBuffers() = 0;\n',
+      '    virtual void SwapBuffers() = 0;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '    // (01.34) 3ds-picture-late (video_core/gpu.cpp\'s VBlank): the picture handed over now '
+      '(EmuSuNiSwapEarly, on\n'
+      '    // the emulation thread) and drawn later (EmuSuNiSwapLate, on the GPU commands\' thread). false: as '
+      'before.\n'
+      '    struct EmuSuNiSwap {\n'
+      '        void* frame = nullptr;\n'
+      '        u64 serial = 0;\n'
+      '    };\n'
+      '    virtual bool EmuSuNiSwapEarly(EmuSuNiSwap& swap) {\n'
+      '        return false;\n'
+      '    }\n'
+      '    virtual void EmuSuNiSwapLate(const EmuSuNiSwap& swap) {}\n'
+      '#endif\n')
+RVH = 'src/video_core/renderer_vulkan/renderer_vulkan.h'
+patch(RVH, '    void SwapBuffers() override;\n',
+      '    void SwapBuffers() override;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '    bool EmuSuNiSwapEarly(EmuSuNiSwap& swap) override; // (01.34) 3ds-picture-late\n'
+      '    void EmuSuNiSwapLate(const EmuSuNiSwap& swap) override;\n'
+      '#endif\n')
+RV = 'src/video_core/renderer_vulkan/renderer_vulkan.cpp'
+patch(RV, 'void RendererVulkan::SwapBuffers() {\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '// (01.34) 3ds-picture-late, on the emulation thread at the VBlank: the ring\'s next image handed over '
+      'to the app\n'
+      '// now (set_image: retro_run\'s frame ends), with the serial the app waits for before it reads it; the '
+      'picture is\n'
+      '// drawn into it on the GPU commands\' thread (EmuSuNiSwapLate), after the commands sent before this '
+      'VBlank. false:\n'
+      '// as before (a second window, a screenshot to take, duplicate frames skipped, or the image\'s size to '
+      'change).\n'
+      'bool RendererVulkan::EmuSuNiSwapEarly(EmuSuNiSwap& swap) {\n'
+      '    if (Settings::values.layout_option.GetValue() == Settings::LayoutOption::SeparateWindows ||\n'
+      '        secondary_window != nullptr || Settings::values.use_skip_duplicate_frames.GetValue() ||\n'
+      '        IsScreenshotPending()) {\n'
+      '        return false;\n'
+      '    }\n'
+      '    const Layout::FramebufferLayout& layout = render_window.GetFramebufferLayout();\n'
+      '    Frame* frame = main_present_window.GetRenderFrame();\n'
+      '    if (frame == nullptr || layout.width != frame->width || layout.height != frame->height) {\n'
+      '        return false;\n'
+      '    }\n'
+      '    swap.frame = frame;\n'
+      '    swap.serial = EmuSuNiNextImageSerial();\n'
+      '    main_present_window.Present(frame);\n'
+      '    EndFrame();\n'
+      '    return true;\n'
+      '}\n'
+      '// (01.34) On the GPU commands\' thread: SwapBuffers\' picture, into the image EmuSuNiSwapEarly handed over.\n'
+      'void RendererVulkan::EmuSuNiSwapLate(const EmuSuNiSwap& swap) {\n'
+      '    system.perf_stats->StartSwap();\n'
+      '    Frame* frame = static_cast<Frame*>(swap.frame);\n'
+      '    const Layout::FramebufferLayout& layout = render_window.GetFramebufferLayout();\n'
+      '    PrepareRendertarget();\n'
+      '    clear_color.float32[0] = Settings::values.bg_red.GetValue();\n'
+      '    clear_color.float32[1] = Settings::values.bg_green.GetValue();\n'
+      '    clear_color.float32[2] = Settings::values.bg_blue.GetValue();\n'
+      '    clear_color.float32[3] = 1.0f;\n'
+      '    DrawScreens(frame, layout, false);\n'
+      '    if (EmuSuNiBlack::on && (!EmuSuNiBlack::seen || !EmuSuNiBlack::minute_said)) {\n'
+      '        EmuSuNiBlackWatch(instance, scheduler, frame, layout); // (01.16) 3ds-black-watch\n'
+      '    }\n'
+      '    scheduler.EmuSuNiMarkNextSubmit(swap.serial);\n'
+      '    scheduler.Flush(frame->render_ready);\n'
+      '    Core::PerfStats::game_frames_updated = false;\n'
+      '    system.perf_stats->EndSwap();\n'
+      '    rasterizer.TickFrame();\n'
+      '}\n'
+      '#endif\n'
+      '\n'
+      'void RendererVulkan::SwapBuffers() {\n')
+patch(GP, '#include "video_core/emusuni_async_pica.h"\n',
+      '#include "video_core/emusuni_async_pica.h"\n'
+      '#include <algorithm> // (01.34) 3ds-picture-late\n'
+      '#include <cctype>\n'
+      '#include <cstdio>\n'
+      '#include <cstdlib>\n'
+      '#include <cstring>\n'
+      '#include <string>\n'
+      '#include <vector>\n'
+      '#include "common/math_util.h"\n'
+      '#include "common/scope_exit.h"\n')
+addfile('src/common/emusuni_snapshot.h',
+        r'''// EmuSuNi (scripts/build-3ds-core.sh, 01.34): 3ds-picture-late's copies (gpu.cpp). A command list that
+// ends for the game when it is sent runs later on the GPU commands' thread, and the game may write its memory in
+// between. So, when it is sent, the list (and the lists it jumps to) and its draws' indices and vertices are copied;
+// on that thread, while it runs, the memory's physical reads of those addresses get the copy (core/memory.cpp).
+// Textures (the rasterizer cache's own, or its loads) and the surfaces' flushes use the memory itself.
+#pragma once
+#ifdef EMUSUNI_PORT
+#include <algorithm>
+#include <atomic>
+#include <cstdint>
+#include <memory>
+#include <vector>
+#include "common/common_types.h"
+#include "common/memory_ref.h"
+
+namespace EmuSuNi::Snapshot {
+// The copy's memory, not cleared first (all of it is written).
+class RawMem final : public BackingMem {
+public:
+    explicit RawMem(std::size_t size_) : data(new u8[size_]), size(size_) {}
+    u8* GetPtr() override {
+        return data.get();
+    }
+    const u8* GetPtr() const override {
+        return data.get();
+    }
+    std::size_t GetSize() const override {
+        return size;
+    }
+
+private:
+    std::unique_ptr<u8[]> data;
+    std::size_t size;
+};
+struct Range {
+    u32 start;
+    u32 size;
+    u32 offset; // in the copy
+};
+struct Copy {
+    std::shared_ptr<RawMem> mem;
+    std::vector<Range> ranges; // by start, apart
+    const Range* Find(u32 address) const {
+        auto it = std::upper_bound(ranges.begin(), ranges.end(), address,
+                                   [](u32 a, const Range& r) { return a < r.start; });
+        if (it == ranges.begin()) {
+            return nullptr;
+        }
+        --it;
+        return address - it->start < it->size ? &*it : nullptr;
+    }
+};
+// The list running on the GPU commands' thread (video_core/emusuni_async_pica.h); null elsewhere.
+inline thread_local const Copy* current = nullptr;
+// A PC test (EMUSUNI_3DS_TEST_SNAPSHOT_CHECK=1): reads outside the copy while a list runs, and the copy's ranges the
+// game wrote after sending the list (each list's, compared after it ran).
+inline bool check = false;
+inline std::atomic<std::uint64_t> misses{0}, overwritten{0};
+// The memory itself while a list runs: a texture's load, a surface's flush.
+struct Untracked {
+    const Copy* saved = current;
+    Untracked() {
+        current = nullptr;
+    }
+    ~Untracked() {
+        current = saved;
+    }
+    Untracked(const Untracked&) = delete;
+    Untracked& operator=(const Untracked&) = delete;
+};
+} // namespace EmuSuNi::Snapshot
+#endif
+''')
+MC = 'src/core/memory.cpp'
+patch(MC, '#include "core/memory.h"\n',
+      '#include "core/memory.h"\n#ifdef EMUSUNI_PORT\n#include "common/emusuni_snapshot.h" // (01.34)\n#endif\n')
+patch(MC, 'u8* MemorySystem::GetPhysicalPointer(PAddr address) {\n',
+      'u8* MemorySystem::GetPhysicalPointer(PAddr address) {\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '    if (const EmuSuNi::Snapshot::Copy* copy = EmuSuNi::Snapshot::current) [[unlikely]] {\n'
+      '        // (01.34) 3ds-picture-late: the list running reads its memory as it was sent.\n'
+      '        if (const EmuSuNi::Snapshot::Range* range = copy->Find(address)) {\n'
+      '            return copy->mem->GetPtr() + range->offset + (address - range->start);\n'
+      '        }\n'
+      '        if (EmuSuNi::Snapshot::check) {\n'
+      '            EmuSuNi::Snapshot::misses.fetch_add(1, std::memory_order_relaxed);\n'
+      '        }\n'
+      '    }\n'
+      '#endif\n')
+patch(MC, 'MemoryRef MemorySystem::GetPhysicalRef(PAddr address) {\n',
+      'MemoryRef MemorySystem::GetPhysicalRef(PAddr address) {\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '    if (const EmuSuNi::Snapshot::Copy* copy = EmuSuNi::Snapshot::current) [[unlikely]] {\n'
+      '        if (const EmuSuNi::Snapshot::Range* range = copy->Find(address)) { // (01.34) as GetPhysicalPointer\n'
+      '            return {copy->mem, range->offset + (address - range->start)};\n'
+      '        }\n'
+      '        if (EmuSuNi::Snapshot::check) {\n'
+      '            EmuSuNi::Snapshot::misses.fetch_add(1, std::memory_order_relaxed);\n'
+      '        }\n'
+      '    }\n'
+      '#endif\n')
+RC = 'src/video_core/rasterizer_cache/rasterizer_cache.h'
+patch(RC, '        load_info.width * load_info.height * surface.GetInternalBytesPerPixel(), true);\n\n'
+          '    MemoryRef source_ptr = memory.GetPhysicalRef(load_info.addr);\n',
+      '        load_info.width * load_info.height * surface.GetInternalBytesPerPixel(), true);\n\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '    const EmuSuNi::Snapshot::Untracked emusuni_memory; // (01.34) the memory itself, not a list\'s copy\n'
+      '#endif\n'
+      '    MemoryRef source_ptr = memory.GetPhysicalRef(load_info.addr);\n')
+patch(RC, '    ASSERT(load_info.addr >= surface.addr && load_info.end <= surface.end);\n\n'
+          '    MemoryRef source_ptr = memory.GetPhysicalRef(load_info.addr);\n',
+      '    ASSERT(load_info.addr >= surface.addr && load_info.end <= surface.end);\n\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '    const EmuSuNi::Snapshot::Untracked emusuni_memory; // (01.34)\n'
+      '#endif\n'
+      '    MemoryRef source_ptr = memory.GetPhysicalRef(load_info.addr);\n')
+patch(RC, '    surface.Download(download, staging);\n\n    MemoryRef dest_ptr = memory.GetPhysicalRef(flush_start);\n',
+      '    surface.Download(download, staging);\n\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '    const EmuSuNi::Snapshot::Untracked emusuni_memory; // (01.34) written: the memory itself\n'
+      '#endif\n'
+      '    MemoryRef dest_ptr = memory.GetPhysicalRef(flush_start);\n')
+patch(RC, '    ASSERT(flush_start >= surface.addr && flush_end <= surface.end);\n\n'
+          '    MemoryRef dest_ptr = memory.GetPhysicalRef(surface.addr);\n',
+      '    ASSERT(flush_start >= surface.addr && flush_end <= surface.end);\n\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '    const EmuSuNi::Snapshot::Untracked emusuni_memory; // (01.34)\n'
+      '#endif\n'
+      '    MemoryRef dest_ptr = memory.GetPhysicalRef(surface.addr);\n')
+patch(GP, '    if (impl->debug_context) {\n'
+          '        impl->debug_context->OnEvent(Pica::DebugContext::Event::GSPCommandProcessed, &command);\n'
+          '    }\n}\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '    if (EmuSuNi::Snapshot::check && EmuSuNi::Snapshot::current != nullptr) {\n'
+      '        // (01.34, a PC test) the ranges of this list\'s copy the game wrote after it sent the list\n'
+      '        const EmuSuNi::Snapshot::Copy* emusuni_copy = EmuSuNi::Snapshot::current;\n'
+      '        const EmuSuNi::Snapshot::Untracked emusuni_memory;\n'
+      '        for (const auto& range : emusuni_copy->ranges) {\n'
+      '            const u8* live = impl->memory.GetPhysicalPointer(range.start);\n'
+      '            if (live != nullptr &&\n'
+      '                std::memcmp(live, emusuni_copy->mem->GetPtr() + range.offset, range.size) != 0) {\n'
+      '                EmuSuNi::Snapshot::overwritten.fetch_add(1, std::memory_order_relaxed);\n'
+      '            }\n'
+      '        }\n'
+      '    }\n'
+      '#endif\n'
+      '    if (impl->debug_context) {\n'
+      '        impl->debug_context->OnEvent(Pica::DebugContext::Event::GSPCommandProcessed, &command);\n'
+      '    }\n}\n')
+patch(RC, '#include "common/emusuni_black_surfaces.h" // (01.21, 3ds-black-watch)\n',
+      '#include "common/emusuni_black_surfaces.h" // (01.21, 3ds-black-watch)\n#include '
+      '"common/emusuni_snapshot.h" // (01.34)\n')
+patch(GP, '            if (emusuni_strict_event != nullptr && '
+          'EmuSuNi::GpuTime::strict.load(std::memory_order_relaxed)) {\n',
+      '            if (emusuni_strict_event != nullptr && !emusuni_early && // (01.34: an early one is on time)\n'
+      '                EmuSuNi::GpuTime::strict.load(std::memory_order_relaxed)) {\n')
+patch(GP, '    impl->pica.ProcessCmdList(addr, size,\n'
+          '                              !right_eye_disabler->ShouldAllowCmdQueueTrigger(addr, size));\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '    // (01.36) 3ds-picture-late: a right-eye list left out (Azahar\'s disabler) gives its P3D without its\n'
+      '    // commands\' time; the handler (GPU::SetInterruptHandler) knows it is that one.\n'
+      '    const bool emusuni_left_out = !right_eye_disabler->ShouldAllowCmdQueueTrigger(addr, size);\n'
+      '    EmuSuNi::Async::pica_ignored = emusuni_left_out;\n'
+      '    impl->pica.ProcessCmdList(addr, size, emusuni_left_out);\n'
+      '    EmuSuNi::Async::pica_ignored = false;\n'
+      '#else\n'
+      '    impl->pica.ProcessCmdList(addr, size,\n'
+      '                              !right_eye_disabler->ShouldAllowCmdQueueTrigger(addr, size));\n'
+      '#endif\n')
+
+# --- 01.37: Luigi's Mansion: Dark Moon (USA, EUR, JPN) in 3ds-jit-big-games too, as Castlevania since 01.16: core 0's
+# code cache 56 MiB, not 40, the JIT's memory 80 MiB, not 64, and the warm-up may fill all but a quarter of it. The
+# owner's PS4 (01.36, 15-11): its list held 162,467 blocks of code it had run in earlier sessions; the warm-up compiled
+# 49,547 ahead (half of 40 MiB full) and the game met 73,918 more in 27 minutes, 4.5 s of compiling, in frames of 85
+# to 470 ms in rooms it had seen before. Castlevania's, with 56 MiB: 114,188 ahead of 136,431. (Off for both: the
+# word off in /data/EmuSuNi/3ds-jit-big-games.)
+patch('src/common/emusuni_jit.cpp', r'''
+        (title_id == 0x0004000000096600 || title_id == 0x000400000009E500 || title_id == 0x00040000000BAC00) &&
+''', r'''
+        (title_id == 0x0004000000096600 || title_id == 0x000400000009E500 || title_id == 0x00040000000BAC00 ||
+         title_id == 0x0004000000055F00 || title_id == 0x0004000000076500 || title_id == 0x0004000000076400) &&
+''')
+# --- 01.38: 3ds-flat-uniforms. The owner's PS4 (01.36-01.37, 15-11): Super Mario 3D Land's starts, 5 of 6, after its
+# logo showed the top screen yellow and the bottom white, its sound on, for as long as he waited (386 to 574 pictures;
+# on the PC its title is there by picture 320), and some nights both screens blue. On the PC its draws made to vanish
+# at the title (EMUSUNI_3DS_TEST_SPOIL_UNIFORMS=290, as in the PS4's black starts that 01.22 brought back) leave both
+# screens one colour, #0000FF; and 3ds-black-uniforms waited for a reading black or all clear, which never came. So a
+# reading in 3ds-black-watch's first minute whose top screen is one colour - its 16 points the same, neither black nor
+# all clear - with the game drawing asks for the same refresh (each such reading moves it on); the first reading of
+# each such time (at most 4 a renderer) says so, with the screens' buffers, copies and surfaces (the watch's lines),
+# and when the top screen moved again. A plain screen of the game's own (a fade, a flash) costs at most two readings
+# of fresh uploads. The word off in /data/EmuSuNi/3ds-flat-uniforms (EMUSUNI_3DS_FLAT_UNIFORMS=0 on the PC): never.
+patch('src/common/emusuni_black_uniforms.h', r'''
+inline std::atomic<bool> on{true};
+''', r'''
+inline std::atomic<bool> on{true};
+// (01.38) 3ds-flat-uniforms: the top screen one colour asks for the refresh too (the file /data/EmuSuNi/
+// 3ds-flat-uniforms without the word off; EMUSUNI_3DS_FLAT_UNIFORMS on the PC).
+inline std::atomic<bool> flat_on{true};
+''')
+patch('src/video_core/renderer_vulkan/renderer_vulkan.cpp', r'''
+double uniforms_first_s = 0.0; // (01.22) 3ds-black-uniforms' first refresh, since the renderer started
+''', r'''
+double uniforms_first_s = 0.0; // (01.22) 3ds-black-uniforms' first refresh, since the renderer started
+u32 flat_told = 0;     // (01.38) 3ds-flat-uniforms: its lines this renderer (at most 4)
+double flat_at = -1.0; // (01.38) when the top screen went one colour with the game drawing; -1: it isn't
+''')
+patch('src/video_core/renderer_vulkan/renderer_vulkan.cpp', r'''
+            std::memory_order_relaxed);
+        ::EmuSuNi::BlackUniforms::Reset();
+''', r'''
+            std::memory_order_relaxed);
+        ::EmuSuNi::BlackUniforms::Reset();
+        // (01.38) 3ds-flat-uniforms: on unless the word off is in its file.
+        ::EmuSuNi::BlackUniforms::flat_on.store(
+            EmuSuNi::Async::TestFile("3ds-flat-uniforms", "EMUSUNI_3DS_FLAT_UNIFORMS", 0) >= 0,
+            std::memory_order_relaxed);
+        B::flat_told = 0;
+        B::flat_at = -1.0;
+''')
+patch('src/video_core/renderer_vulkan/renderer_vulkan.cpp', r'''
+        const bool emusuni_clear = !is_black && clear == B::pending_points;
+''', r'''
+        const bool emusuni_clear = !is_black && clear == B::pending_points;
+        // (01.38) 3ds-flat-uniforms: or the top screen one colour (its 16 points the same; neither black nor all
+        // clear) with the game drawing: SM3DL's yellow and white after its logo, both screens blue.
+        bool emusuni_flat = !is_black && !emusuni_clear && B::pending_points > 16 &&
+                            ::EmuSuNi::BlackUniforms::on.load(std::memory_order_relaxed) &&
+                            ::EmuSuNi::BlackUniforms::flat_on.load(std::memory_order_relaxed);
+        for (u32 p = 1; emusuni_flat && p < 16; p++) {
+            emusuni_flat = std::memcmp(B::mapped + p * 4, B::mapped, 4) == 0;
+        }
+        if (emusuni_flat && new_draws != 0 && since < 60.0) {
+            ::EmuSuNi::BlackUniforms::Ask(static_cast<u32>(2 * B::EVERY));
+            if (B::flat_at < 0.0) {
+                B::flat_at = since;
+                if (B::flat_told < 4) {
+                    B::flat_told++;
+                    const u8* bottom = B::mapped + 16 * 4;
+                    LOG_WARNING(Render_Vulkan,
+                                "EmuSuNi: 3ds-flat-uniforms: the top screen one colour, #{:02X}{:02X}{:02X} (the "
+                                "bottom's first point #{:02X}{:02X}{:02X}), {:.1f} s after its renderer started with "
+                                "the game drawing ({} draws in the last {:.1f} s): its three uniform blocks uploaded "
+                                "fresh at every draw while it stays so (01.38; the word off in "
+                                "/data/EmuSuNi/3ds-flat-uniforms: never)",
+                                B::mapped[0], B::mapped[1], B::mapped[2], bottom[0], bottom[1], bottom[2], since,
+                                new_draws, dt);
+                    B::LogCounts("now"); // the screens' buffers, their copies and surfaces
+                }
+            }
+        } else if (B::flat_at >= 0.0 && !is_black && !emusuni_clear) {
+            if (B::flat_told < 4) {
+                B::flat_told++;
+                LOG_INFO(Render_Vulkan,
+                         "EmuSuNi: 3ds-flat-uniforms: the top screen moved again {:.1f} s after it went one colour "
+                         "({:.1f} s after its renderer started)",
+                         since - B::flat_at, since);
+            }
+            B::flat_at = -1.0;
+        }
+''')
+# --- 01.39: 3ds-slow-picture, a measure. The owner's PS4 (01.37, 15-11): Luigi's Mansion: Dark Moon's jerks between
+# rooms are passes of the app of 150-250 ms and more with the core's frames under 30-70 ms: the app waits for the
+# picture or for the GPU, and the log can't say which. With 3ds-picture-late the VBlank hands the app its picture at
+# once and the GPU commands' thread draws it after the commands sent before it; the app waits for it. Now each picture
+# drawn more than 50 ms after its VBlank handed it over says, from that thread, what it did since the picture before:
+# its busy time; the command lists, the draws (and those skipped, their pipelines not built yet), the fills and
+# copies, the textures decoded and uploaded, the surfaces made and read back, the waits for the GPU (any thread's) and
+# the picture's own drawing; and what the pipeline workers built meanwhile. At most 4 such lines in 600 pictures, then
+# one line with how many and the longest. Counting only. The word off in /data/EmuSuNi/3ds-slow-picture
+# (EMUSUNI_3DS_SLOW_PICTURE=0 on the PC): none of it. PC test: EMUSUNI_3DS_TEST_SLOW_PICTURE=N holds every Nth
+# picture 80 ms (on the PC no picture is that late).
+patch('src/video_core/gpu.cpp', r'''
+void GPU::VBlankCallback(std::uintptr_t user_data, s64 cycles_late) {
+''', r'''
+#ifdef EMUSUNI_PORT
+// (01.39) 3ds-slow-picture: called by the picture's task on the GPU commands' thread once it is drawn (its state is
+// that thread's): `handed`, when the VBlank handed it over; `picture`, the ticks of its own drawing.
+static void EmuSuNiSlowPicture(std::chrono::steady_clock::time_point handed, std::uint64_t picture) {
+    namespace S = EmuSuNi::Stats;
+    enum { Busy, Lists, ListTicks, ListBytes, Draws, DrawTicks, Skipped, FillCopyTicks, TexBytes, TexUs, Surfaces,
+           SurfaceTicks, Readbacks, ReadbackTicks, WaitUs, Pipelines, Shaders, N };
+    static const bool on = EmuSuNi::Async::TestFile("3ds-slow-picture", "EMUSUNI_3DS_SLOW_PICTURE", 0) >= 0;
+    static bool started = false;
+    static std::chrono::steady_clock::time_point t0, before;
+    static std::uint64_t k0 = 0, at[N]{};
+    static u32 pictures = 0, slow = 0, said = 0;
+    static double longest = 0.0;
+    if (!on) {
+        return;
+    }
+#ifndef __ORBIS__
+    // (a PC test) EMUSUNI_3DS_TEST_SLOW_PICTURE=N: every Nth picture held 80 ms on this thread once drawn (late).
+    static const long test = std::getenv("EMUSUNI_3DS_TEST_SLOW_PICTURE") != nullptr
+                                 ? std::atol(std::getenv("EMUSUNI_3DS_TEST_SLOW_PICTURE"))
+                                 : 0;
+    static long test_pictures = 0;
+    if (test > 0 && ++test_pictures % test == 0) {
+        const auto until = std::chrono::steady_clock::now() + std::chrono::milliseconds(80);
+        while (std::chrono::steady_clock::now() < until) {
+        }
+    }
+#endif
+    const auto now = std::chrono::steady_clock::now();
+    const std::uint64_t k = S::Ticks();
+    const std::uint64_t c[N] = {
+        S::ticks[S::PicaBusyTicks], S::counts[S::CommandLists], S::ticks[S::GxListTicks], S::counts[S::ListBytes],
+        S::counts[S::Draws], S::ticks[S::DrawTicks], S::counts[S::DrawsSkipped],
+        S::ticks[S::GxFillTicks] + S::ticks[S::GxTransferTicks], S::counters[S::UploadBytes].load(),
+        S::counters[S::UploadUs].load(), S::counts[S::Surfaces], S::ticks[S::SurfaceTicks], S::counts[S::Readbacks],
+        S::ticks[S::ReadbackTicks], S::counters[S::WaitUs].load(), S::counters[S::PipelinesOther].load(),
+        S::counters[S::ShadersOther].load()};
+    if (!started) {
+        started = true;
+        t0 = before = now;
+        k0 = k;
+        for (int i = 0; i < N; i++) {
+            at[i] = c[i];
+        }
+        return;
+    }
+    const auto ms = [](auto d) { return std::chrono::duration<double, std::milli>(d).count(); };
+    const double late = ms(now - handed);
+    const double base_us = ms(now - t0) * 1000.0;
+    if (late > 50.0 && base_us >= 2e6) { // (the clock's rate known over 2 s first)
+        slow++;
+        longest = late > longest ? late : longest;
+        if (said < 4) {
+            said++;
+            const double tpu = static_cast<double>(k - k0) / base_us;
+            const auto d = [&](int i) { return c[i] - at[i]; };
+            const auto t = [&](int i) { return static_cast<u64>(static_cast<double>(d(i)) / tpu / 1000.0); };
+            LOG_INFO(HW_GPU,
+                     "EmuSuNi: 3ds-slow-picture: drawn {:.0f} ms after its VBlank; since the picture before ({:.0f} "
+                     "ms) this thread was busy {} ms: lists {} ({} ms, {} KiB), draws {} ({} ms; {} skipped, no "
+                     "pipeline yet), fills and copies {} ms, textures {} KiB ({} ms), surfaces made {} ({} ms), read "
+                     "back {} ({} ms), GPU waits {} ms, the picture {} ms; the workers built {} pipelines, {} shaders "
+                     "({} of 4)",
+                     late, ms(now - before), t(Busy), d(Lists), t(ListTicks), d(ListBytes) / 1024, d(Draws),
+                     t(DrawTicks), d(Skipped), t(FillCopyTicks), d(TexBytes) / 1024, d(TexUs) / 1000, d(Surfaces),
+                     t(SurfaceTicks), d(Readbacks), t(ReadbackTicks), d(WaitUs) / 1000,
+                     static_cast<u64>(static_cast<double>(picture) / tpu / 1000.0), d(Pipelines), d(Shaders), said);
+        }
+    }
+    if (++pictures == 600) {
+        if (slow > said) {
+            LOG_INFO(HW_GPU,
+                     "EmuSuNi: 3ds-slow-picture: {} of the last 600 pictures drawn over 50 ms after their VBlank ({} "
+                     "said), the longest {:.0f} ms (the word off in /data/EmuSuNi/3ds-slow-picture: none of this)",
+                     slow, said, longest);
+        }
+        pictures = slow = said = 0;
+        longest = 0.0;
+    }
+    before = now;
+    for (int i = 0; i < N; i++) {
+        at[i] = c[i];
+    }
+}
+#endif
+void GPU::VBlankCallback(std::uintptr_t user_data, s64 cycles_late) {
+''')
+patch('src/video_core/gpu.cpp', r'''
+            emusuni_late_picture =
+                emusuni_pica->SubmitTask([this, emusuni_swap] { impl->renderer->EmuSuNiSwapLate(emusuni_swap); });
+''', r'''
+            const auto emusuni_handed = std::chrono::steady_clock::now(); // (01.39) 3ds-slow-picture
+            emusuni_late_picture = emusuni_pica->SubmitTask([this, emusuni_swap, emusuni_handed] {
+                const std::uint64_t emusuni_k0 = EmuSuNi::Stats::Ticks();
+                impl->renderer->EmuSuNiSwapLate(emusuni_swap);
+                EmuSuNiSlowPicture(emusuni_handed, EmuSuNi::Stats::Ticks() - emusuni_k0);
+            });
+''')
+# --- 01.40: 3ds-part-skip. The owner's PS4 (01.39, 15-11): Luigi's Mansion: Dark Moon's jerks between rooms are
+# pictures drawn 50-230 ms after their VBlank (3ds-slow-picture), all of it in the frame's end waiting for the picture
+# before (the rasterizer's TickFrame, EMUSUNI_3DS_ASYNC_HANDOFF), which the Vulkan worker hadn't sent: it stood at a
+# draw's pipeline bind, waiting for the pipeline or making it itself (EmuSuNiBuildOrWait). Since 00.94 a draw whose
+# pipeline lacks only its fragment shader's part waits for it (a few ms on the PC); on the PS4 such a part takes 40-90
+# ms (the log's parts line: 34 made in a minute, 52 ms each, the longest 88), and a new room wants several. Now such a
+# draw is skipped until a worker has made it (at the workers' front), as one whose vertex shader's part is missing, and
+# as upstream's asynchronous shaders skip; a draw of 6 vertices or fewer still waits (upstream's rule; Castlevania's
+# draws too, 3ds-sync-shaders-games). The word off in /data/EmuSuNi/3ds-part-skip (EMUSUNI_3DS_PART_SKIP=0 on the PC):
+# they wait, as 00.94-01.39. And 3ds-slow-picture says the Vulkan worker's waits for pipelines (each one not built when
+# a draw bound it: how long, made by itself or not) and the pipelines whose draws 3ds-part-skip skipped. PC test:
+# EMUSUNI_3DS_TEST_PART_MS=<n> makes each fragment shader's part n ms longer (as the PS4's).
+addfile('src/common/emusuni_pipeline_waits.h', r'''// EmuSuNi (01.40): 3ds-part-skip (scripts/build-3ds-core.sh),
+// and the pipelines the Vulkan worker found not built at a draw's bind (it waited for them or made them itself),
+// counted where they happen and said by 3ds-slow-picture (video_core/gpu.cpp).
+#pragma once
+
+#include <atomic>
+#include <cstdint>
+
+namespace EmuSuNi::PipelineWaits {
+inline std::atomic<bool> part_skip{false};       // 3ds-part-skip (set where the pipelines by parts start)
+inline std::atomic<std::uint64_t> waited{0};     // pipelines the Vulkan worker found not built at their bind
+inline std::atomic<std::uint64_t> made_there{0}; // of them, made by the Vulkan worker itself (no worker had started)
+inline std::atomic<std::uint64_t> waited_us{0};  // its time on them
+inline std::atomic<std::uint64_t> skipped{0};    // pipelines whose draws 3ds-part-skip skipped until they were made
+} // namespace EmuSuNi::PipelineWaits
+''')
+patch('src/video_core/renderer_vulkan/vk_graphics_pipeline.cpp', r'''#include "common/emusuni_stats.h"
+''', r'''#include "common/emusuni_pipeline_waits.h" // (01.40) 3ds-part-skip
+#include "common/emusuni_stats.h"
+''')
+patch('src/video_core/renderer_vulkan/vk_graphics_pipeline.cpp', r'''void GraphicsPipeline::EmuSuNiBuildOrWait() {
+    int none = 0;
+    if (emusuni_claimed.compare_exchange_strong(none, 1)) {
+        Build();
+    } else {
+        WaitDone();
+    }
+}
+''', r'''void GraphicsPipeline::EmuSuNiBuildOrWait() {
+    // (01.40) On the Vulkan worker, a pipeline not built at its bind: counted for 3ds-slow-picture.
+    namespace PW = EmuSuNi::PipelineWaits;
+    const auto start = std::chrono::steady_clock::now();
+    int none = 0;
+    const bool here = emusuni_claimed.compare_exchange_strong(none, 1);
+    if (here) {
+        Build();
+    } else {
+        WaitDone();
+    }
+    const auto us = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start);
+    PW::waited.fetch_add(1, std::memory_order_relaxed);
+    PW::made_there.fetch_add(here ? 1 : 0, std::memory_order_relaxed);
+    PW::waited_us.fetch_add(static_cast<std::uint64_t>(us.count()), std::memory_order_relaxed);
+}
+''')
+patch('src/video_core/renderer_vulkan/vk_graphics_pipeline.cpp', r'''
+        if ((made & 1) != 0 && EmuSuNiUsesParts()) {
+            EmuSuNiQueueFront();
+            is_pending = true;
+            emusuni_draws_wait = true;
+            return true;
+        }
+''', r'''
+        if ((made & 1) != 0 && EmuSuNiUsesParts()) {
+            EmuSuNiQueueFront();
+            is_pending = true;
+            // (01.40) 3ds-part-skip: its draws skipped until a worker has made it (40-90 ms on the PS4), as with its
+            // vertex shader's part missing; a draw of 6 vertices or fewer waits for it (upstream's rule).
+            if (EmuSuNi::PipelineWaits::part_skip.load(std::memory_order_relaxed)) {
+                EmuSuNi::PipelineWaits::skipped.fetch_add(wait_built ? 0 : 1, std::memory_order_relaxed);
+                return wait_built;
+            }
+            emusuni_draws_wait = true;
+            return true;
+        }
+''')
+patch('src/video_core/renderer_vulkan/vk_graphics_pipeline.cpp', r'''    vk::Pipeline made{};
+    const vk::Result result = parts.device.createGraphicsPipelines(cache, 1, &info, nullptr, &made);
+''', r'''#ifndef __ORBIS__
+    // (01.40, a PC test) EMUSUNI_3DS_TEST_PART_MS=<n>: each fragment shader's part n ms longer, as the PS4's 40-90.
+    if (which == vk::GraphicsPipelineLibraryFlagBitsEXT::eFragmentShader) {
+        static const int test_ms = std::getenv("EMUSUNI_3DS_TEST_PART_MS") != nullptr
+                                       ? std::atoi(std::getenv("EMUSUNI_3DS_TEST_PART_MS"))
+                                       : 0;
+        if (test_ms > 0) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(test_ms));
+        }
+    }
+#endif
+    vk::Pipeline made{};
+    const vk::Result result = parts.device.createGraphicsPipelines(cache, 1, &info, nullptr, &made);
+''')
+patch('src/video_core/renderer_vulkan/vk_pipeline_cache.cpp', r'''#include "common/logging/log.h"
+#include "common/microprofile.h"
+''', r'''#include "common/logging/log.h"
+#include "common/microprofile.h"
+#ifdef EMUSUNI_PORT
+#include "common/emusuni_async.h"          // (01.40) 3ds-part-skip's file
+#include "common/emusuni_pipeline_waits.h" // (01.40)
+#endif
+''')
+patch('src/video_core/renderer_vulkan/vk_pipeline_cache.cpp', r'''
+                            "/data/EmuSuNi/3ds-gpl-off: whole pipelines as before)");
+}
+''', r'''
+                            "/data/EmuSuNi/3ds-gpl-off: whole pipelines as before)");
+    // (01.40) 3ds-part-skip (common/emusuni_pipeline_waits.h).
+    const bool skip = EmuSuNi::Async::TestFile("3ds-part-skip", "EMUSUNI_3DS_PART_SKIP", 0) >= 0;
+    EmuSuNi::PipelineWaits::part_skip.store(skip, std::memory_order_relaxed);
+    LOG_INFO(Render_Vulkan,
+             "EmuSuNi: 3ds-part-skip {} (01.40): a draw whose pipeline lacks only its fragment shader's part {} (the "
+             "word off in /data/EmuSuNi/3ds-part-skip: it waits, as 00.94-01.39)",
+             skip ? "on" : "off",
+             skip ? "is skipped until a worker has made it (40-90 ms on the PS4), as one missing its vertex shader's; "
+                    "a draw of 6 vertices or fewer waits for it (upstream's rule)"
+                  : "waits for it (the Vulkan worker makes it if no worker has started it)");
+}
+''')
+patch('src/video_core/gpu.cpp', r'''#include "common/emusuni_stats.h"
+''', r'''#include "common/emusuni_pipeline_waits.h" // (01.40) 3ds-slow-picture's pipelines
+#include "common/emusuni_stats.h"
+''')
+patch('src/video_core/gpu.cpp', r'''    namespace S = EmuSuNi::Stats;
+    enum { Busy, Lists, ListTicks, ListBytes, Draws, DrawTicks, Skipped, FillCopyTicks, TexBytes, TexUs, Surfaces,
+           SurfaceTicks, Readbacks, ReadbackTicks, WaitUs, Pipelines, Shaders, N };
+''', r'''    namespace S = EmuSuNi::Stats;
+    namespace PW = EmuSuNi::PipelineWaits; // (01.40) the Vulkan worker's waits for pipelines, 3ds-part-skip
+    enum { Busy, Lists, ListTicks, ListBytes, Draws, DrawTicks, Skipped, FillCopyTicks, TexBytes, TexUs, Surfaces,
+           SurfaceTicks, Readbacks, ReadbackTicks, WaitUs, Pipelines, Shaders, VkWaited, VkMade, VkWaitUs, PartSkipped,
+           N };
+''')
+patch('src/video_core/gpu.cpp', r'''    static std::uint64_t k0 = 0, at[N]{};
+''', r'''    static std::uint64_t k0 = 0, at[N]{}, win[N]{}; // (01.40: win, the 600 pictures' start)
+''')
+patch('src/video_core/gpu.cpp', r'''
+        S::ticks[S::ReadbackTicks], S::counters[S::WaitUs].load(), S::counters[S::PipelinesOther].load(),
+        S::counters[S::ShadersOther].load()};
+''', r'''
+        S::ticks[S::ReadbackTicks], S::counters[S::WaitUs].load(), S::counters[S::PipelinesOther].load(),
+        S::counters[S::ShadersOther].load(), PW::waited.load(), PW::made_there.load(), PW::waited_us.load(),
+        PW::skipped.load()};
+''')
+patch('src/video_core/gpu.cpp', r'''        for (int i = 0; i < N; i++) {
+            at[i] = c[i];
+        }
+        return;
+''', r'''        for (int i = 0; i < N; i++) {
+            at[i] = win[i] = c[i];
+        }
+        return;
+''')
+patch('src/video_core/gpu.cpp', r'''
+                     "back {} ({} ms), GPU waits {} ms, the picture {} ms; the workers built {} pipelines, {} shaders "
+                     "({} of 4)",
+                     late, ms(now - before), t(Busy), d(Lists), t(ListTicks), d(ListBytes) / 1024, d(Draws),
+                     t(DrawTicks), d(Skipped), t(FillCopyTicks), d(TexBytes) / 1024, d(TexUs) / 1000, d(Surfaces),
+                     t(SurfaceTicks), d(Readbacks), t(ReadbackTicks), d(WaitUs) / 1000,
+                     static_cast<u64>(static_cast<double>(picture) / tpu / 1000.0), d(Pipelines), d(Shaders), said);
+''', r'''
+                     "back {} ({} ms), waits for the Vulkan worker or the GPU {} ms, the picture {} ms; the Vulkan "
+                     "worker waited {} ms for {} pipelines not built at their bind ({} made by itself); the workers "
+                     "built {} pipelines, {} shaders; 3ds-part-skip skipped the draws of {} ({} of 4)",
+                     late, ms(now - before), t(Busy), d(Lists), t(ListTicks), d(ListBytes) / 1024, d(Draws),
+                     t(DrawTicks), d(Skipped), t(FillCopyTicks), d(TexBytes) / 1024, d(TexUs) / 1000, d(Surfaces),
+                     t(SurfaceTicks), d(Readbacks), t(ReadbackTicks), d(WaitUs) / 1000,
+                     static_cast<u64>(static_cast<double>(picture) / tpu / 1000.0), d(VkWaitUs) / 1000, d(VkWaited),
+                     d(VkMade), d(Pipelines), d(Shaders), d(PartSkipped), said);
+''')
+patch('src/video_core/gpu.cpp', r'''    if (++pictures == 600) {
+        if (slow > said) {
+            LOG_INFO(HW_GPU,
+                     "EmuSuNi: 3ds-slow-picture: {} of the last 600 pictures drawn over 50 ms after their VBlank ({} "
+                     "said), the longest {:.0f} ms (the word off in /data/EmuSuNi/3ds-slow-picture: none of this)",
+                     slow, said, longest);
+        }
+        pictures = slow = said = 0;
+        longest = 0.0;
+    }
+''', r'''    if (++pictures == 600) {
+        // (01.40) and in them the Vulkan worker's waits for pipelines and the pipelines 3ds-part-skip skipped
+        const std::uint64_t waited = c[VkWaited] - win[VkWaited];
+        const std::uint64_t skipped = c[PartSkipped] - win[PartSkipped];
+        if (slow > said || waited != 0 || skipped != 0) {
+            LOG_INFO(HW_GPU,
+                     "EmuSuNi: 3ds-slow-picture: {} of the last 600 pictures drawn over 50 ms after their VBlank ({} "
+                     "said), the longest {:.0f} ms; in them the Vulkan worker waited {} ms for {} pipelines not built "
+                     "at their bind ({} made by itself), 3ds-part-skip skipped the draws of {} (the word off in "
+                     "/data/EmuSuNi/3ds-slow-picture: none of this)",
+                     slow, said, longest, (c[VkWaitUs] - win[VkWaitUs]) / 1000, waited, c[VkMade] - win[VkMade],
+                     skipped);
+        }
+        pictures = slow = said = 0;
+        longest = 0.0;
+        for (int i = 0; i < N; i++) {
+            win[i] = c[i];
+        }
+    }
+''')
+# --- 01.40: 3ds-uniforms-check. The owner's PS4 (01.39, 15-11): SM3DL's start shows, 3 starts in 10, the top
+# screen's yellow background without its logo (the draws done, their pipelines there), then went on (01.37: hung 5 in
+# 6); 3ds-flat-uniforms' fresh uploads cure it, but 01.22's diagnosis can't say whether the draws read old uniforms:
+# an upload was pending, so the CPU's copy was the next draw's. Now in a renderer's first minute each draw that
+# uploads none of a uniform block compares that block where it is bound with the CPU's copy: not the same, the draw
+# reads values the game didn't set (proved); and with what was uploaded there: the same, a change left unmarked (no
+# upload asked); not the same, the bytes overwritten since. The first 3 such draws said in detail (the registers),
+# the counts at 10 s and at the minute's end (or the renderer's), with the shaders' uniforms written off the GPU
+# commands' thread, where the draws read them (any: a race of two threads). The word off in
+# /data/EmuSuNi/3ds-uniforms-check (EMUSUNI_3DS_UNIFORMS_CHECK=0 on the PC): never; always: all the time. PC test:
+# EMUSUNI_3DS_TEST_MISS_MARK=N leaves the Nth change of the PICA uniforms unmarked (with 01.22's
+# EMUSUNI_3DS_TEST_SPOIL_UNIFORMS: overwritten).
+addfile('src/common/emusuni_uniform_writes.h', r'''// EmuSuNi (01.40): 3ds-uniforms-check (scripts/build-3ds-core.sh),
+// the shader uniforms' writes made off the GPU commands' thread (3ds-async-pica), where the draws read them: a race
+// between two threads if any.
+#pragma once
+
+#include <atomic>
+#include <cstdint>
+#include "common/emusuni_async.h"
+
+namespace EmuSuNi::UniformWrites {
+inline std::atomic<std::uint64_t> off_pica{0};
+inline void Note(std::uint32_t count) {
+    if (!Async::OnPicaThread()) {
+        off_pica.fetch_add(count, std::memory_order_relaxed);
+    }
+}
+} // namespace EmuSuNi::UniformWrites
+''')
+patch('src/video_core/pica/shader_setup.cpp', r'''
+#include "video_core/pica/shader_setup.h"
+''', r'''
+#include "video_core/pica/shader_setup.h"
+#ifdef EMUSUNI_PORT
+#include "common/emusuni_uniform_writes.h" // (01.40) 3ds-uniforms-check
+#endif
+''')
+patch('src/video_core/pica/shader_setup.cpp', r'''
+void ShaderSetup::WriteUniformBoolReg(u32 value) {
+''', r'''
+void ShaderSetup::WriteUniformBoolReg(u32 value) {
+#ifdef EMUSUNI_PORT
+    ::EmuSuNi::UniformWrites::Note(1); // (01.40) 3ds-uniforms-check
+#endif
+''')
+patch('src/video_core/pica/shader_setup.cpp', r'''
+void ShaderSetup::WriteUniformIntReg(u32 index, const Common::Vec4<u8> values) {
+''', r'''
+void ShaderSetup::WriteUniformIntReg(u32 index, const Common::Vec4<u8> values) {
+#ifdef EMUSUNI_PORT
+    ::EmuSuNi::UniformWrites::Note(1); // (01.40) 3ds-uniforms-check
+#endif
+''')
+patch('src/video_core/pica/shader_setup.cpp', r'''
+std::optional<u32> ShaderSetup::WriteUniformFloatReg(ShaderRegs& config, u32 value) {
+''', r'''
+std::optional<u32> ShaderSetup::WriteUniformFloatReg(ShaderRegs& config, u32 value) {
+#ifdef EMUSUNI_PORT
+    ::EmuSuNi::UniformWrites::Note(1); // (01.40) 3ds-uniforms-check
+#endif
+''')
+patch('src/video_core/pica/shader_setup.cpp', r'''
+    ShaderRegs& config, const u32* values, u32 count) {
+''', r'''
+    ShaderRegs& config, const u32* values, u32 count) {
+#ifdef EMUSUNI_PORT
+    ::EmuSuNi::UniformWrites::Note(count); // (01.40) 3ds-uniforms-check
+#endif
+''')
+patch('src/video_core/renderer_vulkan/vk_rasterizer.cpp', r'''
+#include "common/emusuni_black_uniforms.h" // (01.22)
+''', r'''
+#include "common/emusuni_black_uniforms.h" // (01.22)
+#include "common/emusuni_uniform_writes.h" // (01.40) 3ds-uniforms-check
+''')
+patch('src/video_core/renderer_vulkan/vk_rasterizer.h', r'''
+    u64 emusuni_spoiled = 0;
+#endif
+''', r'''
+    u64 emusuni_spoiled = 0;
+    // (01.40) 3ds-uniforms-check: each uniform block (PICA, VS, FS) as last uploaded and where; the counts.
+    struct EmuSuNiCheck {
+        int mode = -2; // -2 not read yet, -1 off, 0 the renderer's first minute, 1 always
+        u64 t0_ms = 0;
+        bool said_10s = false;
+        bool done = false;
+        std::array<std::array<u8, 2048>, 3> uploaded{};
+        std::array<u32, 3> uploaded_at{};
+        std::array<u64, 3> uploaded_draw{};
+        std::array<bool, 3> known{};
+        std::array<u64, 3> read{};
+        std::array<u64, 3> stale{};
+        std::array<u64, 3> overwritten{};
+        std::array<u64, 3> uploads{};
+        u64 draws = 0;
+        u64 cpu_shaded = 0;    // (their vertices shaded on the CPU: the PICA block not read)
+        u64 on_pica = 0;       // (the draws on the GPU commands' thread)
+        u64 off_writes_at = 0; // (the uniforms' writes off that thread before the check began)
+        u32 said = 0;
+    };
+    bool EmuSuNiCheckOn();
+    void EmuSuNiCheckUniforms(bool accelerate, bool pica_clean, bool vs_clean, bool fs_clean);
+    void EmuSuNiCheckUploaded(u32 block, const void* bytes, u32 size, u32 offset);
+    void EmuSuNiCheckSay(const char* when);
+    EmuSuNiCheck emusuni_check;
+    u64 emusuni_miss_mark = 0;    // (01.40) its PC test: EMUSUNI_3DS_TEST_MISS_MARK
+    u64 emusuni_pica_changes = 0; // (the PICA uniforms' changes the draws found)
+#endif
+''')
+patch('src/video_core/renderer_vulkan/vk_rasterizer.cpp', r'''
+        emusuni_spoil = emusuni_spoil_frame == 0;
+    }
+#endif
+''', r'''
+        emusuni_spoil = emusuni_spoil_frame == 0;
+    }
+    // (01.40) 3ds-uniforms-check's PC test: the Nth change of the PICA uniforms a draw finds left unmarked.
+    if (const char* emusuni_miss_env = std::getenv("EMUSUNI_3DS_TEST_MISS_MARK")) {
+        emusuni_miss_mark = std::strtoull(emusuni_miss_env, nullptr, 10);
+    }
+#endif
+''')
+patch('src/video_core/renderer_vulkan/vk_rasterizer.cpp', r'''
+RasterizerVulkan::~RasterizerVulkan() {
+''', r'''
+RasterizerVulkan::~RasterizerVulkan() {
+    // (01.40) 3ds-uniforms-check's counts, if its minute hadn't ended.
+    if (emusuni_check.mode >= 0 && !emusuni_check.done) {
+        EmuSuNiCheckSay("the renderer's end");
+    }
+''')
+patch('src/video_core/renderer_vulkan/vk_rasterizer.cpp', r'''
+        std::memcpy(fresh, &vs_data, sizeof(vs_data));
+        emusuni_vs_uploads++; // (01.22)
+''', r'''
+        std::memcpy(fresh, &vs_data, sizeof(vs_data));
+        EmuSuNiCheckUploaded(1, &vs_data, sizeof(vs_data), static_cast<u32>(fresh_offset)); // (01.40)
+        emusuni_vs_uploads++; // (01.22)
+''')
+patch('src/video_core/renderer_vulkan/vk_rasterizer.cpp', r'''
+        std::memcpy(fresh + vs_size, &fs_data, sizeof(fs_data));
+''', r'''
+        std::memcpy(fresh + vs_size, &fs_data, sizeof(fs_data));
+        EmuSuNiCheckUploaded(2, &fs_data, sizeof(fs_data), static_cast<u32>(fresh_offset + vs_size)); // (01.40)
+''')
+patch('src/video_core/renderer_vulkan/vk_rasterizer.cpp', r'''
+        std::memcpy(fresh + vs_size + fs_size, &vs_uniforms, sizeof(vs_uniforms));
+''', r'''
+        std::memcpy(fresh + vs_size + fs_size, &vs_uniforms, sizeof(vs_uniforms));
+        EmuSuNiCheckUploaded(0, &vs_uniforms, sizeof(vs_uniforms),
+                             static_cast<u32>(fresh_offset + vs_size + fs_size)); // (01.40)
+''')
+patch('src/video_core/renderer_vulkan/vk_rasterizer.cpp', r'''
+    const bool sync_vs_pica = accelerate_draw && pica.vs_setup.uniforms_dirty;
+''', r'''
+#ifdef EMUSUNI_PORT
+    if (accelerate_draw && pica.vs_setup.uniforms_dirty) {
+        // (01.40) 3ds-uniforms-check's PC test: this change of the PICA uniforms left unmarked (not uploaded).
+        if (++emusuni_pica_changes == emusuni_miss_mark) {
+            pica.vs_setup.uniforms_dirty = false;
+        }
+    }
+    // (01.40) 3ds-uniforms-check: the blocks this draw uploads none of, as the CPU has them?
+    EmuSuNiCheckUniforms(accelerate_draw, accelerate_draw && !pica.vs_setup.uniforms_dirty, !vs_data_dirty,
+                         !fs_data_dirty);
+#endif
+    const bool sync_vs_pica = accelerate_draw && pica.vs_setup.uniforms_dirty;
+''')
+patch('src/video_core/renderer_vulkan/vk_rasterizer.cpp', r'''
+        std::memcpy(uniforms + used_bytes, &vs_data, sizeof(vs_data));
+#ifdef EMUSUNI_PORT
+        emusuni_vs_uploads++; // (01.22)
+''', r'''
+        std::memcpy(uniforms + used_bytes, &vs_data, sizeof(vs_data));
+#ifdef EMUSUNI_PORT
+        EmuSuNiCheckUploaded(1, &vs_data, sizeof(vs_data), static_cast<u32>(offset + used_bytes)); // (01.40)
+        emusuni_vs_uploads++; // (01.22)
+''')
+patch('src/video_core/renderer_vulkan/vk_rasterizer.cpp', r'''
+        std::memcpy(uniforms + used_bytes, &fs_data, sizeof(fs_data));
+        pipeline_cache.UpdateRange(2, offset + used_bytes);
+''', r'''
+        std::memcpy(uniforms + used_bytes, &fs_data, sizeof(fs_data));
+#ifdef EMUSUNI_PORT
+        EmuSuNiCheckUploaded(2, &fs_data, sizeof(fs_data), static_cast<u32>(offset + used_bytes)); // (01.40)
+#endif
+        pipeline_cache.UpdateRange(2, offset + used_bytes);
+''')
+patch('src/video_core/renderer_vulkan/vk_rasterizer.cpp', r'''
+        std::memcpy(uniforms + used_bytes, &vs_uniforms, sizeof(vs_uniforms));
+        pipeline_cache.UpdateRange(0, offset + used_bytes);
+''', r'''
+        std::memcpy(uniforms + used_bytes, &vs_uniforms, sizeof(vs_uniforms));
+#ifdef EMUSUNI_PORT
+        EmuSuNiCheckUploaded(0, &vs_uniforms, sizeof(vs_uniforms), static_cast<u32>(offset + used_bytes)); // (01.40)
+#endif
+        pipeline_cache.UpdateRange(0, offset + used_bytes);
+''')
+patch('src/video_core/renderer_vulkan/vk_rasterizer.cpp', r'''
+void RasterizerVulkan::UploadUniforms(bool accelerate_draw) {
+''', r'''
+#ifdef EMUSUNI_PORT
+// (01.40) 3ds-uniforms-check (scripts/build-3ds-core.sh says why): each draw that uploads none of a uniform block
+// finds it, where it is bound, as the CPU has it, and as it was uploaded there.
+namespace {
+u64 EmuSuNiCheckMs() {
+    return static_cast<u64>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                std::chrono::steady_clock::now().time_since_epoch())
+                                .count());
+}
+// The bytes the shaders read: the PICA block's 12 after its bools are padding (never set).
+bool EmuSuNiCheckSame(u32 block, const u8* x, const u8* y, u32 size) {
+    if (block == 0) {
+        return std::memcmp(x, y, 4) == 0 && std::memcmp(x + 16, y + 16, size - 16) == 0;
+    }
+    return std::memcmp(x, y, size) == 0;
+}
+constexpr std::array<const char*, 3> kEmuSuNiCheckBlocks{"PICA (the vertex shaders' uniforms)",
+                                                         "VS (the clip plane and the flip)", "FS (the fragments')"};
+} // namespace
+
+bool RasterizerVulkan::EmuSuNiCheckOn() {
+    auto& k = emusuni_check;
+    if (k.mode == -2) {
+        bool always = false;
+        const int got = ::EmuSuNi::Async::TestFile("3ds-uniforms-check", "EMUSUNI_3DS_UNIFORMS_CHECK", 0, &always);
+        k.mode = got < 0 ? -1 : (always ? 1 : 0);
+        k.t0_ms = EmuSuNiCheckMs();
+        k.off_writes_at = ::EmuSuNi::UniformWrites::off_pica.load(std::memory_order_relaxed);
+        LOG_INFO(Render_Vulkan,
+                 "EmuSuNi: 3ds-uniforms-check {} (01.40): each draw that uploads none of a uniform block checks it "
+                 "is bound as the CPU has it (the word always in /data/EmuSuNi/3ds-uniforms-check: all the time; "
+                 "off: never)",
+                 k.mode < 0 ? "off" : (k.mode == 1 ? "on all the time" : "on for the renderer's first minute"));
+    }
+    if (k.mode < 0 || k.done) {
+        return false;
+    }
+    const u64 ms = EmuSuNiCheckMs() - k.t0_ms;
+    if (!k.said_10s && ms >= 10000) {
+        k.said_10s = true;
+        EmuSuNiCheckSay("its first 10 s");
+    }
+    if (k.mode == 0 && ms >= 60000) {
+        k.done = true;
+        EmuSuNiCheckSay("its first minute");
+        return false;
+    }
+    return true;
+}
+
+void RasterizerVulkan::EmuSuNiCheckUploaded(u32 block, const void* bytes, u32 size, u32 offset) {
+    auto& k = emusuni_check;
+    if (k.mode == -1 || k.done || size > k.uploaded[block].size()) {
+        return;
+    }
+    std::memcpy(k.uploaded[block].data(), bytes, size);
+    k.uploads[block]++;
+    k.uploaded_at[block] = offset;
+    k.uploaded_draw[block] = k.draws;
+    k.known[block] = true;
+}
+
+void RasterizerVulkan::EmuSuNiCheckUniforms(bool accelerate, bool pica_clean, bool vs_clean, bool fs_clean) {
+    if (!EmuSuNiCheckOn()) {
+        return;
+    }
+    auto& k = emusuni_check;
+    const u8* base = uniform_buffer.EmuSuNiMapped();
+    if (base == nullptr) {
+        return;
+    }
+    k.draws++;
+    k.cpu_shaded += accelerate ? 0 : 1;
+    k.on_pica += ::EmuSuNi::Async::OnPicaThread() ? 1 : 0;
+    const std::array<bool, 3> clean{pica_clean, vs_clean, fs_clean};
+    VSPicaUniformData pica_now{};
+    for (u32 b = 0; b < 3; b++) {
+        if (!clean[b]) {
+            continue;
+        }
+        const u32 size = b == 0 ? static_cast<u32>(sizeof(pica_now))
+                                : (b == 1 ? static_cast<u32>(sizeof(vs_data)) : static_cast<u32>(sizeof(fs_data)));
+        const u32 at = pipeline_cache.EmuSuNiRange(static_cast<u8>(b));
+        if (u64{at} + size > uniform_buffer.EmuSuNiSize()) {
+            continue;
+        }
+        const u8* cpu = b == 1 ? reinterpret_cast<const u8*>(&vs_data) : reinterpret_cast<const u8*>(&fs_data);
+        if (b == 0) {
+            pica_now.SetFromRegs(pica.vs_setup);
+            cpu = reinterpret_cast<const u8*>(&pica_now);
+        }
+        const u8* mem = base + at;
+        k.read[b]++;
+        if (EmuSuNiCheckSame(b, mem, cpu, size)) {
+            continue;
+        }
+        k.stale[b]++;
+        const bool known = k.known[b] && k.uploaded_at[b] == at;
+        const bool overwritten = known && !EmuSuNiCheckSame(b, mem, k.uploaded[b].data(), size);
+        k.overwritten[b] += overwritten ? 1 : 0;
+        if (k.said >= 3) {
+            continue;
+        }
+        k.said++;
+        std::string what;
+        if (b == 0) {
+            VSPicaUniformData was{};
+            std::memcpy(&was, mem, sizeof(was));
+            if (was.b != pica_now.b) {
+                what += fmt::format("bools {:04X} (the CPU's {:04X}); ", was.b, pica_now.b);
+            }
+            for (u32 j = 0; j < 4; j++) {
+                if (std::memcmp(&was.i[j], &pica_now.i[j], sizeof(was.i[j])) != 0) {
+                    what += fmt::format("i{} {} {} {} (the CPU's {} {} {}); ", j, was.i[j].x, was.i[j].y, was.i[j].z,
+                                        pica_now.i[j].x, pica_now.i[j].y, pica_now.i[j].z);
+                }
+            }
+            u32 floats = 0;
+            std::string first;
+            for (u32 j = 0; j < 96; j++) {
+                if (std::memcmp(&was.f[j], &pica_now.f[j], sizeof(was.f[j])) == 0) {
+                    continue;
+                }
+                if (floats++ < 4) {
+                    first += fmt::format(" c{} {:.4g} {:.4g} {:.4g} {:.4g} (the CPU's {:.4g} {:.4g} {:.4g} {:.4g})", j,
+                                         was.f[j].x, was.f[j].y, was.f[j].z, was.f[j].w, pica_now.f[j].x,
+                                         pica_now.f[j].y, pica_now.f[j].z, pica_now.f[j].w);
+                }
+            }
+            what += fmt::format("{} float registers{}", floats, first);
+        } else {
+            u32 words = 0;
+            for (u32 o = 0; o + 4 <= size; o += 4) {
+                u32 x = 0;
+                u32 y = 0;
+                std::memcpy(&x, mem + o, 4);
+                std::memcpy(&y, cpu + o, 4);
+                if (x != y && words++ < 4) {
+                    what += fmt::format(" byte {} {:08X} (the CPU's {:08X})", o, x, y);
+                }
+            }
+            what = fmt::format("{} words of 4 bytes:{}", words, what);
+        }
+        LOG_WARNING(Render_Vulkan,
+                    "EmuSuNi: 3ds-uniforms-check: a draw read the {} block not as the CPU has it, no upload of it "
+                    "asked ({:.1f} s after the renderer's first draw, draw {}{}; bound at {}, uploaded there {} draws "
+                    "before; the buffer {} times round; the uniforms written {} times off the GPU commands' thread so "
+                    "far): {}; {}",
+                    kEmuSuNiCheckBlocks[b], static_cast<double>(EmuSuNiCheckMs() - k.t0_ms) / 1000.0, k.draws,
+                    ::EmuSuNi::Async::OnPicaThread() ? " on the GPU commands' thread" : "", at,
+                    known ? k.draws - k.uploaded_draw[b] : 0, uniform_buffer.emusuni_wraps,
+                    ::EmuSuNi::UniformWrites::off_pica.load(std::memory_order_relaxed) - k.off_writes_at,
+                    !known ? "where it was uploaded isn't known"
+                           : (overwritten ? "the bytes there aren't what was uploaded: overwritten since"
+                                          : "the bytes there are what was uploaded: the game's change left unmarked"),
+                    what);
+    }
+}
+
+void RasterizerVulkan::EmuSuNiCheckSay(const char* when) {
+    const auto& k = emusuni_check;
+    const u64 stale = k.stale[0] + k.stale[1] + k.stale[2];
+    LOG_INFO(Render_Vulkan,
+             "EmuSuNi: 3ds-uniforms-check, {}: {} draws ({} on the GPU commands' thread, {} shaded on the CPU: no PICA "
+             "block read); the shaders' uniforms written {} times off that thread; uploads: PICA {}, VS {}, FS {}; a "
+             "block read with no upload of it asked: PICA {} times, VS {}, FS {}; not as the CPU has it: PICA {} ({} "
+             "overwritten), VS {} ({}), FS {} ({}){}",
+             when, k.draws, k.on_pica, k.cpu_shaded,
+             ::EmuSuNi::UniformWrites::off_pica.load(std::memory_order_relaxed) - k.off_writes_at, k.uploads[0],
+             k.uploads[1], k.uploads[2], k.read[0], k.read[1], k.read[2], k.stale[0], k.overwritten[0], k.stale[1],
+             k.overwritten[1], k.stale[2], k.overwritten[2],
+             stale == 0 ? " (every draw read the uniforms the game set)" : "");
+}
+#endif
+
+void RasterizerVulkan::UploadUniforms(bool accelerate_draw) {
+''')
+# --- 01.41: 3ds-uniforms-compare. The owner's PS4 (01.40, 15-11): at Super Mario 3D Land's start 01.40's
+# 3ds-uniforms-check caught the draws reading the vertex shaders' uniforms (the PICA block) as they were uploaded at
+# draw 1178, not as the CPU had them, with no upload asked (no mark), all on the GPU commands' thread and none of
+# the uniforms' writes off it: 2,550 draws in 0.8 s (the title's background without its logo) until 01.38's
+# 3ds-flat-uniforms uploaded them fresh. Each of the four writes of those uniforms marks them when it changes a
+# value, and every upload takes them as they are and clears the mark; how that one change got past the mark isn't
+# known yet. Now each draw that asks no upload of them compares them (Pica::Uniforms, 1,568 bytes, 8 at a time) with
+# a copy taken at their last upload: a difference is uploaded (the draw reads what the game set), counted, and the
+# first three said in short lines with what happened since that upload (draws, command lists, lists the right-eye
+# guesser left out, the uniforms' writes on the GPU commands' thread and off it, how many of them changed a value:
+# none, the change came from no write of the game's; some, their mark was cleared after), and what changed. The word
+# off in /data/EmuSuNi/3ds-uniforms-compare (EMUSUNI_3DS_UNIFORMS_COMPARE=0 on the PC): only when marked, as
+# upstream. 01.38's 3ds-flat-uniforms stays. And 01.40's 3ds-uniforms-check is off unless asked (the word on in
+# /data/EmuSuNi/3ds-uniforms-check: the renderer's first minute; always: all of it): it read the GPU's memory of the
+# uniform buffer at every draw, write-combined on the PS4 (Dark Moon's uniforms 2-9 s in 600 pictures against
+# 0.1-0.2); now it compares with its copy of each upload and reads that memory when they differ and in one read of
+# 64; its lines are cut in shorter ones (the log cuts a line at about 512 bytes). PC test:
+# EMUSUNI_3DS_TEST_POKE_UNIFORMS=N changes a float uniform behind the writes' back at the Nth draw (01.40's
+# EMUSUNI_3DS_TEST_MISS_MARK=N: a change whose mark is cleared).
+patch('src/common/emusuni_uniform_writes.h', r'''
+inline std::atomic<std::uint64_t> off_pica{0};
+inline void Note(std::uint32_t count) {
+    if (!Async::OnPicaThread()) {
+        off_pica.fetch_add(count, std::memory_order_relaxed);
+    }
+}
+''', r'''
+inline std::atomic<std::uint64_t> off_pica{0};
+// (01.41) Those made on it (one writer: that thread), for 3ds-uniforms-compare's diagnosis.
+inline std::atomic<std::uint64_t> on_pica{0};
+inline void Note(std::uint32_t count) {
+    if (!Async::OnPicaThread()) {
+        off_pica.fetch_add(count, std::memory_order_relaxed);
+    } else {
+        on_pica.store(on_pica.load(std::memory_order_relaxed) + count, std::memory_order_relaxed);
+    }
+}
+''')
+patch('src/video_core/pica/shader_setup.h', r'''
+    const void* cached_shader{};
+    bool uniforms_dirty = true;
+''', r'''
+    const void* cached_shader{};
+    bool uniforms_dirty = true;
+#ifdef EMUSUNI_PORT
+    // (01.41) 3ds-uniforms-compare's diagnosis: the writes that changed one of these uniforms (each marks them).
+    u64 emusuni_changes = 0;
+#endif
+''')
+patch('src/video_core/pica/shader_setup.cpp', r'''
+        uniforms_dirty |= prev != bits[i];
+''', r'''
+        uniforms_dirty |= prev != bits[i];
+#ifdef EMUSUNI_PORT
+        emusuni_changes += prev != bits[i] ? 1 : 0; // (01.41) 3ds-uniforms-compare
+#endif
+''')
+patch('src/video_core/pica/shader_setup.cpp', r'''
+    uniforms_dirty |= prev != values;
+''', r'''
+    uniforms_dirty |= prev != values;
+#ifdef EMUSUNI_PORT
+    emusuni_changes += prev != values ? 1 : 0; // (01.41) 3ds-uniforms-compare
+#endif
+''')
+patch('src/video_core/pica/shader_setup.cpp', r'''
+    const auto prev = std::exchange(uniforms.f[index], uniform);
+    uniforms_dirty |= prev != uniform;
+''', r'''
+    const auto prev = std::exchange(uniforms.f[index], uniform);
+    uniforms_dirty |= prev != uniform;
+#ifdef EMUSUNI_PORT
+    emusuni_changes += prev != uniform ? 1 : 0; // (01.41) 3ds-uniforms-compare
+#endif
+''')
+patch('src/video_core/pica/shader_setup.cpp', r'''
+        const auto prev = std::exchange(uniforms.f[index], uniform);
+        uniforms_dirty |= prev != uniform;
+''', r'''
+        const auto prev = std::exchange(uniforms.f[index], uniform);
+        uniforms_dirty |= prev != uniform;
+#ifdef EMUSUNI_PORT
+        emusuni_changes += prev != uniform ? 1 : 0; // (01.41) 3ds-uniforms-compare
+#endif
+''')
+patch('src/video_core/renderer_vulkan/vk_rasterizer.h', r'''
+    u64 emusuni_pica_changes = 0; // (the PICA uniforms' changes the draws found)
+#endif
+''', r'''
+    u64 emusuni_pica_changes = 0; // (the PICA uniforms' changes the draws found)
+    // (01.41) 3ds-uniforms-compare: the PICA uniforms as last uploaded, compared at each draw that asks no upload
+    // of them; a difference (a change the mark missed) is uploaded, counted and the first three said, with the
+    // counters as they were at that upload.
+    bool EmuSuNiCompareOn();
+    void EmuSuNiCompareCopy();
+    void EmuSuNiCompareMissed();
+    Pica::Uniforms emusuni_pica_copy{};
+    bool emusuni_pica_copied = false;
+    int emusuni_compare = -2;  // -2 not read yet, -1 off, 0 on
+    u64 emusuni_calls = 0;     // UploadUniforms' calls (the draws)
+    u64 emusuni_cpu_calls = 0; // of them, with the vertices shaded on the CPU
+    u64 emusuni_compares = 0;
+    u64 emusuni_missed = 0;
+    u64 emusuni_poke = 0; // (its PC test: EMUSUNI_3DS_TEST_POKE_UNIFORMS)
+    struct {
+        u64 calls, cpu_calls, lists, left_out, writes, off_writes, changes, immediate;
+    } emusuni_at_upload{};
+#endif
+''')
+patch('src/video_core/renderer_vulkan/vk_rasterizer.cpp', r'''
+        emusuni_miss_mark = std::strtoull(emusuni_miss_env, nullptr, 10);
+    }
+''', r'''
+        emusuni_miss_mark = std::strtoull(emusuni_miss_env, nullptr, 10);
+    }
+    // (01.41) 3ds-uniforms-compare's PC test: at the Nth draw a float uniform changed behind the writes' back.
+    if (const char* emusuni_poke_env = std::getenv("EMUSUNI_3DS_TEST_POKE_UNIFORMS")) {
+        emusuni_poke = std::strtoull(emusuni_poke_env, nullptr, 10);
+    }
+''')
+patch('src/video_core/renderer_vulkan/vk_rasterizer.cpp', r'''
+    // (01.40) 3ds-uniforms-check's counts, if its minute hadn't ended.
+''', r'''
+    // (01.41) 3ds-uniforms-compare's counts.
+    if (emusuni_compares != 0) {
+        LOG_INFO(Render_Vulkan,
+                 "EmuSuNi: 3ds-uniforms-compare at the renderer's end: {} draws compared, {} changes of the vertex "
+                 "shaders' uniforms the mark missed (uploaded then)",
+                 emusuni_compares, emusuni_missed);
+    }
+    // (01.40) 3ds-uniforms-check's counts, if its minute hadn't ended.
+''')
+patch('src/video_core/renderer_vulkan/vk_rasterizer.cpp', r'''
+        pipeline_cache.UpdateRange(0, fresh_offset + vs_size + fs_size);
+''', r'''
+        pipeline_cache.UpdateRange(0, fresh_offset + vs_size + fs_size);
+        EmuSuNiCompareCopy(); // (01.41) 3ds-uniforms-compare
+''')
+patch('src/video_core/renderer_vulkan/vk_rasterizer.cpp', r'''
+        EmuSuNiCheckUploaded(0, &vs_uniforms, sizeof(vs_uniforms), static_cast<u32>(offset + used_bytes)); // (01.40)
+#endif
+''', r'''
+        EmuSuNiCheckUploaded(0, &vs_uniforms, sizeof(vs_uniforms), static_cast<u32>(offset + used_bytes)); // (01.40)
+        EmuSuNiCompareCopy(); // (01.41) 3ds-uniforms-compare
+#endif
+''')
+patch('src/video_core/renderer_vulkan/vk_rasterizer.cpp', r'''
+    // (01.40) 3ds-uniforms-check: the blocks this draw uploads none of, as the CPU has them?
+''', r'''
+    // (01.41) 3ds-uniforms-compare: a draw that finds the PICA uniforms changed since their last upload, with no
+    // upload asked, uploads them (a change the mark missed: SM3DL's start on the PS4, 01.40's check).
+    emusuni_calls++;
+    emusuni_cpu_calls += accelerate_draw ? 0 : 1;
+    if (accelerate_draw && !pica.vs_setup.uniforms_dirty && emusuni_pica_copied && EmuSuNiCompareOn()) {
+#if !defined(__ORBIS__)
+        if (emusuni_poke != 0 && emusuni_calls >= emusuni_poke) {
+            // Its PC test (EMUSUNI_3DS_TEST_POKE_UNIFORMS=N): at the first such draw from the Nth, c95's w changed
+            // with no write.
+            auto& c = pica.vs_setup.uniforms.f[95];
+            c.w = Pica::f24::FromFloat32(c.w.ToFloat32() + 1.0f);
+            emusuni_poke = 0;
+        }
+#endif
+        emusuni_compares++;
+        if (!EmuSuNiSameUniforms(emusuni_pica_copy, pica.vs_setup.uniforms)) {
+            EmuSuNiCompareMissed();
+            pica.vs_setup.uniforms_dirty = true;
+        }
+    }
+    // (01.40) 3ds-uniforms-check: the blocks this draw uploads none of, as the CPU has them?
+''')
+patch('src/video_core/renderer_vulkan/vk_rasterizer.cpp', r'''
+constexpr std::array<const char*, 3> kEmuSuNiCheckBlocks{''', r'''
+// (01.41) 3ds-uniforms-check only when asked: the word on in /data/EmuSuNi/3ds-uniforms-check (on the PC
+// EMUSUNI_3DS_UNIFORMS_CHECK on, or 1) for the renderer's first minute, always for all of it; -1 otherwise.
+int EmuSuNiCheckAsked() {
+    char text[32] = {};
+#if defined(__ORBIS__)
+    std::FILE* file = std::fopen("/data/EmuSuNi/3ds-uniforms-check", "rb");
+    if (file == nullptr) {
+        return -1;
+    }
+    const std::size_t length = std::fread(text, 1, sizeof(text) - 1, file);
+    std::fclose(file);
+    text[length] = '\0';
+#else
+    const char* env = std::getenv("EMUSUNI_3DS_UNIFORMS_CHECK");
+    if (env == nullptr) {
+        return -1;
+    }
+    std::snprintf(text, sizeof(text), "%s", env);
+#endif
+    for (char* c = text; *c != '\0'; c++) {
+        if (*c >= 'A' && *c <= 'Z') {
+            *c = static_cast<char>(*c - 'A' + 'a');
+        }
+    }
+    if (std::strstr(text, "always") != nullptr) {
+        return 1;
+    }
+    return std::strstr(text, "on") != nullptr || std::strcmp(text, "1") == 0 ? 0 : -1;
+}
+// (01.41) 3ds-uniforms-compare: the PICA uniforms as the CPU has them and as last uploaded, the same? 8 bytes at a
+// time with no early end and no library call (1,568 bytes: a few hundred cycles on the PS4).
+bool EmuSuNiSameUniforms(const Pica::Uniforms& x, const Pica::Uniforms& y) {
+    static_assert(sizeof(Pica::Uniforms) % 8 == 0);
+    const u8* a = reinterpret_cast<const u8*>(&x);
+    const u8* b = reinterpret_cast<const u8*>(&y);
+    u64 differ = 0;
+    for (std::size_t o = 0; o < sizeof(Pica::Uniforms); o += 8) {
+        u64 p = 0;
+        u64 q = 0;
+        std::memcpy(&p, a + o, 8);
+        std::memcpy(&q, b + o, 8);
+        differ |= p ^ q;
+    }
+    return differ == 0;
+}
+constexpr std::array<const char*, 3> kEmuSuNiCheckBlocks{''')
+patch('src/video_core/renderer_vulkan/vk_rasterizer.cpp', r'''
+    if (k.mode == -2) {
+        bool always = false;
+        const int got = ::EmuSuNi::Async::TestFile("3ds-uniforms-check", "EMUSUNI_3DS_UNIFORMS_CHECK", 0, &always);
+        k.mode = got < 0 ? -1 : (always ? 1 : 0);
+        k.t0_ms = EmuSuNiCheckMs();
+        k.off_writes_at = ::EmuSuNi::UniformWrites::off_pica.load(std::memory_order_relaxed);
+        LOG_INFO(Render_Vulkan,
+                 "EmuSuNi: 3ds-uniforms-check {} (01.40): each draw that uploads none of a uniform block checks it "
+                 "is bound as the CPU has it (the word always in /data/EmuSuNi/3ds-uniforms-check: all the time; "
+                 "off: never)",
+                 k.mode < 0 ? "off" : (k.mode == 1 ? "on all the time" : "on for the renderer's first minute"));
+    }
+''', r'''
+    if (k.mode == -2) {
+        k.mode = EmuSuNiCheckAsked(); // (01.41: off unless asked)
+        k.t0_ms = EmuSuNiCheckMs();
+        k.off_writes_at = ::EmuSuNi::UniformWrites::off_pica.load(std::memory_order_relaxed);
+        LOG_INFO(Render_Vulkan,
+                 "EmuSuNi: 3ds-uniforms-check {} (01.41: off unless asked): each draw that uploads none of a uniform "
+                 "block checks it is bound as the CPU has it (the word on in /data/EmuSuNi/3ds-uniforms-check: the "
+                 "first minute; always: all of it)",
+                 k.mode < 0 ? "off" : (k.mode == 1 ? "on all the time" : "on for the renderer's first minute"));
+    }
+''')
+patch('src/video_core/renderer_vulkan/vk_rasterizer.cpp', r'''
+        const u8* mem = base + at;
+        k.read[b]++;
+        if (EmuSuNiCheckSame(b, mem, cpu, size)) {
+            continue;
+        }
+        k.stale[b]++;
+        const bool known = k.known[b] && k.uploaded_at[b] == at;
+        const bool overwritten = known && !EmuSuNiCheckSame(b, mem, k.uploaded[b].data(), size);
+''', r'''
+        const u8* mem = base + at;
+        k.read[b]++;
+        // (01.41) Against the copy of what was uploaded there, not the GPU's memory (write-combined on the PS4: slow
+        // to read, Dark Moon's uniforms 2-9 s in 600 pictures); that memory read when they differ, and in 1 read of 64.
+        const bool known = k.known[b] && k.uploaded_at[b] == at;
+        if (known && (k.read[b] & 63) != 0 && EmuSuNiCheckSame(b, k.uploaded[b].data(), cpu, size)) {
+            continue;
+        }
+        if (EmuSuNiCheckSame(b, mem, cpu, size)) {
+            continue;
+        }
+        k.stale[b]++;
+        const bool overwritten = known && !EmuSuNiCheckSame(b, mem, k.uploaded[b].data(), size);
+''')
+patch('src/video_core/renderer_vulkan/vk_rasterizer.cpp', r'''
+                if (floats++ < 4) {
+''', r'''
+                if (floats++ < 2) { // (01.41: two, for the log's line)
+''')
+patch('src/video_core/renderer_vulkan/vk_rasterizer.cpp', r'''
+        LOG_WARNING(Render_Vulkan,
+                    "EmuSuNi: 3ds-uniforms-check: a draw read the {} block not as the CPU has it, no upload of it "
+                    "asked ({:.1f} s after the renderer's first draw, draw {}{}; bound at {}, uploaded there {} draws "
+                    "before; the buffer {} times round; the uniforms written {} times off the GPU commands' thread so "
+                    "far): {}; {}",
+                    kEmuSuNiCheckBlocks[b], static_cast<double>(EmuSuNiCheckMs() - k.t0_ms) / 1000.0, k.draws,
+                    ::EmuSuNi::Async::OnPicaThread() ? " on the GPU commands' thread" : "", at,
+                    known ? k.draws - k.uploaded_draw[b] : 0, uniform_buffer.emusuni_wraps,
+                    ::EmuSuNi::UniformWrites::off_pica.load(std::memory_order_relaxed) - k.off_writes_at,
+                    !known ? "where it was uploaded isn't known"
+                           : (overwritten ? "the bytes there aren't what was uploaded: overwritten since"
+                                          : "the bytes there are what was uploaded: the game's change left unmarked"),
+                    what);
+''', r'''
+        // (01.41) In three lines: the log cuts a line at about 512 bytes (01.40's lost its registers).
+        LOG_WARNING(Render_Vulkan,
+                    "EmuSuNi: 3ds-uniforms-check: draw {}{} ({:.1f} s in) read the {} block unlike the CPU's, no "
+                    "upload asked: {}",
+                    k.draws, ::EmuSuNi::Async::OnPicaThread() ? " on the GPU commands' thread" : "",
+                    static_cast<double>(EmuSuNiCheckMs() - k.t0_ms) / 1000.0, kEmuSuNiCheckBlocks[b],
+                    !known ? "where it was uploaded isn't known"
+                           : (overwritten ? "not as uploaded: overwritten since"
+                                          : "as uploaded: a change left unmarked"));
+        LOG_WARNING(Render_Vulkan,
+                    "EmuSuNi: 3ds-uniforms-check: bound at {}, uploaded there {} draws before; the buffer {} times "
+                    "round; the uniforms written {} times off the GPU commands' thread so far",
+                    at, known ? k.draws - k.uploaded_draw[b] : 0, uniform_buffer.emusuni_wraps,
+                    ::EmuSuNi::UniformWrites::off_pica.load(std::memory_order_relaxed) - k.off_writes_at);
+        if (what.size() > 200) {
+            what.resize(200);
+        }
+        LOG_WARNING(Render_Vulkan, "EmuSuNi: 3ds-uniforms-check: what it read: {}", what);
+''')
+patch('src/video_core/renderer_vulkan/vk_rasterizer.cpp', r'''
+    LOG_INFO(Render_Vulkan,
+             "EmuSuNi: 3ds-uniforms-check, {}: {} draws ({} on the GPU commands' thread, {} shaded on the CPU: no PICA "
+             "block read); the shaders' uniforms written {} times off that thread; uploads: PICA {}, VS {}, FS {}; a "
+             "block read with no upload of it asked: PICA {} times, VS {}, FS {}; not as the CPU has it: PICA {} ({} "
+             "overwritten), VS {} ({}), FS {} ({}){}",
+             when, k.draws, k.on_pica, k.cpu_shaded,
+             ::EmuSuNi::UniformWrites::off_pica.load(std::memory_order_relaxed) - k.off_writes_at, k.uploads[0],
+             k.uploads[1], k.uploads[2], k.read[0], k.read[1], k.read[2], k.stale[0], k.overwritten[0], k.stale[1],
+             k.overwritten[1], k.stale[2], k.overwritten[2],
+             stale == 0 ? " (every draw read the uniforms the game set)" : "");
+}
+''', r'''
+    // (01.41) In two lines (the log cuts a line at about 512 bytes).
+    LOG_INFO(Render_Vulkan,
+             "EmuSuNi: 3ds-uniforms-check, {}: {} draws ({} on the GPU commands' thread, {} shaded on the CPU); "
+             "the uniforms written {} times off that thread; uploads: PICA {}, VS {}, FS {}",
+             when, k.draws, k.on_pica, k.cpu_shaded,
+             ::EmuSuNi::UniformWrites::off_pica.load(std::memory_order_relaxed) - k.off_writes_at, k.uploads[0],
+             k.uploads[1], k.uploads[2]);
+    LOG_INFO(Render_Vulkan,
+             "EmuSuNi: 3ds-uniforms-check, {}: a block read with no upload asked: PICA {} times, VS {}, FS {}; unlike "
+             "the CPU's: PICA {} ({} overwritten), VS {} ({}), FS {} ({}){}",
+             when, k.read[0], k.read[1], k.read[2], k.stale[0], k.overwritten[0], k.stale[1], k.overwritten[1],
+             k.stale[2], k.overwritten[2], stale == 0 ? " (every draw read what the game set)" : "");
+}
+
+// (01.41) 3ds-uniforms-compare (scripts/build-3ds-core.sh says why): on unless the word off is in
+// /data/EmuSuNi/3ds-uniforms-compare (EMUSUNI_3DS_UNIFORMS_COMPARE=0 on the PC).
+bool RasterizerVulkan::EmuSuNiCompareOn() {
+    if (emusuni_compare == -2) {
+        const int got = ::EmuSuNi::Async::TestFile("3ds-uniforms-compare", "EMUSUNI_3DS_UNIFORMS_COMPARE", 0);
+        emusuni_compare = got < 0 ? -1 : 0;
+        LOG_INFO(Render_Vulkan,
+                 "EmuSuNi: 3ds-uniforms-compare {} (01.41): a draw that finds the vertex shaders' uniforms changed "
+                 "since their last upload, no upload of them asked, uploads them (the word off in "
+                 "/data/EmuSuNi/3ds-uniforms-compare: only when marked, as upstream)",
+                 emusuni_compare < 0 ? "off" : "on");
+    }
+    return emusuni_compare >= 0;
+}
+
+// The PICA uniforms just uploaded, and the counters then (for the diagnosis of a change the mark misses).
+void RasterizerVulkan::EmuSuNiCompareCopy() {
+    emusuni_pica_copy = pica.vs_setup.uniforms;
+    emusuni_pica_copied = true;
+    auto& u = emusuni_at_upload;
+    u.calls = emusuni_calls;
+    u.cpu_calls = emusuni_cpu_calls;
+    u.lists = ::EmuSuNi::Stats::counts[::EmuSuNi::Stats::CommandLists];
+    u.left_out = ::EmuSuNi::BlackCounts::values[::EmuSuNi::BlackCounts::RightEyeLists].load(std::memory_order_relaxed);
+    u.writes = ::EmuSuNi::UniformWrites::on_pica.load(std::memory_order_relaxed);
+    u.off_writes = ::EmuSuNi::UniformWrites::off_pica.load(std::memory_order_relaxed);
+    u.changes = pica.vs_setup.emusuni_changes;
+    u.immediate = ::EmuSuNi::Stats::counts[::EmuSuNi::Stats::ImmediateWords];
+}
+
+// A change the mark missed: counted; the first three said, in three short lines each.
+void RasterizerVulkan::EmuSuNiCompareMissed() {
+    emusuni_missed++;
+    if (emusuni_missed > 3) {
+        return;
+    }
+    const auto& u = emusuni_at_upload;
+    const u64 changes = pica.vs_setup.emusuni_changes - u.changes;
+    const u64 left_out =
+        ::EmuSuNi::BlackCounts::values[::EmuSuNi::BlackCounts::RightEyeLists].load(std::memory_order_relaxed);
+    LOG_WARNING(Render_Vulkan,
+                "EmuSuNi: 3ds-uniforms-compare: the vertex shaders' uniforms changed with no upload asked: uploaded "
+                "({} of this renderer, {:.1f} s in). Since their last upload: {} draws ({} shaded on the CPU), {} "
+                "command lists ({} left out as right eyes)",
+                emusuni_missed, static_cast<double>(EmuSuNiCheckMs() - emusuni_check.t0_ms) / 1000.0,
+                emusuni_calls - u.calls, emusuni_cpu_calls - u.cpu_calls,
+                ::EmuSuNi::Stats::counts[::EmuSuNi::Stats::CommandLists] - u.lists, left_out - u.left_out);
+    LOG_WARNING(Render_Vulkan,
+                "EmuSuNi: 3ds-uniforms-compare: and {} writes of the shaders' uniforms on the GPU commands' thread, {} "
+                "of them changing one of these ({}), {} off that thread; {} immediate-mode words",
+                ::EmuSuNi::UniformWrites::on_pica.load(std::memory_order_relaxed) - u.writes, changes,
+                changes == 0 ? "none of the game's writes made this change" : "each marks them: cleared after",
+                ::EmuSuNi::UniformWrites::off_pica.load(std::memory_order_relaxed) - u.off_writes,
+                ::EmuSuNi::Stats::counts[::EmuSuNi::Stats::ImmediateWords] - u.immediate);
+    const auto& was = emusuni_pica_copy;
+    const auto& now = pica.vs_setup.uniforms;
+    std::string what;
+    u32 was_b = 0;
+    u32 now_b = 0;
+    for (u32 j = 0; j < 16; j++) {
+        was_b |= (was.b[j] ? 1u : 0u) << j;
+        now_b |= (now.b[j] ? 1u : 0u) << j;
+    }
+    if (was_b != now_b) {
+        what += fmt::format("bools {:04X} -> {:04X}; ", was_b, now_b);
+    }
+    for (u32 j = 0; j < 4; j++) {
+        if (was.i[j] != now.i[j]) {
+            what += fmt::format("i{} {} {} {} -> {} {} {}; ", j, u32{was.i[j].x}, u32{was.i[j].y}, u32{was.i[j].z},
+                                u32{now.i[j].x}, u32{now.i[j].y}, u32{now.i[j].z});
+        }
+    }
+    u32 floats = 0;
+    std::string first;
+    for (u32 j = 0; j < 96; j++) {
+        if (was.f[j] == now.f[j]) {
+            continue;
+        }
+        if (floats++ < 2) {
+            first += fmt::format(" c{} {:.4g} {:.4g} {:.4g} {:.4g} -> {:.4g} {:.4g} {:.4g} {:.4g};", j,
+                                 was.f[j].x.ToFloat32(), was.f[j].y.ToFloat32(), was.f[j].z.ToFloat32(),
+                                 was.f[j].w.ToFloat32(), now.f[j].x.ToFloat32(), now.f[j].y.ToFloat32(),
+                                 now.f[j].z.ToFloat32(), now.f[j].w.ToFloat32());
+        }
+    }
+    what += fmt::format("{} float registers{}", floats, first);
+    if (what.size() > 200) {
+        what.resize(200);
+    }
+    LOG_WARNING(Render_Vulkan, "EmuSuNi: 3ds-uniforms-compare: what changed: {}", what);
+}
+''')
+# --- 01.42: 3ds-custom-textures, a test. The owner wants a game's texture pack (Azahar's custom textures: PNGs named
+# by the hash of the game's texture they replace, in saves/3ds/Azahar/load/textures/<title ID>/) on the PS4; the app
+# sends custom_textures off (src/Emulator.cpp). With the file /data/EmuSuNi/3ds-custom-textures (on the PC
+# EMUSUNI_3DS_CUSTOM_TEXTURES=1) the core uses the pack whatever the app sends, asynchronously and never preloaded,
+# within limits made for the PS4 (upstream's are a PC's): one decoding thread (each thread costs 2 MiB of flexible
+# memory for good; port/ps4_n64.c puts "Custom textures" on cores 4 and 5, below the workers) where upstream makes
+# half the cores'; a PNG bigger than 2048 on a side left out (its header read when the pack is scanned); a texture's
+# decoded pixels freed once uploaded (upstream keeps every one in the app's memory for good; a later use decodes it
+# again); the replacements' images on the GPU at most 256 MiB together (counted where the rasterizer cache makes and
+# erases them; beyond it the game's own texture stays); about 4 MiB uploaded a frame (upstream: 8 textures, 2048x1024
+# ones 64 MiB a frame); no warning per texture without a replacement (the PS4's log), counted instead; and a custom
+# surface never recycled for another texture (its image has its replacement's size: upstream's recycling could give it
+# to a texture of another size or none), and one of another replacement gets an image of its own. side=N and mib=N in
+# the file change the limits; the word off: none. Its lines: the pack when scanned, then every 600 frames that
+# uploaded some and at the game's end: replaced, uploads, MiB on the GPU now and the most, decoding's ms and core.
+addfile('src/video_core/custom_textures/emusuni_custom_textures.h', r'''// EmuSuNi (01.42): 3ds-custom-textures,
+// a test (scripts/build-3ds-core.sh): the game's texture pack (saves/3ds/Azahar/load/textures/<title ID>/) used only
+// with the file /data/EmuSuNi/3ds-custom-textures (EMUSUNI_3DS_CUSTOM_TEXTURES on the PC), whatever the app sends;
+// its limits, and the counts its lines say.
+#pragma once
+
+#include <atomic>
+#include <chrono>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#if defined(__ORBIS__)
+extern "C" int sceKernelGetCurrentCpu(void);
+#else
+#include <sched.h>
+#endif
+
+namespace EmuSuNi::CustomTextures {
+struct Asked {
+    bool on = false;
+    std::uint32_t side = 2048; // a texture bigger than this on a side: the game's own stays
+    std::uint32_t mib = 256;   // the replacements' images on the GPU, all together
+};
+// The file there: on, "side=N" (64-8192) and "mib=N" (16-4096) in it changing those; the word off in it: off.
+inline Asked Read() {
+    Asked asked;
+    char text[96] = {};
+#if defined(__ORBIS__)
+    std::FILE* file = std::fopen("/data/EmuSuNi/3ds-custom-textures", "rb");
+    if (file == nullptr) {
+        return asked;
+    }
+    const std::size_t length = std::fread(text, 1, sizeof(text) - 1, file);
+    std::fclose(file);
+    text[length] = '\0';
+#else
+    const char* env = std::getenv("EMUSUNI_3DS_CUSTOM_TEXTURES");
+    if (env == nullptr || env[0] == '0') {
+        return asked;
+    }
+    std::snprintf(text, sizeof(text), "%s", env);
+#endif
+    for (char* c = text; *c != '\0'; c++) {
+        if (*c >= 'A' && *c <= 'Z') {
+            *c = static_cast<char>(*c - 'A' + 'a');
+        }
+    }
+    if (std::strstr(text, "off") != nullptr) {
+        return asked;
+    }
+    asked.on = true;
+    if (const char* at = std::strstr(text, "side=")) {
+        const unsigned long value = std::strtoul(at + 5, nullptr, 10);
+        if (value >= 64 && value <= 8192) {
+            asked.side = static_cast<std::uint32_t>(value);
+        }
+    }
+    if (const char* at = std::strstr(text, "mib=")) {
+        const unsigned long value = std::strtoul(at + 4, nullptr, 10);
+        if (value >= 16 && value <= 4096) {
+            asked.mib = static_cast<std::uint32_t>(value);
+        }
+    }
+    return asked;
+}
+// The replacements' images on the GPU now (rasterizer_cache.h: where custom surfaces are made and erased, on the GPU
+// commands' thread only), the most; never below 0.
+inline std::atomic<std::uint64_t> resident{0};
+inline std::atomic<std::uint64_t> resident_most{0};
+inline void Resident(std::int64_t bytes) {
+    const std::uint64_t was = resident.load(std::memory_order_relaxed);
+    const std::uint64_t less = bytes < 0 ? static_cast<std::uint64_t>(-bytes) : 0;
+    const std::uint64_t now = bytes < 0 ? (was > less ? was - less : 0) : was + static_cast<std::uint64_t>(bytes);
+    resident.store(now, std::memory_order_relaxed);
+    if (now > resident_most.load(std::memory_order_relaxed)) {
+        resident_most.store(now, std::memory_order_relaxed);
+    }
+}
+// A custom surface's image: its replacement's size as RGBA8 (its mipmaps not counted: a third more at most).
+template <typename Surface>
+std::uint64_t CustomBytes(const Surface& surface) {
+    if (surface.material == nullptr) {
+        return 0;
+    }
+    return std::uint64_t{surface.material->width} * surface.material->height * 4;
+}
+// The decoding thread's: the textures decoded, its time, the core it last ran on.
+inline std::atomic<std::uint64_t> decoded{0};
+inline std::atomic<std::uint64_t> decode_us{0};
+inline std::atomic<int> decode_cpu{-1};
+inline void Decoded(std::chrono::steady_clock::time_point t0) {
+    decode_us.fetch_add(static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+                                                       std::chrono::steady_clock::now() - t0)
+                                                       .count()),
+                        std::memory_order_relaxed);
+    decoded.fetch_add(1, std::memory_order_relaxed);
+#if defined(__ORBIS__)
+    decode_cpu.store(sceKernelGetCurrentCpu(), std::memory_order_relaxed);
+#else
+    decode_cpu.store(sched_getcpu(), std::memory_order_relaxed);
+#endif
+}
+} // namespace EmuSuNi::CustomTextures
+''')
+patch('src/citra_libretro/core_settings.cpp', r'''
+#include "common/settings.h"
+''', r'''
+#include "common/settings.h"
+#ifdef EMUSUNI_PORT
+#include "video_core/custom_textures/emusuni_custom_textures.h" // (01.42) 3ds-custom-textures
+#endif
+''')
+patch('src/citra_libretro/core_settings.cpp', r'''
+    Settings::values.custom_textures = LibRetro::FetchVariable(config::graphics::custom_textures,
+                                                               config::disabled) == config::enabled;
+''', r'''
+    Settings::values.custom_textures = LibRetro::FetchVariable(config::graphics::custom_textures,
+                                                               config::disabled) == config::enabled;
+#ifdef EMUSUNI_PORT
+    // EmuSuNi (01.42): 3ds-custom-textures, a test: the game's pack used only with the file
+    // /data/EmuSuNi/3ds-custom-textures (EMUSUNI_3DS_CUSTOM_TEXTURES on the PC), whatever the app sends (off):
+    // decoded as the draws want them, never all at the start (video_core/custom_textures/: its limits).
+    if (EmuSuNi::CustomTextures::Read().on) {
+        Settings::values.custom_textures = true;
+        Settings::values.async_custom_loading = true;
+        Settings::values.preload_textures = false;
+    }
+#endif
+''')
+patch('src/video_core/custom_textures/material.h', r'''
+    std::atomic<DecodeState> state{};
+''', r'''
+    std::atomic<DecodeState> state{};
+#ifdef EMUSUNI_PORT
+    u64 emusuni_bytes = 0;         // (01.42) 3ds-custom-textures: its pixels as RGBA8 (the PNGs' headers)
+    bool emusuni_inflight = false; // being decoded or waiting for its upload: counted against the GPU cap
+    bool emusuni_seen = false;     // uploaded once at least
+#endif
+''')
+patch('src/video_core/custom_textures/material.cpp', r'''
+        texture->LoadFromDisk(flip_png);
+        size += texture->data.size();
+''', r'''
+        texture->LoadFromDisk(flip_png);
+        size += texture->data.size();
+#ifdef EMUSUNI_PORT
+        if (texture->data.empty()) {
+            state = DecodeState::Failed; // (01.42: unreadable or not decoded: the game's texture stays)
+            return;
+        }
+#endif
+''')
+patch('src/video_core/custom_textures/custom_tex_manager.h', r'''
+    bool use_new_hash{true};
+};
+''', r'''
+    bool use_new_hash{true};
+#ifdef EMUSUNI_PORT
+public:
+    /// (01.42) 3ds-custom-textures: may this material start decoding (the GPU cap)?
+    bool EmuSuNiAllowed(const Material* material);
+
+private:
+    void EmuSuNiDone(Material* material);
+    void EmuSuNiSay(const char* when);
+    u32 emusuni_side = 2048;
+    u64 emusuni_cap = u64{256} << 20;
+    u64 emusuni_inflight = 0;   // bytes of the materials decoding or waiting for their upload
+    u64 emusuni_found = 0;      // the pack's textures used
+    u64 emusuni_big = 0;        // left out: bigger than the side allowed
+    u64 emusuni_pack_bytes = 0; // the used ones as RGBA8, all together
+    u64 emusuni_replaced = 0;   // materials uploaded once at least
+    u64 emusuni_uploads = 0;
+    u64 emusuni_upload_us = 0;
+    u64 emusuni_over = 0;   // materials left as the game's: over the cap
+    u64 emusuni_misses = 0; // the game's textures looked up with no replacement
+    u64 emusuni_frames = 0;
+    u64 emusuni_said = 0; // the uploads when last said
+#endif
+};
+''')
+patch('src/video_core/custom_textures/custom_tex_manager.cpp', r'''
+#include "video_core/rasterizer_cache/utils.h"
+''', r'''
+#include "video_core/rasterizer_cache/utils.h"
+#ifdef EMUSUNI_PORT
+#include <array>
+#include <chrono>
+#include <cstring>
+#include "video_core/custom_textures/emusuni_custom_textures.h" // (01.42) 3ds-custom-textures
+#endif
+''')
+patch('src/video_core/custom_textures/custom_tex_manager.cpp', r'''
+} // Anonymous namespace
+
+CustomTexManager::CustomTexManager(Core::System& system_)
+''', r'''
+#ifdef EMUSUNI_PORT
+// (01.42) A PNG's size from its header (its signature, then the IHDR chunk); false if it isn't one.
+bool EmuSuNiPngSize(const std::string& path, u32& width, u32& height) {
+    FileUtil::IOFile file{path, "rb"};
+    std::array<u8, 24> head{};
+    if (!file.IsOpen() || file.ReadBytes(head.data(), head.size()) != head.size()) {
+        return false;
+    }
+    static constexpr std::array<u8, 8> signature{0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n'};
+    if (std::memcmp(head.data(), signature.data(), 8) != 0 || std::memcmp(head.data() + 12, "IHDR", 4) != 0) {
+        return false;
+    }
+    width = (u32{head[16]} << 24) | (u32{head[17]} << 16) | (u32{head[18]} << 8) | head[19];
+    height = (u32{head[20]} << 24) | (u32{head[21]} << 16) | (u32{head[22]} << 8) | head[23];
+    return true;
+}
+#endif
+
+} // Anonymous namespace
+
+CustomTexManager::CustomTexManager(Core::System& system_)
+''')
+patch('src/video_core/custom_textures/custom_tex_manager.cpp', r'''
+CustomTexManager::~CustomTexManager() = default;
+''', r'''
+#ifdef EMUSUNI_PORT
+CustomTexManager::~CustomTexManager() {
+    if (textures_loaded) {
+        EmuSuNiSay("at the game's end"); // (01.42) 3ds-custom-textures
+    }
+}
+#else
+CustomTexManager::~CustomTexManager() = default;
+#endif
+''')
+patch('src/video_core/custom_textures/custom_tex_manager.cpp', r'''
+    std::size_t num_uploads = 0;
+    for (auto it = async_uploads.begin(); it != async_uploads.end();) {
+        if (num_uploads >= MAX_UPLOADS_PER_TICK) {
+            return;
+        }
+        switch (it->material->state) {
+        case DecodeState::Decoded:
+            it->func();
+            num_uploads++;
+            [[fallthrough]];
+        case DecodeState::Failed:
+            it = async_uploads.erase(it);
+            continue;
+        default:
+            it++;
+            break;
+        }
+    }
+}
+''', r'''
+#ifdef EMUSUNI_PORT
+    // (01.42) 3ds-custom-textures: about 4 MiB uploaded a frame at most (one texture at least): no jerk; a texture's
+    // decoded pixels freed once no other upload waits for them (on the GPU now; a later use decodes it again).
+    if (++emusuni_frames % 600 == 0 && emusuni_uploads != emusuni_said) {
+        EmuSuNiSay("so far");
+    }
+    std::size_t num_uploads = 0;
+    u64 emusuni_bytes = 0;
+    for (auto it = async_uploads.begin(); it != async_uploads.end();) {
+        if (num_uploads >= MAX_UPLOADS_PER_TICK || emusuni_bytes >= (u64{4} << 20)) {
+            return;
+        }
+        Material* const material = const_cast<Material*>(it->material);
+        const DecodeState state = material->state;
+        if (state != DecodeState::Decoded && state != DecodeState::Failed) {
+            it++;
+            continue;
+        }
+        if (state == DecodeState::Decoded) {
+            const auto t0 = std::chrono::steady_clock::now();
+            it->func();
+            emusuni_upload_us += static_cast<u64>(
+                std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - t0)
+                    .count());
+            emusuni_uploads++;
+            emusuni_replaced += material->emusuni_seen ? 0 : 1;
+            material->emusuni_seen = true;
+            emusuni_bytes += material->emusuni_bytes;
+            num_uploads++;
+        }
+        it = async_uploads.erase(it);
+        EmuSuNiDone(material);
+    }
+#else
+    std::size_t num_uploads = 0;
+    for (auto it = async_uploads.begin(); it != async_uploads.end();) {
+        if (num_uploads >= MAX_UPLOADS_PER_TICK) {
+            return;
+        }
+        switch (it->material->state) {
+        case DecodeState::Decoded:
+            it->func();
+            num_uploads++;
+            [[fallthrough]];
+        case DecodeState::Failed:
+            it = async_uploads.erase(it);
+            continue;
+        default:
+            it++;
+            break;
+        }
+    }
+#endif
+}
+''')
+patch('src/video_core/custom_textures/custom_tex_manager.cpp', r'''
+    const auto textures = GetTextures(title_id);
+    if (!ReadConfig(title_id)) {
+        use_new_hash = false;
+        skip_mipmap = true;
+    }
+''', r'''
+    const auto textures = GetTextures(title_id);
+    if (!ReadConfig(title_id)) {
+        use_new_hash = false;
+        skip_mipmap = true;
+    }
+#ifdef EMUSUNI_PORT
+    // (01.42) 3ds-custom-textures: its limits (side=N, mib=N in its file), its counts from this game on.
+    const auto emusuni_asked = ::EmuSuNi::CustomTextures::Read();
+    emusuni_side = emusuni_asked.side;
+    emusuni_cap = u64{emusuni_asked.mib} << 20;
+    ::EmuSuNi::CustomTextures::resident = 0;
+    ::EmuSuNi::CustomTextures::resident_most = 0;
+    ::EmuSuNi::CustomTextures::decoded = 0;
+    ::EmuSuNi::CustomTextures::decode_us = 0;
+#endif
+''')
+patch('src/video_core/custom_textures/custom_tex_manager.cpp', r'''
+        if (!ParseFilename(file, texture)) {
+            continue;
+        }
+        for (const u64 hash : texture->hashes) {
+            auto& material = material_map[hash];
+            if (!material) {
+                material = std::make_unique<Material>();
+            }
+            material->hash = hash;
+            material->AddMapTexture(texture);
+        }
+    }
+    textures_loaded = true;
+}
+''', r'''
+        if (!ParseFilename(file, texture)) {
+            continue;
+        }
+#ifdef EMUSUNI_PORT
+        // (01.42) 3ds-custom-textures: its size from the PNG's header; bigger than allowed on a side: left out.
+        u32 emusuni_w = 0;
+        u32 emusuni_h = 0;
+        if (texture->file_format == CustomFileFormat::PNG && EmuSuNiPngSize(texture->path, emusuni_w, emusuni_h) &&
+            (emusuni_w > emusuni_side || emusuni_h > emusuni_side)) {
+            emusuni_big++;
+            continue;
+        }
+        emusuni_found++;
+        emusuni_pack_bytes += u64{emusuni_w} * emusuni_h * 4;
+#endif
+        for (const u64 hash : texture->hashes) {
+            auto& material = material_map[hash];
+            if (!material) {
+                material = std::make_unique<Material>();
+            }
+            material->hash = hash;
+            material->AddMapTexture(texture);
+#ifdef EMUSUNI_PORT
+            material->emusuni_bytes += u64{emusuni_w} * emusuni_h * 4;
+#endif
+        }
+    }
+    textures_loaded = true;
+#ifdef EMUSUNI_PORT
+    LOG_INFO(Render,
+             "EmuSuNi: 3ds-custom-textures (01.42, a test): {} textures for {:016X}, {} MiB as RGBA8 together ({} "
+             "bigger than {} on a side left out); each decoded when a draw first wants it, on one thread, its pixels "
+             "freed once on the GPU",
+             emusuni_found, title_id, emusuni_pack_bytes >> 20, emusuni_big, emusuni_side);
+    LOG_INFO(Render,
+             "EmuSuNi: 3ds-custom-textures: at most {} MiB of them on the GPU at once, about 4 MiB uploaded a frame "
+             "(the file /data/EmuSuNi/3ds-custom-textures: side=N, mib=N; the word off: none)",
+             emusuni_cap >> 20);
+#endif
+}
+''')
+patch('src/video_core/custom_textures/custom_tex_manager.cpp', r'''
+        LOG_WARNING(Render, "Unable to find replacement for surface with hash {:016X}", data_hash);
+''', r'''
+#ifdef EMUSUNI_PORT
+        emusuni_misses++; // (01.42: counted, not one warning each: the PS4's log)
+#else
+        LOG_WARNING(Render, "Unable to find replacement for surface with hash {:016X}", data_hash);
+#endif
+''')
+patch('src/video_core/custom_textures/custom_tex_manager.cpp', r'''
+    if (material->IsUnloaded()) {
+        material->state = DecodeState::Pending;
+        workers->QueueWork([material, this] { material->LoadFromDisk(flip_png_files); });
+    }
+''', r'''
+    if (material->IsUnloaded()) {
+        material->state = DecodeState::Pending;
+#ifdef EMUSUNI_PORT
+        // (01.42) Counted against the GPU cap until its last upload; its decoding timed (the lines).
+        if (!material->emusuni_inflight) {
+            material->emusuni_inflight = true;
+            emusuni_inflight += material->emusuni_bytes;
+        }
+        workers->QueueWork([material, this] {
+            const auto t0 = std::chrono::steady_clock::now();
+            material->LoadFromDisk(flip_png_files);
+            ::EmuSuNi::CustomTextures::Decoded(t0);
+        });
+#else
+        workers->QueueWork([material, this] { material->LoadFromDisk(flip_png_files); });
+#endif
+    }
+''')
+patch('src/video_core/custom_textures/custom_tex_manager.cpp', r'''
+    const std::size_t num_workers = std::max(std::thread::hardware_concurrency(), 2U) >> 1;
+    workers = std::make_unique<Common::ThreadWorker>(num_workers, "Custom textures");
+}
+''', r'''
+#ifdef EMUSUNI_PORT
+    // (01.42) One thread: each costs the PS4 2 MiB of flexible memory for good; port/ps4_n64.c puts it on cores 4
+    // and 5, below the workers ("Custom textures").
+    const std::size_t num_workers = 1;
+#else
+    const std::size_t num_workers = std::max(std::thread::hardware_concurrency(), 2U) >> 1;
+#endif
+    workers = std::make_unique<Common::ThreadWorker>(num_workers, "Custom textures");
+}
+
+#ifdef EMUSUNI_PORT
+// (01.42) 3ds-custom-textures' GPU cap: a material that would start decoding with the replacements' images on the GPU
+// and those on their way already at the cap is left as the game's (decoding or decoded: counted already; a DDS/KTX's
+// size isn't read: not counted).
+bool CustomTexManager::EmuSuNiAllowed(const Material* material) {
+    if (!material->IsUnloaded() || material->emusuni_bytes == 0) {
+        return true;
+    }
+    const u64 resident = ::EmuSuNi::CustomTextures::resident.load(std::memory_order_relaxed);
+    if (resident + emusuni_inflight + material->emusuni_bytes > emusuni_cap) {
+        emusuni_over++;
+        return false;
+    }
+    return true;
+}
+
+// A material's upload done (or its decoding failed): once no other upload waits for it, off the cap's count, and its
+// pixels freed (unless a file of it serves other materials too) to be decoded again by a later use.
+void CustomTexManager::EmuSuNiDone(Material* material) {
+    for (const AsyncUpload& other : async_uploads) {
+        if (other.material == material) {
+            return;
+        }
+    }
+    if (material->emusuni_inflight) {
+        material->emusuni_inflight = false;
+        emusuni_inflight -= std::min(emusuni_inflight, material->emusuni_bytes);
+    }
+    if (!material->IsDecoded()) {
+        return;
+    }
+    for (const CustomTexture* texture : material->textures) {
+        if (texture != nullptr && texture->hashes.size() != 1) {
+            return;
+        }
+    }
+    for (CustomTexture* const texture : material->textures) {
+        if (texture != nullptr) {
+            std::scoped_lock lock{texture->decode_mutex};
+            std::vector<u8>().swap(texture->data);
+        }
+    }
+    material->state = DecodeState::None;
+}
+
+void CustomTexManager::EmuSuNiSay(const char* when) {
+    emusuni_said = emusuni_uploads;
+    namespace C = ::EmuSuNi::CustomTextures;
+    constexpr auto relaxed = std::memory_order_relaxed;
+    LOG_INFO(Render,
+             "EmuSuNi: 3ds-custom-textures, {}: {} replaced ({} uploads, {} ms); {} MiB of them on the GPU now, the "
+             "most {}; {} decoded in {} ms on one thread (core {}); {} left as the game's over the {} MiB cap; {} "
+             "textures without one",
+             when, emusuni_replaced, emusuni_uploads, emusuni_upload_us / 1000, C::resident.load(relaxed) >> 20,
+             C::resident_most.load(relaxed) >> 20, C::decoded.load(relaxed), C::decode_us.load(relaxed) / 1000,
+             C::decode_cpu.load(relaxed), emusuni_over, emusuni_cap >> 20, emusuni_misses);
+}
+#endif
+''')
+patch('src/video_core/rasterizer_cache/rasterizer_cache.h', r'''
+#include "video_core/custom_textures/custom_tex_manager.h"
+''', r'''
+#include "video_core/custom_textures/custom_tex_manager.h"
+#ifdef EMUSUNI_PORT
+#include "video_core/custom_textures/emusuni_custom_textures.h" // (01.42) 3ds-custom-textures
+#endif
+''')
+patch('src/video_core/rasterizer_cache/rasterizer_cache.h', r'''
+        RemoveFramebuffers(surface_id);
+        slot_surfaces.erase(surface_id);
+        it = sentenced.erase(it);
+''', r'''
+        RemoveFramebuffers(surface_id);
+#ifdef EMUSUNI_PORT
+        // (01.42) 3ds-custom-textures: a replacement's images leave the GPU.
+        ::EmuSuNi::CustomTextures::Resident(
+            -static_cast<s64>(::EmuSuNi::CustomTextures::CustomBytes(slot_surfaces[surface_id])));
+#endif
+        slot_surfaces.erase(surface_id);
+        it = sentenced.erase(it);
+''')
+patch('src/video_core/rasterizer_cache/rasterizer_cache.h', r'''
+            return (slot_surfaces[pair.first] == params) &&
+''', r'''
+            return (slot_surfaces[pair.first] == params) &&
+#ifdef EMUSUNI_PORT
+                   // EmuSuNi (01.42): never a custom texture's (its image has its replacement's size).
+                   !slot_surfaces[pair.first].IsCustom() &&
+#endif
+''')
+patch('src/video_core/rasterizer_cache/rasterizer_cache.h', r'''
+    if (!material) {
+        return surface.IsCustom();
+    }
+    if (level != 0 && custom_tex_manager.SkipMipmaps()) {
+''', r'''
+    if (!material) {
+        return surface.IsCustom();
+    }
+#ifdef EMUSUNI_PORT
+    if (!custom_tex_manager.EmuSuNiAllowed(material)) {
+        return surface.IsCustom(); // (01.42) 3ds-custom-textures: over its GPU cap, the game's texture
+    }
+#endif
+    if (level != 0 && custom_tex_manager.SkipMipmaps()) {
+''')
+patch('src/video_core/rasterizer_cache/rasterizer_cache.h', r'''
+        if (!slot_surfaces[surface_id].IsCustom()) {
+            const SurfaceBase old_surface{slot_surfaces[surface_id]};
+            const SurfaceId old_id =
+                slot_surfaces.swap_and_insert(surface_id, runtime, old_surface, material);
+            slot_surfaces[old_id].flags &= ~SurfaceFlagBits::Registered;
+            sentenced.emplace_back(old_id, runtime.GetResourceTick());
+        }
+''', r'''
+#ifdef EMUSUNI_PORT
+        // EmuSuNi (01.42): a custom surface of another replacement gets an image of its own too (that one's size).
+        if (!slot_surfaces[surface_id].IsCustom() || slot_surfaces[surface_id].material != material) {
+#else
+        if (!slot_surfaces[surface_id].IsCustom()) {
+#endif
+            const SurfaceBase old_surface{slot_surfaces[surface_id]};
+            const SurfaceId old_id =
+                slot_surfaces.swap_and_insert(surface_id, runtime, old_surface, material);
+            slot_surfaces[old_id].flags &= ~SurfaceFlagBits::Registered;
+            sentenced.emplace_back(old_id, runtime.GetResourceTick());
+#ifdef EMUSUNI_PORT
+            // (01.42) 3ds-custom-textures: its images on the GPU (erased by the garbage collector).
+            ::EmuSuNi::CustomTextures::Resident(
+                static_cast<s64>(::EmuSuNi::CustomTextures::CustomBytes(slot_surfaces[surface_id])));
+#endif
+        }
+''')
+# --- 01.46: a game's end, after 01.45's crash (SM3DL ended 6 s in, the app's menu open for 2 s: memory.cpp's
+# UNREACHABLE as the renderer closed, signal 4, and both start markers left, so that the next session's 3DS games ran
+# without fast memory and without pipelines by parts).
+#  - The GPU commands' thread (3ds-async-pica) leaves the pages the rasterizer's cache marks to the emulation thread,
+#    which marks them in the pages' tables when it takes the thread's results. At a game's end the thread stopped and
+#    dropped what it had finished and the emulation thread hadn't taken (with the menu open no frame takes it, and with
+#    3ds-picture-late the last frame's lists finish after the frame). The cache goes after the thread and unmarks every
+#    page it holds, and a page whose mark had been dropped was still plain memory in the tables. The thread's end now
+#    marks them, in order (its interrupts are still left: the system they were for ends). On the PC, SM3DL ended at
+#    frame 100 with 800 ms before the end crashed the same way; EMUSUNI_3DS_TEST_DROP_MARKS drops them as 01.45 did.
+#  - Memory::RasterizerMarkRegionCached takes a page that is already as asked (marked again, unmarked again) as it is,
+#    the first 3 said, where upstream stops the emulator: a net, as 3ds-flat-uniforms.
+#  - The start markers (3ds-fastmem-trying, 3ds-gpl-trying) go when the game's last GPU commands are done (GPU::~GPU,
+#    once its commands' thread has stopped) after a good start, a second of frames with them: a crash in the end's own
+#    steps isn't taken for theirs. A start that ends sooner keeps them through the end, as before. On the PC
+#    EMUSUNI_3DS_TEST_END_CRASH crashes the end just after (with EMUSUNI_3DS_MARKER_DIR, the markers' folder).
+patch('src/video_core/emusuni_async_pica.h',
+      '#include "common/emusuni_throw.h"\n#include "common/thread.h"\n',
+      '#include "common/emusuni_throw.h"\n#include "common/logging/log.h" // (01.46)\n#include "common/thread.h"\n')
+patch('src/video_core/emusuni_async_pica.h',
+      '        thread.join();\n'
+      '        // (What it finished and the emulation thread didn\'t take is left: the system it was for ends.)\n'
+      '    }\n',
+      '        thread.join();\n'
+      '        // (01.46) The pages it marked that the emulation thread didn\'t take are marked now, in\n'
+      '        // order: the GPU\'s cache goes after this thread and unmarks at its end every page it holds,\n'
+      '        // and one whose mark was left here was still plain memory in the pages\' tables (memory.cpp\'s\n'
+      '        // UNREACHABLE: 01.45, SM3DL ended with the app\'s menu open). Its interrupts are left: the\n'
+      '        // system they were for ends.\n'
+      '#if !defined(__ORBIS__)\n'
+      '        if (std::getenv("EMUSUNI_3DS_TEST_DROP_MARKS") != nullptr) {\n'
+      '            done.marks.clear(); // (its PC test: dropped, as 01.45 did)\n'
+      '        }\n'
+      '#endif\n'
+      '        if (!done.marks.empty()) {\n'
+      '            const std::size_t marks = done.marks.size();\n'
+      '            for (const Deferred::Mark& page : done.marks) {\n'
+      '                mark(page.start, page.size, page.cached);\n'
+      '            }\n'
+      '            done.marks.clear();\n'
+      '            LOG_INFO(HW_GPU, "EmuSuNi: the GPU commands\' thread stops: {} page marks of its last "\n'
+      '                             "commands given to the pages\' tables (01.46)", marks);\n'
+      '        }\n'
+      '    }\n')
+patch('src/core/memory.cpp',
+      '#ifdef EMUSUNI_PORT\n#include <algorithm>\n#include <functional>\n',
+      '#ifdef EMUSUNI_PORT\n#include <algorithm>\n#include <atomic> // (01.46)\n#include <functional>\n')
+patch('src/core/memory.cpp',
+      'void MemorySystem::RasterizerMarkRegionCached(PAddr start, u32 size, bool cached) {\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '// (01.46) A page the GPU\'s cache marks as it already is (marked again, or unmarked again; at\n'
+      '// 01.45\'s end, marks that the GPU commands\' thread had left were dropped): left as it is, the\n'
+      '// first 3 said, where upstream stops the emulator.\n'
+      'static void EmuSuNiMarkedAgain(VAddr vaddr, bool cached) {\n'
+      '    static std::atomic<unsigned> said{0};\n'
+      '    if (said.fetch_add(1, std::memory_order_relaxed) < 3) {\n'
+      '        LOG_WARNING(HW_Memory,\n'
+      '                    "EmuSuNi: the GPU\'s cache {} the page {:08X}, which was so already: left as "\n'
+      '                    "it is (01.46; upstream stops the emulator here)",\n'
+      '                    cached ? "marks" : "unmarks", vaddr);\n'
+      '    }\n'
+      '}\n'
+      '#endif\n'
+      '\n'
+      'void MemorySystem::RasterizerMarkRegionCached(PAddr start, u32 size, bool cached) {\n')
+patch('src/core/memory.cpp',
+      '                        break;\n'
+      '                    default:\n'
+      '                        UNREACHABLE();\n'
+      '                    }\n'
+      '                } else {\n',
+      '                        break;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '                    case PageType::RasterizerCachedMemory:\n'
+      '                    case PageType::RasterizerCachedMemoryWatchpoint:\n'
+      '                        EmuSuNiMarkedAgain(vaddr, cached); // (01.46) marked already: as it is\n'
+      '                        break;\n'
+      '#endif\n'
+      '                    default:\n'
+      '                        UNREACHABLE();\n'
+      '                    }\n'
+      '                } else {\n')
+patch('src/core/memory.cpp',
+      '                        break;\n'
+      '                    }\n'
+      '                    default:\n'
+      '                        UNREACHABLE();\n'
+      '                    }\n'
+      '                }\n'
+      '            }\n'
+      '        }\n'
+      '    }\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '    PageTable::FastmemSyncPages(emusuni_changed);\n',
+      '                        break;\n'
+      '                    }\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '                    case PageType::Memory:\n'
+      '                    case PageType::MemoryWatchpoint:\n'
+      '                        EmuSuNiMarkedAgain(vaddr, cached); // (01.46) unmarked already: as it is\n'
+      '                        break;\n'
+      '#endif\n'
+      '                    default:\n'
+      '                        UNREACHABLE();\n'
+      '                    }\n'
+      '                }\n'
+      '            }\n'
+      '        }\n'
+      '    }\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '    PageTable::FastmemSyncPages(emusuni_changed);\n')
+# The start markers at the game's end (GPU::~GPU, its commands' thread stopped).
+patch('src/common/emusuni_fastmem.h',
+      'void FrameDone();\n} // namespace EmuSuNi::Fastmem\n',
+      'void FrameDone();\n'
+      '// (01.46) The game\'s last GPU commands done at its end (GPU::~GPU): after a good start (60 frames\n'
+      '// with it) the "trying" marker goes then, so that a crash in the end\'s own steps isn\'t taken for\n'
+      '// the fast memory\'s.\n'
+      'void GameEnds();\n'
+      '} // namespace EmuSuNi::Fastmem\n')
+patch('src/common/emusuni_fastmem.cpp',
+      '                         "marker is gone)", g_frames, faults);\n'
+      '    }\n'
+      '}\n'
+      '} // namespace EmuSuNi::Fastmem\n',
+      '                         "marker is gone)", g_frames, faults);\n'
+      '    }\n'
+      '}\n'
+      '\n'
+      'void GameEnds() {\n'
+      '    std::lock_guard lock{g_lock};\n'
+      '    if (!g_on || !g_trying || g_frames < 60) {\n'
+      '        return; // (a start that ends sooner keeps it through the end, as before)\n'
+      '    }\n'
+      '    MarkerRemove("3ds-fastmem-trying");\n'
+      '    g_trying = false;\n'
+      '    LOG_INFO(Common, "EmuSuNi: fastmem: the game ends after {} frames with it: the start marker "\n'
+      '                     "goes before the end\'s own steps (01.46)", g_frames);\n'
+      '}\n'
+      '} // namespace EmuSuNi::Fastmem\n')
+addfile('src/common/emusuni_game_ends.h',
+        r'''// EmuSuNi (scripts/build-3ds-core.sh, 01.46): pipelines by parts' start marker at a game's end. The
+// renderer's pipeline cache (video_core/renderer_vulkan/vk_pipeline_cache.cpp) sets this while its marker
+// 3ds-gpl-trying is out; GPU::~GPU calls it once the game's last GPU commands are done, before the renderer's
+// own end.
+#pragma once
+#ifdef EMUSUNI_PORT
+#include <atomic>
+
+namespace EmuSuNi::GameEnds {
+inline std::atomic<void (*)()> parts{nullptr};
+} // namespace EmuSuNi::GameEnds
+#endif
+''')
+patch('src/video_core/renderer_vulkan/vk_pipeline_cache.h',
+      '    void EmuSuNiSaveNowAndThen();\n#endif\n',
+      '    void EmuSuNiSaveNowAndThen();\n'
+      '    /// EmuSuNi (01.46): the game\'s last GPU commands done at its end (GPU::~GPU, through\n'
+      '    /// EmuSuNi::GameEnds::parts): after a good start the marker of pipelines by parts goes then.\n'
+      '    void EmuSuNiGameEnds();\n'
+      '#endif\n')
+patch('src/video_core/renderer_vulkan/vk_pipeline_cache.cpp',
+      '#include "common/emusuni_async.h"          // (01.40) 3ds-part-skip\'s file\n',
+      '#include "common/emusuni_async.h"          // (01.40) 3ds-part-skip\'s file\n'
+      '#include "common/emusuni_game_ends.h"      // (01.46)\n')
+patch('src/video_core/renderer_vulkan/vk_pipeline_cache.cpp',
+      '    return std::strcmp(text, kEmuSuNiPartsStamp) == 0;\n}\n#else\n',
+      '    return std::strcmp(text, kEmuSuNiPartsStamp) == 0;\n}\n'
+      '// (01.46) The pipeline cache whose start marker is out (one renderer at a time), for GPU::~GPU\n'
+      '// at the game\'s end.\n'
+      'static std::atomic<PipelineCache*> emusuni_parts_live{nullptr};\n'
+      'static void EmuSuNiPartsGameEnds() {\n'
+      '    if (PipelineCache* const cache = emusuni_parts_live.load(std::memory_order_acquire)) {\n'
+      '        cache->EmuSuNiGameEnds();\n'
+      '    }\n'
+      '}\n'
+      '#else\n')
+patch('src/video_core/renderer_vulkan/vk_pipeline_cache.cpp',
+      '    EmuSuNiMarkerMake("3ds-gpl-trying");\n    emusuni_parts_trying = true;\n',
+      '    EmuSuNiMarkerMake("3ds-gpl-trying");\n    emusuni_parts_trying = true;\n'
+      '    emusuni_parts_live.store(this, std::memory_order_release); // (01.46) for the game\'s end\n'
+      '    ::EmuSuNi::GameEnds::parts.store(&EmuSuNiPartsGameEnds, std::memory_order_release);\n')
+patch('src/video_core/renderer_vulkan/vk_pipeline_cache.cpp',
+      '        EmuSuNiMarkerRemove("3ds-gpl-trying"); // (the game ended)\n    }\n',
+      '        EmuSuNiMarkerRemove("3ds-gpl-trying"); // (the game ended)\n    }\n'
+      '    PipelineCache* emusuni_self = this;\n'
+      '    emusuni_parts_live.compare_exchange_strong(emusuni_self, nullptr); // (01.46)\n')
+patch('src/video_core/renderer_vulkan/vk_pipeline_cache.cpp',
+      'void PipelineCache::EmuSuNiSaveNowAndThen() {\n',
+      'void PipelineCache::EmuSuNiGameEnds() {\n'
+      '    // (01.46) The game\'s last GPU commands done at its end, after a good start (a second of\n'
+      '    // frames with pipelines by parts): the marker goes before the renderer\'s own end, so that a\n'
+      '    // crash there isn\'t taken for theirs.\n'
+      '    if (emusuni_parts_trying && emusuni_parts_frames >= 60) {\n'
+      '        emusuni_parts_trying = false;\n'
+      '        EmuSuNiMarkerRemove("3ds-gpl-trying");\n'
+      '        LOG_INFO(Render_Vulkan, "EmuSuNi: pipelines by parts: the game ends after {} frames with "\n'
+      '                                "them: the start marker goes before the renderer\'s end (01.46)",\n'
+      '                 emusuni_parts_frames);\n'
+      '    }\n'
+      '}\n'
+      '\n'
+      'void PipelineCache::EmuSuNiSaveNowAndThen() {\n')
+patch('src/video_core/gpu.cpp',
+      '#include "common/emusuni_dirty_pages.h"\n',
+      '#include "common/emusuni_dirty_pages.h"\n'
+      '#include "common/emusuni_fastmem.h"   // (01.46)\n'
+      '#include "common/emusuni_game_ends.h" // (01.46)\n')
+patch('src/video_core/gpu.cpp',
+      '    emusuni_pica.reset(); // (01.10) its thread stopped first: the renderer and the PICA it uses go after\n',
+      '    emusuni_pica.reset(); // (01.10) its thread stopped first: the renderer and the PICA it uses go after\n'
+      '    // (01.46) The game\'s last GPU commands done (that thread stopped, the pages it marked marked):\n'
+      '    // after a good start the markers of the fast memory and of pipelines by parts go now, before\n'
+      '    // the renderer\'s end and the system\'s, so that a crash in those isn\'t taken for theirs (01.45:\n'
+      '    // both left, and the next session went without them).\n'
+      '    EmuSuNi::Fastmem::GameEnds();\n'
+      '    if (void (*const emusuni_parts)() = EmuSuNi::GameEnds::parts.load(std::memory_order_acquire)) {\n'
+      '        emusuni_parts();\n'
+      '    }\n'
+      '#if !defined(__ORBIS__)\n'
+      '    if (std::getenv("EMUSUNI_3DS_TEST_END_CRASH") != nullptr) {\n'
+      '        __builtin_trap(); // (its PC test: a crash in the end\'s steps, as 01.45\'s)\n'
+      '    }\n'
+      '#endif\n')
+# --- 01.47: the app's switches for a game's update, its DLC and its mods in folders of their own (the owner's
+# «Actualizaciones, DLC y mods»; Frontend's menus, src/ThreeDsCia.cpp). Three options the app sends at each game's load:
+#  - citra_emusuni_update disabled: the loader leaves the installed update alone (its code, exheader and RomFS: the
+#    base game's), nothing deleted.
+#  - citra_emusuni_dlc disabled: the game finds no DLC title (0004008C...), as if none were installed: the AM
+#    service's paths of a DLC's title metadata and contents are empty (its scans, its DLC calls, the NCCH archive of
+#    its contents) and its tickets aren't listed. The app's own calls (its menus' installer and lists) see it still.
+#  - citra_emusuni_mod_folders: folders split by '|', each laid out as the main mods folder, for the title whose folder
+#    holds it (load/mods/<title ID>/<a mod>/), above the main folder in the list's order: the first wins a file
+#    (one more LayeredFS for each, the list's last first), the first found gives an ExeFS file or the exheader, every
+#    one's code patch is applied (the main folder's first). citra_emusuni_mods disabled leaves only the main folder
+#    alone, as before.
+# emusuni_3ds_extras_caps() (strong here, weak in the app) says 7: the app offers its switches only for what the core
+# does. The game's load says what it took (its update and DLC, each switch, the folders).
+addfile('src/common/emusuni_extras.h', r'''// EmuSuNi (scripts/build-3ds-core.sh, 01.47): the app's switches for a
+// game's update, its DLC and its mods in folders of their own (the app's «Actualizaciones, DLC y mods»), read with the
+// core's options at the game's load (citra_libretro/core_settings.cpp, ParseStorageOptions):
+//  - citra_emusuni_update disabled: the loader leaves the installed update alone (core/loader/ncch.cpp).
+//  - citra_emusuni_dlc disabled: the game finds no DLC title (0004008C...): the AM service's paths of a DLC's title
+//    metadata and contents are empty (core/hle/service/am/am.cpp) and its tickets aren't listed, as if it weren't
+//    installed. The app's own calls (citra_libretro/emusuni_cia.cpp: its menus' installer and lists) still see it.
+//  - citra_emusuni_mod_folders: folders split by '|', each laid out as the main mods folder (load/mods/<title ID>/:
+//    romfs/, romfs_ext/, exefs/, code.ips/.bps, code.bin, icon.bin, banner.bnr, logo.bcma.lz, exheader.bin), each
+//    for the title whose folder holds it (load/mods/<title ID>/<a mod>/), above the main folder in the list's order
+//    (core/file_sys/ncch_container.cpp).
+// emusuni_3ds_extras_caps() tells the app which of them this core does (bits 1, 2 and 4).
+#pragma once
+#ifdef EMUSUNI_PORT
+#include <atomic>
+#include <cstddef>
+#include <cstdint>
+#include <mutex>
+#include <string>
+#include <utility>
+#include <vector>
+
+namespace EmuSuNi::Extras {
+inline std::atomic<bool> update_off{false};
+inline std::atomic<bool> dlc_off{false};
+inline std::mutex folders_mutex;
+inline std::vector<std::pair<std::uint64_t, std::string>> folders; // (under folders_mutex) its title, the folder
+
+// The app's own calls into the core (its menus') see every title installed, whatever a game's switches hide.
+inline thread_local int app_calls = 0;
+struct AppCall {
+    AppCall() {
+        app_calls++;
+    }
+    ~AppCall() {
+        app_calls--;
+    }
+    AppCall(const AppCall&) = delete;
+    AppCall& operator=(const AppCall&) = delete;
+};
+
+inline bool UpdateOff() {
+    return update_off.load(std::memory_order_relaxed);
+}
+inline bool DlcOff() {
+    return dlc_off.load(std::memory_order_relaxed);
+}
+// A title the game doesn't find: a DLC with the switch off (never for the app's calls).
+inline bool Hidden(std::uint64_t title_id) {
+    return app_calls == 0 && DlcOff() && (title_id >> 32) == 0x0004008C;
+}
+
+// The title a mod folder is for: the name of the folder that holds it (16 hex digits); 0 if it isn't one. The folder
+// ends with '/': .../<title ID>/<a mod>/.
+inline std::uint64_t FolderTitle(const std::string& folder) {
+    if (folder.size() < 2) {
+        return 0;
+    }
+    const std::size_t mod = folder.rfind('/', folder.size() - 2);
+    if (mod == std::string::npos || mod < 16 || (mod > 16 && folder[mod - 17] != '/')) {
+        return 0;
+    }
+    std::uint64_t title = 0;
+    for (std::size_t i = mod - 16; i < mod; i++) {
+        const char c = folder[i];
+        const int digit = c >= '0' && c <= '9'   ? c - '0'
+                          : c >= 'a' && c <= 'f' ? c - 'a' + 10
+                          : c >= 'A' && c <= 'F' ? c - 'A' + 10
+                                                 : -1;
+        if (digit < 0) {
+            return 0;
+        }
+        title = title << 4 | static_cast<std::uint64_t>(digit);
+    }
+    return title;
+}
+
+// citra_emusuni_mod_folders: split by '|', each given a '/' at its end.
+inline void SetFolders(const std::string& list) {
+    std::vector<std::pair<std::uint64_t, std::string>> parsed;
+    std::size_t start = 0;
+    while (start <= list.size()) {
+        std::size_t end = list.find('|', start);
+        if (end == std::string::npos) {
+            end = list.size();
+        }
+        std::string folder = list.substr(start, end - start);
+        if (!folder.empty()) {
+            if (folder.back() != '/') {
+                folder += '/';
+            }
+            const std::uint64_t title = FolderTitle(folder);
+            parsed.emplace_back(title, std::move(folder));
+        }
+        start = end + 1;
+    }
+    std::lock_guard lock{folders_mutex};
+    folders = std::move(parsed);
+}
+
+// The folders of a title's mods (its mod ID: an update's is its game's), in the list's order.
+inline std::vector<std::string> FoldersFor(std::uint64_t title_id) {
+    std::vector<std::string> out;
+    std::lock_guard lock{folders_mutex};
+    for (const auto& [title, folder] : folders) {
+        if (title == title_id) {
+            out.push_back(folder);
+        }
+    }
+    return out;
+}
+// How many of the list aren't in that title's folder (left out for it).
+inline std::size_t FoldersNotFor(std::uint64_t title_id) {
+    std::size_t count = 0;
+    std::lock_guard lock{folders_mutex};
+    for (const auto& entry : folders) {
+        count += entry.first != title_id ? 1 : 0;
+    }
+    return count;
+}
+} // namespace EmuSuNi::Extras
+#endif
+''')
+# The options (core_settings.cpp).
+patch('src/citra_libretro/core_settings.cpp',
+      '#ifdef EMUSUNI_PORT\n#include "common/emusuni_mods.h"\n#endif\n',
+      '#ifdef EMUSUNI_PORT\n#include "common/emusuni_extras.h" // (01.47)\n#include "common/emusuni_mods.h"\n#endif\n')
+patch('src/citra_libretro/core_settings.cpp',
+      'static constexpr const char* emusuni_mods = "citra_emusuni_mods";\n',
+      'static constexpr const char* emusuni_mods = "citra_emusuni_mods";\n'
+      '// (01.47, EmuSuNi\'s: the game\'s update and DLC, taken by default as upstream; its mods in folders of\n'
+      '// their own)\n'
+      'static constexpr const char* emusuni_update = "citra_emusuni_update";\n'
+      'static constexpr const char* emusuni_dlc = "citra_emusuni_dlc";\n'
+      'static constexpr const char* emusuni_mod_folders = "citra_emusuni_mod_folders";\n')
+patch('src/citra_libretro/core_settings.cpp',
+      '        config::enabled\n'
+      '    },\n'
+      '\n'
+      '    // Input Category\n',
+      '        config::enabled\n'
+      '    },\n'
+      '    {\n'
+      '        config::storage::emusuni_update,\n'
+      '        "Update (EmuSuNi)",\n'
+      '        "Update",\n'
+      '        "Load the game\'s installed update (the emulated SD card); off, the game as it came.",\n'
+      '        nullptr,\n'
+      '        config::category::storage,\n'
+      '        {\n'
+      '            { config::enabled, "Enabled" },\n'
+      '            { config::disabled, "Disabled" },\n'
+      '            { nullptr, nullptr }\n'
+      '        },\n'
+      '        config::enabled\n'
+      '    },\n'
+      '    {\n'
+      '        config::storage::emusuni_dlc,\n'
+      '        "DLC (EmuSuNi)",\n'
+      '        "DLC",\n'
+      '        "Let the game find its installed DLC (the emulated SD card); off, as if none were installed.",\n'
+      '        nullptr,\n'
+      '        config::category::storage,\n'
+      '        {\n'
+      '            { config::enabled, "Enabled" },\n'
+      '            { config::disabled, "Disabled" },\n'
+      '            { nullptr, nullptr }\n'
+      '        },\n'
+      '        config::enabled\n'
+      '    },\n'
+      '\n'
+      '    // Input Category\n')
+patch('src/citra_libretro/core_settings.cpp',
+      '    EmuSuNi::g_mods_off.store(LibRetro::FetchVariable(config::storage::emusuni_mods, config::enabled) ==\n'
+      '                              config::disabled);\n',
+      '    EmuSuNi::g_mods_off.store(LibRetro::FetchVariable(config::storage::emusuni_mods, config::enabled) ==\n'
+      '                              config::disabled);\n'
+      '    // (01.47) Its update and DLC switches, its mods in folders of their own (common/emusuni_extras.h).\n'
+      '    EmuSuNi::Extras::update_off.store(\n'
+      '        LibRetro::FetchVariable(config::storage::emusuni_update, config::enabled) == config::disabled);\n'
+      '    EmuSuNi::Extras::dlc_off.store(LibRetro::FetchVariable(config::storage::emusuni_dlc, config::enabled) ==\n'
+      '                                   config::disabled);\n'
+      '    EmuSuNi::Extras::SetFolders(LibRetro::FetchVariable(config::storage::emusuni_mod_folders, ""));\n')
+# The loader: the update left alone; what the game took, said.
+patch('src/core/loader/ncch.cpp',
+      '#ifdef EMUSUNI_PORT\n#include "common/emusuni_mods.h"\n#endif\n',
+      '#ifdef EMUSUNI_PORT\n#include "common/emusuni_extras.h" // (01.47)\n#include "common/emusuni_mods.h"\n#endif\n')
+patch('src/core/loader/ncch.cpp',
+      '    if (!is_dlp_child) {\n'
+      '        u64 update_tid = (ncch_program_id & 0xFFFFFFFFULL) | UPDATE_TID_HIGH;\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '    // EmuSuNi (01.47): the app\'s switch for the game\'s update off: the installed update left alone\n'
+      '    // (the base game\'s code, exheader and RomFS; nothing deleted).\n'
+      '    if (!is_dlp_child && !EmuSuNi::Extras::UpdateOff()) {\n'
+      '#else\n'
+      '    if (!is_dlp_child) {\n'
+      '#endif\n'
+      '        u64 update_tid = (ncch_program_id & 0xFFFFFFFFULL) | UPDATE_TID_HIGH;\n')
+patch('src/core/loader/ncch.cpp',
+      '        LOG_INFO(Loader, "EmuSuNi: the game\'s update: {}; its DLC: {}; its mods ({}): {}",\n'
+      '                 overlay_ncch == &update_ncch ? emusuni_installed(emusuni_low | 0x0004000E00000000ULL)\n'
+      '                                              : std::string("none"),\n'
+      '                 emusuni_installed(emusuni_low | 0x0004008C00000000ULL), emusuni_mods,\n',
+      '        // (01.47) What is installed whatever the game\'s switches hide from it, and what each switch did.\n'
+      '        const EmuSuNi::Extras::AppCall emusuni_view;\n'
+      '        const std::string emusuni_update = emusuni_installed(emusuni_low | 0x0004000E00000000ULL);\n'
+      '        const std::string emusuni_dlc = emusuni_installed(emusuni_low | 0x0004008C00000000ULL);\n'
+      '        LOG_INFO(Loader, "EmuSuNi: the game\'s update: {}{}; its DLC: {}{}; its mods ({}): {}",\n'
+      '                 emusuni_update,\n'
+      '                 emusuni_update == "none"       ? ""\n'
+      '                 : EmuSuNi::Extras::UpdateOff() ? ", left alone (the app\'s switch)"\n'
+      '                 : overlay_ncch != &update_ncch ? ", not loaded"\n'
+      '                                                : "",\n'
+      '                 emusuni_dlc,\n'
+      '                 emusuni_dlc != "none" && EmuSuNi::Extras::DlcOff()\n'
+      '                     ? ", hidden from the game (the app\'s switch)"\n'
+      '                     : "",\n'
+      '                 emusuni_mods,\n')
+patch('src/core/loader/ncch.cpp',
+      '                 : EmuSuNi::ModsOff()            ? "there, left alone (the app\'s Mods option off)"\n'
+      '                                                 : "used");\n'
+      '    }\n'
+      '#endif\n',
+      '                 : EmuSuNi::ModsOff()            ? "there, left alone (the app\'s Mods option off)"\n'
+      '                                                 : "used");\n'
+      '        std::string emusuni_folders;\n'
+      '        for (const std::string& folder : EmuSuNi::Extras::FoldersFor(ncch_program_id)) {\n'
+      '            emusuni_folders += (emusuni_folders.empty() ? "" : ", ") + folder;\n'
+      '        }\n'
+      '        const std::size_t emusuni_not_for = EmuSuNi::Extras::FoldersNotFor(ncch_program_id);\n'
+      '        if (!emusuni_folders.empty() || emusuni_not_for != 0) {\n'
+      '            LOG_INFO(Loader, "EmuSuNi: its mods in folders of their own, above the main one "\n'
+      '                             "(the first on top): {}{}",\n'
+      '                     emusuni_folders.empty() ? "none" : emusuni_folders,\n'
+      '                     emusuni_not_for != 0\n'
+      '                         ? fmt::format("; {} not in mods/{:016X}/, left out", emusuni_not_for,\n'
+      '                                       ncch_program_id)\n'
+      '                         : std::string());\n'
+      '        }\n'
+      '    }\n'
+      '#endif\n')
+# The mods in folders of their own (ncch_container.cpp).
+patch('src/core/file_sys/ncch_container.cpp',
+      '#include "core/file_sys/layered_fs.h"\n#ifdef EMUSUNI_PORT\n#include "common/emusuni_mods.h"\n#endif\n',
+      '#include "core/file_sys/layered_fs.h"\n#ifdef EMUSUNI_PORT\n#include "common/emusuni_extras.h" // (01.47)\n'
+      '#include "common/emusuni_mods.h"\n#endif\n')
+patch('src/core/file_sys/ncch_container.cpp',
+      '            bool has_exheader_override = false;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '            // EmuSuNi (01.09): none with the app\'s Mods option off (common/emusuni_mods.h).\n'
+      '            if (!EmuSuNi::ModsOff())\n'
+      '#endif\n',
+      '            bool has_exheader_override = false;\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '            // EmuSuNi (01.47): the mods in folders of their own first, in their order\n'
+      '            // (common/emusuni_extras.h); each read whole into a copy (a short one leaves the game\'s).\n'
+      '            for (const std::string& folder :\n'
+      '                 EmuSuNi::Extras::FoldersFor(GetModId(ncch_header.program_id))) {\n'
+      '                FileUtil::IOFile emusuni_file{folder + "exheader.bin", "rb"};\n'
+      '                auto emusuni_exheader = exheader_header;\n'
+      '                if (emusuni_file && emusuni_file.ReadBytes(&emusuni_exheader, sizeof(emusuni_exheader)) ==\n'
+      '                                        sizeof(emusuni_exheader)) {\n'
+      '                    exheader_header = emusuni_exheader;\n'
+      '                    has_exheader_override = true;\n'
+      '                    LOG_INFO(Service_FS, "EmuSuNi: {}exheader.bin overrides the game\'s exheader", folder);\n'
+      '                    break;\n'
+      '                }\n'
+      '            }\n'
+      '            // EmuSuNi (01.09): none with the app\'s Mods option off (common/emusuni_mods.h).\n'
+      '            if (!has_exheader_override && !EmuSuNi::ModsOff())\n'
+      '#endif\n')
+patch('src/core/file_sys/ncch_container.cpp',
+      'Loader::ResultStatus NCCHContainer::ApplyCodePatch(std::vector<u8>& code) const {\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '    if (EmuSuNi::ModsOff())\n'
+      '        return Loader::ResultStatus::ErrorNotUsed; // (EmuSuNi, 01.09: the app\'s Mods option off)\n'
+      '#endif\n',
+      'Loader::ResultStatus NCCHContainer::ApplyCodePatch(std::vector<u8>& code) const {\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '    // (EmuSuNi, 01.09: none of the main folder\'s with the app\'s Mods option off; 01.47: the\n'
+      '    // patches of the mods in folders of their own still, below.)\n'
+      '    const bool emusuni_main = !EmuSuNi::ModsOff();\n'
+      '#endif\n')
+patch('src/core/file_sys/ncch_container.cpp',
+      '    for (const PatchLocation& info : patch_paths) {\n'
+      '        FileUtil::IOFile patch_file{info.path, "rb"};\n'
+      '        if (!patch_file)\n'
+      '            continue;\n'
+      '\n'
+      '        std::vector<u8> patch(patch_file.GetSize());\n'
+      '        if (patch_file.ReadBytes(patch.data(), patch.size()) != patch.size())\n'
+      '            return Loader::ResultStatus::ErrorPatches;\n'
+      '\n'
+      '        LOG_INFO(Service_FS, "File {} patching code.bin", info.path);\n'
+      '        auto patch_result = info.patch_fn(patch, code);\n'
+      '        if (patch_result != Loader::ResultStatus::Success)\n'
+      '            return patch_result;\n'
+      '\n'
+      '        return Loader::ResultStatus::Success;\n'
+      '    }\n'
+      '    return Loader::ResultStatus::ErrorNotUsed;\n'
+      '}\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '    // EmuSuNi (01.47): the main folder\'s first patch (upstream\'s places, in its order), then the\n'
+      '    // first of each mod in a folder of its own (exefs/code.ips, exefs/code.bps, code.ips, code.bps),\n'
+      '    // in their order: all applied.\n'
+      '    std::vector<PatchLocation> emusuni_patches;\n'
+      '    const auto emusuni_first = [&emusuni_patches](const PatchLocation* places, std::size_t count) {\n'
+      '        for (std::size_t i = 0; i < count; i++) {\n'
+      '            if (FileUtil::IOFile{places[i].path, "rb"}) {\n'
+      '                emusuni_patches.push_back(places[i]);\n'
+      '                return;\n'
+      '            }\n'
+      '        }\n'
+      '    };\n'
+      '    if (emusuni_main) {\n'
+      '        emusuni_first(patch_paths.data(), patch_paths.size());\n'
+      '    }\n'
+      '    for (const std::string& folder : EmuSuNi::Extras::FoldersFor(GetModId(ncch_header.program_id))) {\n'
+      '        const std::array<PatchLocation, 4> places{{\n'
+      '            {folder + "exefs/code.ips", Patch::ApplyIpsPatch},\n'
+      '            {folder + "exefs/code.bps", Patch::ApplyBpsPatch},\n'
+      '            {folder + "code.ips", Patch::ApplyIpsPatch},\n'
+      '            {folder + "code.bps", Patch::ApplyBpsPatch},\n'
+      '        }};\n'
+      '        emusuni_first(places.data(), places.size());\n'
+      '    }\n'
+      '    Loader::ResultStatus emusuni_result = Loader::ResultStatus::ErrorNotUsed;\n'
+      '    for (const PatchLocation& info : emusuni_patches) {\n'
+      '#else\n'
+      '    for (const PatchLocation& info : patch_paths) {\n'
+      '#endif\n'
+      '        FileUtil::IOFile patch_file{info.path, "rb"};\n'
+      '        if (!patch_file)\n'
+      '            continue;\n'
+      '\n'
+      '        std::vector<u8> patch(patch_file.GetSize());\n'
+      '        if (patch_file.ReadBytes(patch.data(), patch.size()) != patch.size())\n'
+      '            return Loader::ResultStatus::ErrorPatches;\n'
+      '\n'
+      '        LOG_INFO(Service_FS, "File {} patching code.bin", info.path);\n'
+      '        auto patch_result = info.patch_fn(patch, code);\n'
+      '        if (patch_result != Loader::ResultStatus::Success)\n'
+      '            return patch_result;\n'
+      '\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '        emusuni_result = Loader::ResultStatus::Success;\n'
+      '    }\n'
+      '    return emusuni_result;\n'
+      '#else\n'
+      '        return Loader::ResultStatus::Success;\n'
+      '    }\n'
+      '    return Loader::ResultStatus::ErrorNotUsed;\n'
+      '#endif\n'
+      '}\n')
+patch('src/core/file_sys/ncch_container.cpp',
+      '                                                             std::vector<u8>& buffer) {\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '    if (EmuSuNi::ModsOff())\n'
+      '        return Loader::ResultStatus::ErrorNotUsed; // (EmuSuNi, 01.09: the app\'s Mods option off)\n'
+      '#endif\n',
+      '                                                             std::vector<u8>& buffer) {\n')
+patch('src/core/file_sys/ncch_container.cpp',
+      '    else\n'
+      '        return Loader::ResultStatus::Error;\n'
+      '\n'
+      '    const auto mods_path =\n',
+      '    else\n'
+      '        return Loader::ResultStatus::Error;\n'
+      '\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '    // EmuSuNi (01.47): the mods in folders of their own first (exefs/<file>, then <file>), in their order\n'
+      '    // (common/emusuni_extras.h); then the main folder\'s and the files beside the ROM, none of those with the\n'
+      '    // app\'s Mods option off (01.09).\n'
+      '    for (const std::string& folder : EmuSuNi::Extras::FoldersFor(GetModId(ncch_header.program_id))) {\n'
+      '        for (const std::string& path : {folder + "exefs/" + override_name, folder + override_name}) {\n'
+      '            FileUtil::IOFile section_file(path, "rb");\n'
+      '            if (!section_file.IsOpen())\n'
+      '                continue;\n'
+      '            buffer.resize(section_file.GetSize());\n'
+      '            if (section_file.ReadBytes(buffer.data(), buffer.size()) == buffer.size()) {\n'
+      '                LOG_WARNING(Service_FS, "File {} overriding built-in ExeFS file", path);\n'
+      '                return Loader::ResultStatus::Success;\n'
+      '            }\n'
+      '        }\n'
+      '    }\n'
+      '    if (EmuSuNi::ModsOff())\n'
+      '        return Loader::ResultStatus::ErrorNotUsed; // (01.09: the app\'s Mods option off)\n'
+      '#endif\n'
+      '    const auto mods_path =\n')
+patch('src/core/file_sys/ncch_container.cpp',
+      '    // EmuSuNi (01.09): with the app\'s Mods option off, neither the .romfs beside the ROM nor LayeredFS.\n'
+      '    if (EmuSuNi::ModsOff())\n'
+      '        use_layered_fs = false;\n'
+      '    else if (ReadOverrideRomFS(romfs_file) == Loader::ResultStatus::Success)\n'
+      '        return Loader::ResultStatus::Success;\n',
+      '    // EmuSuNi (01.09): with the app\'s Mods option off, neither the .romfs beside the ROM nor the main\n'
+      '    // folder\'s LayeredFS (01.47: the mods in folders of their own still go above, at the end).\n'
+      '    const bool emusuni_main = !EmuSuNi::ModsOff();\n'
+      '    if (emusuni_main && ReadOverrideRomFS(romfs_file) == Loader::ResultStatus::Success)\n'
+      '        return Loader::ResultStatus::Success;\n')
+patch('src/core/file_sys/ncch_container.cpp',
+      '    if (!is_proto && use_layered_fs &&\n'
+      '        (FileUtil::Exists(path + "romfs/") || FileUtil::Exists(path + "romfs_ext/"))) {\n'
+      '\n'
+      '        romfs_file = std::make_shared<LayeredFS>(std::move(direct_romfs), path + "romfs/",\n'
+      '                                                 path + "romfs_ext/");\n'
+      '    } else {\n'
+      '        romfs_file = std::move(direct_romfs);\n'
+      '    }\n'
+      '\n'
+      '    return Loader::ResultStatus::Success;\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '    if (!is_proto && use_layered_fs && emusuni_main &&\n'
+      '#else\n'
+      '    if (!is_proto && use_layered_fs &&\n'
+      '#endif\n'
+      '        (FileUtil::Exists(path + "romfs/") || FileUtil::Exists(path + "romfs_ext/"))) {\n'
+      '\n'
+      '        romfs_file = std::make_shared<LayeredFS>(std::move(direct_romfs), path + "romfs/",\n'
+      '                                                 path + "romfs_ext/");\n'
+      '    } else {\n'
+      '        romfs_file = std::move(direct_romfs);\n'
+      '    }\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '    // EmuSuNi (01.47): each mod in a folder of its own one more LayeredFS above, the list\'s last first: the\n'
+      '    // first is on top and wins a file (common/emusuni_extras.h).\n'
+      '    if (!is_proto && use_layered_fs) {\n'
+      '        const std::vector<std::string> emusuni_folders =\n'
+      '            EmuSuNi::Extras::FoldersFor(GetModId(ncch_header.program_id));\n'
+      '        for (auto folder = emusuni_folders.rbegin(); folder != emusuni_folders.rend(); ++folder) {\n'
+      '            if (FileUtil::Exists(*folder + "romfs/") || FileUtil::Exists(*folder + "romfs_ext/")) {\n'
+      '                romfs_file = std::make_shared<LayeredFS>(std::move(romfs_file), *folder + "romfs/",\n'
+      '                                                         *folder + "romfs_ext/");\n'
+      '            }\n'
+      '        }\n'
+      '    }\n'
+      '#endif\n'
+      '\n'
+      '    return Loader::ResultStatus::Success;\n')
+# The DLC hidden from the game (am.cpp).
+patch('src/core/hle/service/am/am.cpp',
+      '#include "common/string_util.h"\n#include "common/zstd_compression.h"\n',
+      '#include "common/string_util.h"\n#include "common/zstd_compression.h"\n'
+      '#ifdef EMUSUNI_PORT\n#include "common/emusuni_extras.h" // (01.47)\n#endif\n')
+patch('src/core/hle/service/am/am.cpp',
+      'std::string GetTitleMetadataPath(Service::FS::MediaType media_type, u64 tid, bool update) {\n',
+      'std::string GetTitleMetadataPath(Service::FS::MediaType media_type, u64 tid, bool update) {\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '    if (EmuSuNi::Extras::Hidden(tid)) {\n'
+      '        return ""; // (01.47) the game\'s DLC with the app\'s switch off: not installed for it\n'
+      '    }\n'
+      '#endif\n')
+patch('src/core/hle/service/am/am.cpp',
+      'std::string GetTitleContentPath(Service::FS::MediaType media_type, u64 tid, std::size_t index,\n'
+      '                                bool update) {\n',
+      'std::string GetTitleContentPath(Service::FS::MediaType media_type, u64 tid, std::size_t index,\n'
+      '                                bool update) {\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '    if (EmuSuNi::Extras::Hidden(tid)) {\n'
+      '        return ""; // (01.47) the game\'s DLC with the app\'s switch off: not installed for it\n'
+      '    }\n'
+      '#endif\n')
+patch('src/core/hle/service/am/am.cpp',
+      '                    u64 ticket_id = std::stoull(ticket_id_str, nullptr, 16);\n'
+      '                    am_ticket_list.insert(std::make_pair(title_id, ticket_id));\n',
+      '                    u64 ticket_id = std::stoull(ticket_id_str, nullptr, 16);\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '                    if (EmuSuNi::Extras::Hidden(title_id)) {\n'
+      '                        continue; // (01.47) the game\'s DLC with the app\'s switch off\n'
+      '                    }\n'
+      '#endif\n'
+      '                    am_ticket_list.insert(std::make_pair(title_id, ticket_id));\n')
+# The app's interface: what the core does of the switches; the app's calls see every title.
+patch('src/citra_libretro/emusuni_cia.h',
+      'int emusuni_3ds_installed(const char* save_dir, uint64_t game_title_id, struct emusuni_3ds_installed* out);\n',
+      'int emusuni_3ds_installed(const char* save_dir, uint64_t game_title_id, struct emusuni_3ds_installed* out);\n'
+      '\n'
+      '// (01.47) Which of the app\'s switches for a game\'s extras this core does (common/emusuni_extras.h): 1 its\n'
+      '// update (citra_emusuni_update), 2 its DLC (citra_emusuni_dlc), 4 its mods in folders of their own\n'
+      '// (citra_emusuni_mod_folders). The app\'s weak one says 0.\n'
+      'int emusuni_3ds_extras_caps(void);\n')
+patch('src/citra_libretro/emusuni_cia.cpp',
+      '#include "common/emusuni_throw.h"\n#include "common/file_derived.h"\n',
+      '#include "common/emusuni_extras.h" // (01.47)\n#include "common/emusuni_throw.h"\n'
+      '#include "common/file_derived.h"\n')
+patch('src/citra_libretro/emusuni_cia.cpp',
+      'extern "C" int emusuni_3ds_cia_version(void) {\n',
+      'extern "C" int emusuni_3ds_extras_caps(void) {\n'
+      '    return 1 | 2 | 4; // (01.47) the update, the DLC, the mods in folders of their own\n'
+      '}\n'
+      '\n'
+      'extern "C" int emusuni_3ds_cia_version(void) {\n')
+for emusuni_api in ('extern "C" int emusuni_3ds_cia_info(const char* path, struct emusuni_3ds_cia_info* info) {\n',
+                    'extern "C" int emusuni_3ds_cia_install(const char* save_dir, const char* path, '
+                    'emusuni_3ds_cia_progress progress,\n'
+                    '                                       void* user, volatile int* cancel) {\n',
+                    'extern "C" int emusuni_3ds_installed(const char* save_dir, uint64_t game_title_id,\n'
+                    '                                     struct emusuni_3ds_installed* out) {\n',
+                    'extern "C" int emusuni_3ds_uninstall(const char* save_dir, uint64_t title_id) {\n'):
+    patch('src/citra_libretro/emusuni_cia.cpp', emusuni_api,
+          emusuni_api + '    const EmuSuNi::Extras::AppCall app_call; // (01.47) the app\'s: every title seen\n')
+# --- 01.50: Castlevania: Mirror of Fate's 3DS GPU time at 150 per cent of Azahar's estimate, not 100 (USA, EUR, JPN;
+# the master's decision after the 3DS specialist's PC test, 3ds-castlevania-reloj.md). From the owner's state, walking:
+# 29 pictures a second instead of 43, a third fewer draws and a quarter less of the core's work, the game's time the
+# same (the same scene at the same frame: it moves by time, not by picture) and each picture shown 2 frames, seldom 1
+# or 3, where 43 a second mixed 1 and 2. A lower 3DS CPU clock gains nothing there since 01.13: the game waits for its
+# GPU lists. And a number (25 to 400) in the file /data/EmuSuNi/3ds-gpu-time-<the game's title ID> (on the PC, the
+# variable EMUSUNI_3DS_GPU_TIME_<ID>) sets a game's own per cent, on EmuSuNi's list or not: Castlevania (USA) back at
+# 100 without a new core is 100 in 3ds-gpu-time-0004000000096600. As a game with its own per cent starts, a short
+# line says it, where from, and that file's name.
+patch('src/core/emusuni_switches.h', r'''
+    case 0x00040000000BAC00: // (JPN; 01.15)
+        return 100;
+    case 0x0004000000126300: // Monster Hunter 4 Ultimate (USA)
+''', r'''
+    case 0x00040000000BAC00: // (JPN; 01.15)
+        return 150; // (01.50; 100 before: walking, 43 pictures a second, 29 at 150, the game's time the same)
+    case 0x0004000000126300: // Monster Hunter 4 Ultimate (USA)
+''')
+patch('src/core/emusuni_switches.h', r'''
+// (01.13) A game's 3DS GPU time, as it starts and as the settings change (after core_settings.cpp set the timing from
+''', r'''
+// (01.50) The number (25 to 400) in /data/EmuSuNi/3ds-gpu-time-<the game's title ID, 16 hex digits> (on the PC, the
+// variable EMUSUNI_3DS_GPU_TIME_<ID>): the game's own 3DS GPU time, on EmuSuNi's list or not; 0 without one.
+inline u32 EmuSuNiGameGpuTimeFile(u64 title_id) {
+    const std::string file = fmt::format("3ds-gpu-time-{:016X}", title_id);
+    const std::string env = fmt::format("EMUSUNI_3DS_GPU_TIME_{:016X}", title_id);
+    const u32 number = EmuSuNiFileNumber(file.c_str(), env.c_str());
+    return number >= 25 && number <= 400 ? number : 0;
+}
+// (01.13) A game's 3DS GPU time, as it starts and as the settings change (after core_settings.cpp set the timing from
+''')
+patch('src/core/emusuni_switches.h', r'''
+    // (01.14) On unless its file says off (01.13: only with the file).
+    const u32 own = EmuSuNi::Async::TestFile("3ds-gpu-timing-games", "EMUSUNI_3DS_GPU_TIMING_GAMES", 0) >= 0
+                        ? EmuSuNiGameGpuTime(title_id)
+                        : 0;
+''', r'''
+    // (01.14) On unless its file says off (01.13: only with the file). (01.50) A number in the game's own file first.
+    const u32 file_own = EmuSuNiGameGpuTimeFile(title_id);
+    const u32 own = file_own != 0 ? file_own
+                    : EmuSuNi::Async::TestFile("3ds-gpu-timing-games", "EMUSUNI_3DS_GPU_TIMING_GAMES", 0) >= 0
+                        ? EmuSuNiGameGpuTime(title_id)
+                        : 0;
+''')
+patch('src/core/emusuni_switches.h', r'''
+    const u32 gpu_own = EmuSuNiGpuTime(title_id);
+''', r'''
+    const u32 gpu_own = EmuSuNiGpuTime(title_id);
+    if (gpu_own != 0) {
+        // (01.50) The per cent this game got and where from, in a short line (the app's log cuts long ones).
+        LOG_INFO(Core,
+                 "EmuSuNi: {:016X}: the 3DS GPU's time at {} per cent of Azahar's estimate ({}; a number in "
+                 "/data/EmuSuNi/3ds-gpu-time-{:016X} sets it, 01.50)",
+                 title_id, gpu_own, EmuSuNiGameGpuTimeFile(title_id) != 0 ? "that file's" : "EmuSuNi's list",
+                 title_id);
+    }
+''')
+# --- 01.51: 3ds-cached-reads-fast (Xenoblade; the master's look at what costs on the CPU, 2026-11-16). In Xenoblade's
+# heavy parts on the console the game reads pages the GPU's cache holds ~19,000 times a frame (01.64's log: 11.6
+# million every 600 frames, every one of a page the GPU hadn't written, so 3ds-async-cpu-reads lets them go at once),
+# each through memory.cpp's slow path: RasterizerFlushVirtualRegion's walk of three regions, then
+# GetPointerForRasterizerCache, whose MemoryRef copies a shared pointer (two atomic counts a read). Now, while
+# 3ds-async-cpu-reads is on, such a read of the linear heaps or VRAM from a page the GPU hasn't written is read straight
+# from the memory block, after the same check and with the same count; anything else goes the old way. The same value
+# from the same memory, without the walk and the shared pointer. The word off in /data/EmuSuNi/3ds-cached-reads-fast
+# (EMUSUNI_3DS_CACHED_READS_FAST=0 on the PC) turns it off; the 600-frame line says how many reads went straight.
+patch('src/common/emusuni_async.h', r'''inline bool cpu_reads = false;
+''', r'''inline bool cpu_reads = false;
+// (01.51) /data/EmuSuNi/3ds-cached-reads-fast (GPU::GPU): memory.cpp's reads of those pages straight from the memory.
+inline bool cpu_reads_fast = false;
+''')
+patch('src/video_core/gpu.cpp', r'''
+    LOG_INFO(HW_GPU, "EmuSuNi: the CPU's reads of the GPU's memory {} (3ds-async-cpu-reads)",
+             EmuSuNi::Async::cpu_reads ? "wait only where the GPU wrote" : "wait for its thread as in 01.10: off");
+''', r'''
+    LOG_INFO(HW_GPU, "EmuSuNi: the CPU's reads of the GPU's memory {} (3ds-async-cpu-reads)",
+             EmuSuNi::Async::cpu_reads ? "wait only where the GPU wrote" : "wait for its thread as in 01.10: off");
+    // (01.51) Those of pages the GPU hasn't written straight from the memory (memory.cpp), unless the file
+    // /data/EmuSuNi/3ds-cached-reads-fast says off.
+    EmuSuNi::Async::cpu_reads_fast =
+        EmuSuNi::Async::cpu_reads &&
+        EmuSuNi::Async::TestFile("3ds-cached-reads-fast", "EMUSUNI_3DS_CACHED_READS_FAST", 0) >= 0;
+    LOG_INFO(HW_GPU,
+             "EmuSuNi: the CPU's reads of pages the GPU's cache holds and hasn't written: {} (3ds-cached-reads-fast, "
+             "01.51)",
+             EmuSuNi::Async::cpu_reads_fast ? "straight from the memory" : "through the cache's check, as before");
+''')
+patch('src/core/memory.cpp', r'''
+    [[likely]] case PageType::RasterizerCachedMemory: {
+        RasterizerFlushVirtualRegion(vaddr, read_size, FlushMode::Flush);
+''', r'''
+    [[likely]] case PageType::RasterizerCachedMemory: {
+#ifdef EMUSUNI_PORT
+        // (01.51, 3ds-cached-reads-fast) A read of the linear heaps or VRAM from a page the GPU hasn't written: what
+        // RasterizerFlushVirtualRegion and GetPointerForRasterizerCache do then (nothing to flush; the memory block's
+        // bytes), without their walk of the regions and the shared pointer's two atomic counts. Anything else: below.
+        if (EmuSuNi::Async::cpu_reads_fast) {
+            const u8* emusuni_host = nullptr;
+            PAddr emusuni_paddr = 0;
+            if (vaddr >= LINEAR_HEAP_VADDR && vaddr + read_size <= LINEAR_HEAP_VADDR_END) {
+                emusuni_paddr = FCRAM_PADDR + (vaddr - LINEAR_HEAP_VADDR);
+                emusuni_host = impl->fcram.get() + (vaddr - LINEAR_HEAP_VADDR);
+            } else if (vaddr >= NEW_LINEAR_HEAP_VADDR && vaddr + read_size <= NEW_LINEAR_HEAP_VADDR_END) {
+                emusuni_paddr = FCRAM_PADDR + (vaddr - NEW_LINEAR_HEAP_VADDR);
+                emusuni_host = impl->fcram.get() + (vaddr - NEW_LINEAR_HEAP_VADDR);
+            } else if (vaddr >= VRAM_VADDR && vaddr + read_size <= VRAM_VADDR_END) {
+                emusuni_paddr = VRAM_PADDR + (vaddr - VRAM_VADDR);
+                emusuni_host = impl->vram.get() + (vaddr - VRAM_VADDR);
+            }
+            if (emusuni_host != nullptr && !EmuSuNi::DirtyPages::Any(emusuni_paddr, read_size)) {
+                EmuSuNi::Stats::counts[EmuSuNi::Stats::CpuReadsGo]++;
+                EmuSuNi::Stats::counts[EmuSuNi::Stats::CpuReadsShort]++;
+                ReadType value;
+                std::memcpy(&value, emusuni_host, read_size);
+                return value;
+            }
+        }
+#endif
+        RasterizerFlushVirtualRegion(vaddr, read_size, FlushMode::Flush);
+''')
+patch('src/common/emusuni_stats.h', r'''
+    CpuReadsGo, CpuReadsDirty, // (01.11) 3ds-async-cpu-reads: the CPU's reads of the GPU's pages without, with a wait
+''', r'''
+    CpuReadsGo, CpuReadsDirty, // (01.11) 3ds-async-cpu-reads: the CPU's reads of the GPU's pages without, with a wait
+    CpuReadsShort, // (01.51) 3ds-cached-reads-fast: of CpuReadsGo, those read straight from the memory (memory.cpp)
+''')
+patch('src/common/emusuni_frame_stats.h', r'''
+                         "{} at once (the GPU hadn't written those pages), {} where it had (flushed, after its "
+                         "commands)",
+                         dc[CpuReadsGo], dc[CpuReadsDirty]);
+''', r'''
+                         "{} at once (the GPU hadn't written those pages; {} of them straight from the memory, "
+                         "3ds-cached-reads-fast), {} where it had (flushed, after its commands)",
+                         dc[CpuReadsGo], dc[CpuReadsShort], dc[CpuReadsDirty]);
+''')
+# --- 01.52: Mario Kart 7 and 3ds-picture-late (the owner's ask for a definitive fix, 2026-11-17).
+# - The unmapped accesses' log lines (core/memory.cpp: a read, a write, ReadBlock, WriteBlock, ZeroBlock, CopyBlock):
+#   the first 20 of each second, then one line a second saying how many more and the last one. Mario Kart 7 hung with
+#   3ds-picture-late read null pointers ~20 million times a second: 18.6 GB of lines on the PS4 in three hours.
+# - 3ds-picture-late's file takes exclusions: "-" before a title ID leaves that game out; with only exclusions (or
+#   none) every other game has it, with IDs listed only those (less the excluded).
+# - Its safety net (common/emusuni_late_guard.h): while it is on for the running game, a hang's sign - 10,000
+#   unmapped accesses in a second, or a frame running 10 s - writes the game's title ID and why in
+#   /data/EmuSuNi/3ds-picture-late-failed; its next start goes without it, its start line says so, and deleting that
+#   line tries it again.
+# - Each game's start line says why picture-late is on or off for it.
+addfile('src/common/emusuni_late_guard.h', r'''// EmuSuNi (scripts/build-3ds-core.sh, 01.52).
+// 3ds-picture-late's safety net: while it is on for the running game (video_core/gpu.cpp sets `title`), a hang's
+// sign - 10,000 unmapped accesses in a second (core/memory.cpp) or a frame running 10 s (common/emusuni_stall.cpp) -
+// remembers the game in /data/EmuSuNi/3ds-picture-late-failed (its title ID and why, a line each): its next start
+// goes without it, its start line says so, and deleting the line tries it again. On the PC the variable
+// EMUSUNI_3DS_PICTURE_LATE_FAILED is the list's path (unset: none kept).
+#pragma once
+#ifdef EMUSUNI_PORT
+#include <atomic>
+#include <cctype>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <string>
+#include "common/logging/log.h"
+
+namespace EmuSuNi::LateGuard {
+// The running game while 3ds-picture-late is on for it (0: off), and whether its hang was said already.
+inline std::atomic<std::uint64_t> title{0};
+inline std::atomic<bool> said{false};
+
+inline const char* Path() {
+#if defined(__ORBIS__)
+    return "/data/EmuSuNi/3ds-picture-late-failed";
+#else
+    return std::getenv("EMUSUNI_3DS_PICTURE_LATE_FAILED");
+#endif
+}
+
+// The game is in the list: `why` says its line and how to try again.
+inline bool Remembered(std::uint64_t id, std::string& why) {
+    const char* path = Path();
+    std::FILE* file = path != nullptr ? std::fopen(path, "rb") : nullptr;
+    if (file == nullptr) {
+        return false;
+    }
+    char want[24];
+    std::snprintf(want, sizeof(want), "%016llx", static_cast<unsigned long long>(id));
+    char line[256];
+    bool found = false;
+    while (!found && std::fgets(line, sizeof(line), file) != nullptr) {
+        found = true;
+        for (int i = 0; i < 16; i++) {
+            if (std::tolower(static_cast<unsigned char>(line[i])) != want[i]) {
+                found = false;
+                break;
+            }
+        }
+    }
+    std::fclose(file);
+    if (found) {
+        line[std::strcspn(line, "\r\n")] = '\0';
+        why = std::string("it looked hung with it before (\"") + line + "\" in " + path +
+              "; delete that line to try again)";
+    }
+    return found;
+}
+
+// A hang's sign while 3ds-picture-late is on: the game remembered, once a game.
+inline void Hung(const char* sign) {
+    const std::uint64_t id = title.load();
+    if (id == 0 || said.exchange(true)) {
+        return;
+    }
+    const char* path = Path();
+    if (path != nullptr) {
+        if (std::FILE* file = std::fopen(path, "ab")) {
+            std::fprintf(file, "%016llX %s\n", static_cast<unsigned long long>(id), sign);
+            std::fclose(file);
+        }
+    }
+    LOG_ERROR(HW_GPU,
+              "EmuSuNi: 3ds-picture-late: {:016X} looks hung with it ({}): remembered in {}, its next start goes "
+              "without it (01.52)",
+              id, sign, path != nullptr ? path : "(no list on the PC)");
+}
+} // namespace EmuSuNi::LateGuard
+#endif
+''')
+patch('src/core/memory.cpp', '#include <atomic> // (01.46)\n',
+      '#include <atomic> // (01.46)\n#include <chrono> // (01.52)\n#include <mutex>\n'
+      '#include "common/emusuni_late_guard.h"\n')
+patch('src/core/memory.cpp', 'class MemorySystem::Impl {\n', r'''#ifdef EMUSUNI_PORT
+// (01.52) The unmapped accesses' log lines: the first 20 of each second, then one a second saying how many more and
+// the last (Mario Kart 7 hung with 3ds-picture-late read null pointers ~20 million times a second: 18.6 GB of lines
+// on the PS4 in three hours). 10,000 in one second: 3ds-picture-late's safety net (common/emusuni_late_guard.h).
+static bool EmuSuNiUnmappedLine(const char* what, unsigned bits, VAddr vaddr, u32 pc) {
+    static std::mutex mutex;
+    static std::chrono::steady_clock::time_point second{};
+    static u64 shown = 0, more = 0;
+    static const char* last_what = "";
+    static unsigned last_bits = 0;
+    static VAddr last_vaddr = 0;
+    static u32 last_pc = 0;
+    u64 report = 0;
+    const char* report_what = "";
+    unsigned report_bits = 0;
+    VAddr report_vaddr = 0;
+    u32 report_pc = 0;
+    bool show = false, flood = false;
+    {
+        std::lock_guard lock{mutex};
+        const auto now = std::chrono::steady_clock::now();
+        if (now - second >= std::chrono::seconds(1)) {
+            report = more;
+            report_what = last_what;
+            report_bits = last_bits;
+            report_vaddr = last_vaddr;
+            report_pc = last_pc;
+            second = now;
+            shown = more = 0;
+        }
+        if (shown < 20) {
+            shown++;
+            show = true;
+        } else {
+            flood = ++more == 10000;
+            last_what = what;
+            last_bits = bits;
+            last_vaddr = vaddr;
+            last_pc = pc;
+        }
+    }
+    if (report != 0) {
+        LOG_ERROR(HW_Memory,
+                  "EmuSuNi: {} more unmapped accesses within a second of the lines above, not each said (the last: "
+                  "{}{} @ 0x{:08X} at PC 0x{:08X}); 20 such lines a second at most (01.52)",
+                  report, report_what, report_bits != 0 ? std::to_string(report_bits) : std::string(), report_vaddr,
+                  report_pc);
+    }
+    if (flood) {
+        EmuSuNi::LateGuard::Hung("10,000 unmapped accesses in a second");
+    }
+    return show;
+}
+#endif
+class MemorySystem::Impl {
+''')
+for block, pc in (('ReadBlock', 'GetPC()'), ('WriteBlock', 'GetPC()')):
+    patch('src/core/memory.cpp',
+          '            case PageType::Unmapped: {\n                LOG_ERROR(\n                    HW_Memory,\n'
+          '                    "unmapped %s @ ' % block,
+          '            case PageType::Unmapped: {\n#ifdef EMUSUNI_PORT\n'
+          '                if (EmuSuNiUnmappedLine("%s", 0, current_vaddr, %s)) // (01.52)\n#endif\n'
+          '                LOG_ERROR(\n                    HW_Memory,\n'
+          '                    "unmapped %s @ ' % (block, pc, block))
+for block in ('ZeroBlock', 'CopyBlock'):
+    patch('src/core/memory.cpp',
+          '        case PageType::Unmapped: {\n            LOG_ERROR(HW_Memory,\n'
+          '                      "unmapped %s @ ' % block,
+          '        case PageType::Unmapped: {\n#ifdef EMUSUNI_PORT\n'
+          '            if (EmuSuNiUnmappedLine("%s", 0, current_vaddr, impl->GetPC())) // (01.52)\n#endif\n'
+          '            LOG_ERROR(HW_Memory,\n                      "unmapped %s @ ' % (block, block))
+patch('src/core/memory.cpp',
+      'void MemorySystem::UnmappedAccess(const VAddr vaddr, const T value, bool read) {\n',
+      'void MemorySystem::UnmappedAccess(const VAddr vaddr, const T value, bool read) {\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '    if (!EmuSuNiUnmappedLine(read ? "Read" : "Write", static_cast<unsigned>(sizeof(T) * 8), vaddr,\n'
+      '                             impl->GetPC())) {\n'
+      '        return; // (01.52) past the second\'s 20 lines\n'
+      '    }\n'
+      '#endif\n')
+# The stall watch: a frame running 10 s is a hang's sign for 3ds-picture-late's safety net, its time summed over the
+# watch's own wakes, each at most 1 s (a clock that jumps, the PS4's rest mode, isn't a hang).
+patch('src/common/emusuni_stall.cpp', '#include "common/emusuni_throw.h"\n',
+      '#include "common/emusuni_throw.h"\n#include <algorithm>\n#include <cstring>\n'
+      '#include "common/emusuni_late_guard.h" // (01.52)\n')
+patch('src/common/emusuni_stall.cpp', '    std::uint64_t watched = 0, next_ms = 0;\n',
+      '    std::uint64_t watched = 0, next_ms = 0;\n'
+      '    std::uint64_t frame_us = 0, last_us = 0; // (01.52) the watched frame\'s time, each wake\'s at most 1 s\n')
+patch('src/common/emusuni_stall.cpp', r'''        if (seq != watched) {
+            watched = seq;
+            next_ms = FirstMs();
+        }
+        const std::uint64_t now_us = NowUs(), now_k = Ticks();
+''', r'''        const std::uint64_t now_us = NowUs(), now_k = Ticks();
+        if (seq != watched) {
+            watched = seq;
+            next_ms = FirstMs();
+            frame_us = 0;
+        } else if (now_us > last_us) {
+            frame_us += std::min<std::uint64_t>(now_us - last_us, 1000000);
+        }
+        last_us = now_us;
+        // (01.52) 3ds-picture-late's safety net (common/emusuni_late_guard.h): a frame running 10 s, by the watch's
+        // own wakes (a clock that jumps, the PS4's rest mode, isn't a hang). Once a game.
+        if (frame_us >= 10000000 && std::strcmp(g_what.load(), "a frame") == 0) {
+            EmuSuNi::LateGuard::Hung("a frame ran for 10 s");
+        }
+''')
+# The game's start: picture-late on or off, and why; exclusions; the remembered games.
+patch('src/video_core/gpu.cpp', '#include "common/emusuni_game_ends.h" // (01.46)\n',
+      '#include "common/emusuni_game_ends.h" // (01.46)\n#include "common/emusuni_late_guard.h" // (01.52)\n')
+patch('src/video_core/gpu.cpp', r'''
+// (01.34) 3ds-picture-late for this title: the file /data/EmuSuNi/3ds-picture-late (none: off; empty: every
+// game; the word off: off; else the title IDs in it, 16 hex digits each); on the PC EMUSUNI_3DS_PICTURE_LATE
+// (unset or 0: off; 1: every game; else title IDs).
+static bool EmuSuNiPictureLateFor(u64 title) {
+    std::string text;
+#if defined(__ORBIS__)
+    std::FILE* file = std::fopen("/data/EmuSuNi/3ds-picture-late", "rb");
+    if (file == nullptr) {
+        return false;
+    }
+    char buffer[4096];
+    text.assign(buffer, std::fread(buffer, 1, sizeof(buffer), file));
+    std::fclose(file);
+#else
+    const char* env = std::getenv("EMUSUNI_3DS_PICTURE_LATE");
+    if (env == nullptr || std::strcmp(env, "0") == 0) {
+        return false;
+    }
+    if (std::strcmp(env, "1") == 0) {
+        return true;
+    }
+    text = env;
+#endif
+    bool listed = false;
+    std::string word;
+    text += ' ';
+    for (const char c : text) {
+        if (std::isalnum(static_cast<unsigned char>(c))) {
+            word += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            continue;
+        }
+        if (word == "off") {
+            return false;
+        }
+        if (word.size() == 16 && word.find_first_not_of("0123456789abcdef") == std::string::npos) {
+            listed = true;
+            if (std::strtoull(word.c_str(), nullptr, 16) == title) {
+                return true;
+            }
+        }
+        word.clear();
+    }
+    return !listed;
+}
+''', r'''
+// (01.34) 3ds-picture-late for this title: the file /data/EmuSuNi/3ds-picture-late (none: off; empty: every
+// game; the word off: off; else the title IDs in it, 16 hex digits each); on the PC EMUSUNI_3DS_PICTURE_LATE
+// (unset or 0: off; 1: every game; else the file's words). (01.52) "-" before an ID leaves that game out (with
+// only such IDs, every other game has it), a game remembered by its safety net goes without it
+// (common/emusuni_late_guard.h), and `why` says which rule decided.
+static bool EmuSuNiPictureLateFor(u64 title, std::string& why) {
+    std::string text;
+#if defined(__ORBIS__)
+    std::FILE* file = std::fopen("/data/EmuSuNi/3ds-picture-late", "rb");
+    if (file == nullptr) {
+        why = "no file /data/EmuSuNi/3ds-picture-late";
+        return false;
+    }
+    char buffer[4096];
+    text.assign(buffer, std::fread(buffer, 1, sizeof(buffer), file));
+    std::fclose(file);
+#else
+    const char* env = std::getenv("EMUSUNI_3DS_PICTURE_LATE");
+    if (env == nullptr || std::strcmp(env, "0") == 0) {
+        why = "EMUSUNI_3DS_PICTURE_LATE unset";
+        return false;
+    }
+    if (std::strcmp(env, "1") != 0) {
+        text = env;
+    }
+#endif
+    if (EmuSuNi::LateGuard::Remembered(title, why)) {
+        return false;
+    }
+    bool listed = false, yes = false, no = false, dash = false, word_dash = false;
+    std::string word;
+    text += ' ';
+    for (const char c : text) {
+        if (std::isalnum(static_cast<unsigned char>(c))) {
+            if (word.empty()) {
+                word_dash = dash;
+            }
+            word += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            continue;
+        }
+        if (word == "off") {
+            why = "the word off in the file";
+            return false;
+        }
+        if (word.size() == 16 && word.find_first_not_of("0123456789abcdef") == std::string::npos) {
+            const bool same = std::strtoull(word.c_str(), nullptr, 16) == title;
+            if (word_dash) {
+                no |= same;
+            } else {
+                listed = true;
+                yes |= same;
+            }
+        }
+        word.clear();
+        dash = c == '-';
+    }
+    if (no) {
+        why = "left out with -ID in the file";
+        return false;
+    }
+    if (listed) {
+        why = yes ? "listed in the file" : "not listed in the file";
+        return yes;
+    }
+    why = "every game the file doesn't leave out";
+    return true;
+}
+''')
+patch('src/video_core/gpu.cpp',
+      '        const bool emusuni_on = emusuni_pica != nullptr && EmuSuNiPictureLateFor(program_ID);\n',
+      '        std::string emusuni_why = "no GPU commands\' thread"; // (01.52) why on or off, said below\n'
+      '        const bool emusuni_on = emusuni_pica != nullptr && EmuSuNiPictureLateFor(program_ID, emusuni_why);\n'
+      '        EmuSuNi::LateGuard::title.store(emusuni_on ? program_ID : 0); // (01.52) its safety net\n'
+      '        EmuSuNi::LateGuard::said.store(false);\n')
+patch('src/video_core/gpu.cpp', r'''        LOG_INFO(HW_GPU,
+                 "EmuSuNi: 3ds-picture-late {} for {:016X} (01.34: the GPU's work a frame behind the game, "
+                 "its picture handed over at once and drawn on the GPU commands' thread; the file "
+                 "/data/EmuSuNi/3ds-picture-late)",
+                 emusuni_on ? "on" : "off", program_ID);
+''', r'''        LOG_INFO(HW_GPU,
+                 "EmuSuNi: 3ds-picture-late {} for {:016X}: {} (01.34: the GPU's work a frame behind the game; the "
+                 "file /data/EmuSuNi/3ds-picture-late; 01.52: -ID leaves a game out)",
+                 emusuni_on ? "on" : "off", program_ID, emusuni_why);
+''')
+patch('src/video_core/gpu.cpp', '    EmuSuNi::Fastmem::GameEnds();\n',
+      '    EmuSuNi::Fastmem::GameEnds();\n'
+      '    EmuSuNi::LateGuard::title.store(0); // (01.52) no game: its safety net off\n')
+# - (The root cause) 3ds-picture-late's held pages (common/emusuni_held_pages.h). A command ends for the game when
+#   it's sent, so the game may take back memory the command has still to write: Mario Kart 7 put a node of its
+#   objects where a list was going to draw a 64x64 picture, the picture (read back later) wrote zeros over it, and the
+#   game read the null object ~20 million times a second for good. On the 3DS, and with 3ds-picture-late off, the
+#   GPU's write comes first. So the pages a command writes are held from its sending until the GPU commands' thread
+#   has run it and its marks are taken: as the GPU cache's in the pages' tables, and as written by the GPU for the
+#   CPU's reads and writes there (they wait for the thread first, as on any page the GPU wrote).
+addfile('src/common/emusuni_held_pages.h', r'''// EmuSuNi (scripts/build-3ds-core.sh, 01.52).
+// 3ds-picture-late's held pages. A GPU command ends for the game when it's sent (01.34), so the game may take back
+// memory the command has still to write: Mario Kart 7 put a node of its objects where a list was going to draw a
+// 64x64 picture, and the picture, read back later, wrote zeros over it (a null object, read again and again: the
+// hang). On the 3DS, and with 3ds-picture-late off, the GPU's write comes first. So, from its sending until the GPU
+// commands' thread has run it and its own marks are taken (video_core/emusuni_async_pica.h's Deliver), the pages a
+// command writes (a list's colour and depth buffers, a fill's, a copy's output) are held: the GPU cache's in the
+// pages' tables (core/memory.cpp's RasterizerMarkRegionCached; the cache's own marks of them noted meanwhile), and
+// written by the GPU for the CPU's reads and writes (CheckRegion: they wait for the thread first, as on any page the
+// GPU wrote). A game that doesn't touch them meanwhile: nothing changes. A page keeps the number of the last command
+// holding it (a store per page and command). One the cache doesn't mark itself, marked here, stays so until a
+// VBlank finds it held by no command since the VBlank before (a game's buffers, sent every frame, aren't marked and
+// unmarked again and again).
+#pragma once
+#ifdef EMUSUNI_PORT
+#include <algorithm>
+#include <atomic>
+#include <bitset>
+#include <cstdint>
+#include <mutex>
+#include <utility>
+#include <vector>
+
+namespace EmuSuNi::Held {
+// From VRAM's start to the end of a New 3DS's FCRAM, as common/emusuni_dirty_pages.h.
+constexpr std::uint32_t BASE = 0x18000000, END = 0x30000000, PAGE_BITS = 12, PAGES = (END - BASE) >> PAGE_BITS;
+// Each page's last holding command (its number, low 32 bits) and the commands let go so far: the page is held while
+// its number is past theirs. The last command that held pages: none held while it's let go. (Written by the
+// emulation thread; read by any: CheckRegion.)
+inline std::atomic<std::uint32_t> until[PAGES];
+inline std::atomic<std::uint32_t> released{0}, last_held{0};
+// Under `mutex`: the GPU cache's own mark of each page as it last gave it, the pages marked as this file's own (the
+// cache not marking them), and the last holding command at the VBlank before (Settle's).
+inline std::mutex mutex;
+inline std::bitset<PAGES> cache_marked, own_marked;
+inline std::vector<std::uint32_t> own_pages;
+inline std::uint32_t settled = 0;
+inline thread_local bool own = false; // (a mark of this file's own: core/memory.cpp gives it as it is)
+// For the 600-frame line (video_core/gpu.cpp): commands that held pages, the CPU's waits on held pages, the pages
+// marked as this file's own.
+inline std::atomic<std::uint64_t> held_commands{0}, cpu_waits{0}, own_marks{0};
+
+// The table's pages [first, last) of [addr, addr + size); false: none.
+inline bool Pages(std::uint32_t addr, std::uint32_t size, std::uint32_t& first, std::uint32_t& last) {
+    const std::uint64_t lo = addr, hi = std::uint64_t{addr} + size;
+    if (addr == 0 || size == 0 || hi <= BASE || lo >= END) {
+        return false;
+    }
+    first = static_cast<std::uint32_t>(((lo < BASE ? BASE : lo) - BASE) >> PAGE_BITS);
+    last = static_cast<std::uint32_t>(((hi > END ? END : hi) - BASE + (1u << PAGE_BITS) - 1) >> PAGE_BITS);
+    return true;
+}
+inline bool Past(std::uint32_t a, std::uint32_t b) { // a after b (the numbers' low 32 bits)
+    return static_cast<std::int32_t>(a - b) > 0;
+}
+inline bool IsHeld(std::uint32_t page) {
+    return Past(until[page].load(std::memory_order_acquire), released.load(std::memory_order_acquire));
+}
+
+// A page of [addr, addr + size) held.
+inline bool Any(std::uint32_t addr, std::uint32_t size) {
+    if (!Past(last_held.load(std::memory_order_acquire), released.load(std::memory_order_acquire))) {
+        return false;
+    }
+    std::uint32_t first = 0, last = 0;
+    if (!Pages(addr, size, first, last)) {
+        return false;
+    }
+    for (std::uint32_t i = first; i < last; i++) {
+        if (IsHeld(i)) {
+            return true;
+        }
+    }
+    return false;
+}
+// The same for the CPU's access through the GPU cache's check (core/memory.cpp's CheckRegion): a wait, counted.
+inline bool Touched(std::uint32_t addr, std::uint32_t size) {
+    if (!Any(addr, size)) {
+        return false;
+    }
+    cpu_waits.fetch_add(1, std::memory_order_relaxed);
+    return true;
+}
+
+// Pages in a row for one mark of this file's own (`mark`: core/memory.cpp's RasterizerMarkRegionCached).
+struct Run {
+    std::uint32_t first = 0, count = 0;
+    template <typename Mark>
+    void Add(Mark& mark, std::uint32_t page, bool cached) {
+        if (count != 0 && first + count == page) {
+            count++;
+            return;
+        }
+        Flush(mark, cached);
+        first = page;
+        count = 1;
+    }
+    template <typename Mark>
+    void Flush(Mark& mark, bool cached) {
+        if (count != 0) {
+            own = true;
+            mark(BASE + (first << PAGE_BITS), count << PAGE_BITS, cached);
+            own = false;
+            count = 0;
+        }
+    }
+};
+
+// The command `seq` (sent; its interrupts maybe signalled already) writes `ranges` (physical): its pages held, those
+// marked neither by the cache nor here marked as this file's own.
+template <typename Mark>
+inline void Add(std::uint64_t seq, const std::vector<std::pair<std::uint32_t, std::uint32_t>>& ranges, Mark mark) {
+    const std::uint32_t number = static_cast<std::uint32_t>(seq);
+    std::scoped_lock lock{mutex};
+    Run run;
+    bool any = false;
+    for (const auto& [addr, size] : ranges) {
+        std::uint32_t first = 0, last = 0;
+        if (!Pages(addr, size, first, last)) {
+            continue;
+        }
+        any = true;
+        for (std::uint32_t i = first; i < last; i++) {
+            until[i].store(number, std::memory_order_release);
+            if (!cache_marked[i] && !own_marked[i]) {
+                own_marked[i] = true;
+                own_pages.push_back(i);
+                own_marks.fetch_add(1, std::memory_order_relaxed);
+                run.Add(mark, i, true);
+            }
+        }
+    }
+    run.Flush(mark, true);
+    if (any) {
+        last_held.store(number, std::memory_order_release);
+        held_commands.fetch_add(1, std::memory_order_relaxed);
+    }
+}
+
+// The commands up to `done` run and their own marks taken: their pages let go (the marks of this file's own stay
+// until Settle).
+inline void Release(std::uint64_t done) {
+    released.store(static_cast<std::uint32_t>(done), std::memory_order_release);
+}
+
+// A VBlank: the pages marked as this file's own and held by no command since the VBlank before unmarked (those the
+// cache marks itself now just left to it).
+template <typename Mark>
+inline void Settle(Mark mark) {
+    std::scoped_lock lock{mutex};
+    const std::uint32_t before = settled;
+    settled = last_held.load(std::memory_order_acquire);
+    if (own_pages.empty()) {
+        return;
+    }
+    std::sort(own_pages.begin(), own_pages.end());
+    Run run;
+    std::size_t kept = 0;
+    for (const std::uint32_t page : own_pages) {
+        if (IsHeld(page) || Past(until[page].load(std::memory_order_acquire), before)) {
+            own_pages[kept++] = page;
+            continue;
+        }
+        own_marked[page] = false;
+        if (!cache_marked[page]) {
+            run.Add(mark, page, false);
+        }
+    }
+    run.Flush(mark, false);
+    own_pages.resize(kept);
+}
+// A game's end (the GPU commands' thread stopped, its marks given): every page let go.
+template <typename Mark>
+inline void ReleaseAll(Mark mark) {
+    std::scoped_lock lock{mutex};
+    released.store(last_held.load(std::memory_order_acquire), std::memory_order_release);
+    std::sort(own_pages.begin(), own_pages.end());
+    Run run;
+    for (const std::uint32_t page : own_pages) {
+        own_marked[page] = false;
+        if (!cache_marked[page]) {
+            run.Add(mark, page, false);
+        }
+    }
+    run.Flush(mark, false);
+    own_pages.clear();
+}
+
+// The GPU's cache marks [start, start + size) `cached`: noted. With pages held or marked as this file's own among
+// them: the others marked by `mark` (as this file's own), those left as they are (one it unmarks kept as this
+// file's own, for Settle), and true (the caller does nothing more).
+template <typename Mark>
+inline bool Note(std::uint32_t start, std::uint32_t size, bool cached, Mark mark) {
+    std::uint32_t first = 0, last = 0;
+    if (!Pages(start, size, first, last)) {
+        return false;
+    }
+    std::scoped_lock lock{mutex};
+    bool any = false;
+    for (std::uint32_t i = first; i < last; i++) {
+        cache_marked[i] = cached;
+        any = any || own_marked[i] || IsHeld(i);
+    }
+    if (!any) {
+        return false;
+    }
+    Run run;
+    for (std::uint32_t i = first; i < last; i++) {
+        if (!own_marked[i] && !IsHeld(i)) {
+            run.Add(mark, i, cached);
+        } else if (!cached && !own_marked[i]) {
+            own_marked[i] = true; // (held, the cache letting it go: this file's own until Settle)
+            own_pages.push_back(i);
+        }
+    }
+    run.Flush(mark, cached);
+    return true;
+}
+
+// A game's start: nothing held, nothing marked.
+inline void Clear() {
+    std::scoped_lock lock{mutex};
+    for (std::atomic<std::uint32_t>& page : until) {
+        page.store(0, std::memory_order_relaxed);
+    }
+    released.store(0, std::memory_order_release);
+    last_held.store(0, std::memory_order_release);
+    settled = 0;
+    cache_marked.reset();
+    own_marked.reset();
+    own_pages.clear();
+}
+} // namespace EmuSuNi::Held
+#endif
+''')
+# memory.cpp: the GPU cache's marks noted, the held pages kept; the CPU on held pages waits as on written ones.
+patch('src/core/memory.cpp', '#include "common/emusuni_late_guard.h"\n',
+      '#include "common/emusuni_late_guard.h"\n#include "common/emusuni_held_pages.h"\n')
+patch('src/core/memory.cpp', r'''    if (EmuSuNi::Async::DeferMark(start, size, cached)) {
+        return;
+    }
+''', r'''    if (EmuSuNi::Async::DeferMark(start, size, cached)) {
+        return;
+    }
+    // (01.52) 3ds-picture-late's held pages (common/emusuni_held_pages.h): the cache's mark noted, a held page left
+    // the GPU cache's until it's let go.
+    if (!EmuSuNi::Held::own &&
+        EmuSuNi::Held::Note(start, size, cached,
+                            [this](u32 s, u32 n, bool c) { RasterizerMarkRegionCached(s, n, c); })) {
+        return;
+    }
+''')
+patch('src/core/memory.cpp', r'''
+                if (!EmuSuNi::DirtyPages::Any(paddr_region_start + (emusuni_start - region_start),
+                                              emusuni_end - emusuni_start)) {
+''', r'''
+                if (!EmuSuNi::DirtyPages::Any(paddr_region_start + (emusuni_start - region_start),
+                                              emusuni_end - emusuni_start) &&
+                    !EmuSuNi::Held::Touched(paddr_region_start + (emusuni_start - region_start), // (01.52)
+                                            emusuni_end - emusuni_start)) {
+''')
+patch('src/core/memory.cpp', r'''                if (!EmuSuNi::DirtyPages::Any(emusuni_first, emusuni_size)) {
+                    if (EmuSuNi::DirtyPages::AllPending(emusuni_first, emusuni_size)) {
+''', r'''                if (!EmuSuNi::DirtyPages::Any(emusuni_first, emusuni_size) &&
+                    !EmuSuNi::Held::Touched(emusuni_first, emusuni_size)) { // (01.52)
+                    if (EmuSuNi::DirtyPages::AllPending(emusuni_first, emusuni_size)) {
+''')
+patch('src/core/memory.cpp',
+      '            if (emusuni_host != nullptr && !EmuSuNi::DirtyPages::Any(emusuni_paddr, read_size)) {\n',
+      '            if (emusuni_host != nullptr && !EmuSuNi::DirtyPages::Any(emusuni_paddr, read_size) &&\n'
+      '                !EmuSuNi::Held::Any(emusuni_paddr, read_size)) { // (01.52)\n')
+# emusuni_async_pica.h: the commands run so far (read with their marks) let their pages go once the marks are taken.
+patch('src/video_core/emusuni_async_pica.h', '#include "common/emusuni_dirty_pages.h"\n',
+      '#include "common/emusuni_dirty_pages.h"\n#include "common/emusuni_held_pages.h" // (01.52)\n')
+patch('src/video_core/emusuni_async_pica.h', r'''    void Deliver(bool interrupts_too) {
+        unsigned taken = 0;
+        Deferred taking;
+        {
+            std::lock_guard lock{m};
+            if (done_commands == 0 && done.marks.empty()) {
+                return;
+            }
+            taking.marks.swap(done.marks);
+            if (interrupts_too) {
+                taken = done_commands;
+                done_commands = 0;
+                taking.interrupts.swap(done.interrupts);
+            }
+        }
+        for (const Deferred::Mark& page : taking.marks) {
+            mark(page.start, page.size, page.cached);
+        }
+''', r'''    void Deliver(bool interrupts_too) {
+        unsigned taken = 0;
+        Deferred taking;
+        std::uint64_t run_so_far = 0; // (01.52) the commands whose marks these are (or were taken before)
+        {
+            std::lock_guard lock{m};
+            run_so_far = completed_seq.load(std::memory_order_acquire);
+            if (done_commands != 0 || !done.marks.empty()) {
+                taking.marks.swap(done.marks);
+                if (interrupts_too) {
+                    taken = done_commands;
+                    done_commands = 0;
+                    taking.interrupts.swap(done.interrupts);
+                }
+            }
+        }
+        for (const Deferred::Mark& page : taking.marks) {
+            mark(page.start, page.size, page.cached);
+        }
+        // (01.52) 3ds-picture-late: their held pages let go (common/emusuni_held_pages.h), after their own marks.
+        Held::Release(run_so_far);
+''')
+# gpu.cpp: what a command writes (a list's colour and depth buffers at each draw - its draw registers, immediate
+# mode's vertices, the end of a draw's mode -, a fill's buffers, a copy's output), held from its sending.
+patch('src/video_core/gpu.cpp', '#include "common/emusuni_late_guard.h" // (01.52)\n',
+      '#include "common/emusuni_late_guard.h" // (01.52)\n#include "common/emusuni_held_pages.h" // (01.52)\n')
+patch('src/video_core/gpu.cpp',
+      'static bool EmuSuNiScanList(Memory::MemorySystem& memory, PAddr addr, u32 size, u32& irqs, u32& jumps,\n',
+      r'''// (01.52) The buffers the scanned list draws into (its colour and depth buffers at each draw, whatever their
+// write enables), held from its sending (common/emusuni_held_pages.h). A draw: the draw registers, immediate mode's
+// vertices (Mario Kart 7's 64x64 pictures: no draw register), the end of a draw's mode (gpu_mode).
+static std::vector<std::pair<PAddr, u32>> emusuni_scan_outs;
+static void EmuSuNiScanDrew(const Pica::RegsInternal& regs) {
+    const auto& fb = regs.framebuffer.framebuffer;
+    const u32 pixels = fb.GetWidth() * fb.GetHeight();
+    const auto add = [](PAddr addr, u32 size) {
+        if (addr == 0 || size == 0) {
+            return;
+        }
+        for (const auto& [a, s] : emusuni_scan_outs) {
+            if (a == addr && s == size) {
+                return;
+            }
+        }
+        emusuni_scan_outs.emplace_back(addr, size);
+    };
+    add(fb.GetColorBufferPhysicalAddress(), pixels * Pica::FramebufferRegs::BytesPerColorPixel(fb.color_format));
+    add(fb.GetDepthBufferPhysicalAddress(), pixels * Pica::FramebufferRegs::BytesPerDepthPixel(fb.depth_format));
+}
+// (01.52) A PC test: EMUSUNI_3DS_TEST_NO_HELD set, nothing held (01.51's way: Mario Kart 7 hangs).
+static bool EmuSuNiHeldOff() {
+#if defined(__ORBIS__)
+    return false;
+#else
+    static const bool off = std::getenv("EMUSUNI_3DS_TEST_NO_HELD") != nullptr;
+    return off;
+#endif
+}
+static void EmuSuNiScanWrote(const Pica::RegsInternal& regs, u32 reg) {
+    constexpr u32 mode = PICA_REG_INDEX(pipeline.gpu_mode);
+    constexpr u32 data0 = PICA_REG_INDEX(pipeline.vs_default_attributes_setup.set_value[0]);
+    if (reg == mode || (reg >= data0 && reg < data0 + 3 && regs.pipeline.vs_default_attributes_setup.index == 0xF)) {
+        EmuSuNiScanDrew(regs);
+    }
+}
+static bool EmuSuNiScanList(Memory::MemorySystem& memory, PAddr addr, u32 size, u32& irqs, u32& jumps,
+''')
+patch('src/video_core/gpu.cpp', '    irqs = 0;\n    jumps = 0;\n    u32 read = 0;\n',
+      '    irqs = 0;\n    jumps = 0;\n    u32 read = 0;\n    emusuni_scan_outs.clear(); // (01.52)\n')
+patch('src/video_core/gpu.cpp', '    const auto draw_ranges = [&](bool indexed) {\n',
+      '    const auto draw_ranges = [&](bool indexed) {\n        EmuSuNiScanDrew(regs); // (01.52) its buffers\n')
+patch('src/video_core/gpu.cpp', r'''
+                    regs.reg_array[id] = (regs.reg_array[id] & ~bytes) | (words[i + 1 + extra] & bytes);
+                    emusuni_scan_delay.AddCommands(1 + extra);
+''', r'''
+                    regs.reg_array[id] = (regs.reg_array[id] & ~bytes) | (words[i + 1 + extra] & bytes);
+                    emusuni_scan_delay.AddCommands(1 + extra);
+                    EmuSuNiScanWrote(regs, id); // (01.52)
+''')
+patch('src/video_core/gpu.cpp', r'''                if (reg < Pica::RegsInternal::NUM_REGS) {
+                    regs.reg_array[reg] = (regs.reg_array[reg] & ~bytes) | (value & bytes);
+                }
+''', r'''                if (reg < Pica::RegsInternal::NUM_REGS) {
+                    regs.reg_array[reg] = (regs.reg_array[reg] & ~bytes) | (value & bytes);
+                    EmuSuNiScanWrote(regs, reg); // (01.52)
+                }
+''')
+patch('src/video_core/gpu.cpp', '            u64 emusuni_delay = 0;\n            if (emusuni_late) {\n',
+      '            u64 emusuni_delay = 0;\n'
+      '            std::vector<std::pair<PAddr, u32>> emusuni_outs; // (01.52) what it writes, held below\n'
+      '            if (emusuni_late) {\n')
+patch('src/video_core/gpu.cpp', r'''                    if (!known) {
+                        emusuni_delay_differs = true; // (its GPU time unknown from here on: as before)
+                    }
+''', r'''                    if (!known) {
+                        emusuni_delay_differs = true; // (its GPU time unknown from here on: as before)
+                    }
+                    emusuni_outs = emusuni_scan_outs; // (01.52)
+''')
+patch('src/video_core/gpu.cpp', '\n                    emusuni_late_count[EmuSuNiLateFills]++;\n', r'''
+                    emusuni_late_count[EmuSuNiLateFills]++;
+                    if (fill.start1 != 0 && fill.end1 > fill.start1) { // (01.52) its buffers
+                        emusuni_outs.emplace_back(VirtualToPhysicalAddress(fill.start1), fill.end1 - fill.start1);
+                    }
+                    if (fill.start2 != 0 && fill.end2 > fill.start2) {
+                        emusuni_outs.emplace_back(VirtualToPhysicalAddress(fill.start2), fill.end2 - fill.start2);
+                    }
+''')
+patch('src/video_core/gpu.cpp', '\n                    emusuni_late_count[EmuSuNiLateCopies]++;\n', r'''
+                    emusuni_late_count[EmuSuNiLateCopies]++;
+                    { // (01.52) its output (a texture copy's lines with their gaps, as GPU::TextureCopy's)
+                        u32 out = config.output_width * config.output_height * BytesPerPixel(config.output_format);
+                        if (config.is_texture_copy) {
+                            const u32 bytes = config.texture_copy.size & ~0xFu;
+                            const u32 width = config.texture_copy.output_width * 16;
+                            const u32 gap = config.texture_copy.output_gap * 16;
+                            out = gap == 0 || width == 0 ? bytes : (bytes / width + 1) * (width + gap);
+                        }
+                        emusuni_outs.emplace_back(config.GetPhysicalOutputAddress(), out);
+                    }
+''')
+patch('src/video_core/gpu.cpp', '\n                emusuni_signal ? static_cast<u32>(emusuni_irq) : 0xFFu);\n', r'''
+                emusuni_signal ? static_cast<u32>(emusuni_irq) : 0xFFu);
+            if (emusuni_late && !emusuni_outs.empty() && !EmuSuNiHeldOff()) { // (01.52) held until it has run
+                EmuSuNi::Held::Add(emusuni_seq, emusuni_outs, [this](u32 start, u32 size, bool cached) {
+                    impl->memory.RasterizerMarkRegionCached(start, size, cached);
+                });
+            }
+''')
+patch('src/video_core/gpu.cpp', '    EmuSuNi::DirtyPages::UnmarkAll();\n',
+      '    EmuSuNi::DirtyPages::UnmarkAll();\n    EmuSuNi::Held::Clear(); // (01.52) none held\n')
+patch('src/video_core/gpu.cpp', r'''
+    EmuSuNi::LateGuard::title.store(0); // (01.52) no game: its safety net off
+''', r'''
+    EmuSuNi::LateGuard::title.store(0); // (01.52) no game: its safety net off
+    // (01.52) The pages still held let go (the GPU commands' thread stopped, its marks given).
+    EmuSuNi::Held::ReleaseAll([this](u32 start, u32 size, bool cached) {
+        impl->memory.RasterizerMarkRegionCached(start, size, cached);
+    });
+    EmuSuNi::Held::Clear();
+''')
+patch('src/video_core/gpu.cpp', r'''
+        if (++emusuni_late_frames == 600) {
+''', r'''
+        // (01.52) The pages marked as the held pages' own and held no more let go (common/emusuni_held_pages.h).
+        EmuSuNi::Held::Settle([this](u32 start, u32 size, bool cached) {
+            impl->memory.RasterizerMarkRegionCached(start, size, cached);
+        });
+        if (++emusuni_late_frames == 600) {
+''')
+patch('src/video_core/gpu.cpp', '''interrupts unlike the thread's {}{}",\n''',
+      '''interrupts unlike the thread's {}{}; "\n'''
+      '''                     "held pages: {} commands, the CPU waited on them {} times, {} pages marked for them "\n'''
+      '''                     "(01.52)",\n''')
+patch('src/video_core/gpu.cpp',
+      '''                     emusuni_delay_differs.load() ? " (the commands as before from then on)" : "");\n''',
+      '''                     emusuni_delay_differs.load() ? " (the commands as before from then on)" : "",\n'''
+      '''                     EmuSuNi::Held::held_commands.exchange(0), EmuSuNi::Held::cpu_waits.exchange(0),\n'''
+      '''                     EmuSuNi::Held::own_marks.exchange(0));\n''')
+# --- 01.53: 3ds-draw-memo's state counter moved on only by a real change (Xenoblade's GPU commands, 2026-11-17). In
+# Xenoblade's busiest parts on the console (300,000-400,000 draws each 600 frames, 10-12 ms a frame of GPU commands)
+# the framebuffer memo never hit (0 of 400,794) and the marking and the texture units' memos hit half the time: every
+# draw's marking of its framebuffer's regions (a surface's region marked valid, the region marked as its dirty one)
+# moved the counter on, whether or not it changed anything, and with it every memo of the next draw. Now a region
+# marked valid that was valid, one marked invalid that was invalid, a dirty region that was all that surface's
+# already: nothing changed, the counter stays (EMUSUNI_3DS_TEST_MEMO_CHECK on the PC still checks every memo's
+# answer against the full lookup).
+patch('src/video_core/rasterizer_cache/surface_base.h', r'''    void MarkValid(SurfaceInterval interval) {
+        invalid_regions.erase(interval);
+        modification_tick++;
+#ifdef EMUSUNI_PORT
+        EmuSuNi::DrawMemo::Changed(); // (01.32) common/emusuni_draw_memo.h
+#endif
+    }
+
+    void MarkInvalid(SurfaceInterval interval) {
+        invalid_regions.insert(interval);
+        modification_tick++;
+#ifdef EMUSUNI_PORT
+        EmuSuNi::DrawMemo::Changed(); // (01.32)
+#endif
+    }
+''', r'''    void MarkValid(SurfaceInterval interval) {
+#ifdef EMUSUNI_PORT
+        const bool emusuni_changes = !IsRegionValid(interval); // (01.53) valid already: the memos stand
+#endif
+        invalid_regions.erase(interval);
+        modification_tick++;
+#ifdef EMUSUNI_PORT
+        if (emusuni_changes) {
+            EmuSuNi::DrawMemo::Changed(); // (01.32) common/emusuni_draw_memo.h
+        }
+#endif
+    }
+
+    void MarkInvalid(SurfaceInterval interval) {
+#ifdef EMUSUNI_PORT
+        const bool emusuni_changes = !boost::icl::contains(invalid_regions, interval); // (01.53)
+#endif
+        invalid_regions.insert(interval);
+        modification_tick++;
+#ifdef EMUSUNI_PORT
+        if (emusuni_changes) {
+            EmuSuNi::DrawMemo::Changed(); // (01.32)
+        }
+#endif
+    }
+''')
+patch('src/video_core/rasterizer_cache/rasterizer_cache.h', r'''    if (region_owner_id) {
+#ifdef EMUSUNI_PORT
+        EmuSuNi::DrawMemo::Changed(); // (01.32)
+#endif
+        dirty_regions.set({invalid_interval, region_owner_id});
+''', r'''    if (region_owner_id) {
+#ifdef EMUSUNI_PORT
+        // (01.53) The region all this surface's dirty region already: the memos stand.
+        const bool emusuni_owned = [&] {
+            PAddr at = addr;
+            for (const auto& [region, owner] : RangeFromInterval(dirty_regions, invalid_interval)) {
+                if (owner != region_owner_id || boost::icl::first(region) > at) {
+                    return false;
+                }
+                at = std::max<PAddr>(at, boost::icl::last_next(region));
+            }
+            return at >= addr + size;
+        }();
+        if (!emusuni_owned) {
+            EmuSuNi::DrawMemo::Changed(); // (01.32)
+        }
+#endif
+        dirty_regions.set({invalid_interval, region_owner_id});
+''')
+
+# --- 01.78: the cheat engine can't keep the emulation for good (report of Lei, 2026-11-18: with a 3DS cheat on the
+# app froze and the console had to be restarted; it didn't happen again). Azahar's Gateway engine (gateway_cheat.cpp)
+# runs each cheat's lines in one go every 50 million cycles, on the emulation thread:
+# - A loop's passes are counted by its C0 line, and a D2 line (the full terminator) sends the pass back to it. A
+#   condition false inside the loop left the following lines skipped - the C0 line among them, as the D2 sent the pass
+#   back while still skipping - so the count never moved and the loop never ended: the emulation stopped there for
+#   good, the app with it (a pass's condition false now and then: "it didn't happen again"). Now the D2 ends the pass's
+#   conditions before it goes back, as its name says.
+# - At most 1,000,000 lines a pass (the longest real loops run some thousands): a loop of 4 billion passes
+#   (C0000000 FFFFFFFF) or any other that doesn't end stops there until the engine's next turn, said in the log.
+# - A patch line (EXXXXXXX YYYYYYYY: YYYYYYYY bytes from the code's own lines after it) took any count and read past
+#   the code's end into memory not its own, writing it into the game: now no more than those lines hold.
+patch('src/core/cheats/gateway_cheat.cpp', r'''
+namespace Cheats {
+
+struct State {
+''', r'''
+// EmuSuNi (01.78, scripts/build-3ds-core.sh): the engine's limits - a pass's lines at most (the longest real loops run
+// some thousands), and its log lines (at most 20 an app's run).
+#include <atomic>
+namespace EmuSuNiCheats {
+constexpr std::size_t MOST_LINES = 1000000;
+inline std::atomic<int> said{0};
+} // namespace EmuSuNiCheats
+
+namespace Cheats {
+
+struct State {
+''')
+patch('src/core/cheats/gateway_cheat.cpp', r'''
+static inline void FullTerminateOp(State& state) {
+    if (state.loop_flag) {
+        state.current_line_nr = state.loop_back_line - 1;
+    } else {
+''', r'''
+static inline void FullTerminateOp(State& state) {
+    if (state.loop_flag) {
+        state.current_line_nr = state.loop_back_line - 1;
+        // EmuSuNi (01.78): the pass's conditions end here. Left on, a condition false inside the loop skipped its C0
+        // line - the one that counts the passes - on every pass after: the loop never ended (the app frozen).
+        state.if_flag = 0;
+    } else {
+''')
+patch('src/core/cheats/gateway_cheat.cpp', r'''
+    u32 num_bytes = line.value;
+    u32 addr = line.address + state.offset;
+    system.InvalidateCacheRange(addr, num_bytes);
+''', r'''
+    u32 num_bytes = line.value;
+    u32 addr = line.address + state.offset;
+    // EmuSuNi (01.78): no more bytes than the code's own lines after this one hold (8 a line). A larger count read
+    // past the code's end, memory not its own, and wrote it into the game.
+    const std::size_t emusuni_room = (cheat_lines.size() - 1 - state.current_line_nr) * 8;
+    if (num_bytes > emusuni_room) {
+        if (EmuSuNiCheats::said.fetch_add(1) < 20) {
+            LOG_WARNING(Core_Cheats, "EmuSuNi: cheats: a patch line (E) asks for {} bytes and its code holds {}: those "
+                                     "written (01.78)",
+                        num_bytes, emusuni_room);
+        }
+        num_bytes = static_cast<u32>(emusuni_room);
+    }
+    system.InvalidateCacheRange(addr, num_bytes);
+''')
+patch('src/core/cheats/gateway_cheat.cpp', r'''
+    for (state.current_line_nr = 0; state.current_line_nr < cheat_lines.size();
+         state.current_line_nr++) {
+        auto line = cheat_lines[state.current_line_nr];
+''', r'''
+    std::size_t emusuni_lines = 0; // EmuSuNi (01.78): at most EmuSuNiCheats::MOST_LINES lines a pass
+    for (state.current_line_nr = 0; state.current_line_nr < cheat_lines.size();
+         state.current_line_nr++) {
+        if (++emusuni_lines > EmuSuNiCheats::MOST_LINES) {
+            if (EmuSuNiCheats::said.fetch_add(1) < 20) {
+                LOG_WARNING(Core_Cheats, "EmuSuNi: cheats: {} ran {} lines in one pass (a loop that doesn't end?): "
+                                         "stopped there until the engine's next turn (01.78)",
+                            name, EmuSuNiCheats::MOST_LINES);
+            }
+            break;
+        }
+        auto line = cheat_lines[state.current_line_nr];
+''')
+
+# --- 01.78: a 3DS game's save that can't be made is said once (Lei's report, 2026-11-18: Super Mario 3D Land stayed on
+# "Saving..." for good after its start, the app's data on a 1 TB USB drive; on the PC the same with the save's folder
+# refused, EMUSUNI_3DS_TEST_MKDIR_FAIL=title/00040000/00054000). Upstream's FormatSaveData makes the save's folder and
+# its format file and answers "done" whether or not they were made; the game reads the format back, finds none and
+# asks again every few frames, for good, and nothing says why. Now a game's first such failure writes a line in the
+# log (the path, the reason) and the app's toast once (LibRetro::DisplayMessage; its two lines are the app's texts, in
+# its languages): on a USB drive, use another drive or turn off Keep My Data on the USB Drive; on the PS4's own
+# storage, its free space. The game itself goes on as upstream (asking).
+addfile('src/core/file_sys/emusuni_save_folder.h', r'''// EmuSuNi (01.78, scripts/build-3ds-core.sh).
+// A game's own save (its SD save data) whose folder or format file couldn't be made: upstream answers "done" anyway,
+// the game finds no format and asks again every few frames, for good ("Saving..." in Super Mario 3D Land, Lei's
+// report), and nothing says why. A game's first such failure: a line in the log (the path, the reason) and the app's
+// toast once (its two lines are the app's texts, in its languages).
+#pragma once
+
+#include <atomic>
+#include <cerrno>
+#include <cstddef>
+#include <cstring>
+#include <mutex>
+#include <string>
+#include "common/logging/log.h"
+
+namespace EmuSuNi::SaveFolder {
+
+inline std::mutex lock;
+inline std::string message;              // for the screen (empty: none)
+inline std::atomic<bool> told{false};    // this game's said already
+inline std::atomic<bool> pending{false}; // the message waits for the next frame
+
+// The app's data on a USB drive: its paths go through /usb0 ... /usb7 (the app's src/Portable.cpp).
+inline bool OnUsb(const std::string& path) {
+    for (std::size_t at = path.find("/usb"); at != std::string::npos; at = path.find("/usb", at + 1)) {
+        if (at + 4 < path.size() && path[at + 4] >= '0' && path[at + 4] <= '9')
+            return true;
+    }
+    return false;
+}
+
+// `what` (the save's folder, or its format file) couldn't be made; `err` the errno (0: none given).
+inline void Failed(const std::string& what, int err) {
+    if (told.exchange(true))
+        return;
+    LOG_ERROR(Service_FS,
+              "EmuSuNi: a game's save couldn't be made: {} ({}): the game can't save and asks again and again; said "
+              "on screen once (01.78)",
+              what, err != 0 ? std::strerror(err) : "no reason given");
+    {
+        std::lock_guard guard{lock};
+        message = OnUsb(what) ? "The 3DS game's save folder couldn't be made on the USB drive.\n"
+                                "Use another drive, or turn off Keep My Data on the USB Drive."
+                              : "The 3DS game's save folder couldn't be made on this PS4.\n"
+                                "The game can't save: check the PS4's free space.";
+    }
+    pending.store(true);
+}
+
+// The message for the screen, once (empty: none). Every frame, on the emulation thread.
+inline std::string Take() {
+    if (!pending.exchange(false))
+        return {};
+    std::lock_guard guard{lock};
+    std::string out;
+    out.swap(message);
+    return out;
+}
+
+// A game's end: the next game's failure is said again.
+inline void Reset() {
+    told.store(false);
+    pending.store(false);
+    std::lock_guard guard{lock};
+    message.clear();
+}
+
+} // namespace EmuSuNi::SaveFolder
+''')
+patch('src/core/file_sys/archive_source_sd_savedata.cpp',
+      '#include "core/file_sys/errors.h"\n',
+      '#include "core/file_sys/emusuni_save_folder.h" // EmuSuNi (01.78)\n#include "core/file_sys/errors.h"\n')
+patch('src/core/file_sys/archive_source_sd_savedata.cpp', r'''
+        std::string concrete_mount_point = GetSaveDataPath(mount_point, program_id);
+        FileUtil::DeleteDirRecursively(concrete_mount_point);
+        FileUtil::CreateFullPath(concrete_mount_point);
+
+        // Write the format metadata
+        std::string metadata_path = GetSaveDataMetadataPath(mount_point, program_id);
+        FileUtil::IOFile file(metadata_path, "wb");
+
+        if (file.IsOpen()) {
+            file.WriteBytes(&format_info, sizeof(format_info));
+            return ResultSuccess;
+        }
+        return ResultSuccess;
+''', r'''
+        std::string concrete_mount_point = GetSaveDataPath(mount_point, program_id);
+        FileUtil::DeleteDirRecursively(concrete_mount_point);
+        errno = 0; // EmuSuNi (01.78): the reason of a folder that can't be made
+        const bool emusuni_made = FileUtil::CreateFullPath(concrete_mount_point);
+        const int emusuni_why = errno;
+
+        // Write the format metadata
+        std::string metadata_path = GetSaveDataMetadataPath(mount_point, program_id);
+        FileUtil::IOFile file(metadata_path, "wb");
+
+        if (file.IsOpen()) {
+            file.WriteBytes(&format_info, sizeof(format_info));
+            return ResultSuccess;
+        }
+        // EmuSuNi (01.78): neither its folder nor its format file: the game will ask again and again, for good - said
+        // once (core/file_sys/emusuni_save_folder.h). The answer stays upstream's.
+        EmuSuNi::SaveFolder::Failed(emusuni_made ? metadata_path : concrete_mount_point,
+                                    emusuni_made ? errno : emusuni_why);
+        return ResultSuccess;
+''')
+patch('src/citra_libretro/citra_libretro.cpp',
+      '#include "core/cheats/emusuni_cheats.h" // (01.26)\n',
+      '#include "core/cheats/emusuni_cheats.h" // (01.26)\n'
+      '#include "core/file_sys/emusuni_save_folder.h" // (01.78)\n')
+patch('src/citra_libretro/citra_libretro.cpp',
+      "    EmuSuNi::Room::Tick(); // (01.04) 3DS online: the screen's messages and the log (one test when it's off)\n",
+      "    EmuSuNi::Room::Tick(); // (01.04) 3DS online: the screen's messages and the log (one test when it's off)\n"
+      "    // (01.78) A game's save that couldn't be made, said once (core/file_sys/emusuni_save_folder.h).\n"
+      "    if (const std::string emusuni_save = EmuSuNi::SaveFolder::Take(); !emusuni_save.empty())\n"
+      "        LibRetro::DisplayMessage(emusuni_save.c_str());\n")
+patch('src/citra_libretro/citra_libretro.cpp',
+      "    EmuSuNi::AppCheats::Forget(Core::System::GetInstance().CheatEngine()); // (01.26) the app's cheats out\n",
+      "    EmuSuNi::AppCheats::Forget(Core::System::GetInstance().CheatEngine()); // (01.26) the app's cheats out\n"
+      "    EmuSuNi::SaveFolder::Reset(); // (01.78) the next game's save said again\n")
+# --- The performance specialist's JIT improvements (scripts/3ds-jit-patches.py, their own file), after every patch
+# above: the same patch() and addfile(), on the files as patched so far; no file, nothing. The sections of this
+# script go above this block, so that theirs always come last.
+_jit_patches = os.path.join(here, '3ds-jit-patches.py')
+if os.path.exists(_jit_patches):
+    with open(_jit_patches, encoding='utf-8') as _jit_file:
+        exec(compile(_jit_file.read(), _jit_patches, 'exec'))
+    print("Azahar: scripts/3ds-jit-patches.py applied")
 written = 0
 for (repo, path), text in patched.items():
     full = repo + '/' + path
@@ -18828,9 +24795,10 @@ HANDOVER_GLOBALS="emusuni_3ds_image_serial emusuni_3ds_wait_image emusuni_3ds_im
 # renderer_vulkan.cpp, 3ds-black-watch), for the app's reset by itself.
 HANDOVER_GLOBALS="$HANDOVER_GLOBALS emusuni_3ds_black_ms"
 # (01.09) And the CIA installer's five, for the app's menus (citra_libretro/emusuni_cia.h; src/ThreeDsCia.cpp
-# declares them, weakly defined there until this object brings them).
+# declares them, weakly defined there until this object brings them); (01.47) and what the core does of the
+# app's switches for a game's extras, emusuni_3ds_extras_caps (weak in the app too).
 CIA_GLOBALS="emusuni_3ds_cia_version emusuni_3ds_cia_info emusuni_3ds_cia_install emusuni_3ds_installed
-  emusuni_3ds_uninstall"
+  emusuni_3ds_uninstall emusuni_3ds_extras_caps"
 mapfile -t OWN < <(find "$BUILD/src" -name '*.a' -not -path '*/CMakeFiles/*' | sort)
 mapfile -t DEPS < <(find "$BUILD/externals" -name '*.a' -not -path '*/CMakeFiles/*' | sort)
 OTHERS=$(find "$BUILD" -name '*.a' -not -path '*/CMakeFiles/*' -not -path "$BUILD/src/*" -not -path "$BUILD/externals/*")
@@ -18908,9 +24876,11 @@ if [ "$HOST" != 1 ]; then
   clang-21 $PS4C_CHECK -O2 -DEMUSUNI_3DS=1 -c "$PROJECT/port/ps4_n64.c" -o "$OUT/check_ps4_n64.o"
   # (__dso_handle: ld.lld defines it for the program, as for the other C++ cores. The threads' hook,
   # emusuni_3ds_thread, is the app's to define in port/: a note if it isn't yet. (01.09) The free space,
-  # emusuni_disk_space_known, port/ps4_diskfree.c's, for the CIA installer.)
+  # emusuni_disk_space_known, port/ps4_diskfree.c's, for the CIA installer. (01.41) dynarmic's hook for each
+  # translated block, emusuni_3ds_jit_block, port/ps4_3ds_profile.cpp's (the console's CPU profile).)
   APP_GIVES=$( { llvm-nm-21 --defined-only "$OUT/check_ps4_new.o" "$OUT/check_ps4_n64.o" | awk 'NF >= 3 {print $3}';
-                 echo __dso_handle; echo emusuni_3ds_thread; echo emusuni_disk_space_known; } | sort -u)
+                 echo __dso_handle; echo emusuni_3ds_thread; echo emusuni_disk_space_known;
+                 echo emusuni_3ds_jit_block; } | sort -u)
   rm -f "$OUT/check_ps4_new.o" "$OUT/check_ps4_n64.o"
   if ! grep -qs "emusuni_3ds_thread" "$PROJECT"/port/*.c "$PROJECT"/port/*.cpp; then
     echo "Azahar: note: port/ doesn't define emusuni_3ds_thread yet (the app won't link without it)"

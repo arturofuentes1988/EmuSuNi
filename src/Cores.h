@@ -101,4 +101,14 @@ extern const CoreApi GBALINK;
 // with-openbor).
 extern const CoreApi OPENBOR;
 #endif
+#ifdef EMUSUNI_VITA
+// The PS Vita (experimental): Vita3K, its libretro core (scripts/build-vita-core.sh; builds with EMUSUNI_VITA,
+// with-vita).
+extern const CoreApi VITA3K;
+#endif
+#ifdef EMUSUNI_MUGEN
+// (01.27) MUGEN (experimental): Ikemen GO as a libretro core (scripts/build-mugen-core.sh; builds with EMUSUNI_MUGEN,
+// with-mugen). Its Go runtime starts before its first game (src/MugenGo.h).
+extern const CoreApi IKEMEN;
+#endif
 }  // namespace Cores

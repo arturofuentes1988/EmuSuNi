@@ -6,7 +6,12 @@
 // (its words in any order, its parts around " - ", close spellings; the region of the file name
 // preferred; a list's numbering in front of it, "01 Comix Zone", left out when the name itself finds
 // nothing), saved as covers/<console>/<file name>.png (covers/snes/..., covers/nes/...: src/CoverFiles.h). A game
-// without a box gets its title screen ("Named_Titles").
+// without a box gets its title screen ("Named_Titles"). (01.84) A name no picture is named like - a translation's, a
+// hack's, a Spanish one - is looked for after it by its cartridge as No-Intro names it (its file's CRC32, from
+// NetplayLibrary; a Game Boy Advance's, DS's or Mega Drive's game code, in libretro-database's list), then without the
+// translation's marks, in English, by a part of it: never in its place (a game found before is found the same way).
+// Then, last, LaunchBox's Games Database: its own search by the game's name, its console's games only (Settings ->
+// Covers and Bezels -> LaunchBox Covers, on unless turned off).
 
 #pragma once
 

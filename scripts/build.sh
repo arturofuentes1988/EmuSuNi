@@ -36,7 +36,17 @@
 # (00.80 to 00.82 also built PicoDrive for the 32X and Beetle NeoPop and Cygne for the Neo Geo Pockets and the
 # WonderSwans: gone in 00.83 with those consoles and the Sega CD; their sources stay in /root/src.)
 #   build.sh [setup] [no-n64] [no-ps1] [no-nds] [no-psp] [no-dc] [no-sega] [no-arcade] [no-3ds] [with-saturn]
-#            [no-pce] [no-atari] [no-jaguar] [with-gblink] [with-openbor]
+#            [no-pce] [no-atari] [no-jaguar] [with-gblink] [with-openbor] [with-vita] [with-mugen]
+#   (with-vita: with the PS Vita, experimental and out by default - Vita3K's libretro core, by
+#   scripts/build-vita-core.sh in <build>/vita, from ~/vita-port/src/vita3k-libretro and ~/vita-port/src/ffmpeg-7.1;
+#   about 28 MiB less flexible memory free at display ready with it.)
+#   (with-vita-nokeys: the same console, without Sony's keys in the eboot - Vita3K's source has them written in it,
+#   and with-vita puts them inside. This core, in <build>/vita-nokeys, takes them from a file of the player's,
+#   /data/EmuSuNi/system/vita3k/vita-keys.txt (scripts/make-vita-keys.py makes it), checked by its SHA-256; without
+#   it the firmware can't be installed nor an encrypted game started, and the app says so. Instead of with-vita.)
+#   (with-mugen: MUGEN, experimental and out by default (01.27) - Ikemen GO, a Go program, as a libretro core: its
+#   tab, Roms/mugen, a folder per game - by scripts/build-mugen-core.sh in <build>/mugen with Go 1.27.4 in
+#   /opt/go1.27.4, Ikemen GO in ~/src/Ikemen-GO and its Go modules in ~/src/ikemen-gomod; about 14 MiB of code and data.)
 #                                                 (setup: configure from scratch; no-n64: without
 #                                                 the Nintendo 64; no-ps1: without the PlayStation;
 #                                                 no-nds: without the Nintendo DS; no-psp: without
@@ -67,6 +77,8 @@ ATARI=ON
 JAGUAR=ON
 GBLINK=OFF
 OPENBOR=OFF
+VITA=OFF
+MUGEN=OFF
 for arg in "$@"; do
     case "$arg" in
         setup) SETUP=1 ;;
@@ -85,8 +97,15 @@ for arg in "$@"; do
         no-jaguar) JAGUAR=OFF ;;
         with-gblink) GBLINK=ON ;;
         with-openbor) OPENBOR=ON ;;
+        with-vita) VITA=ON ;;
+        with-vita-nokeys) VITA_NOKEYS=ON ;;
+        with-mugen) MUGEN=ON ;;
     esac
 done
+# (with-vita-nokeys is the PS Vita too, and wins over with-vita: no keys inside.)
+if [ "${VITA_NOKEYS:-OFF}" = ON ]; then
+    VITA=NOKEYS
+fi
 BUILD="${EMUSUNI_BUILD:-$HOME/emusuni-build}"
 if [ "$N64" = ON ]; then
     bash "$HERE/build-n64-core.sh" "$BUILD/n64"
@@ -195,6 +214,31 @@ EXTRA="$EXTRA -DA2600_CORE_OBJECT=$A2600_OBJECT -DA7800_CORE_OBJECT=$A7800_OBJEC
 bash "$HERE/build-mbedtls.sh" "$BUILD/mbedtls"
 MBEDTLS_LIB_DIR="$BUILD/mbedtls/lib"
 EXTRA="$EXTRA -DMBEDTLS_LIB_DIR=$MBEDTLS_LIB_DIR"
+# The PS Vita's core (with-vita; after Mbed TLS, whose sources its decryption is built with): about ten minutes the
+# first time (FFmpeg 7.1 too), then only what changed.
+VITA_KEYS_SHA256=""
+if [ "$VITA" = ON ]; then
+    bash "$HERE/build-vita-core.sh" "$BUILD/vita"
+    VITA_OBJECT="$BUILD/vita/vita_core.o"
+elif [ "$VITA" = NOKEYS ]; then
+    # (with-vita-nokeys: its own folder, so that both cores stay built; the SHA-256 the player's keys file is taken
+    # by, the same for the core and the app.)
+    VITA_CORE_NOKEYS=1 bash "$HERE/build-vita-core.sh" "$BUILD/vita-nokeys"
+    VITA_OBJECT="$BUILD/vita-nokeys/vita_core.o"
+    VITA_KEYS_SHA256="$(cat "$BUILD/vita-nokeys/vita-keys.sha256")"
+else
+    VITA_OBJECT=""
+fi
+EXTRA="$EXTRA -DVITA_CORE_OBJECT=$VITA_OBJECT -DVITA_KEYS_SHA256=$VITA_KEYS_SHA256"
+# MUGEN's object (with-mugen: Ikemen GO and Go's test): about four minutes the first time (Go's library and Ikemen for
+# the PS4), then about one.
+if [ "$MUGEN" = ON ]; then
+    bash "$HERE/build-mugen-core.sh" "$BUILD/mugen"
+    MUGEN_OBJECT="$BUILD/mugen/mugen_core.o"
+else
+    MUGEN_OBJECT=""
+fi
+EXTRA="$EXTRA -DMUGEN_CORE_OBJECT=$MUGEN_OBJECT"
 # Opus (00.23, the voice chat's codec: src/Voice.h), by scripts/build-opus.sh (once; 20 s).
 bash "$HERE/build-opus.sh" "$BUILD/opus"
 OPUS_DIR="$BUILD/opus"
@@ -264,6 +308,18 @@ else
     if ! grep -q "^OPENBOR_CORE_OBJECT:FILEPATH=$OPENBOR_OBJECT\$" "$BUILD/CMakeCache.txt"; then
         AGAIN+=(-DOPENBOR_CORE_OBJECT="$OPENBOR_OBJECT")
     fi
+    # The PS Vita's core in (with-vita) or out, or a build directory from before it.
+    if ! grep -q "^VITA_CORE_OBJECT:FILEPATH=$VITA_OBJECT\$" "$BUILD/CMakeCache.txt"; then
+        AGAIN+=(-DVITA_CORE_OBJECT="$VITA_OBJECT")
+    fi
+    # Its keys inside (with-vita) or from the player's file (with-vita-nokeys), or a build directory from before that.
+    if ! grep -q "^VITA_KEYS_SHA256:STRING=$VITA_KEYS_SHA256\$" "$BUILD/CMakeCache.txt"; then
+        AGAIN+=(-DVITA_KEYS_SHA256="$VITA_KEYS_SHA256")
+    fi
+    # MUGEN's object in (with-mugen) or out, or a build directory from before it (01.27).
+    if ! grep -q "^MUGEN_CORE_OBJECT:FILEPATH=$MUGEN_OBJECT\$" "$BUILD/CMakeCache.txt"; then
+        AGAIN+=(-DMUGEN_CORE_OBJECT="$MUGEN_OBJECT")
+    fi
     # Atari's cores in or out (no-atari), or a build directory from before them (00.90).
     if ! grep -q "^A2600_CORE_OBJECT:FILEPATH=$A2600_OBJECT\$" "$BUILD/CMakeCache.txt"; then
         AGAIN+=(-DA2600_CORE_OBJECT="$A2600_OBJECT")
@@ -296,6 +352,12 @@ fi
 # At most 4 jobs: the PC blue-screened once under a full load.
 ninja -C "$BUILD" -j "${EMUSUNI_JOBS:-4}"
 ls -la "$BUILD/emusuni_eboot/eboot.bin"
+# (with-vita-nokeys) The eboot was to have none of Sony's keys inside: each one of Vita3K's source, and FFmpeg's
+# OpenMG ones, is looked for in it (as bytes and as text), and the build stops here when one is there.
+if [ "$VITA" = NOKEYS ]; then
+    python3 -I "$HERE/make-vita-keys.py" --scan "$BUILD/emusuni_eboot/eboot.bin" \
+        "${VITA3K_DIR:-$HOME/vita-port/src/vita3k-libretro}" "${VITA_FFMPEG_DIR:-$HOME/vita-port/src/ffmpeg-7.1}"
+fi
 # The program is taken out of the PS4's flexible memory, the games' pool too, at load: every load segment of the
 # OELF whole, its .bss included (MemSiz, not FileSiz: the free memory the owner's logs show at "display ready"
 # fell by code, data and .bss each time cores came in: 00.32 -> 00.33, 00.33 -> 00.36, 00.46 -> 00.48, 00.55 ->

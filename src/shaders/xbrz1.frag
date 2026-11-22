@@ -140,5 +140,5 @@ void main()
     res = mix(res, blendPix, get_left_ratio(pos, origin, direction, scale));
   }
 
-  FragColor = vec4(res, 1.0);
+  FragColor = vec4(Grade(res), 1.0);
 }

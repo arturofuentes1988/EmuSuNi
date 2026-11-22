@@ -941,7 +941,8 @@ bool BuildChain(Mode mode, const Source& source, uint32_t picture_w, uint32_t pi
   switch (mode)
   {
   case Mode::Sharpen:
-    pass(SHARPEN, Target::Screen, -1, {picture}, true);
+    // ((01.72) plain: the colours only, read as Texture Filtering says.)
+    pass(SHARPEN, Target::Screen, -1, {picture}, source.plain ? source.plain_smooth : true);
     break;
   case Mode::PixelArt:
   {
@@ -1265,6 +1266,18 @@ void SetConstants()
     }
     default:
       break;
+    }
+    // (01.72) The colours, by the pass to the screen (src/shaders/common.glsl Grade: Const3), but Tube TV's (its
+    // constants take Const3). HD Sharpen's pass as plain (the GPU Upscaler Off) doesn't sharpen.
+    const Source& source = s_job.source;
+    if (pass.shader == SHARPEN && source.plain)
+      push.origin[2] = 0.0f;
+    if (pass.output < 0 && pass.shader != CRT && source.Graded())
+    {
+      push.con[12] = FloatBits(1.0f / std::clamp(source.gamma, 0.25f, 4.0f));
+      push.con[13] = FloatBits(std::clamp(source.brightness, 0.0f, 4.0f));
+      push.con[14] = FloatBits(std::clamp(source.saturation, 0.0f, 4.0f));
+      push.con[15] = 1;
     }
   }
 }
@@ -1651,7 +1664,7 @@ bool Draw(ImDrawList* dl, Mode mode, const Source& source, ImVec2 min, ImVec2 ma
   s_job.y0 = y0;
   s_job.x1 = x1;
   s_job.y1 = y1;
-  char what[160];
+  char what[256];
   const bool steps = mode == Mode::Edges || mode == Mode::NaturalHD || mode == Mode::NaturalAI;
   const bool drawn = source.kind == Source::Kind::Drawn || (source.kind == Source::Kind::Auto && source.exact);
   static const char* const CRT_NAMES[4] = {" (TV", " (Arcade Monitor", " (Studio Monitor", " (Intense"};
@@ -1663,9 +1676,14 @@ bool Draw(ImDrawList* dl, Mode mode, const Source& source, ImVec2 min, ImVec2 ma
   if (source.part_count > 0)
     std::snprintf(parts, sizeof(parts), ", %d part%s", std::clamp(source.part_count, 1, 2),
                   source.part_count > 1 ? "s" : "");
-  std::snprintf(what, sizeof(what), "%s%s, %ux%u%s%s to %dx%d, %zu passes", Name(mode), crt, source.width,
-                source.height, !steps ? "" : drawn ? " (drawn)" : " (pixel art)", parts, x1 - x0, y1 - y0,
-                s_chain.size());
+  // ((01.72) The colours, when not the picture's own; "colours only": the GPU Upscaler Off.)
+  char colours[96] = "";
+  if (source.Graded() && mode != Mode::Crt)
+    std::snprintf(colours, sizeof(colours), "; brightness %.2f, gamma %.2f, saturation %.2f", source.brightness,
+                  source.gamma, source.saturation);
+  std::snprintf(what, sizeof(what), "%s%s%s, %ux%u%s%s to %dx%d, %zu passes%s", Name(mode),
+                mode == Mode::Sharpen && source.plain ? " (colours only)" : "", crt, source.width, source.height,
+                !steps ? "" : drawn ? " (drawn)" : " (pixel art)", parts, x1 - x0, y1 - y0, s_chain.size(), colours);
   if (s_logged != what)
   {
     s_logged = what;

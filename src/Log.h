@@ -6,6 +6,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 namespace App
 {
@@ -29,6 +30,19 @@ void LogSync();
 // The logs of the sessions before (00.70): <base>.log becomes <base>-1.log, <base>-1.log becomes <base>-2.log, ...
 // up to <base>-<keep>.log (the oldest goes). Before <base>.log is opened.
 void RotateLogs(const std::string& base, int keep);
+// (01.25, the owner: "más compatible con ps5" - players on a PS5 saw /data/EmuSuNi never made, or its folders lost at
+// every start) The data folder at the start, as the log's "data:" lines: whether it is there (else mkdir's error),
+// whether a file can be made, written, renamed and deleted in it (else the step and its error), where /data and it
+// lead when they are links, and its starts' count (data-check.ini, one more each start: none before this one again and
+// again - the folder emptied between starts - shows here). Nothing of the player's.
+// (01.27) *found: whether the file was written, and the count before this start - the start's choice of where the
+// player's data lives (src/Portable.h's Local).
+struct DataDirCheck
+{
+  bool writable = false;
+  long starts_before = 0;  // (0: none recorded)
+};
+std::vector<std::string> CheckDataDir(const std::string& data_dir, DataDirCheck* found = nullptr);
 
 // The regular flexible memory free now, in MiB (a reading, as LogMemory's: see FlexibleMostMiB).
 int FlexibleFreeMiB();

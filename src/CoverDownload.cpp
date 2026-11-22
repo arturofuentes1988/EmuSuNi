@@ -4,7 +4,9 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <ctime>
 #include <map>
 #include <memory>
@@ -19,7 +21,9 @@
 #include "Image.h"
 #include "Log.h"
 #include "Net.h"
+#include "NetplayLibrary.h"
 #include "Saves.h"
+#include "Settings.h"
 
 namespace CoverDownload
 {
@@ -794,6 +798,727 @@ bool HasOwnCover(const CoverFiles::Index& own, const Library::Game& game)
   }
   return false;
 }
+
+// ---- (01.84, the owner: «si mejora la búsqueda, ahora puedes traducir los nombres de español a inglés para tener mejor
+// resultado») A name no picture is named like - a translation's or a hack's ("Gekido [E]", "Galahad (ESP)"), a Spanish
+// one ("Pokémon Negro") - is looked for in other ways after it, never in its place (a game found today is found the same
+// way, with the same picture): by its cartridge as No-Intro names it (its file's CRC32, its game code), then without the
+// translation's marks, in English, by a part of it. A translation gets its original's cover.
+
+// A title's words as Words() reads them - lower case, "'" and "." dropped -, accents as plain letters ("Pokémon" =
+// "pokemon", "Böbl" = "bobl": libretro's names have none), its parts' " - " and its "+" kept as words of their own.
+std::vector<std::string> Tokens(const std::string& title)
+{
+  // Latin-1's letters (U+00C0 to U+00FF: UTF-8 0xC3 0x80 to 0xBF) without their accents.
+  static const char PLAIN[] = "AAAAAAACEEEEIIIIDNOOOOOxOUUUUYTsaaaaaaaceeeeiiiidnooooo/ouuuuyty";
+  std::vector<std::string> tokens;
+  std::string word;
+  auto flush = [&] {
+    if (!word.empty())
+      tokens.push_back(word);
+    word.clear();
+  };
+  for (size_t i = 0; i < title.size(); i++)
+  {
+    unsigned char c = static_cast<unsigned char>(title[i]);
+    if (c == 0xC3 && i + 1 < title.size() && (static_cast<unsigned char>(title[i + 1]) & 0xC0) == 0x80)
+      c = static_cast<unsigned char>(PLAIN[static_cast<unsigned char>(title[++i]) - 0x80]);
+    if (std::isalnum(c))
+    {
+      word += static_cast<char>(std::tolower(c));
+    }
+    else if (c != '\'' && c != '.')
+    {
+      flush();
+      if (c == '+' || (c == '-' && i > 0 && title[i - 1] == ' ' && i + 1 < title.size() && title[i + 1] == ' '))
+        tokens.push_back(std::string(1, static_cast<char>(c)));
+    }
+  }
+  flush();
+  return tokens;
+}
+
+std::string FromTokens(const std::vector<std::string>& tokens)
+{
+  std::string out;
+  for (const std::string& token : tokens)
+    out += (out.empty() ? "" : " ") + token;
+  return out;
+}
+
+// Words of a dictionary's entry, split at spaces.
+std::vector<std::string> Spaced(const char* text)
+{
+  std::vector<std::string> words;
+  std::istringstream in(text);
+  for (std::string word; in >> word;)
+    words.push_back(word);
+  return words;
+}
+
+// The title of a translation's or a hack's name without its marks: its groups ("(ESP)", "[E]", "[TEsp]", "(Eng)",
+// "(ESP-v0.9b)", "[T+Spa]", "[beta]"), a mark without its bracket ("Kid Klown ESP)"), with "_" for spaces the region
+// and languages glued to it ("Garfield_2_Europe_En,Fr,De"), a "1" ending it ("Golden Sun 1", "Megaman Zero 1": the first
+// game has no number); a lone "I" as 1 ("Final Fantasy I y II": Words() reads II to IX).
+std::vector<std::string> Untagged(const std::string& stem)
+{
+  static const std::set<std::string> MARKS = {"esp", "eng", "spa", "tesp", "beta"};
+  static const std::set<std::string> GLUED = {"europe", "usa", "japan", "world", "spain", "eur", "jpn", "en", "fr",
+                                              "de", "es", "it", "nl", "pt", "sv", "no", "da", "fi"};
+  std::string name = stem;
+  const bool glued = name.find('_') != std::string::npos && name.find(' ') == std::string::npos;
+  std::replace(name.begin(), name.end(), '_', ' ');
+  std::vector<std::string> tokens = Tokens(TitlePart(name));
+  while (tokens.size() > 1 && (MARKS.count(tokens.back()) > 0 || (glued && GLUED.count(tokens.back()) > 0) ||
+                               tokens.back() == "-" || tokens.back() == "+"))
+    tokens.pop_back();
+  if (tokens.size() > 1 && (tokens.back() == "1" || tokens.back() == "i"))
+    tokens.pop_back();
+  for (std::string& token : tokens)
+  {
+    if (token == "i")
+      token = "1";
+  }
+  return tokens;
+}
+
+// Spanish to English (the owner's games: «Pokémon Negro», «Buscando a Nemo», «Harry Potter II - Camara Secreta»): a
+// few known titles (the name's part before " - ", or the whole name), then phrases, then words. Only to look for a
+// picture by: its words in English are often enough (Find() compares them in any order, and parts of them).
+std::vector<std::string> InEnglish(std::vector<std::string> tokens)
+{
+  struct Entry
+  {
+    const char* spanish;
+    const char* english;
+  };
+  static const Entry TITLES[] = {
+      {"link no bouken", "zelda ii - the adventure of link"},
+      {"zelda dx", "legend of zelda - links awakening dx"},
+      {"pokemon pinball rz", "pokemon pinball - ruby sapphire"},
+      {"los sims en la ciudad", "urbz - sims in the city"},
+  };
+  static const Entry PHRASES[] = {
+      {"buscando a nemo", "finding nemo"},
+      {"los increibles", "the incredibles"},
+      {"monstruos sa", "monsters inc"},
+      {"el rey leon", "the lion king"},
+      {"hermano oso", "brother bear"},
+      {"piratas del caribe", "pirates of the caribbean"},
+      {"el cofre del hombre muerto", "dead mans chest"},
+      {"la maldicion de la perla negra", "the curse of the black pearl"},
+      {"las cronicas de narnia", "the chronicles of narnia"},
+      {"el leon la bruja y el armario", "the lion the witch and the wardrobe"},
+      {"harry potter 1 -", "harry potter and the"},
+      {"harry potter ii -", "harry potter and the"},
+      {"harry potter iii -", "harry potter and the"},
+      {"harry potter iv -", "harry potter and the"},
+      {"harry potter v -", "harry potter and the"},
+      {"harry potter vi -", "harry potter and the"},
+      {"harry potter vii -", "harry potter and the"},
+      {"piedra filosofal", "philosophers stone"},
+      {"camara secreta", "chamber of secrets"},
+      {"prisionero de azkaban", "prisoner of azkaban"},
+      {"caliz de fuego", "goblet of fire"},
+      {"caliz del fuego", "goblet of fire"},
+      {"orden del fenix", "order of the phoenix"},
+      {"misterio del principe", "half blood prince"},
+      {"mundo misterioso", "mystery dungeon"},
+      {"exploradores de la oscuridad", "explorers of darkness"},
+      {"exploradores del tiempo", "explorers of time"},
+      {"exploradores del cielo", "explorers of sky"},
+      {"equipo de rescate rojo", "red rescue team"},
+      {"equipo de rescate azul", "blue rescue team"},
+      {"rojo fuego", "firered"},
+      {"verde hoja", "leafgreen"},
+      {"oro heartgold", "heartgold"},
+      {"plata soulsilver", "soulsilver"},
+      {"los sims", "the sims"},
+      {"las cartas sagradas", "the sacred cards"},
+      {"la leyenda de zelda", "the legend of zelda"},
+      {"el despertar de link", "links awakening"},
+      {"las tortugas ninja", "teenage mutant ninja turtles"},
+      {"el hombre arana", "spider man"},
+      {"los simpson", "the simpsons"},
+      {"los pitufos", "the smurfs"},
+      {"bob esponja", "spongebob squarepants"},
+      {"copa del mundo", "world cup"},
+      {"juegos olimpicos", "olympic games"},
+  };
+  static const Entry WORDS[] = {
+      {"y", "and"}, {"de", "of"}, {"del", "of the"}, {"la", "the"}, {"el", "the"}, {"los", "the"}, {"las", "the"},
+      {"en", "in"}, {"con", "with"}, {"contra", "vs"}, {"un", "a"}, {"una", "a"},
+      {"negro", "black"}, {"negra", "black"}, {"blanco", "white"}, {"blanca", "white"}, {"perla", "pearl"},
+      {"diamante", "diamond"}, {"platino", "platinum"}, {"oro", "gold"}, {"plata", "silver"}, {"cristal", "crystal"},
+      {"rojo", "red"}, {"roja", "red"}, {"azul", "blue"}, {"amarillo", "yellow"}, {"verde", "green"},
+      {"esmeralda", "emerald"}, {"rubi", "ruby"}, {"zafiro", "sapphire"}, {"edicion", "version"},
+      {"sombras", "shadows"}, {"sombra", "shadow"}, {"ciudad", "city"}, {"mundo", "world"}, {"leyenda", "legend"},
+      {"aventura", "adventure"}, {"aventuras", "adventures"}, {"guerra", "war"}, {"guerras", "wars"},
+      {"guerreros", "warriors"}, {"caballeros", "knights"}, {"tesoro", "treasure"}, {"tesoros", "treasures"},
+      {"cartas", "cards"}, {"oscuridad", "darkness"}, {"tiempo", "time"}, {"cielo", "sky"}, {"isla", "island"},
+      {"reino", "kingdom"}, {"rey", "king"}, {"princesa", "princess"}, {"espada", "sword"}, {"fuego", "fire"},
+      {"hielo", "ice"}, {"noche", "night"}, {"campeonato", "championship"},
+  };
+  auto replace = [&](const std::vector<std::string>& from, const std::vector<std::string>& to) {
+    for (size_t at = 0; !from.empty() && at + from.size() <= tokens.size();)
+    {
+      if (std::equal(from.begin(), from.end(), tokens.begin() + static_cast<std::ptrdiff_t>(at)))
+      {
+        tokens.erase(tokens.begin() + static_cast<std::ptrdiff_t>(at),
+                     tokens.begin() + static_cast<std::ptrdiff_t>(at + from.size()));
+        tokens.insert(tokens.begin() + static_cast<std::ptrdiff_t>(at), to.begin(), to.end());
+        at += to.size();
+      }
+      else
+      {
+        at++;
+      }
+    }
+  };
+  {
+    // (A known title is that game's name, whole: "Link no Bouken - The Legend of Zelda 2" is "Zelda II - ...".)
+    const auto dash = std::find(tokens.begin(), tokens.end(), std::string("-"));
+    const std::vector<std::string> first(tokens.begin(), dash);
+    for (const Entry& title : TITLES)
+    {
+      if (first == Spaced(title.spanish))
+        return Spaced(title.english);
+    }
+  }
+  for (const Entry& phrase : PHRASES)
+    replace(Spaced(phrase.spanish), Spaced(phrase.english));
+  for (const Entry& word : WORDS)
+    replace(Spaced(word.spanish), Spaced(word.english));
+  return tokens;
+}
+
+// The other names a game is looked for by when its own finds nothing, in order (each one once, none its own): without
+// its marks, its numbers 2 to 10 as words ("Kid Kool and the Quest for the 7 Wonder Herbs": libretro's "Seven"), in
+// English; then their parts around " - " alone: the first one (a series' name, often: two words and ten letters at
+// least, "Ganbare Goemon Gaiden 2" of "... - Tesoros del Mundo"), the others (three words at least: "Takahashi Meijin no
+// Bouken Shima IV" of "Hudson's Adventure Island IV - ...").
+enum class Part
+{
+  None,
+  First,
+  Other,
+};
+
+struct OtherName
+{
+  std::string name;
+  const char* how;
+  Part part;  // a part alone: the picture's title must have its numbers
+  std::vector<std::string> spelt;  // its numbers in words: the picture's title must have them ("Battle Mania Two" isn't
+                                   // "Battle Mania")
+};
+
+std::vector<OtherName> OtherNames(const std::string& stem)
+{
+  std::vector<OtherName> out;
+  std::set<std::string> seen = {NameKey(stem)};
+  auto add = [&](const std::vector<std::string>& tokens, const char* how, Part part,
+                 const std::vector<std::string>& spelt = {}) {
+    const std::string name = FromTokens(tokens);
+    if (!NameKey(name).empty() && seen.insert(NameKey(name)).second)
+      out.push_back({name, how, part, spelt});
+  };
+  const std::vector<std::string> plain = Untagged(stem);
+  add(plain, "without its marks", Part::None);
+  static const char* NUMBERS[] = {"two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"};
+  std::vector<std::string> spelt = plain, words;
+  for (std::string& token : spelt)
+  {
+    if (IsNumber(token) && token.size() <= 2 && std::stoi(token) >= 2 && std::stoi(token) <= 10)
+    {
+      token = NUMBERS[std::stoi(token) - 2];
+      words.push_back(token);
+    }
+  }
+  if (!words.empty())
+    add(spelt, "its numbers in words", Part::None, words);
+  const std::vector<std::string> english = InEnglish(plain);
+  add(english, "in English", Part::None);
+  for (const std::vector<std::string>* tokens : {&plain, &english})
+  {
+    std::vector<std::vector<std::string>> parts(1);
+    for (const std::string& token : *tokens)
+    {
+      if (token == "-")
+        parts.emplace_back();
+      else
+        parts.back().push_back(token);
+    }
+    for (size_t i = 0; parts.size() > 1 && i < parts.size(); i++)
+    {
+      int words = 0;
+      size_t letters = 0;
+      for (const std::string& token : parts[i])
+      {
+        const bool small = token == "+" || token == "the" || token == "a" || token == "an" || token == "and";
+        words += !small && !Filler(token) ? 1 : 0;
+        letters += token != "+" ? token.size() : 0;
+      }
+      if (i == 0 ? words >= 2 && letters >= 10 : words >= 3)
+        add(parts[i], "a part of its name", i == 0 ? Part::First : Part::Other);
+    }
+  }
+  return out;
+}
+
+// How sure a way of Find() is: the same name or words (0), a close one (1), a title that is only a part of the other
+// (2: "Pokemon Ranger" is "Pokemon Ranger - Sombras de Almia"'s first part, but another game).
+int WaySureness(const std::string& way)
+{
+  if (way == "same name" || way == "same words")
+    return 0;
+  return way == "its first part" || way == "their subtitle" ? 2 : 1;
+}
+
+// The picture of a name's other names (OtherNames) in a list, as Find() and Pick() find a name's: the surest way's, else
+// the first other name's. By a part alone, only a picture whose title has the part's numbers ("SD Gundam World" alone
+// is "SD Gundam World - Gachapon Senshi 2"'s first part: another game), found the surest ways: a first part, a series'
+// name, as a whole title or spelt alike, or as another title's first part with a number ("Ganbare Goemon Gaiden 2";
+// never "Sesame Street", "WWF WrestleMania": other games of the series); another part as a title, spelt alike or inside
+// one. By its numbers in words, one with those words. most_sureness: the least sure way taken (WaySureness).
+const std::string* FindOther(const NameIndex& index, const std::string& stem, const Library::Game& game, std::string* how,
+                             int most_sureness = 2)
+{
+  const std::string* best = nullptr;
+  int best_sureness = most_sureness + 1;
+  for (const OtherName& other : OtherNames(stem))
+  {
+    std::string way;
+    std::vector<const std::string*> found = index.Find(other.name, &way);
+    const std::vector<std::string> numbers = Numbers(Words(other.name));
+    const bool sure_way = WaySureness(way) == 0 || way == "close spelling";
+    if ((other.part == Part::First && !sure_way && !(way == "their first part" && !numbers.empty())) ||
+        (other.part == Part::Other && !sure_way && way != "inside"))
+      continue;
+    found.erase(std::remove_if(found.begin(), found.end(),
+                               [&](const std::string* name) {
+                                 const std::vector<std::string> words = Words(TitlePart(*name));
+                                 if (other.part != Part::None && Numbers(words) != numbers)
+                                   return true;
+                                 return std::any_of(other.spelt.begin(), other.spelt.end(), [&](const std::string& w) {
+                                   return std::find(words.begin(), words.end(), w) == words.end();
+                                 });
+                               }),
+                found.end());
+    const std::string* name = Pick(found, game);
+    if (name && WaySureness(way) < best_sureness)
+    {
+      best = name;
+      best_sureness = WaySureness(way);
+      *how = way + ", " + other.how + ": " + other.name;
+      if (best_sureness == 0)
+        break;
+    }
+  }
+  return best;
+}
+
+// A game code as No-Intro's lists and the cartridges have it, to compare them: capitals, no spaces, no revision
+// ("GM T-48073 -00"'s "T-48073 -00" and the list's "T-48073-00" are "T-48073").
+std::string CodeKey(const std::string& code)
+{
+  std::string out;
+  for (const char c : code)
+  {
+    if (c != ' ' && c != '\0')
+      out += static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+  }
+  if (out.size() > 3 && out[out.size() - 3] == '-' && std::isdigit(static_cast<unsigned char>(out[out.size() - 2])) &&
+      std::isdigit(static_cast<unsigned char>(out[out.size() - 1])))
+    out.resize(out.size() - 3);
+  return out;
+}
+
+// Its cartridge's game code, which a translation keeps: a Game Boy Advance's (its header's at 0xAC: "AGSE"), a DS's (at
+// 0x0C: "IRBO"), a Mega Drive's (at 0x180: "GM T-48073 -00"); "" another console's, none, or not read (a zipped DS game
+// isn't: its whole file would be).
+std::string GameCode(const Library::Game& game)
+{
+  const SystemId system = game.system;
+  if (system != SystemId::GBA && system != SystemId::NDS && system != SystemId::MD)
+    return {};
+  std::string head;
+  std::string extension = game.path.substr(std::min(game.path.size(), game.path.rfind('.')));
+  for (char& c : extension)
+    c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  if (extension == ".zip" || extension == ".7z")
+  {
+    std::vector<uint8_t> rom;
+    std::string error;
+    if (extension != ".zip" || system == SystemId::NDS || game.size > (32ull << 20) ||
+        !Library::ReadRom(game.path, system, &rom, &error))
+      return {};
+    head.assign(rom.begin(), rom.begin() + static_cast<std::ptrdiff_t>(std::min<size_t>(rom.size(), 0x200)));
+  }
+  else
+  {
+    FILE* file = std::fopen(game.path.c_str(), "rb");
+    if (!file)
+      return {};
+    head.resize(0x200);
+    head.resize(std::fread(head.data(), 1, head.size(), file));
+    std::fclose(file);
+  }
+  if (head.size() < 0x200)
+    return {};
+  auto letters = [&](size_t at, size_t n) {
+    std::string code = head.substr(at, n);
+    for (const char c : code)
+    {
+      if (!std::isupper(static_cast<unsigned char>(c)) && !std::isdigit(static_cast<unsigned char>(c)))
+        return std::string();
+    }
+    return code;
+  };
+  if (system == SystemId::GBA)
+    return static_cast<unsigned char>(head[0xB2]) == 0x96 ? letters(0xAC, 4) : std::string();
+  if (system == SystemId::NDS)
+  {
+    const std::string code = letters(0x0C, 4);
+    return code == "NTRJ" ? std::string() : code;  // (homebrew's)
+  }
+  // The Mega Drive: a plain ROM's ("SEGA" at 0x100; an SMD file's blocks are interleaved), its type ("GM ") left out.
+  if (head.compare(0x100, 4, "SEGA") != 0 && head.compare(0x101, 4, "SEGA") != 0)
+    return {};
+  const std::string code = CodeKey(head.substr(0x183, 11));
+  const bool digits = std::any_of(code.begin(), code.end(), [](char c) { return std::isdigit(static_cast<unsigned char>(c)); });
+  const bool plain = std::all_of(code.begin(), code.end(), [](char c) {
+    return std::isalnum(static_cast<unsigned char>(c)) || c == '-';
+  });
+  return code.size() >= 4 && digits && plain && code.find_first_not_of("0-") != std::string::npos ? code : std::string();
+}
+
+// No-Intro's names of a console's cartridges by their game code (CodeKey's), from libretro's database
+// (github.com/libretro/libretro-database, its metadat/no-intro: CC BY-SA 4.0): the console's list downloaded the first
+// time a game needs it (0.8 to 2.3 MB), its codes and names kept a month in covers/ (covers/gba/.libretro-codes.txt).
+constexpr const char* CODES_SERVER = "https://raw.githubusercontent.com/libretro/libretro-database/master/metadat/no-intro/";
+
+std::unordered_multimap<std::string, std::string> CodeList(const System& system, const std::string& covers_dir,
+                                                            const std::string& ca_file, Net::Session* session)
+{
+  const std::string cache = covers_dir + "/" + system.prefix + ".libretro-codes.txt";
+  std::string text;
+  if (Saves::Modified(cache) > 0 && std::time(nullptr) - Saves::Modified(cache) < 30 * 24 * 3600)
+    text = ReadTextFile(cache);
+  if (text.empty())
+  {
+    Net::Request request;
+    request.url = std::string(CODES_SERVER) + Net::UrlEncode(system.thumbnails) + ".dat";
+    request.ca_file = ca_file;
+    std::string dat, error;
+    const long status = Net::GetText(request, &dat, 16 << 20, &error, session);
+    size_t count = 0;
+    for (size_t at = 0; status == 200 && (at = dat.find("rom ( name \"", at)) != std::string::npos;)
+    {
+      at += 12;
+      const size_t quote = dat.find('"', at);
+      const size_t end = dat.find('\n', at);
+      const size_t serial = dat.find(" serial \"", at);
+      if (quote == std::string::npos)
+        break;
+      const size_t close = serial == std::string::npos ? std::string::npos : dat.find('"', serial + 9);
+      if (close == std::string::npos || (end != std::string::npos && close > end))
+        continue;
+      std::string name = dat.substr(at, quote - at);
+      const size_t dot = name.rfind('.');
+      if (dot != std::string::npos && name.size() - dot <= 5)
+        name.resize(dot);
+      std::istringstream codes(dat.substr(serial + 9, close - serial - 9));
+      for (std::string code; std::getline(codes, code, ',');)
+      {
+        code = CodeKey(code);
+        if (code.size() >= 4 && name.find('\t') == std::string::npos)
+        {
+          text += code + "\t" + name + "\n";
+          count++;
+        }
+      }
+    }
+    if (text.empty())
+    {
+      Log(std::string(system.tab) + ": libretro's list of game codes couldn't be read: " +
+          (error.empty() ? "HTTP " + std::to_string(status) : error));
+      return {};
+    }
+    WriteTextFile(cache, text);
+    Log(std::to_string(count) + " " + system.tab + " game codes listed by libretro's database");
+  }
+  std::unordered_multimap<std::string, std::string> codes;
+  std::istringstream in(text);
+  for (std::string line; std::getline(in, line);)
+  {
+    const size_t tab = line.find('\t');
+    if (tab != std::string::npos)
+      codes.emplace(line.substr(0, tab), line.substr(tab + 1));
+  }
+  return codes;
+}
+
+// ---- (01.84, the owner: «ok, usemos launchbox como respaldo») LaunchBox's Games Database (gamesdb.launchbox-app.com,
+// Unbroken Software): the box art of a game nothing else found - the last way, after its names, its CRC32 and its game
+// code -, looked for by its name in LaunchBox's own search (its site's: no key, no account), among its console's games
+// only, the surest ways of Find(); its picture made smaller when saved, as libretro's. One question a second at most, a
+// failed one asked twice more (2 s, then 5 s later); a game it doesn't find isn't asked about again for a month
+// (covers/.launchbox-missing.txt). Settings -> Covers and Bezels -> LaunchBox Covers turns it off.
+constexpr const char* LAUNCHBOX_SEARCH = "https://gamesdb-api.launchbox-app.com/api/search/";
+constexpr const char* LAUNCHBOX_IMAGES = "https://images.launchbox-app.com/";
+constexpr int64_t LAUNCHBOX_MISSING_SECONDS = 30 * 24 * 3600;
+
+// A console's name in LaunchBox ("" none: an arcade board's sets, OpenBOR's paks).
+const char* LaunchBoxPlatform(SystemId system)
+{
+  switch (system)
+  {
+  case SystemId::SNES: return "Super Nintendo Entertainment System";
+  case SystemId::NES: return "Nintendo Entertainment System";
+  case SystemId::N64: return "Nintendo 64";
+  case SystemId::GB: return "Nintendo Game Boy";
+  case SystemId::GBC: return "Nintendo Game Boy Color";
+  case SystemId::GBA: return "Nintendo Game Boy Advance";
+  case SystemId::PS1: return "Sony Playstation";
+  case SystemId::NDS: return "Nintendo DS";
+  case SystemId::PSP: return "Sony PSP";
+  case SystemId::DC: return "Sega Dreamcast";
+  case SystemId::SG1000: return "Sega SG-1000";
+  case SystemId::SMS: return "Sega Master System";
+  case SystemId::GG: return "Sega Game Gear";
+  case SystemId::MD: return "Sega Genesis";
+  case SystemId::THREEDS: return "Nintendo 3DS";
+  case SystemId::SATURN: return "Sega Saturn";
+  case SystemId::PCE: return "NEC TurboGrafx-16";
+  case SystemId::A2600: return "Atari 2600";
+  case SystemId::A7800: return "Atari 7800";
+  case SystemId::JAGUAR: return "Atari Jaguar";
+#ifdef EMUSUNI_VITA
+  case SystemId::VITA: return "Sony Playstation Vita";
+#endif
+  default: return "";
+  }
+}
+
+struct LaunchBoxGame
+{
+  std::string name, platform, thumb;  // "Gekido Advance: Kintaro's Revenge", "Nintendo Game Boy Advance", "<id>.png"
+};
+
+// The games of LaunchBox's answer: {"count":2,"data":[{"gameKey":18840,"name":"...","platformName":"...",
+// "thumbName":"....png"}, ...]}; those without a picture left out.
+std::vector<LaunchBoxGame> LaunchBoxGames(const std::string& json)
+{
+  std::vector<LaunchBoxGame> games;
+  size_t start = json.find("\"data\"");
+  if (start == std::string::npos || (start = json.find('[', start)) == std::string::npos)
+    return games;
+  auto read_string = [&](size_t* i) {  // *i at its opening quote; after its closing one when done
+    std::string value;
+    for ((*i)++; *i < json.size() && json[*i] != '"'; (*i)++)
+    {
+      if (json[*i] != '\\' || *i + 1 >= json.size())
+      {
+        value += json[*i];
+        continue;
+      }
+      const char next = json[++*i];
+      if (next == 'u' && *i + 4 < json.size() &&
+          std::all_of(json.begin() + static_cast<std::ptrdiff_t>(*i + 1), json.begin() + static_cast<std::ptrdiff_t>(*i + 5),
+                      [](char c) { return std::isxdigit(static_cast<unsigned char>(c)) != 0; }))
+      {
+        const unsigned code = static_cast<unsigned>(std::stoul(json.substr(*i + 1, 4), nullptr, 16));
+        *i += 4;
+        if (code < 0x80)
+        {
+          value += static_cast<char>(code);
+        }
+        else if (code < 0x800)
+        {
+          value += static_cast<char>(0xC0 | (code >> 6));
+          value += static_cast<char>(0x80 | (code & 0x3F));
+        }
+        else
+        {
+          value += static_cast<char>(0xE0 | (code >> 12));
+          value += static_cast<char>(0x80 | ((code >> 6) & 0x3F));
+          value += static_cast<char>(0x80 | (code & 0x3F));
+        }
+      }
+      else
+      {
+        value += next == 'n' ? '\n' : next == 't' ? '\t' : next;
+      }
+    }
+    (*i)++;
+    return value;
+  };
+  LaunchBoxGame game;
+  bool in_game = false;
+  for (size_t i = start + 1; i < json.size(); i++)
+  {
+    const char c = json[i];
+    if (c == '{')
+    {
+      in_game = true;
+      game = {};
+    }
+    else if (c == '}')
+    {
+      if (in_game && !game.name.empty() && !game.thumb.empty() && game.thumb.find('/') == std::string::npos)
+        games.push_back(game);
+      in_game = false;
+    }
+    else if (c == ']' && !in_game)
+    {
+      break;
+    }
+    else if (c == '"' && in_game)
+    {
+      const std::string key = read_string(&i);
+      while (i < json.size() && (json[i] == ' ' || json[i] == ':'))
+        i++;
+      if (i < json.size() && json[i] == '"')
+      {
+        const std::string value = read_string(&i);
+        if (key == "name")
+          game.name = value;
+        else if (key == "platformName")
+          game.platform = value;
+        else if (key == "thumbName")
+          game.thumb = value;
+      }
+      i--;  // (the loop's i++ reads what follows)
+    }
+  }
+  return games;
+}
+
+// The texts LaunchBox is asked by: the name without its marks, then in English when that differs (words only: its search
+// reads them in any order).
+std::vector<std::string> LaunchBoxQueries(const std::string& stem)
+{
+  std::vector<std::string> queries;
+  const std::vector<std::string> plain = Untagged(stem);
+  for (const std::vector<std::string>& tokens : {plain, InEnglish(plain)})
+  {
+    std::string text;
+    for (const std::string& token : tokens)
+    {
+      if (token != "-" && token != "+")
+        text += (text.empty() ? "" : " ") + token;
+    }
+    if (!text.empty() && std::find(queries.begin(), queries.end(), text) == queries.end())
+      queries.push_back(text);
+  }
+  return queries;
+}
+
+// The game of LaunchBox's answer its names find (the console's games only; LaunchBox's ": " read as " - ", its accents
+// as plain letters): the ways of Find() but a part that is only a series' name ("Pokemon Ranger" of "Pokemon Ranger -
+// Sombras de Almia"), then its other names the same way (FindOther); nullptr none.
+const LaunchBoxGame* LaunchBoxMatch(const std::vector<LaunchBoxGame>& games, const char* platform,
+                                    const std::vector<std::string>& stems, const Library::Game& game, std::string* how)
+{
+  std::vector<std::string> names;
+  std::vector<const LaunchBoxGame*> of;
+  for (const LaunchBoxGame& entry : games)
+  {
+    if (entry.platform != platform)
+      continue;
+    std::string name = entry.name;
+    for (size_t at; (at = name.find(": ")) != std::string::npos;)
+      name.replace(at, 2, " - ");
+    for (size_t at; (at = name.find("\xE2\x80\x99")) != std::string::npos;)  // ’
+      name.replace(at, 3, "'");
+    names.push_back(FromTokens(Tokens(name)));
+    of.push_back(&entry);
+  }
+  if (names.empty())
+    return nullptr;
+  const NameIndex index(names);
+  for (const std::string& stem : stems)
+  {
+    std::string way;
+    const std::string* found = Pick(index.Find(stem, &way), game);
+    if (!found || WaySureness(way) > 1)
+      found = FindOther(index, stem, game, &way, 1);
+    if (found)
+    {
+      *how = way;
+      return of[static_cast<size_t>(found - names.data())];
+    }
+  }
+  return nullptr;
+}
+
+// ---- (01.69, the owner: «el buscador de carátulas solo ha encontrado la de street fighter, las otras de psvita no»)
+// libretro's PS Vita thumbnails are nine boxes (checked 17-11-2026: Street Fighter X Tekken among them, no Uncharted,
+// Mortal Kombat, God of War...). A PS Vita game libretro has none of is looked for by its title ID - "PCSE00023" in
+// its file's name, as the dumps are named - in HexFlow-Covers (github.com/Andiweli/HexFlow-Covers, the covers of the
+// Vita's HexFlow and RetroFlow launchers, 4 609 by title ID; CC BY-NC-SA 4.0, Andreas St.): one picture downloaded when
+// the player's covers are, into the player's covers folder, never in the package, the repository or our server.
+constexpr const char* HEXFLOW_VITA = "https://raw.githubusercontent.com/Andiweli/HexFlow-Covers/main/Covers/PSVita/";
+
+// The title ID in a file's name: four capitals and five digits on their own ("Mortal Kombat (PCSE00023) (NTSC)",
+// "MotorStorm RC (Japan) (v1.01) [PCSC00014]"); "" none.
+std::string VitaTitleId(const std::string& path)
+{
+  const size_t slash = path.rfind('/');
+  const std::string name = slash == std::string::npos ? path : path.substr(slash + 1);
+  for (size_t i = 0; i + 9 <= name.size(); i++)
+  {
+    const bool before = i == 0 || !std::isalnum(static_cast<unsigned char>(name[i - 1]));
+    const bool after = i + 9 == name.size() || !std::isalnum(static_cast<unsigned char>(name[i + 9]));
+    bool id = before && after;
+    for (size_t j = 0; j < 9 && id; j++)
+      id = j < 4 ? std::isupper(static_cast<unsigned char>(name[i + j])) != 0 :
+                   std::isdigit(static_cast<unsigned char>(name[i + j])) != 0;
+    if (id)
+      return name.substr(i, 9);
+  }
+  return {};
+}
+
+// ((01.81, the owner: «la Vita no encuentra carátulas») A PS Vita game's title ID as the download gets the game: the
+// menu hands over its names only (Menu.cpp NamesOf: no path), so 01.69 to 01.80 looked in an empty path and never asked
+// HexFlow-Covers. Its file's name (id: without the extension) has it too, and its key.)
+std::string VitaTitleIdOf(const Library::Game& game)
+{
+  for (const std::string* text : {&game.path, &game.id, &game.key})
+  {
+    const std::string id = VitaTitleId(*text);
+    if (!id.empty())
+      return id;
+  }
+  return {};
+}
+
+// The region a PS Vita title ID says, as libretro names it (its fourth letter: Sony's own games PCSA / PCSE America,
+// PCSB / PCSF Europe, PCSC / PCSG Japan, PCSD / PCSH Asia); "" another kind of ID.
+std::string VitaRegion(const std::string& id)
+{
+  if (id.size() != 9 || id.compare(0, 3, "PCS") != 0)
+    return {};
+  switch (id[3])
+  {
+  case 'A':
+  case 'E':
+    return "USA";
+  case 'B':
+  case 'F':
+    return "Europe";
+  case 'C':
+  case 'G':
+    return "Japan";
+  case 'D':
+  case 'H':
+    return "Asia";
+  default:
+    return {};
+  }
+}
 }  // namespace
 
 // A list made ready for Closest(): Download()'s index and the titles.
@@ -931,17 +1656,65 @@ Result Download(const std::vector<Library::Game>& games, const std::string& cove
   bool listed[SYSTEM_COUNT][KIND_COUNT] = {};
   std::string list_error[SYSTEM_COUNT];  // why a console's list couldn't be read
   bool github = true;  // GitHub as the second choice, until its connection fails
-  for (int i = 0; i < total; i++)
+  // ((01.84) No-Intro's names by game code, each console's read the first time a game needs it; the games looked at
+  // again at the end, once NetplayLibrary has read their files.)
+  std::unordered_multimap<std::string, std::string> code_lists[SYSTEM_COUNT];
+  bool codes_read[SYSTEM_COUNT] = {};
+  std::set<const Library::Game*> later;
+  // ((01.84) LaunchBox, unless turned off: its questions one a second at most, a failed one asked twice more; the games
+  // it didn't find (key, when), read the first time one is asked about.)
+  const bool launchbox = Settings::GetOn("covers_launchbox");
+  auto launchbox_last = std::chrono::steady_clock::now() - std::chrono::seconds(10);
+  std::map<std::string, int64_t> launchbox_missing;
+  bool missing_read = false;
+  const std::string missing_file = covers_dir + "/.launchbox-missing.txt";
+  auto launchbox_get = [&](const std::string& url, std::string* body, size_t max_bytes, std::string* error) {
+    long status = 0;
+    for (int attempt = 0; attempt < 3 && !cancel; attempt++)
+    {
+      const auto gap = std::chrono::milliseconds(attempt == 0 ? 1000 : attempt == 1 ? 2000 : 5000);
+      const auto since = std::chrono::steady_clock::now() - launchbox_last;
+      if (since < gap)
+        sceKernelUsleep(static_cast<unsigned>(std::chrono::duration_cast<std::chrono::microseconds>(gap - since).count()));
+      Net::Request request;
+      request.url = url;
+      request.ca_file = ca_file;
+      body->clear();
+      error->clear();
+      status = Net::GetText(request, body, max_bytes, error, &session);
+      launchbox_last = std::chrono::steady_clock::now();
+      if (status == 200 || (status >= 400 && status < 500 && status != 429))
+        break;
+    }
+    return status;
+  };
+  for (int i = 0; i < static_cast<int>(wanted.size()); i++)
   {
     while (pause && !cancel)
       sceKernelUsleep(200000);
+    // ((01.84) A game left for the end: once the files are read - 10 minutes at most, a game's time not counted.)
+    for (int waited = 0; i >= total && !cancel && waited < 3000 && !NetplayLibrary::GetProgress().finished;)
+    {
+      sceKernelUsleep(200000);
+      waited += pause ? 0 : 1;
+    }
     if (cancel)
       break;
-    const Library::Game& game = *wanted[i];
+    const Library::Game& listed_game = *wanted[i];
+    // ((01.69) A PS Vita game: its title ID, and the region it says when its name says none - "(NTSC)" isn't one -,
+    // libretro's picture of that region preferred.)
+    const std::string vita_id = IsVita(listed_game.system) ? VitaTitleIdOf(listed_game) : std::string();
+    Library::Game with_region;
+    if (!vita_id.empty() && listed_game.region.empty() && !VitaRegion(vita_id).empty())
+    {
+      with_region = listed_game;
+      with_region.region = VitaRegion(vita_id);
+    }
+    const Library::Game& game = with_region.path.empty() ? listed_game : with_region;
     const System& system = GetSystem(game.system);
     const int s = static_cast<int>(game.system);
     if (progress)
-      progress(i, total, game.title);
+      progress(std::min(i, total - 1), total, game.title);
     // The names the picture is looked for by: the game's own (its title when renamed, then its file's),
     // or an arcade game's romset full name and then its parent's (never the zip's name, "mslug").
     std::vector<std::string> stems = game.cover_names;
@@ -1036,6 +1809,63 @@ Result Download(const std::vector<Library::Game>& games, const std::string& cove
         }
       }
     }
+    // ((01.84) Nothing named like it: its cartridge as No-Intro names it - its file's CRC32 (NetplayLibrary's, read once
+    // on its thread and kept; a game whose file isn't read yet is looked at again at the end), else its game code -,
+    // then its other names (without a translation's marks, in English, a part of it). Never an arcade board's game.)
+    if (!name && game.cover_names.empty() && (!names[s][0].empty() || !names[s][1].empty()))
+    {
+      auto find_named = [&](const std::string& official, const std::string& way) {
+        Library::Game as = game;
+        as.id = official;  // (Pick: its own picture first)
+        for (int k = 0; k < KIND_COUNT && !name; k++)
+        {
+          std::string found_how;
+          name = indexes[s][k] ? Pick(indexes[s][k]->Find(official, &found_how), as) : nullptr;
+          if (name)
+          {
+            kind = &KINDS[k];
+            how = found_how + ", " + way;
+          }
+        }
+      };
+      uint32_t crc = 0;
+      uint64_t content = 0;
+      const bool covered = NetplayLibrary::Covered(system.key);
+      if (covered && NetplayLibrary::Lookup(game.path, &crc, &content))
+      {
+        const std::string official = NetplayLibrary::StandardName(system.key, crc, content);
+        char hex[16];
+        std::snprintf(hex, sizeof(hex), "%08X", static_cast<unsigned>(crc));
+        if (!official.empty())
+          find_named(official, std::string("its file's CRC32 ") + hex + ": " + official);
+      }
+      else if (covered && !NetplayLibrary::GetProgress().finished && later.insert(&listed_game).second)
+      {
+        wanted.push_back(&listed_game);
+        continue;
+      }
+      const std::string code = name ? std::string() : GameCode(game);
+      if (!code.empty())
+      {
+        if (!codes_read[s])
+        {
+          codes_read[s] = true;
+          code_lists[s] = CodeList(system, covers_dir, ca_file, &session);
+        }
+        const auto range = code_lists[s].equal_range(code);
+        for (auto it = range.first; it != range.second && !name; ++it)
+          find_named(it->second, "its game code " + code + ": " + it->second);
+      }
+      for (size_t n = 0; n < stems.size() && !name; n++)
+      {
+        for (int k = 0; k < KIND_COUNT && !name; k++)
+        {
+          name = indexes[s][k] ? FindOther(*indexes[s][k], stems[n], game, &how) : nullptr;
+          if (name)
+            kind = &KINDS[k];
+        }
+      }
+    }
     if (!name && !guesses.empty())
     {
       std::string maybe;
@@ -1043,7 +1873,65 @@ Result Download(const std::vector<Library::Game>& games, const std::string& cove
         maybe += (maybe.empty() ? "" : ", ") + guess;
       Log(game.key + ": maybe " + maybe + ": left for Find Cover");
     }
-    if (!name)
+    // ((01.84) Nothing found yet - nor a PS Vita game's title ID, HexFlow-Covers' below -: LaunchBox's search, unless it
+    // didn't find the game this month.)
+    std::string launchbox_picture;
+    const char* platform = LaunchBoxPlatform(game.system);
+    if (!name && vita_id.empty() && launchbox && *platform && game.cover_names.empty() && !cancel)
+    {
+      if (!missing_read)
+      {
+        missing_read = true;
+        std::istringstream in(ReadTextFile(missing_file));
+        for (std::string line; std::getline(in, line);)
+        {
+          const size_t tab = line.find('\t');
+          if (tab != std::string::npos)
+            launchbox_missing[line.substr(0, tab)] = std::atoll(line.c_str() + tab + 1);
+        }
+      }
+      const int64_t now = static_cast<int64_t>(std::time(nullptr));
+      const auto missing = launchbox_missing.find(game.key);
+      if (missing == launchbox_missing.end() || now - missing->second > LAUNCHBOX_MISSING_SECONDS || missing->second > now)
+      {
+        bool answered = false;
+        for (const std::string& query : LaunchBoxQueries(stems[0]))
+        {
+          std::string json, error;
+          const long status = launchbox_get(LAUNCHBOX_SEARCH + Net::UrlEncode(query), &json, 4 << 20, &error);
+          if (status != 200)
+          {
+            Log(game.key + ": LaunchBox: " + (error.empty() ? "HTTP " + std::to_string(status) : error));
+            answered = false;  // (not "not found": asked again next time)
+            break;
+          }
+          answered = true;
+          std::string way;
+          const std::vector<LaunchBoxGame> answer = LaunchBoxGames(json);
+          if (const LaunchBoxGame* found = LaunchBoxMatch(answer, platform, stems, game, &way))
+          {
+            launchbox_picture = std::string(LAUNCHBOX_IMAGES) + Net::UrlEncode(found->thumb);
+            Log(game.key + " -> LaunchBox: " + found->name + " (" + platform + ", " + way + ")");
+            break;
+          }
+        }
+        if (answered && launchbox_picture.empty())
+        {
+          launchbox_missing[game.key] = now;
+          std::string text;
+          for (const auto& [key, when] : launchbox_missing)
+          {
+            if (now - when <= LAUNCHBOX_MISSING_SECONDS)
+              text += key + "\t" + std::to_string(when) + "\n";
+          }
+          WriteTextFile(missing_file, text);
+        }
+      }
+    }
+    // ((01.69) A PS Vita game libretro has none of: HexFlow-Covers' picture of its title ID.)
+    const std::string direct =
+        !name && !vita_id.empty() ? std::string(HEXFLOW_VITA) + vita_id + ".png" : launchbox_picture;
+    if (!name && direct.empty())
     {
       // Why, for Games Without Cover (said under its list).
       if (names[s][0].empty())
@@ -1062,7 +1950,9 @@ Result Download(const std::vector<Library::Game>& games, const std::string& cove
       Log(game.key + ": no picture found");
       continue;
     }
-    if (kind != &KINDS[0] || how != "same name")
+    if (!direct.empty() && launchbox_picture.empty())
+      Log(game.key + " -> HexFlow-Covers " + vita_id + " (its title ID: libretro has no picture of it)");
+    else if (direct.empty() && (kind != &KINDS[0] || how != "same name"))
       Log(game.key + " -> " + *name + " (" + kind->label + ", " + how + ")");
     // (00.81: covers/<console>/, the Super Nintendo's covers/snes/ too.)
     const std::string target = CoverFiles::NewFile(covers_dir, game.key);
@@ -1075,12 +1965,28 @@ Result Download(const std::vector<Library::Game>& games, const std::string& cove
       result.already++;
       continue;
     }
-    auto is_png = [](const std::string& data) { return data.size() > 8 && data.compare(1, 3, "PNG") == 0; };
+    // ((01.69) A PNG - or a JPEG, which a few of HexFlow-Covers' ".png" files are: both read by what they are.)
+    auto is_png = [](const std::string& data) {
+      return (data.size() > 8 && data.compare(1, 3, "PNG") == 0) ||
+             (data.size() > 3 && static_cast<unsigned char>(data[0]) == 0xFF &&
+              static_cast<unsigned char>(data[1]) == 0xD8 && static_cast<unsigned char>(data[2]) == 0xFF);
+    };
     Net::Request request;
-    request.url = FolderUrl(*kind, system) + Net::UrlEncode(*name) + ".png";
+    request.url = !direct.empty() ? direct : FolderUrl(*kind, system) + Net::UrlEncode(*name) + ".png";
+    if (!direct.empty())
+      request.ca_file = ca_file;  // (GitHub: HTTPS)
     std::string picture, error;
-    long status = Net::GetText(request, &picture, 8 << 20, &error, &session);
-    if ((status != 200 || !is_png(picture)) && github)
+    // ((01.84) LaunchBox's: its whole picture, up to a few MB - made smaller below -, one question a second.)
+    long status = !launchbox_picture.empty() ? launchbox_get(direct, &picture, 16 << 20, &error) :
+                                               Net::GetText(request, &picture, 8 << 20, &error, &session);
+    if (!direct.empty() && launchbox_picture.empty() && status == 404)
+    {
+      result.not_found++;
+      result.why.emplace_back(game.key, "Neither libretro nor HexFlow-Covers has a picture for it");
+      Log(game.key + ": HexFlow-Covers has no " + vita_id + ".png either");
+      continue;
+    }
+    if ((status != 200 || !is_png(picture)) && github && direct.empty())
     {
       Log(game.key + ": thumbnails.libretro.com: " + (error.empty() ? "HTTP " + std::to_string(status) : error));
       request.ca_file = ca_file;
@@ -1119,7 +2025,7 @@ Result Download(const std::vector<Library::Game>& games, const std::string& cove
       if (written)
       {
         ImageRGBA image;
-        if (LoadPng(temp, &image, COVER_W, COVER_H) && SaveCover(image, target))
+        if (LoadPicture(temp, &image, COVER_W, COVER_H) && SaveCover(image, target))  // ((01.69) a JPEG too)
           std::remove(temp.c_str());
         else
           written = std::rename(temp.c_str(), target.c_str()) == 0;

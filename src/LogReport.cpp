@@ -24,6 +24,7 @@ constexpr const char* PINS = "sha256//BXVkfZDFebd6hqe5Jgbv7Wo6gSd/Dk/vshDpzguwF4
 constexpr size_t LOG_MOST = 4 << 20;     // a log's end at most (they are ~0.3 MB)
 constexpr size_t CRASH_MOST = 256 << 10;  // crash.log's end (it grows with each crash)
 constexpr size_t TRACE_MOST = 64 << 10;   // (01.05) a start's trace before its log (~2 KB)
+constexpr size_t GPU_HANG_MOST = 512 << 10;  // (01.24) gpu-hang.txt's start (its decoded command buffers: MBs)
 constexpr const char* LOGS[] = {"emusuni.log", "emusuni-1.log", "crash.log"};
 // (01.05) The heading of the start's trace in crash.log's part (EarlyTrace).
 constexpr const char* TRACE_HEADING = "\n=== xmb-trace-1.log: the start before this one, closed before its log began\n";
@@ -31,6 +32,7 @@ constexpr const char* TRACE_HEADING = "\n=== xmb-trace-1.log: the start before t
 std::mutex s_mutex;  // the status, and report.ini
 Status s_status;
 bool s_busy = false;
+std::string s_log_dir;  // (01.25) SetLogDir's ("": the data folder's)
 
 int64_t SizeOf(const std::string& path)
 {
@@ -50,6 +52,27 @@ std::string Tail(const std::string& path, size_t most)
     text = "[... the start left out: " + std::to_string(from) + " bytes]\n" + text.substr(from);
   }
   return text;
+}
+
+// (01.24) A file's start: at most `most` bytes, to the end of a line.
+std::string Head(const std::string& path, size_t most)
+{
+  std::string text = ReadTextFile(path);
+  if (text.size() > most)
+  {
+    size_t to = text.rfind('\n', most);
+    to = to == std::string::npos ? most : to + 1;
+    const size_t left = text.size() - to;
+    text.resize(to);
+    text += "[... the rest left out: " + std::to_string(left) + " bytes]\n";
+  }
+  return text;
+}
+
+int64_t ModifiedAt(const std::string& path)
+{
+  struct stat st = {};
+  return stat(path.c_str(), &st) == 0 ? static_cast<int64_t>(st.st_mtime) : -1;
 }
 
 void Replace(std::string* text, const std::string& name, const std::string& label)
@@ -78,6 +101,37 @@ std::string EarlyTrace(const std::string& data_dir)
       text.find_first_not_of(" \n") == std::string::npos)
     return {};
   return text;
+}
+
+// (01.24, the report 22H975: a GPU hang in Super Mario 3D Land, its log "writing /data/DolphinPS4/gpu-hang.txt" and the
+// file not in the report) Mesa's GPU hang report, with its heading, when this session or the one before wrote it: its
+// log has Mesa's line, and the file is newer than emusuni-2.log (the session before that one's end) - not one of
+// another start, or of DolphinPS4's own app, which writes there too. Its start only (GPU_HANG_MOST): which submission
+// hung, its buffers, the writes the GPU did, the decoded command buffers - GPU addresses, registers and packets, never
+// the player's name, an address on the network or a file of theirs. "": none.
+std::string GpuHang(const Ask& ask, const std::string& log_dir)
+{
+  if (ask.gpu_hang.empty() || !FileExists(ask.gpu_hang))
+    return {};
+  // ((01.25) The logs where they are: the data folder's, else SetLogDir's.)
+  const auto log = [&](const char* name) {
+    const std::string path = ask.data_dir + "/" + name;
+    return log_dir.empty() || FileExists(path) ? path : log_dir + "/" + name;
+  };
+  const std::string line = "writing /data/DolphinPS4/gpu-hang.txt";  // (Mesa's words: its path, whatever Ask's)
+  const char* which = ReadTextFile(log("emusuni.log")).find(line) != std::string::npos   ? "this session" :
+                      ReadTextFile(log("emusuni-1.log")).find(line) != std::string::npos ? "the session before" :
+                                                                                         nullptr;
+  if (!which)
+    return {};
+  const int64_t written = ModifiedAt(ask.gpu_hang), before = ModifiedAt(log("emusuni-2.log"));
+  if (written < 0 || (before >= 0 && written < before))
+    return {};
+  const std::string text = Head(ask.gpu_hang, GPU_HANG_MOST);
+  if (text.find_first_not_of(" \n") == std::string::npos)
+    return {};
+  return "\n=== gpu-hang.txt: the GPU hang of " + std::string(which) + " (" + std::to_string(SizeOf(ask.gpu_hang)) +
+         " bytes; Mesa's report, written as it hung)\n" + text;
 }
 
 // report.ini's crash_seen: crash.log's size when it was last looked at (-1: never).
@@ -188,6 +242,12 @@ void Send(const Ask& ask)
   }
 }
 
+void SetLogDir(const std::string& dir)
+{
+  std::lock_guard lock(s_mutex);
+  s_log_dir = dir;
+}
+
 Status GetStatus()
 {
   std::lock_guard lock(s_mutex);
@@ -231,20 +291,32 @@ std::string MakeBody(const std::vector<std::pair<std::string, std::string>>& fil
 std::vector<std::pair<std::string, std::string>> GatherFiles(const Ask& ask)
 {
   std::vector<std::pair<std::string, std::string>> files;
+  std::string log_dir;
+  {
+    std::lock_guard lock(s_mutex);
+    log_dir = s_log_dir;
+  }
+  const std::string gpu_hang = GpuHang(ask, log_dir);
   for (const char* name : LOGS)
   {
-    const std::string path = ask.data_dir + "/" + name;
-    if (!FileExists(path))
-      continue;
     const bool crash = std::string(name) == "crash.log";
-    std::string text = Tail(path, crash ? CRASH_MOST : LOG_MOST);
+    // ((01.25) The logs from SetLogDir's folder when the data folder hasn't them.)
+    std::string path = ask.data_dir + "/" + name;
+    if (!crash && !log_dir.empty() && !FileExists(path))
+      path = log_dir + "/" + name;
+    // ((01.24) A GPU hang without a crash.log: a crash.log's part for it all the same.)
+    if (!FileExists(path) && !(crash && !gpu_hang.empty()))
+      continue;
+    std::string text = FileExists(path) ? Tail(path, crash ? CRASH_MOST : LOG_MOST) : std::string("[no crash.log]\n");
     // (01.05) A start that closed before its log: its trace after crash.log's entries, in that file's part - the
     // server takes only these three files (server/emusuni-reports.py's NAMES), and a fourth would lose the report.
+    // (01.24) Mesa's GPU hang report the same, after them.
     if (crash)
     {
       const std::string trace = EarlyTrace(ask.data_dir);
       if (!trace.empty())
         text += std::string(TRACE_HEADING) + trace;
+      text += gpu_hang;
     }
     for (const auto& [taken, label] : ask.names)
       Replace(&text, taken, label);

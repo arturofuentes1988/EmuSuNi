@@ -38,6 +38,8 @@ bool HasGameProfile(const std::string& game_key);
 // Starts as a copy of the console's normal layout.
 void CreateGameProfile(const std::string& game_key, SystemId system);
 void DeleteGameProfile(const std::string& game_key);
+// ((01.81) Rename Files With My Names) A game's own controls under its new key; false: none, or the new key has some.
+bool RenameGameProfile(const std::string& old_key, const std::string& new_key);
 void ResetToDefault(const std::string& game_key, SystemId system);
 
 // The control's name as shown when it has no icon.
@@ -78,9 +80,33 @@ std::string MacroText(const Binding& binding, const std::string& game_key, Syste
 uint32_t PressedControls(const OrbisPadData& data);
 std::string NamesOf(uint32_t controls);
 
+// (01.27, the owner: "que a cada consola se le agregue la opción de calibrar la sensibilidad de los stick") Each
+// console's sticks, for every game of it or for one game as its buttons (the same controls.ini sections, the same
+// Apply To): the left and the right stick's sensitivity - 100% the stick as it is; more, the game sees it pushed
+// further (200%: all the way at half way); less, never all the way (50%: half), for finer moves - and a dead zone for
+// both - how far from the middle a stick is taken as untouched (a stick that drifts); past it the stick's way counts
+// from there, so all the way stays all the way. Off and 100% leave the sticks exactly as before 01.27. Everything in a
+// game that reads a stick reads it so (TuneSticks, src/Emulator.cpp): the core's analog values, the D-pad's Left Stick,
+// a stick's directions as buttons, the stylus, the tilt. Rows on the Controls pages (the menu's and the in-game
+// menu's), Left/Right (round, as the settings).
+struct StickSetting
+{
+  const char* key;    // controls.ini key
+  const char* label;  // its row
+  int fallback, low, high, step;  // percent
+};
+const std::vector<StickSetting>& StickSettings();
+int GetStick(const StickSetting& setting, const std::string& game_key, SystemId system);
+void SetStick(const StickSetting& setting, int value, const std::string& game_key, SystemId system);
+int StepStick(const StickSetting& setting, int value, int direction);
+std::string StickText(const StickSetting& setting, int value);  // "100%", "Off" (a dead zone of 0)
+std::string StickHelp(size_t index);  // its row's help (English, for PS4Lang::T)
+
 // While a game runs: the console's buttons (libretro RETRO_DEVICE_ID_JOYPAD_* bits) for a pad.
 struct Layout
 {
+  int sensitivity[2] = {100, 100};  // (01.27) the left and the right stick's, percent
+  int dead_zone = 0;                // (01.27) percent
   uint32_t button_mask[16] = {};  // per libretro joypad id: the DS4 button bits that press it
   bool dpad = true, left_stick = true;
   uint32_t fast_forward = 0;
@@ -94,6 +120,9 @@ struct Layout
 };
 Layout LayoutFor(const std::string& game_key, SystemId system);
 uint16_t PadButtons(const Layout& layout, const OrbisPadData& data);
+// (01.27) The pad's sticks as the layout's sensitivity and dead zone make them (nothing changed at 100% and Off).
+void TuneSticks(const Layout& layout, OrbisPadData* data);
+void TuneStick(uint8_t* x, uint8_t* y, int sensitivity, int dead_zone);
 
 // Every button of the DualShock 4 (the pad's other bits aren't the player's).
 constexpr uint32_t PAD_BUTTONS = ORBIS_PAD_BUTTON_L3 | ORBIS_PAD_BUTTON_R3 | ORBIS_PAD_BUTTON_OPTIONS |
@@ -131,7 +160,7 @@ private:
 // Settings -> Controls and in the in-game menu's Controls): L3 + R3 pressed together (the default), R3 or the
 // touchpad held for a second, or Options + Touchpad (START + SELECT on most consoles); since 00.69 also L1 + R1 or
 // L2 + R2 held together for a second (the game sees them meanwhile). The PS button is the PS4's own.
-// On the DS and the 3DS, where the touchpad is the touch screen, a touchpad's choice is L3 + R3. L3 + R3 always open
+// On the DS, the 3DS and the PS Vita, where the touchpad is the touch screen, a touchpad's choice is L3 + R3. L3 + R3 always open
 // the menu too (MenuOpener), so a choice can't leave a player without it.
 // (00.85, a player: "put an option to just click and get out (not hold), it takes time") R3, L1 + R1 and L2 + R2 also
 // pressed, without the hold: the menu at once. The two shoulder buttons or triggers only pressed together then (the

@@ -58,12 +58,18 @@ const std::vector<Setting> SETTINGS = {
      "custom", true,
      "The picture in one choice: Low is the console's own; each level above is sharper and more work for the PS4. "
      "Changing one of its settings makes it Custom.",
-     FOR_ALL},
+     FOR_ALL_BUT_VITA /* ((01.76, the owner) its picture is always Smooth Edges: Emulator.cpp GpuMode) */},
     {"n64_resolution", "N64 Resolution", "Video",
      {{"1", "Native (240p)", "The N64's own picture: the smoothest."},
       {"2", "2x (480p)", "Twice the size: sharper 3D; heavy scenes can slow down."},
       {"4", "4x (960p)", "Four times (about Full HD): the sharpest; heavy games can slow down."}},
      "4", false, "The size the GPU draws N64 games at (ParaLLEl-RDP). Native is the smoothest.", FOR_N64},
+    // (01.58) Offered only on the page of a game it knows (src/Emulator.cpp's N64Widescreen, src/Menu.cpp).
+    {"n64_widescreen", "N64 Widescreen", "Video",
+     {{"off", "Off (4:3)", "As the N64 drew it."},
+      {"on", "16:9 (experimental)",
+       "The game's 3D drawn wider for a widescreen TV; its 2D (the HUD, the menus) looks wider."}},
+     "off", false, "Fills a 16:9 TV with more of the game's world (this game's own code changed).", FOR_N64},
     {"ps1_resolution", "PS1 Resolution", "Video",
      {{"1", "Native (240p)", "The PlayStation's own picture."},
       {"2", "2x (480p)", "Twice the size: sharper 3D."},
@@ -440,6 +446,20 @@ const std::vector<Setting> SETTINGS = {
        "Your own 1920x1080 PNG, see-through where the game goes: /data/EmuSuNi/bezels/atarijaguar/ with the "
        "ROM's name, or bezels/atarijaguar.png for every game."}},
      "console", true, "A frame over the sides of the TV, see-through where the game goes.", FOR_JAGUAR},
+#ifdef EMUSUNI_OPENBOR
+    // ((01.82, the owner: a bezel for OpenBOR) Its own drawing - scripts/make-bezels.py's openbor-console.png, a 4:3
+    // window, and openbor-console-169.png, a 16:9 one for the wide mods (480x272, 960x540): Emulator.cpp BezelShape -,
+    // the shared frames, the player's own (bezels/openbor/<the pak's name without .pak>.png: the game's id), off. No
+    // Per Game: The Bezel Project has no OpenBOR bezels.
+    {"openbor_bezel", "Bezel", "Video",
+     {{"off", "Off", "The picture alone, on black."},
+      {"console", "Night Street", "A street at night around the picture: brick walls, neon signs and wet asphalt."},
+      EMUSUNI_SHARED_FRAMES,
+      {"custom", "Your Own",
+       "Your own 1920x1080 PNG, see-through where the game goes: /data/EmuSuNi/bezels/openbor/ with the pak's name "
+       "(without .pak), or bezels/openbor.png for every game."}},
+     "console", true, "A frame over the sides of the TV, see-through where the game goes.", FOR_OPENBOR},
+#endif
     {"overscan", "Crop Overscan", "Video",
      {{"enabled", "On", "224 lines: the empty lines at the top and bottom are hidden."},
       {"disabled", "Off", "Every line (some games show a black stripe or glitches at the edges)."},
@@ -495,7 +515,8 @@ const std::vector<Setting> SETTINGS = {
      "ai", true,
      "Draws the picture with the GPU's filters at the TV's resolution. Every filter but HD Sharpen "
      "starts from the console's own picture: Resolution and the Upscaling Filter are left out.",
-     FOR_ALL /* Flycast's consoles too since 00.69 (a vertical NAOMI or Atomiswave game: none), the 3DS since 00.71 */},
+     FOR_ALL_BUT_VITA /* Flycast's consoles too since 00.69 (a vertical NAOMI or Atomiswave game: none), the 3DS since
+                         00.71; ((01.76) not the PS Vita: always Smooth Edges, Emulator.cpp GpuMode) */},
     {"filter", "Texture Filtering", "Graphics",
      {{"sharp", "Sharp (nearest)", "Every pixel crisp (at Native some pixels can look wider than others)."},
       {"smooth", "Smooth (linear)", "Soft, blended pixels."}},
@@ -650,6 +671,20 @@ const std::vector<Setting> SETTINGS = {
      "off", true,
      "An old tube TV's look on the console's own picture, drawn by the GPU (about 1 ms a frame). It takes the place "
      "of the GPU Upscaler and of Scanlines; the NTSC Filter's picture goes through it; a bezel frames it."},
+    // ((01.72, the master: the owner found Uncharted on the PS Vita too dark) The picture's colours, drawn by the GPU
+    // filter's last pass - free with a GPU Upscaler on, HD Sharpen's pass without sharpening (about 0.5 ms of the PS4's
+    // GPU) with it Off; Tube TV keeps its own look. Percents, Emulator.cpp SetColours. ((01.76, the owner: «el de gamma
+    // se lo podrías sacar») Gamma is gone from the menus; a picture_gamma saved before is left unread: 1.0.)
+    {"picture_brightness", "Brightness", "Graphics",
+     {{"70", "70%"}, {"80", "80%"}, {"90", "90%"}, {"100", "100%", "The picture as the game drew it."},
+      {"110", "110%"}, {"120", "120%"}, {"135", "135%"}, {"150", "150%"}},
+     "100", true,
+     "The picture lighter or darker, drawn by the GPU (not with Tube TV, which has its own look). Above 100% the "
+     "brightest parts turn white."},
+    {"picture_saturation", "Saturation", "Graphics",
+     {{"0", "0%"}, {"50", "50%"}, {"75", "75%"}, {"90", "90%"}, {"100", "100%", "The picture as the game drew it."},
+      {"110", "110%"}, {"125", "125%"}, {"150", "150%"}},
+     "100", true, "How strong the colours are: below 100% paler (0%: black and white), above more vivid."},
     {"hires_blend", "Hi-Res Blending", "Graphics",
      {{"disabled", "Off", "The hi-res mode's columns as they are."},
       {"merge", "Merge", "Pairs of columns averaged: the see-through effects look as on a TV."},
@@ -800,6 +835,51 @@ const std::vector<Setting> SETTINGS = {
      "The language of the Dreamcast, which games with several languages follow (most European ones). A European "
      "language also makes it a European console for a disc that allows it.",
      FOR_DC},
+#ifdef EMUSUNI_VITA
+    // ((01.72, the owner: MotorStorm RC "me lo detectó en coreano") The PS Vita's system language for a game, which it
+    // follows when it has it (Emulator.cpp BuildVitaVariables: vita3k_sys_lang, Vita3K's own numbers). Auto: the menus'
+    // language; a Japanese or Asian game (its title ID: PCSC, PCSG, PCSD, PCSH...) English unless the menus are in
+    // Japanese, Korean or Chinese - such a game given Spanish showed Korean.
+    {"vita_language", "PS Vita Language", "Emulation",
+     {{"auto", "Auto", "The menus' language; a Japanese or Asian game English, unless the menus are Japanese, Korean or "
+                       "Chinese."},
+      {"0", "日本語"},
+      {"1", "English (United States)"},
+      {"18", "English (United Kingdom)"},
+      {"3", "Español"},
+      {"2", "Français"},
+      {"4", "Deutsch"},
+      {"5", "Italiano"},
+      {"6", "Nederlands"},
+      {"7", "Português (Portugal)"},
+      {"17", "Português (Brasil)"},
+      {"8", "Русский"},
+      {"9", "한국어"},
+      {"10", "中文 (繁體)"},
+      {"11", "中文 (简体)"},
+      {"12", "Suomi"},
+      {"13", "Svenska"},
+      {"14", "Dansk"},
+      {"15", "Norsk"},
+      {"16", "Polski"},
+      {"19", "Türkçe"}},
+     "auto", false,
+     "The PS Vita's system language for this game, which it uses when it has it (from the game's next start).",
+     FOR_VITA},
+    // ((01.88, the owner: «prefiero que vaya en ajustes de la consola si se enciende o se apaga el giroscopio») The PS
+    // Vita's motion sensors (Emulator.cpp MotionVita), as 3ds_motion is the 3DS's: the DualShock 4's gyroscope and
+    // accelerometer as the Vita's. Off by default; until 01.88 the empty file vita-motion-on. ((01.91, the owner: «debe
+    // estar en el menú l3 y r3 ajustes de juego y en triángulo con carátulas ajustes de juego») On a Vita game's settings
+    // pages only (per_game), and at once while it plays: the core has the sensors always, a Vita lying still when off.)
+    {"vita_motion", "PS Vita Motion Sensor", "Emulation",
+     {{"off", "Off", "The PS Vita stays still: a game that reads its motion sees none."},
+      {"ds4", "DualShock 4",
+       "Move the DualShock 4 as you would move the PS Vita, held the same way: its gyroscope and accelerometer are the "
+       "PS Vita's."}},
+     "off", true,
+     "For the games that aim, steer or look around as the PS Vita moves.",
+     FOR_VITA, true},
+#endif
     // Dreamcast online (01.02): DCNet, Flycast's free servers (dcnet.flyca.st), through the Dreamcast's modem or its
     // broadband adapter (Emulator.cpp BuildDcVariables: reicast_dcnet, reicast_emulate_bba). Off: a game that dials
     // gets no answer (scripts/build-dc-core.sh, "Dreamcast online").
@@ -889,6 +969,12 @@ const std::vector<Setting> SETTINGS = {
       {"rumble", "Rumble Pak", "The DualShock 4 shakes (games that support it)."},
       {"none", "None", "Nothing plugged into the controller."}},
      "memory", false, "What is plugged into the N64 controller.", FOR_N64},
+    // (01.58) The other players' controllers (Mupen64Plus-Next's pak2-pak4): a Memory Pak each, as before, unless chosen.
+    {"n64_pak_others", "Controller Pak (Players 2-4)", "Emulation",
+     {{"memory", "Memory Pak", "Saves in the controller, as many games need."},
+      {"rumble", "Rumble Pak", "The DualShock 4 shakes (games that support it)."},
+      {"none", "None", "Nothing plugged into the controller."}},
+     "memory", false, "What is plugged into the other players' N64 controllers.", FOR_N64},
     {"nes_turbo", "Turbo Buttons", "Emulation",
      {{"on", "On", "Held, Square and Triangle press B and A over and over."},
       {"off", "Off", "No turbo: Square and Triangle do nothing in the game."}},
@@ -998,14 +1084,30 @@ const std::vector<Setting> SETTINGS = {
      "is set in Controls.",
      FOR_3DS},
     // (01.15) The right stick as the 3DS's C-stick (as until 01.14), or moving the stylus as on the DS (src/Emulator.cpp:
-    // the game then gets no C-stick).
+    // the game then gets no C-stick). (01.24, GitHub #74, #67, #57) Or pressing the 3DS's D-pad, with the D-pad itself
+    // (Emulator.cpp StickDpad; no C-stick either).
     {"3ds_right_stick", "3DS Right Stick", "Emulation",
      {{"cstick", "C-Stick", "The 3DS's C-stick: the New 3DS's, and the Circle Pad Pro's in the games that read it."},
       {"stylus", "Stylus",
-       "Moves the stylus on the touch screen, as on the DS; the Tap button touches. The game gets no C-stick."}},
+       "Moves the stylus on the touch screen, as on the DS; the Tap button touches. The game gets no C-stick."},
+      {"dpad", "D-Pad",
+       "Presses the 3DS's D-pad, diagonals too (the D-pad still works): for the games that turn the camera or aim "
+       "with it. The game gets no C-stick."}},
      "cstick", true,
-     "What the right stick is in 3DS games. Stylus is for playing on the touch screen without the touchpad; the Tap "
-     "button is set in Controls (the touchpad's click by default).",
+     "What the right stick is in 3DS games. Stylus is for playing on the touch screen without the touchpad, D-Pad for "
+     "the games that turn the camera or aim with the D-pad; the Tap button is set in Controls (the touchpad's click by "
+     "default).",
+     FOR_3DS},
+    // (01.27) The 3DS's motion sensors (Emulator.cpp Motion3ds): the DualShock 4's gyroscope and accelerometer as the
+    // 3DS's, the controller held as a 3DS is held. Off by default: until 01.26 the 3DS never moved.
+    {"3ds_motion", "3DS Motion Sensor", "Emulation",
+     {{"off", "Off", "The 3DS stays still: a game that reads its motion sees none."},
+      {"ds4", "DualShock 4",
+       "Move the DualShock 4 as you would move the 3DS, held the same way: its gyroscope and accelerometer are the "
+       "3DS's."}},
+     "off", false,
+     "For the games that aim, steer or look around as the 3DS moves (aiming in Ocarina of Time 3D, Mario Kart 7 in "
+     "first person).",
      FOR_3DS},
     {"3ds_new", "New 3DS Mode", "Emulation",
      {{"off", "Off (Old 3DS)",
@@ -1015,7 +1117,7 @@ const std::vector<Setting> SETTINGS = {
      "off", false,
      "Which 3DS is emulated. A New 3DS-only game (Xenoblade Chronicles 3D) says so when it can't start with this Off; "
      "ZL, ZR and the C-stick are the New 3DS's.",
-     FOR_3DS},
+     0},  // ((01.36, the owner) hidden - no console shows it; by the game alone: Emulator.cpp Build3dsVariables)
     // (00.81, the players: graphics errors in Pokémon X and Y, Majora's Mask 3D, Metroid: Samus Returns and Castlevania:
     // Mirror of Fate.) Azahar's shaders_accurate_mul, Off for every game from 00.62 to 00.80 (upstream's default is On;
     // its Android build has it Off, and there Pokémon X draws Froakie white until it is On: azahar issues #2583,
@@ -1031,7 +1133,7 @@ const std::vector<Setting> SETTINGS = {
      "auto", false,
      "How the GPU's shaders multiply: exactly as the 3DS does, or faster. Without it a few games draw white, too "
      "bright or black models and effects. (Ocarina of Time 3D and the Mario & Luigi games always use it.)",
-     FOR_3DS},
+     0},  // ((01.36, the owner) hidden: Auto for every game, Emulator.cpp Build3dsVariables)
     // (00.81) Azahar's "Disable Right Eye Render", on for every game since 00.63 (scripts/build-3ds-core.sh: the PS4
     // shows no 3D), breaks a few games: Majora's Mask 3D's intro stays black and its blur effects freeze the screen
     // (azahar #791), Kingdom Hearts 3D and Pokémon Super Mystery Dungeon lose a screen (#1005). (01.18) On the PS4 it
@@ -1051,7 +1153,7 @@ const std::vector<Setting> SETTINGS = {
      "3DS games draw a second picture for the 3D effect, the right eye's, which the PS4 never shows. Leaving it out "
      "is faster (Super Mario 3D Land then draws half as much), but a few games show a black, frozen or misplaced "
      "screen.",
-     FOR_3DS},
+     0},  // ((01.36, the owner) hidden: left out but in Emulator.cpp ThreedsRightEyeGame's games)
     {"ps1_boot", "PS1 Boot Logo", "Emulation",
      {{"on", "On", "The PlayStation's start-up logo and sound (with its BIOS)."},
       {"skip", "Skip It", "The game starts at once."}},
@@ -1133,6 +1235,37 @@ const std::vector<Setting> SETTINGS = {
      "How big the games are drawn in the menu (the XMB's list, the Library's covers): smaller shows more of them at "
      "once.",
      0},
+    // (01.26, a player and the owner) The menu's look, its own as Menu Size (Settings' page, not the settings lists;
+    // kept by Reset All Settings): the tabs a player doesn't use hidden, the consoles' icons (what and how big), the
+    // games' boxes at the bottom (src/Menu.cpp). ((01.28, the owner) tabs_shown as two boxes in Settings - Online Tab,
+    // Favorites Tab: Menu.cpp's TabShown / SetTabShown - with the same values, so a choice made in 01.26 stays.)
+    {"tabs_shown", "Tabs Shown", "System",
+     {{"all", "All Tabs", "Every tab: the consoles', Favorites and Online."},
+      {"no_online", "Without Online", "No Online tab: Settings -> Online Play still opens it."},
+      {"no_favorites", "Without Favorites", "No Favorites tab: your favorites are kept."},
+      {"consoles", "Without Online and Favorites", "Neither: All, the consoles and Settings."}},
+     "all", true, "The Online and Favorites tabs, hidden if you don't use them.", 0},
+    {"console_icons", "Console Icons", "System",
+     {{"console", "Console", "Each console drawn as it is (the handhelds too)."},
+      {"controller", "Controller", "Each console's controller (a handheld: itself)."},
+      {"none", "No Icon", "No drawing: the console's name in the XMB, nothing by the Library's title."}},
+     "console", true, "What the menu draws for each console: in the XMB's row and by the Library's title.", 0},
+    {"icon_size", "Icon Size", "System",
+     {{"small", "Small Icons"},
+      {"medium", "Medium Icons"},
+      {"large", "Large Icons", "Easier to tell apart from far away."}},
+     "medium", true, "How big the consoles' icons are drawn.", 0},
+    {"help_boxes", "Help Boxes", "System",
+     {{"both", "Both Boxes", "The console's box and the 3DS's tip."},
+      {"console", "Console Box Only", "What the console plays, its files and folders (bottom left)."},
+      {"tip", "3DS Tip Only", "A 3DS game that doesn't load the first time (bottom right)."},
+      {"none", "No Box", "No box under the covers."}},
+     "both", true, "The boxes at the bottom of the games' screen (the Library).", 0},
+    // ((01.84, the owner: «ok, usemos launchbox como respaldo») Settings -> Covers and Bezels -> LaunchBox Covers: a box,
+    // on unless turned off. src/CoverDownload.cpp.)
+    {"covers_launchbox", "LaunchBox Covers", "System",
+     {{"on", "On"}, {"off", "Off"}},
+     "on", true, "When libretro has none: a search per game", 0},
     {"language", "Language", "System",
      {{"en", "English"},
       {"es", "Español"},
@@ -2331,6 +2464,19 @@ void ResetGame(const std::string& game_id)
   std::lock_guard lock(s_mutex);
   s_sections.erase(game_id);
   SaveLocked();
+}
+
+bool RenameGame(const std::string& old_id, const std::string& new_id)
+{
+  std::lock_guard lock(s_mutex);
+  const auto it = s_sections.find(old_id);
+  if (old_id.empty() || new_id.empty() || it == s_sections.end() || s_sections.count(new_id))
+    return false;
+  auto section = std::move(it->second);
+  s_sections.erase(it);
+  s_sections[new_id] = std::move(section);
+  SaveLocked();
+  return true;
 }
 
 void ResetConsole(const std::string& game_id)

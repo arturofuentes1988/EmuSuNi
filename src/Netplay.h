@@ -211,6 +211,10 @@ struct View
   bool common_ready = false, games_sent = false, peer_games_in = false;
   bool has_suggestion = false;
   NetProto::LibraryGame suggested;
+  // ((01.88) A number that changes with each new suggestion - never reset -, and whose nickname: the host's notice,
+  // once each, and its game first in the grid, selected.)
+  uint32_t suggestion_serial = 0;
+  std::string suggested_nick;
   std::string notice;
   // (00.86) The host: the player asking to join (its member id, -1: none), the seconds left to answer, a number that
   // changes with every new request. A guest: waiting for the host to accept it, the seconds it still waits.
@@ -297,7 +301,9 @@ struct TopList
   uint32_t serial = 0;  // a new number with each answer
 };
 TopList TopGames();
-void WantTopGames();
+// ((01.91, the owner) The period asked for: NetProto::TOP_DAYS_MONTH, TOP_DAYS or 0 since ever - another one asked at
+// once, the list empty till it comes; TopList::days says the answer's.)
+void WantTopGames(int days);
 // (01.05, the owner) This console's file of the room's game: its version as its name says it ("USA, Rev 1"; "" none
 // or not found). The host's: after Host() (it goes with the room's Create: the list shows it); a guest's with
 // SetLobbyGame. Every other player gets it (GameVersion), with whether we have the game.
@@ -435,6 +441,13 @@ bool Ended(std::string* why);
 void GameEnded();
 // A guest keeps its own saves untouched: its battery save and Continue's state aren't written in a match.
 bool KeepOwnSaves();
+// (01.91, the owner: "alguien cuando entra de espectador pueda unirse a una partida cuando haya una plaza abierta") A
+// spectator whose host says a player's place is free (Status::seat_open; the host's ControlKind::Seat): when this game
+// ends - its watching -, the room is joined as a player, the way any player joins a match under way (the host asked
+// first when its entry is with permission). False: no place free now. TakeJoinedFromWatching: true once, for the menu,
+// after that join began (its room's panel shows, as a Join's).
+bool JoinAfterWatching(const std::string& data_dir);
+bool TakeJoinedFromWatching();
 
 // ---- The voice chat (src/Voice.h) ----
 void SetVoiceOn(bool on);       // this console's microphone and speaker
@@ -507,8 +520,13 @@ struct WorldChatView
   NetProto::WorldResult said = NetProto::WorldResult::Sent;
   int said_seconds = 0;
   bool sending = false;
+  // (01.24, the owner: "más historial") The lines before the oldest: asked (WorldWantOlder), none left.
+  bool older_loading = false, older_done = false;
 };
 WorldChatView GetWorldChat();
+// (01.24) The chat scrolled up to its oldest lines: the ones before them asked for (the server's memory, then its 30
+// days kept; a server before 01.24 has none), kept up to 300 lines.
+void WorldWantOlder();
 void WorldChatShown(bool shown);
 void WorldNoticeShown(bool stored_text);  // the notice drawn: the one of a server that keeps the lines, or the other
 WorldSayResult WorldSayPhrase(int phrase, const std::string& param = "");
@@ -532,7 +550,7 @@ struct TopPlayer
 struct PlayersList
 {
   bool asked = false, answered = false;  // (answered false after asking: a server before it drops the question)
-  int days = 0;                          // NetProto::TOP_DAYS, or 0: since ever
+  int days = 0;                          // NetProto::TOP_DAYS, (01.91) TOP_DAYS_MONTH, or 0: since ever
   std::vector<TopPlayer> players;        // the most first
   double answered_at = 0.0;
   uint32_t serial = 0;                   // one more each answer
@@ -541,6 +559,36 @@ PlayersList TopPlayers(int days);
 void WantTopPlayers(int days);  // asked while the Online tab lists the rooms (again every 10 minutes)
 bool Ranked(const std::string& data_dir);
 void SetRanked(const std::string& data_dir, bool on);
+
+// ---- (01.91, the owner) The ELO ranking: the Online tab's "ELO Ranking", one page per game (src/Elo.h) ----
+// Each ranked player's rating in a game (ELO: NetProto::ELO_START at the first match), its wins and losses - the
+// matches both players' consoles saw end alike (who won read from the game's memory) -, by its code, never an address.
+struct EloPlayer
+{
+  std::string nick, country;  // (country "": not shown)
+  int rating = 0, wins = 0, losses = 0;
+};
+struct EloList
+{
+  bool asked = false, answered = false;  // (answered false after asking: a server before it drops the question)
+  std::string game;                      // NetProto::ELO_GAMES' key
+  int ranked = 0;                        // the players with NetProto::ELO_MIN_MATCHES matches or more
+  std::vector<EloPlayer> players;        // the best first (NetProto::ELO_TOP at most)
+  int my_position = 0;                   // ours (0: not ranked yet - fewer matches)
+  int my_rating = NetProto::ELO_START, my_wins = 0, my_losses = 0;
+  double answered_at = 0.0;
+  uint32_t serial = 0;  // one more each answer
+};
+EloList EloTop(const std::string& game);
+void WantEloTop(const std::string& game);  // asked while the Online tab lists the rooms (again every 5 minutes)
+// The server's last answer about one of our ranked matches (NetProto::EloOutcome; port 1's and port 2's players).
+struct EloNotice
+{
+  std::string game, nick1, nick2;
+  uint8_t outcome = 0;
+  int rating1 = 0, change1 = 0, rating2 = 0, change2 = 0;
+};
+EloNotice LastEloNotice(uint32_t* serial);
 
 // ---- What the screen shows (any thread) ----
 struct Status
@@ -566,6 +614,8 @@ struct Status
   // (01.23) A player may end the match back to the room (EndMatchToRoom: the in-game menu's Back to the Room); not
   // with a player of an EmuSuNi before it (room_back_old: the row says so).
   bool room_back = false, room_back_old = false;
+  // (01.91) A spectator: the host says a player's place is free in the match under way (JoinAfterWatching).
+  bool seat_open = false;
 };
 Status GetStatus();
 

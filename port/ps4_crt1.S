@@ -14,13 +14,74 @@
 // calloc, realloc, memalign, reallocalign, posix_memalign, malloc_stats, malloc_stats_fast,
 // malloc_usable_size. Found through _sceLibcParam + 0x30.
 
+// (01.27) PS4_RELR (toolchain/ps4-love-style.cmake): the program's own data pointers relocated by the program
+// (port/ps4_relr.c) before anything reads one - first thing in _start, and in the malloc-replacement entries Sony's
+// libc calls before _start (each through a _relr entry that relocates first, once).
+#ifdef PS4_RELR
+#define REPLACE(f) f##_relr
+#else
+#define REPLACE(f) f
+#endif
+
     .text
     .globl _start
     .type _start, @function
     .p2align 3
 _start:
+#ifdef PS4_RELR
+    pushq %rbp                              // the loader's arguments kept, the stack aligned for the call
+    movq %rsp, %rbp
+    pushq %rdi
+    pushq %rsi
+    andq $-16, %rsp
+    call ps4_relr_apply
+    leaq -16(%rbp), %rsp
+    popq %rsi
+    popq %rdi
+    popq %rbp
+#endif
     jmp _start_ps4_c
     .p2align 3
+
+#ifdef PS4_RELR
+    // <f>_relr: relocate first (once: ps4_relr_done), then <f> with the same arguments.
+    .macro RELR_FIRST f
+    .section .text.\f\()_relr, "ax", @progbits
+    .type \f\()_relr, @function
+\f\()_relr:
+    cmpb $0, ps4_relr_done(%rip)
+    je 1f
+    jmp \f
+1:
+    pushq %rbp
+    movq %rsp, %rbp
+    pushq %rdi
+    pushq %rsi
+    pushq %rdx
+    pushq %rcx
+    andq $-16, %rsp
+    call ps4_relr_apply
+    leaq -32(%rbp), %rsp
+    popq %rcx
+    popq %rdx
+    popq %rsi
+    popq %rdi
+    popq %rbp
+    jmp \f
+    .endm
+    RELR_FIRST ps4_replace_malloc_init
+    RELR_FIRST ps4_replace_malloc_finalize
+    RELR_FIRST ps4_replace_malloc
+    RELR_FIRST ps4_replace_free
+    RELR_FIRST ps4_replace_calloc
+    RELR_FIRST ps4_replace_realloc
+    RELR_FIRST ps4_replace_memalign
+    RELR_FIRST ps4_replace_reallocalign
+    RELR_FIRST ps4_replace_posix_memalign
+    RELR_FIRST ps4_replace_malloc_stats
+    RELR_FIRST ps4_replace_malloc_stats_fast
+    RELR_FIRST ps4_replace_malloc_usable_size
+#endif
 
     .section .text._start_ps4_c, "ax", @progbits
     .globl _start_ps4_c
@@ -52,36 +113,41 @@ _sceLibcParam:
     .quad 0, 0, 0, 0
     .quad _sceLibcMallocReplaceForTls       // + 0x60
     .zero 0x90 - 0x68
+    // (01.27) Each table's size in the symbol table: toolchain/relr-link.py leaves their pointers to the loader.
+    .size _sceLibcParam, . - _sceLibcParam
 
     .section .data.rel.ro._sceKernelMemParam, "aw", @progbits
     .p2align 3
 _sceKernelMemParam:
     .quad 0x30
     .zero 0x28
+    .size _sceKernelMemParam, . - _sceKernelMemParam
 
     .section .data.rel.ro._sceKernelFsParam, "aw", @progbits
     .p2align 3
 _sceKernelFsParam:
     .quad 0x10
     .quad 0
+    .size _sceKernelFsParam, . - _sceKernelFsParam
 
     .section .data.rel.ro._sceLibcMallocReplace, "aw", @progbits
     .p2align 3
 _sceLibcMallocReplace:
     .quad 0x70                              // size
     .quad 1                                 // version
-    .quad ps4_replace_malloc_init
-    .quad ps4_replace_malloc_finalize
-    .quad ps4_replace_malloc
-    .quad ps4_replace_free
-    .quad ps4_replace_calloc
-    .quad ps4_replace_realloc
-    .quad ps4_replace_memalign
-    .quad ps4_replace_reallocalign
-    .quad ps4_replace_posix_memalign
-    .quad ps4_replace_malloc_stats
-    .quad ps4_replace_malloc_stats_fast
-    .quad ps4_replace_malloc_usable_size
+    .quad REPLACE(ps4_replace_malloc_init)
+    .quad REPLACE(ps4_replace_malloc_finalize)
+    .quad REPLACE(ps4_replace_malloc)
+    .quad REPLACE(ps4_replace_free)
+    .quad REPLACE(ps4_replace_calloc)
+    .quad REPLACE(ps4_replace_realloc)
+    .quad REPLACE(ps4_replace_memalign)
+    .quad REPLACE(ps4_replace_reallocalign)
+    .quad REPLACE(ps4_replace_posix_memalign)
+    .quad REPLACE(ps4_replace_malloc_stats)
+    .quad REPLACE(ps4_replace_malloc_stats_fast)
+    .quad REPLACE(ps4_replace_malloc_usable_size)
+    .size _sceLibcMallocReplace, . - _sceLibcMallocReplace
 
     .section .data.rel.ro._sceLibcNewReplace, "aw", @progbits
     .p2align 3
@@ -89,6 +155,7 @@ _sceLibcNewReplace:
     .quad 0x70
     .quad 2
     .zero 0x60
+    .size _sceLibcNewReplace, . - _sceLibcNewReplace
 
     .section .data.rel.ro._sceLibcMallocReplaceForTls, "aw", @progbits
     .p2align 3
@@ -96,6 +163,7 @@ _sceLibcMallocReplaceForTls:
     .quad 0x38
     .quad 1
     .zero 0x28
+    .size _sceLibcMallocReplaceForTls, . - _sceLibcMallocReplaceForTls
 
     .section .data.sce_process_param, "aw", @progbits
     .p2align 3

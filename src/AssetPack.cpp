@@ -17,6 +17,8 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
+#include <zlib.h>
+
 #include "Log.h"
 
 namespace AssetPack
@@ -27,6 +29,8 @@ struct Entry
 {
   uint32_t header = 0;  // where its local header is
   uint32_t size = 0;
+  uint32_t packed = 0;    // its bytes in the zip
+  bool deflated = false;  // (01.26) compressed (deflate), else stored
 };
 
 std::once_flag s_once;
@@ -49,7 +53,7 @@ bool ReadAt(FILE* file, long at, void* out, size_t size)
   return std::fseek(file, at, SEEK_SET) == 0 && std::fread(out, 1, size, file) == size;
 }
 
-// The zip's central directory: its stored entries (a compressed one isn't read here: left out, logged).
+// The zip's central directory: its stored and deflated entries (another method isn't read here: left out, logged).
 void ReadIndex()
 {
   s_prefix = std::string(App::ASSETS_DIR) + "/xmb/";
@@ -88,7 +92,7 @@ void ReadIndex()
     return;
   }
   std::fclose(file);
-  size_t at = 0, compressed = 0;
+  size_t at = 0, deflated = 0, other = 0;
   for (uint32_t i = 0; i < count && at + 46 <= dir.size() && U32(&dir[at]) == 0x02014b50; i++)
   {
     const unsigned char* p = &dir[at];
@@ -98,13 +102,22 @@ void ReadIndex()
       break;
     const std::string name(reinterpret_cast<const char*>(p + 46), name_size);
     if (method == 0 && packed == whole)
-      s_entries[name] = {header, whole};
+    {
+      s_entries[name] = {header, whole, packed, false};
+    }
+    else if (method == 8)
+    {
+      s_entries[name] = {header, whole, packed, true};
+      deflated++;
+    }
     else
-      compressed++;
+    {
+      other++;
+    }
     at += 46u + name_size + extra + comment;
   }
-  LogF("assets: %zu files in %s%s", s_entries.size(), s_zip.c_str(),
-       compressed > 0 ? (" (" + std::to_string(compressed) + " compressed ones left out)").c_str() : "");
+  LogF("assets: %zu files in %s (%zu compressed)%s", s_entries.size(), s_zip.c_str(), deflated,
+       other > 0 ? (", " + std::to_string(other) + " of another method left out").c_str() : "");
 }
 
 // The path's entry in the zip, if it is one of its folder's.
@@ -122,13 +135,35 @@ bool ReadEntry(const Entry& entry, std::string* data)
   FILE* file = std::fopen(s_zip.c_str(), "rb");
   if (!file)
     return false;
-  unsigned char local[30];
+  unsigned char local[30] = {};
   bool read = ReadAt(file, entry.header, local, sizeof(local)) && U32(local) == 0x04034b50;
-  if (read)
+  const long start = static_cast<long>(entry.header) + 30 + U16(local + 26) + U16(local + 28);
+  if (read && !entry.deflated)
   {
     data->resize(entry.size);
-    const long start = static_cast<long>(entry.header) + 30 + U16(local + 26) + U16(local + 28);
     read = entry.size == 0 || ReadAt(file, start, &(*data)[0], entry.size);
+  }
+  else if (read)
+  {
+    // (01.26) The languages, the ratings' indexes and the sounds are deflated (scripts/make-asset-pack.py: 4 MB less in
+    // the package): inflated whole, to exactly the size the directory says.
+    std::vector<unsigned char> packed(entry.packed);
+    read = entry.packed > 0 && ReadAt(file, start, packed.data(), packed.size());
+    if (read)
+    {
+      data->resize(entry.size);
+      z_stream z = {};
+      read = inflateInit2(&z, -MAX_WBITS) == Z_OK;
+      if (read)
+      {
+        z.next_in = packed.data();
+        z.avail_in = entry.packed;
+        z.next_out = reinterpret_cast<Bytef*>(&(*data)[0]);
+        z.avail_out = entry.size;
+        read = inflate(&z, Z_FINISH) == Z_STREAM_END && z.total_out == entry.size;
+        inflateEnd(&z);
+      }
+    }
   }
   std::fclose(file);
   return read;

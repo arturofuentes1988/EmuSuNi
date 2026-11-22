@@ -3,6 +3,8 @@
 #include "Controls.h"
 
 #include <algorithm>
+#include <cmath>
+#include <cstdlib>
 #include <fstream>
 #include <map>
 #include <mutex>
@@ -93,7 +95,8 @@ const std::vector<Binding> PS1_BINDINGS = {
 // on L2 (the touchpad is its touch screen, a trackpad: the finger moves the stylus, a tap or the touchpad's click
 // touches - src/Touchpad.h);
 // L3 blows into its microphone (melonDS DS), R3 swaps the two screens (where the app places them, as on
-// the 3DS: src/Emulator.cpp DrawScreens).
+// the 3DS: src/Emulator.cpp DrawScreens). ((01.31) L3 pressed shortly: the next Screen Layout; what is on L3 here only
+// held - src/Emulator.cpp L3Press.)
 const std::vector<Binding> NDS_BINDINGS = {
     {"b", "B", "Cross", false},                  {"a", "A", "Circle", false},
     {"y", "Y", "Square", false},                 {"x", "X", "Triangle", false},
@@ -201,6 +204,24 @@ const std::vector<Binding> A2600_BINDINGS = {
     {"fast_forward", "Fast Forward (hold)", "None", false},
     EMUSUNI_MACROS,
 };
+#ifdef EMUSUNI_VITA
+// The PS Vita (with-vita): its buttons where the DualShock 4 has them, both sticks the DualShock's (analog). L2, R2 and
+// L3 are the PS TV's (the games that know it). No fast forward. ((01.69, the owner: «el pad de Vita debe ser
+// trackpad») The touchpad's click is Tap the Screen - the trackpad's touch, src/Emulator.cpp -: SELECT, there until
+// 01.68, is on R3, which was the PS TV's R3.)
+const std::vector<Binding> VITA_BINDINGS = {
+    {"ps_cross", "Cross", "Cross", false},       {"ps_circle", "Circle", "Circle", false},
+    {"ps_square", "Square", "Square", false},    {"ps_triangle", "Triangle", "Triangle", false},
+    {"l", "L", "L1", false},                     {"r", "R", "R1", false},
+    {"l2", "L2 (PS TV)", "L2", false},           {"r2", "R2 (PS TV)", "R2", false},
+    {"l3", "L3 (PS TV)", "L3", false},           {"r3", "R3 (PS TV)", "None", false},
+    {"start", "START", "Options", false},        {"select", "SELECT", "R3", false},
+    {"tap", "Tap the Screen", "Touchpad", false},
+    {"dpad", "D-Pad", "D-Pad", true},
+    {"fast_forward", "Fast Forward (hold)", "None", false},
+    EMUSUNI_MACROS,
+};
+#endif
 #ifdef EMUSUNI_OPENBOR
 // OpenBOR (with-openbor; the core's RetroPad: Jump on B, Attack 1 on Y, Special on A, Attack 2 on X, Attacks 3 and 4
 // on L and R, START, SELECT the engine's Esc - back in the game's menus -; the left stick moves as the D-pad here, the
@@ -213,6 +234,21 @@ const std::vector<Binding> OPENBOR_BINDINGS = {
     {"start", "START", "Options", false},         {"select", "SELECT (Back)", "Touchpad", false},
     {"dpad", "D-Pad", "D-Pad + Left Stick", true},
     {"fast_forward", "Fast Forward (hold)", "R2", false},
+    EMUSUNI_MACROS,
+};
+#endif
+#ifdef EMUSUNI_MUGEN
+// (01.27) MUGEN (with-mugen, Ikemen GO): its six buttons where Ikemen's own controller layout has them - kicks A, B, C
+// on Cross, Circle and R2, punches X, Y, Z on Square, Triangle and R1 -, D and W on L1 and L2, Start on Options, its
+// menu on the touchpad (port/mugen/ikemen/emusuni_retro.c: libretro's buttons as SDL's). No fast forward: R2 is C.
+const std::vector<Binding> MUGEN_BINDINGS = {
+    {"b", "A", "Cross", false},          {"a", "B", "Circle", false},
+    {"r2", "C", "R2", false},            {"y", "X", "Square", false},
+    {"x", "Y", "Triangle", false},       {"r", "Z", "R1", false},
+    {"l", "D", "L1", false},             {"l2", "W", "L2", false},
+    {"start", "START", "Options", false}, {"select", "Menu", "Touchpad", false},
+    {"dpad", "D-Pad", "D-Pad + Left Stick", true},
+    {"fast_forward", "Fast Forward (hold)", "None", false},
     EMUSUNI_MACROS,
 };
 #endif
@@ -300,7 +336,8 @@ const std::vector<Binding> ATOMISWAVE_BINDINGS = {
 // a tap or the touchpad's click touches), and R3 swaps the two screens (where the app places them, as on the DS:
 // src/Emulator.cpp DrawScreens; the core's swap option until 00.79). No
 // HOME: L3 is its button and the core's own screen swap in Azahar, so the app never passes L3 on. No fast
-// forward by default (R2 is ZR): most 3D games run below full speed on the PS4.
+// forward by default (R2 is ZR): most 3D games run below full speed on the PS4. ((01.31) L3 pressed shortly: the next
+// Screen Layout; SELECT, or what is on L3 here, held - src/Emulator.cpp L3Press.)
 const std::vector<Binding> THREEDS_BINDINGS = {
     {"b", "B", "Cross", false},            {"a", "A", "Circle", false},
     {"y", "Y", "Square", false},           {"x", "X", "Triangle", false},
@@ -480,7 +517,121 @@ uint32_t MaskOfList(const std::string& names)
   }
   return mask;
 }
+
+// (01.27) The sticks' sensitivity and dead zone (Controls.h: StickSetting).
+const std::vector<StickSetting> STICK_SETTINGS = {
+    {"left_stick_sensitivity", "Left Stick Sensitivity", 100, 50, 200, 10},
+    {"right_stick_sensitivity", "Right Stick Sensitivity", 100, 50, 200, 10},
+    {"stick_dead_zone", "Stick Dead Zone", 0, 0, 50, 5},
+};
+
+int GetStickLocked(const StickSetting& setting, const std::string& game_id, SystemId system)
+{
+  for (const std::string& section : {game_id, GlobalSection(system)})
+  {
+    if (section.empty())
+      continue;
+    auto it = s_sections.find(section);
+    if (it == s_sections.end())
+      continue;
+    auto value = it->second.find(setting.key);
+    if (value == it->second.end())
+      continue;
+    char* end = nullptr;
+    const long number = std::strtol(value->second.c_str(), &end, 10);
+    if (end == value->second.c_str())
+      return setting.fallback;  // (not a number: the default)
+    return static_cast<int>(std::clamp<long>(number, setting.low, setting.high));
+  }
+  return setting.fallback;
+}
 }  // namespace
+
+const std::vector<StickSetting>& StickSettings()
+{
+  return STICK_SETTINGS;
+}
+
+int GetStick(const StickSetting& setting, const std::string& game_id, SystemId system)
+{
+  std::lock_guard lock(s_mutex);
+  return GetStickLocked(setting, game_id, system);
+}
+
+void SetStick(const StickSetting& setting, int value, const std::string& game_id, SystemId system)
+{
+  std::lock_guard lock(s_mutex);
+  s_sections[game_id.empty() ? GlobalSection(system) : game_id][setting.key] =
+      std::to_string(std::clamp(value, setting.low, setting.high));
+  SaveLocked();
+}
+
+int StepStick(const StickSetting& setting, int value, int direction)
+{
+  const int count = (setting.high - setting.low) / setting.step + 1;
+  int index = (std::clamp(value, setting.low, setting.high) - setting.low + setting.step / 2) / setting.step;
+  index = ((index + (direction < 0 ? -1 : 1)) % count + count) % count;
+  return setting.low + index * setting.step;
+}
+
+std::string StickText(const StickSetting& setting, int value)
+{
+  if (value == 0 && setting.low == 0)
+    return "Off";
+  return std::to_string(value) + "%";
+}
+
+std::string StickHelp(size_t index)
+{
+  if (index >= STICK_SETTINGS.size())
+    return {};
+  if (std::string(STICK_SETTINGS[index].key) == "stick_dead_zone")
+    return "Left/Right: how far from the middle both sticks are taken as untouched, for a stick that drifts. Off: as "
+           "it is. Past it, the stick's way counts from there.";
+  return "Left/Right: 100% is the stick as it is. More: the game sees it pushed further (all the way sooner). Less: "
+         "never all the way, for finer moves. As a D-pad or as the stylus too.";
+}
+
+void TuneStick(uint8_t* x, uint8_t* y, int sensitivity, int dead_zone)
+{
+  if (sensitivity == 100 && dead_zone <= 0)
+    return;  // (as before 01.27, exactly)
+  // -1..1 each way (the middle 128; 0 all the way one way, 255 the other).
+  auto unit = [](uint8_t v) {
+    const int d = static_cast<int>(v) - 128;
+    return d < 0 ? d / 128.0f : d / 127.0f;
+  };
+  auto byte = [](float f) {
+    const float d = f < 0.0f ? f * 128.0f : f * 127.0f;
+    return static_cast<uint8_t>(std::clamp(128 + static_cast<int>(std::lround(d)), 0, 255));
+  };
+  float fx = unit(*x), fy = unit(*y);
+  const float r = std::sqrt(fx * fx + fy * fy), zone = dead_zone / 100.0f;
+  if (r <= zone || r <= 0.0f)
+  {
+    *x = *y = 128;
+    return;
+  }
+  // Past the dead zone the stick's way counts from there (all the way stays all the way), then the sensitivity; pushed
+  // past the edge, the edge in the same direction.
+  const float scale = (zone > 0.0f ? (r - zone) / (1.0f - zone) / r : 1.0f) * static_cast<float>(sensitivity) / 100.0f;
+  fx *= scale;
+  fy *= scale;
+  const float most = std::max(std::abs(fx), std::abs(fy));
+  if (most > 1.0f)
+  {
+    fx /= most;
+    fy /= most;
+  }
+  *x = byte(fx);
+  *y = byte(fy);
+}
+
+void TuneSticks(const Layout& layout, OrbisPadData* data)
+{
+  TuneStick(&data->leftStick.x, &data->leftStick.y, layout.sensitivity[0], layout.dead_zone);
+  TuneStick(&data->rightStick.x, &data->rightStick.y, layout.sensitivity[1], layout.dead_zone);
+}
 
 const std::vector<Binding>& Bindings(SystemId system)
 {
@@ -533,6 +684,14 @@ const std::vector<Binding>& Bindings(SystemId system)
 #ifdef EMUSUNI_OPENBOR
   case SystemId::OPENBOR:
     return OPENBOR_BINDINGS;
+#endif
+#ifdef EMUSUNI_VITA
+  case SystemId::VITA:
+    return VITA_BINDINGS;
+#endif
+#ifdef EMUSUNI_MUGEN
+  case SystemId::MUGEN:
+    return MUGEN_BINDINGS;
 #endif
   default:
     return SNES_BINDINGS;
@@ -607,6 +766,8 @@ void CreateGameProfile(const std::string& game_id, SystemId system)
     if (IsMacro(binding))
       section[PressesKey(binding)] = GetPressesLocked(binding, "", system);
   }
+  for (const StickSetting& setting : STICK_SETTINGS)  // (01.27)
+    section[setting.key] = std::to_string(GetStickLocked(setting, "", system));
   SaveLocked();
 }
 
@@ -615,6 +776,19 @@ void DeleteGameProfile(const std::string& game_id)
   std::lock_guard lock(s_mutex);
   s_sections.erase(game_id);
   SaveLocked();
+}
+
+bool RenameGameProfile(const std::string& old_key, const std::string& new_key)
+{
+  std::lock_guard lock(s_mutex);
+  const auto it = s_sections.find(old_key);
+  if (old_key.empty() || new_key.empty() || it == s_sections.end() || s_sections.count(new_key))
+    return false;
+  auto section = std::move(it->second);
+  s_sections.erase(it);
+  s_sections[new_key] = std::move(section);
+  SaveLocked();
+  return true;
 }
 
 void ResetToDefault(const std::string& game_id, SystemId system)
@@ -627,6 +801,8 @@ void ResetToDefault(const std::string& game_id, SystemId system)
     if (IsMacro(binding))
       section.erase(PressesKey(binding));
   }
+  for (const StickSetting& setting : STICK_SETTINGS)  // (01.27)
+    section[setting.key] = std::to_string(setting.fallback);
   SaveLocked();
 }
 
@@ -807,6 +983,14 @@ Layout LayoutFor(const std::string& game_id, SystemId system)
   }
   layout.dpad = dpad != "Left Stick";
   layout.left_stick = dpad != "D-Pad";
+  // (01.27) The sticks' sensitivity and dead zone.
+  layout.sensitivity[0] = GetStickLocked(STICK_SETTINGS[0], game_id, system);
+  layout.sensitivity[1] = GetStickLocked(STICK_SETTINGS[1], game_id, system);
+  layout.dead_zone = GetStickLocked(STICK_SETTINGS[2], game_id, system);
+  if (layout.sensitivity[0] != 100 || layout.sensitivity[1] != 100 || layout.dead_zone != 0)
+    LogF("controls: the sticks for %s: sensitivity %d%% left, %d%% right, dead zone %d%%",
+         game_id.empty() ? GetSystem(system).key : game_id.c_str(), layout.sensitivity[0], layout.sensitivity[1],
+         layout.dead_zone);
   // A D-pad direction bound to a button (Pad N...) still works as the D-pad too.
   // A macro's button does the macro only (IsMacro).
   for (const Layout::Macro& macro : layout.macros)
@@ -880,7 +1064,9 @@ OrbisPadData Untouched(const OrbisPadData& data)
 MenuButtons MenuButtonsFor(const std::string& choice, SystemId system)
 {
   constexpr uint32_t STICKS = ORBIS_PAD_BUTTON_L3 | ORBIS_PAD_BUTTON_R3;
-  const bool touch_screen = system == SystemId::NDS || system == SystemId::THREEDS;
+  // (After 01.63, the PS Vita's specialist: since 01.48 the touchpad is the PS Vita's touch screen too - a finger
+  // kept on a menu of Uncharted's, or a drag, opened the in-game menu with the touchpad's choices.)
+  const bool touch_screen = system == SystemId::NDS || system == SystemId::THREEDS || IsVita(system);
   if (choice == "r3")
     return {ORBIS_PAD_BUTTON_R3, 1.0f};
   if (choice == "touchpad" && !touch_screen)

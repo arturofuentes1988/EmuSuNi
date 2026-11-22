@@ -13,6 +13,17 @@ set(PS4_RUNTIME_SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/../port/ps4_crashlog.cpp
     ${CMAKE_CURRENT_LIST_DIR}/../port/ps4_string.c)
 
+# (01.27) The program's own data pointers relocated by the program (port/ps4_relr.c): the link packs those of
+# .data.rel.ro and .data (toolchain/relr-link.py, 810 000 in 01.26) into a table in the image, 8 bytes for up to 64,
+# instead of 24 bytes each in the loader's table in the eboot (create-fself's copy of .rela.dyn): 19 MB less of eboot
+# and PKG. cmake -DPS4_RELR_RELRO=OFF packs only .data's (4.7 MB less: .data.rel.ro isn't made writable at the start),
+# -DPS4_RELR=OFF none, as before. It needs PS4_MALLOC_REPLACE's crt1 (port/ps4_crt1.S: _start relocates first).
+option(PS4_RELR "Pack the data pointers' relocations into the program's own table (port/ps4_relr.c)" ON)
+option(PS4_RELR_RELRO "With PS4_RELR, .data.rel.ro's pointers too; OFF: only .data's" ON)
+if (PS4_RELR)
+    list(APPEND PS4_RUNTIME_SOURCES ${CMAKE_CURRENT_LIST_DIR}/../port/ps4_relr.c)
+endif ()
+
 # Generate code for the PS4's CPU (AMD Jaguar: SSE4.2, AVX, BMI1, F16C, MOVBE; no AVX2) rather
 # than baseline x86-64 (SSE2). A section for each function and variable, so the link below can leave
 # out what nothing uses. Unwind tables only for the functions that can throw (the toolchain's flags
@@ -37,15 +48,24 @@ endif()
 # a copy of crt1.o whose libc malloc-replacement table sends every malloc of the process -
 # system modules included - to our heap (ps4_replace_* in port/ps4_runtime.cpp).
 option(PS4_MALLOC_REPLACE "Route all mallocs, system modules included, to the app heap" ON)
+if(PS4_RELR AND NOT PS4_MALLOC_REPLACE)
+  message(FATAL_ERROR "PS4_RELR needs PS4_MALLOC_REPLACE's crt1 (port/ps4_crt1.S): add -DPS4_RELR=OFF")
+endif()
+set(_ps4_crt1_defs "")
+if(PS4_RELR)
+  set(_ps4_crt1_defs -DPS4_RELR=1)
+endif()
 if(PS4_MALLOC_REPLACE)
   set(PS4_CRT1 ${CMAKE_BINARY_DIR}/ps4-crt1-malloc-replace.o)
+  # ((01.27) Into the file only when it changed: the link depends on it, see ps4_add_eboot.)
   execute_process(
-    COMMAND ${CMAKE_C_COMPILER} -target x86_64-pc-freebsd12-elf -c
-            ${CMAKE_CURRENT_LIST_DIR}/../port/ps4_crt1.S -o ${PS4_CRT1}
+    COMMAND ${CMAKE_C_COMPILER} -target x86_64-pc-freebsd12-elf ${_ps4_crt1_defs} -c
+            ${CMAKE_CURRENT_LIST_DIR}/../port/ps4_crt1.S -o ${PS4_CRT1}.new
     RESULT_VARIABLE _ps4_crt1_result)
   if(NOT _ps4_crt1_result EQUAL 0)
     message(FATAL_ERROR "assembling port/ps4_crt1.S failed: ${_ps4_crt1_result}")
   endif()
+  execute_process(COMMAND ${CMAKE_COMMAND} -E copy_if_different ${PS4_CRT1}.new ${PS4_CRT1})
   set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
                ${CMAKE_CURRENT_LIST_DIR}/../port/ps4_crt1.S)
 endif()
@@ -100,18 +120,29 @@ string(REPLACE "KEEP(*(.data.rel.ro .data.rel.ro.*))" "*(.data.rel.ro .data.rel.
 # of them in 00.60) into the loader's own table (PT_SCE_DYNLIBDATA), and rewrites the dynamic section to point
 # at that copy (only DT_SCE_* tags are left, no DT_RELA), but leaves the original where the linker put it, in
 # the first loaded segment: the console maps it, out of the same flexible memory as the games', and never reads
-# it. With this option the linker puts it after everything that is loaded (the segment it ends up in is one of
-# the read-only ones create-fself drops), and the program image, eboot.bin and the PKG are that much smaller
-# (00.60: 15.2 MB, about 14.5 MiB more flexible memory free at start). Checked on the files (create-fself,
-# check-oelf: the same kinds of program headers, the same dynamic tags, PT_SCE_DYNLIBDATA of the same size);
-# not run on a console yet: switch it on with cmake -DPS4_RELA_AFTER_BSS=ON and try one build there first.
-option(PS4_RELA_AFTER_BSS "Put .rela.dyn after .bss, outside the loaded segments" OFF)
-if (PS4_RELA_AFTER_BSS)
+# it. Here the linker puts it after everything that is loaded (the segment it ends up in is one of the read-only
+# ones create-fself drops), and the program image, eboot.bin and the PKG are that much smaller (00.60: 15.2 MB,
+# about 14.5 MiB more flexible memory free at start). (01.26) On since 01.26: 01.25's eboot 162.3 -> 143.4 MB, its
+# first loaded segment 18 MiB smaller; checked on the files again (create-fself: the same kinds of program headers,
+# the same dynamic tags, PT_SCE_DYNLIBDATA of the same size). cmake -DPS4_RELA_IN_IMAGE=ON puts it back where it was.
+option(PS4_RELA_IN_IMAGE "Leave .rela.dyn in the first loaded segment, as before 01.26" OFF)
+if (NOT PS4_RELA_IN_IMAGE)
     string(FIND "${PS4_LINK_SCRIPT_TEXT}" "*(.bss .bss.*)\n\t}" PS4_RULE_POS)
     if (PS4_RULE_POS EQUAL -1)
         message(FATAL_ERROR "Unexpected ${PS4_LINK_SCRIPT_IN}: no '.bss' rule to put .rela.dyn after")
     endif ()
     string(REPLACE "*(.bss .bss.*)\n\t}" "*(.bss .bss.*)\n\t}\n\n\t.rela.dyn : {\n\t\t*(.rela.dyn)\n\t}"
+        PS4_LINK_SCRIPT_TEXT "${PS4_LINK_SCRIPT_TEXT}")
+endif ()
+# (01.27) PS4_RELR's table (port/ps4_relr.c): its header, then the room relr-link.py asks for (__emusuni_relr_reserve),
+# the last read-only data before .data.rel.ro.
+if (PS4_RELR)
+    string(FIND "${PS4_LINK_SCRIPT_TEXT}" ".data.rel.ro : ALIGN(0x4000) {" PS4_RULE_POS)
+    if (PS4_RULE_POS EQUAL -1)
+        message(FATAL_ERROR "Unexpected ${PS4_LINK_SCRIPT_IN}: no '.data.rel.ro : ALIGN(0x4000) {' to put .emusuni_relr before")
+    endif ()
+    string(REPLACE ".data.rel.ro : ALIGN(0x4000) {"
+        ".emusuni_relr : ALIGN(0x10) {\n\t\t__emusuni_relr_table = .;\n\t\tKEEP(*(.emusuni_relr))\n\t\t. += DEFINED(__emusuni_relr_reserve) ? __emusuni_relr_reserve : 0;\n\t}\n\n\t.data.rel.ro : ALIGN(0x4000) {"
         PS4_LINK_SCRIPT_TEXT "${PS4_LINK_SCRIPT_TEXT}")
 endif ()
 # (Written only when it changes: the link depends on the file, see ps4_add_eboot, and a new file time at every
@@ -175,8 +206,20 @@ endfunction()
 # .data.rel.ro it emits the data PT_LOAD twice, which the console rejects at launch
 # ("CE-41839-5", LNC 0x80aa001a).
 function(ps4_add_eboot target)
-    # The link script is a raw linker flag: without this a change in it (PS4_RELA_AFTER_BSS, the KEEP rules) would not link again.
+    # The link script is a raw linker flag: without this a change in it (PS4_RELA_IN_IMAGE, the KEEP rules) would not link again.
     set_property(TARGET ${target} APPEND PROPERTY LINK_DEPENDS ${PS4_LINK_SCRIPT})
+    # (01.27) Nor would crt1's (assembled at configure: PS4_RELR's entries).
+    set_property(TARGET ${target} APPEND PROPERTY LINK_DEPENDS ${PS4_CRT1})
+    # (01.27) PS4_RELR: the link through toolchain/relr-link.py (it links, then packs the data pointers' relocations).
+    if (PS4_RELR)
+        set(_relro "")
+        if (NOT PS4_RELR_RELRO)
+            set(_relro "--no-relro")
+        endif ()
+        set_property(TARGET ${target} PROPERTY RULE_LAUNCH_LINK
+            "python3 -I ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/relr-link.py ${_relro} --reserve-file ${CMAKE_BINARY_DIR}/${target}-relr-reserve.txt --")
+        set_property(TARGET ${target} APPEND PROPERTY LINK_DEPENDS ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/relr-link.py)
+    endif ()
     set(out_dir ${CMAKE_CURRENT_BINARY_DIR}/${target}_eboot)
     add_custom_command(
         OUTPUT ${out_dir}/eboot.bin

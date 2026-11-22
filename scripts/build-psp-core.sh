@@ -121,7 +121,9 @@
 #     revival servers, through PS Rewired's DNS or the game's in infra-dns.json) and ad hoc through a PRO ad hoc server
 #     and its relay. The PS4's socket values (FreeBSD's) where OpenOrbis' headers have Linux's (MSG_*, IP_*, TCP_KEEP*),
 #     SO_NOSIGPIPE on each socket, names looked up by the PS4's resolver (not musl's getaddrinfo), the game's DNS asked
-#     with a timeout, nothing downloaded, no IPv4 address in the log ("<IP>").
+#     with a timeout, nothing downloaded, no IPv4 address in the log ("<IP>"). (01.30) Never Sony: a name in one of
+#     Sony's domains is never looked up nor connected to (it fails as not found), unless infra-dns.json's domains for
+#     the game give it an IPv4 address (a revival server's).
 #   - Built as a static library, without LTO (ld -r of LLVM bitcode), with its own zlib, libpng,
 #     zstd (without its dictionary builder), libchdr... (nothing of the system's), no Discord, UPnP or
 #     HTTPS. As one object: the JIT's common files only in Core (upstream also puts them in Common for
@@ -1614,9 +1616,15 @@ static VKAPI_ATTR void VKAPI_CALL vkGetDeviceQueue_emusuni(VkDevice device, uint
 }
 
 // Every queue of the device is the frontend's too: under its lock, as vkQueueSubmit and vkQueueWaitIdle.
+// ((01.87) gpu-waitfence-on, OFF) Or not under it: EmuSuNiWaitOnFence (below vkQueueSubmit_libretro), on the
+// frontend's queue, the only one the core has of this device.
+static bool EmuSuNiWaitFenceOn();
+static VkResult EmuSuNiWaitOnFence(VkQueue queue, const char *who);
 static VKAPI_ATTR VkResult VKAPI_CALL vkDeviceWaitIdle_emusuni(VkDevice device) {
 	if (!vulkan)
 		return vkDeviceWaitIdle_emusuni_org(device);
+	if (EmuSuNiWaitFenceOn() && device == adopted.device && adopted.queue != VK_NULL_HANDLE)
+		return EmuSuNiWaitOnFence(adopted.queue, "vkDeviceWaitIdle");
 	vulkan->lock_queue(vulkan->handle);
 	VkResult res = vkDeviceWaitIdle_emusuni_org(device);
 	vulkan->unlock_queue(vulkan->handle);
@@ -1926,6 +1934,33 @@ patch('libretro/libretro.cpp',
       '#else\n'
       '   g_threadManager.Init(cpu_info.num_cores, cpu_info.logical_cpu_count);\n'
       '#endif\n')
+# (01.27) PPSSPP's own files (flash0, vfpu, lang, compat.ini...) in one zip beside their folder, <system>/PPSSPP.zip
+# (scripts/package.sh: a PKG keeps each file in whole 64 KiB blocks): read through PPSSPP's ZipFileReader, as PPSSPP on
+# Android reads them from its APK, before the folder. Without the zip (EMUSUNI_PPSSPP_LOOSE=1) only the folder, as before.
+# (The log line is what scripts/package.sh looks for in the eboot before it makes the zip.)
+patch('libretro/libretro.cpp',
+      '#include "Common/File/VFS/DirectoryReader.h"\n',
+      '#include "Common/File/VFS/DirectoryReader.h"\n'
+      '#include "Common/File/VFS/ZipFileReader.h"  // EmuSuNi\n')
+patch('libretro/libretro.cpp',
+      '   g_VFS.Register("", new DirectoryReader(retro_base_dir));\n',
+      '#ifdef EMUSUNI_PORT\n'
+      '   {\n'
+      '      const Path zipPath(retro_base_dir.ToString() + ".zip");\n'
+      '      ZipFileReader *zip = File::Exists(zipPath) ? ZipFileReader::Create(zipPath, "", true) : nullptr;\n'
+      '      if (zip)\n'
+      '         g_VFS.Register("", zip);\n'
+      '      INFO_LOG(Log::System, "EmuSuNi: PPSSPP.zip %s: %s", zip ? "read" : "not there", zipPath.c_str());\n'
+      '   }\n'
+      '#endif\n'
+      '   g_VFS.Register("", new DirectoryReader(retro_base_dir));\n')
+patch('libretro/libretro.cpp',
+      '   if (!File::Exists(Path(retro_base_dir / "compat.ini")))\n',
+      '   if (!File::Exists(Path(retro_base_dir / "compat.ini"))\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '       && !File::Exists(Path(retro_base_dir.ToString() + ".zip"))  // EmuSuNi: in PPSSPP.zip (above)\n'
+      '#endif\n'
+      '      )\n')
 # Fewer threads (00.63). On the PS4 every thread's stack (2 MiB + 16 KiB) is taken from the regular flexible memory and
 # kept by the system for the next thread of the same size, never given back: the most threads alive at once since the
 # app started is memory gone for good. Upstream made a new detached thread for every GLSL compile ("DedicatedThreadTask",
@@ -2183,11 +2218,58 @@ patch('Common/Net/Resolve.cpp',
       'int sceNetResolverDestroy(int rid);\n'
       'int sceNetResolverStartNtoa(int rid, const char *hostname, uint32_t *addr, int timeout, int retry, int flags);\n'
       '}\n'
+      '#endif\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '#include <cctype>\n'
+      '#include <cstring>\n'
+      '#include <mutex>\n'
+      '#include <set>\n'
       '#endif\n')
 patch('Common/Net/Resolve.cpp',
       '// NOTE: Due to the nature of getaddrinfo, this can block indefinitely. Not good.\n'
       'bool DNSResolve(const std::string &host, const std::string &service, addrinfo **res, std::string &error, DNSType type) {\n',
-      net_tabs(r'''#if defined(EMUSUNI_PORT) && defined(__ORBIS__)
+      net_tabs(r'''#ifdef EMUSUNI_PORT
+// EmuSuNi (scripts/build-psp-core.sh, 01.30): the PS4 never contacts Sony (the owner's rule: a console can be banned for
+// it). A name in one of Sony's domains is never looked up - not by the PS4's resolver, not by the game's own DNS
+// (infra-dns.json's or PS Rewired's: it can answer with a Sony server's address, and it isn't the console's DNS, whose
+// blocking then doesn't apply) - so never connected to either: it fails as not found. The one exception, in
+// ProcessHostnameWithInfraDNS (Core/HLE/sceNet.cpp): a Sony name in infra-dns.json's domains for the game with an IPv4
+// address written there (a revival server's: SOCOM, Syphon Filter, WipEout Pure). Each name refused said once in the log.
+static const char *const emusuniSonyDomains[] = {
+    "playstation.net", "playstation.com", "playstation.org", "playstation.co.jp", "sonyentertainmentnetwork.com",
+    "scea.com", "scee.com", "scee.net", "scei.co.jp", "scej-online.jp", "sony.com", "sony.net", "sony.co.jp",
+};
+
+// The name itself or any name under it (label by label: "np.playstation.net" is, "fooplaystation.net" isn't).
+bool EmuSuNiIsSonyHost(const std::string &host) {
+    std::string name;
+    name.reserve(host.size());
+    for (char c : host)
+        name += (char)tolower((unsigned char)c);
+    while (!name.empty() && name.back() == '.')
+        name.pop_back();
+    for (const char *domain : emusuniSonyDomains) {
+        const size_t length = strlen(domain);
+        if (name.size() == length ? name == domain :
+            name.size() > length && name[name.size() - length - 1] == '.' && name.compare(name.size() - length, length, domain) == 0)
+            return true;
+    }
+    return false;
+}
+
+bool EmuSuNiRefuseSonyHost(const std::string &host, const char *where) {
+    if (!EmuSuNiIsSonyHost(host))
+        return false;
+    static std::mutex saidMutex;
+    static std::set<std::string> said;
+    std::lock_guard<std::mutex> guard(saidMutex);
+    if (said.insert(host).second)
+        NOTICE_LOG(Log::sceNet, "EmuSuNi: %s is Sony's: never looked up or connected to (%s)", host.c_str(), where);
+    return true;
+}
+#endif
+
+#if defined(EMUSUNI_PORT) && defined(__ORBIS__)
 // EmuSuNi (scripts/build-psp-core.sh): names looked up by the PS4's own resolver, libSceNet's, as the app's (src/Net.cpp):
 // musl's getaddrinfo has no /etc/resolv.conf there and asks 127.0.0.1, waiting seconds for nothing. IPv4 only (as the
 // PS4's network). One block, the addrinfo and its address, freed by DNSResolveFree. Each lookup logged with the name
@@ -2260,9 +2342,32 @@ static bool EmuSuNiDNSResolve(const std::string &host, const std::string &servic
 ''') +
       '// NOTE: Due to the nature of getaddrinfo, this can block indefinitely. Not good.\n'
       'bool DNSResolve(const std::string &host, const std::string &service, addrinfo **res, std::string &error, DNSType type) {\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\tif (EmuSuNiRefuseSonyHost(host, "the resolver")) {  // EmuSuNi: never Sony (above)\n'
+      '\t\t*res = nullptr;\n'
+      '\t\terror = "a Sony name: never looked up";\n'
+      '\t\treturn false;\n'
+      '\t}\n'
+      '#endif\n'
       '#if defined(EMUSUNI_PORT) && defined(__ORBIS__)\n'
       '\treturn EmuSuNiDNSResolve(host, service, res, error, type);  // EmuSuNi: the PS4\'s resolver (above)\n'
       '#else\n')
+patch('Common/Net/Resolve.cpp',
+      '\tif (!strlen(domain)) {\n\t\tERROR_LOG(Log::sceNet, "Direct lookup: Can\'t look up an empty domain");\n\t\treturn false;\n\t}\n',
+      '\tif (!strlen(domain)) {\n\t\tERROR_LOG(Log::sceNet, "Direct lookup: Can\'t look up an empty domain");\n\t\treturn false;\n\t}\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '\tif (EmuSuNiRefuseSonyHost(domain, "the game\'s DNS"))  // EmuSuNi: never Sony (DNSResolve\'s note)\n'
+      '\t\treturn false;\n'
+      '#endif\n')
+patch('Common/Net/Resolve.h',
+      'bool DirectDNSLookupIPV4(const char *dnsServer, const char *host, uint32_t *ipv4_addr);\n',
+      'bool DirectDNSLookupIPV4(const char *dnsServer, const char *host, uint32_t *ipv4_addr);\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '// EmuSuNi (Resolve.cpp, 01.30): whether a name is in one of Sony\'s domains (never looked up: the PS4 never contacts\n'
+      '// Sony); EmuSuNiRefuseSonyHost the same, and the name said once in the log (where: which lookup refused it).\n'
+      'bool EmuSuNiIsSonyHost(const std::string &host);\n'
+      'bool EmuSuNiRefuseSonyHost(const std::string &host, const char *where);\n'
+      '#endif\n')
 patch('Common/Net/Resolve.cpp',
       '\t\t*res = nullptr;\n\t\treturn false;\n\t}\n\n\treturn true;\n}\n\nvoid DNSResolveFree(addrinfo *res)\n{\n'
       '\tif (res)\n\t\tfreeaddrinfo(res);\n',
@@ -2321,6 +2426,39 @@ patch('Core/HLE/sceNet.cpp',
       '#endif\n'
       '\t\t\tjsonOutput->clear();\n'
       '\t\t\treturn true;  // A clear output but returning true means something went very wrong.\n')
+# (01.30) The games' names (sceNetResolver, sceHttp, sceNp2's matching list) never Sony's, the one exception a Sony name with
+# an IPv4 address in infra-dns.json's domains for the game: Common/Net/Resolve.cpp's EmuSuNiIsSonyHost (DNSResolve's note).
+patch('Core/HLE/sceNet.cpp',
+      '#include <algorithm>\n',
+      '#include <algorithm>\n'
+      '#ifdef EMUSUNI_PORT\n'
+      '#include <set>\n'
+      '#endif\n')
+patch('Core/HLE/sceNet.cpp',
+      '\t// Check if hostname is already an IPv4 address, if so we do not need further lookup. This usually happens\n',
+      net_tabs(r'''#ifdef EMUSUNI_PORT
+    // EmuSuNi (01.30): a Sony name - the game's, or an alias's - is never looked up (Common/Net/Resolve.cpp; the callers'
+    // DNSResolve refuses it too: not found), unless infra-dns.json's domains for this game give it an IPv4 address: a
+    // revival server's, written in the file (never one a DNS answered with).
+    if (net::EmuSuNiIsSonyHost(hostname) || net::EmuSuNiIsSonyHost(resolvedHostname)) {
+        const auto fixed = GetInfraDNSConfig().fixedDNS.find(hostname);
+        uint32_t fixedAddr;
+        if (g_Config.bInfrastructureAutoDNS && fixed != GetInfraDNSConfig().fixedDNS.end() &&
+            inet_pton(AF_INET, fixed->second.c_str(), &fixedAddr) == 1) {
+            static std::mutex saidMutex;
+            static std::set<std::string> said;
+            std::lock_guard<std::mutex> guard(saidMutex);
+            if (said.insert(hostname).second)
+                NOTICE_LOG(Log::sceNet, "EmuSuNi: %s is Sony's: infra-dns.json's address for it (a revival server)", hostname.c_str());
+            return fixed->second;
+        }
+        const std::string &sony = net::EmuSuNiIsSonyHost(hostname) ? hostname : resolvedHostname;
+        net::EmuSuNiRefuseSonyHost(sony, "the game's names");
+        return sony;
+    }
+#endif
+''') +
+      '\t// Check if hostname is already an IPv4 address, if so we do not need further lookup. This usually happens\n')
 patch('Core/HLE/proAdhoc.cpp',
       '\tint sent = (int)send((int)metasocket, (char*)&packet, sizeof(packet), MSG_NOSIGNAL);\n\tif (sent > 0) {\n',
       '\tint sent = (int)send((int)metasocket, (char*)&packet, sizeof(packet), MSG_NOSIGNAL);\n\tif (sent > 0) {\n'
@@ -3190,6 +3328,74 @@ patch('libretro/libretro_vulkan.cpp',
       '\tres = vkQueueSubmit_org(queue, submitCount, pSubmits, fence);\n'
       '\tvulkan->unlock_queue(vulkan->handle);\n'
       '#endif\n')
+# (01.87, the switch gpu-waitfence-on, OFF) The core's waits for the GPU, vkQueueWaitIdle and vkDeviceWaitIdle, not
+# under the frontend's queue lock (src/Display.cpp): Vulkan wants the queue's lock for as long as they wait, and the
+# frontend and the other cores couldn't submit meanwhile. With the switch, the lock is held only for an empty
+# submission with a fence of the core's own - signalled once everything submitted before it is done, on this one
+# in-order queue: the same work as the idle wait's -, then the fence is waited for without it.
+patch('libretro/libretro_vulkan.cpp',
+      'VKAPI_ATTR VkResult VKAPI_CALL vkQueueWaitIdle_libretro(VkQueue queue) {\n'
+      '\tvulkan->lock_queue(vulkan->handle);\n',
+      tabs(r'''#ifdef EMUSUNI_PORT
+#include <atomic>
+#include <chrono>
+#include <cstdlib>
+#include <unistd.h>
+// (01.87, the switch gpu-waitfence-on, OFF: the file /data/EmuSuNi/gpu-waitfence-on on the PS4, EMUSUNI_GPU_WAITFENCE
+// on the PC) A wait for the GPU without the frontend's queue lock held through it: the lock only for an empty
+// submission with a fence of its own (signalled once all the work submitted before it is done: one in-order queue),
+// the wait for the fence after the lock is let go. A fence that can't be made: the wait under the lock, as before.
+static bool EmuSuNiWaitFenceOn() {
+    static const bool on = [] {
+#if defined(__ORBIS__)
+        return access("/data/EmuSuNi/gpu-waitfence-on", F_OK) == 0;
+#else
+        return getenv("EMUSUNI_GPU_WAITFENCE") != nullptr;
+#endif
+    }();
+    return on;
+}
+
+static VkResult EmuSuNiWaitOnFence(VkQueue queue, const char *who) {
+    static std::atomic<unsigned> waits{0};
+    static std::atomic<int64_t> waitedNs{0};
+    const VkDevice device = vulkan->device;
+    const auto createFence = (PFN_vkCreateFence)vulkan->get_device_proc_addr(device, "vkCreateFence");
+    const auto destroyFence = (PFN_vkDestroyFence)vulkan->get_device_proc_addr(device, "vkDestroyFence");
+    const auto waitForFences = (PFN_vkWaitForFences)vulkan->get_device_proc_addr(device, "vkWaitForFences");
+    VkFence fence = VK_NULL_HANDLE;
+    VkFenceCreateInfo info{};
+    info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    if (!createFence || !destroyFence || !waitForFences || createFence(device, &info, nullptr, &fence) != VK_SUCCESS) {
+        vulkan->lock_queue(vulkan->handle);
+        const VkResult res = !strcmp(who, "vkQueueWaitIdle") ? vkQueueWaitIdle_org(queue) : vkDeviceWaitIdle_emusuni_org(device);
+        vulkan->unlock_queue(vulkan->handle);
+        return res;
+    }
+    const auto start = std::chrono::steady_clock::now();
+    vulkan->lock_queue(vulkan->handle);
+    VkResult res = vkQueueSubmit_org(queue, 0, nullptr, fence);
+    vulkan->unlock_queue(vulkan->handle);
+    if (res == VK_SUCCESS)
+        res = waitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX);
+    destroyFence(device, fence, nullptr);
+    const int64_t took = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - start).count();
+    const unsigned n = ++waits;
+    const int64_t all = waitedNs += took;
+    if (n <= 3 || n % 100 == 0)
+        NOTICE_LOG(Log::G3D, "EmuSuNi: gpu-waitfence: %s waited on a fence of its own, the queue lock held only for its "
+                   "submission (%u waits so far, %.1f ms waiting in all; %d)", who, n, all / 1e6, (int)res);
+    return res;
+}
+#endif
+
+VKAPI_ATTR VkResult VKAPI_CALL vkQueueWaitIdle_libretro(VkQueue queue) {
+#ifdef EMUSUNI_PORT
+    if (EmuSuNiWaitFenceOn())
+        return EmuSuNiWaitOnFence(queue, "vkQueueWaitIdle");
+#endif
+    vulkan->lock_queue(vulkan->handle);
+'''))
 # The GPU: PPSSPP's own timestamp profiler, its results per step (the frames EmuFrame profiles).
 patch('Common/GPU/Vulkan/VulkanRenderManager.cpp',
       '\t\t\t\t\tif (i == 0) {\n\t\t\t\t\t\tinitTimeMs_.Update(milliseconds);\n',

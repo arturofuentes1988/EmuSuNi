@@ -19,6 +19,7 @@
 #   sudo -i bash /path/to/EmuSuNi/scripts/setup.sh
 set -euo pipefail
 
+SCRIPTS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # this folder (its patches/)
 SRC_ROOT="$HOME/src"
 BUILD_ROOT="${PS4_BUILD_ROOT:-$HOME/dolphinps4-build}"
 OPENORBIS=/opt/pacbrew/ps4/openorbis
@@ -102,6 +103,21 @@ checkout() {
     git -C "$dir" checkout -q FETCH_HEAD
 }
 
+# Applies one of EmuSuNi's patches (scripts/patches/) to a checkout, once: already in (it applies in reverse), nothing
+# to do; else applied; a patch that applies neither way (the checkout changed) says so and stops the setup.
+apply_patch() {
+    local dir=$1 patch=$2
+    if git -C "$dir" apply --reverse --check "$patch" 2>/dev/null; then
+        echo "$(basename "$patch"): already in"
+    elif git -C "$dir" apply --check "$patch"; then
+        git -C "$dir" apply "$patch"
+        echo "$(basename "$patch"): applied"
+    else
+        echo "$(basename "$patch") doesn't apply to $dir (see above): stopped" >&2
+        exit 1
+    fi
+}
+
 step "Packages"
 apt-get update -qq
 apt-get install -y -qq git wget curl ca-certificates gnupg lsb-release xz-utils cmake ninja-build \
@@ -131,6 +147,10 @@ fi
 
 step "DolphinPS4: libc++ 21 and the PS4 runtime"
 checkout https://github.com/iHaiDeeZ/DolphinPS4 "$SRC_ROOT/DolphinPS4" "$DOLPHINPS4_COMMIT"
+# (01.86) EmuSuNi's patch of its Mesa winsys (port/mesa/ac_ps4_drm.c, copied into Mesa by build-mesa.sh): the
+# submissions' numbers the app's "gpu:" lines read (ac_ps4_get_submit_stats: the app doesn't link without it) and the
+# submission thread, off by default (/data/EmuSuNi/gpu-submitthread-on).
+apply_patch "$SRC_ROOT/DolphinPS4" "$SCRIPTS/patches/dolphinps4-ac_ps4_drm-emusuni.diff"
 cd "$SRC_ROOT/DolphinPS4"
 chmod +x toolchain/*.sh scripts/*.sh 2>/dev/null || true
 # The 2022 PacBrew C library only declares qsort_s(): Mesa has to use its own.

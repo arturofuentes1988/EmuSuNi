@@ -861,6 +861,14 @@ void emusuni_3ds_thread(const char* name)
     mask = 1ull << core;
     priority = 480;
   }
+  else if (strcmp(name, "Custom textures") == 0)
+  {
+    /* (01.42) 3ds-custom-textures' one thread (a test, only with /data/EmuSuNi/3ds-custom-textures): it decodes the
+     * pack's PNGs, which nothing waits for (the game's own texture shows until then), so below the workers, and on
+     * cores 4 and 5 only: off the emulation's CPU module (cores 0-3), whose L2 the GPU commands' thread shares. */
+    mask = (1ull << 4) | (1ull << 5);
+    priority = 760;
+  }
   else if (strcmp(name, "citra:Log") == 0 || strncmp(name, "Disk Shader Cache", 17) == 0 ||
            strcmp(name, "Pipeline optimizer") == 0)
   {
@@ -1079,10 +1087,19 @@ static unsigned s_window_frames = 0;
 static long long s_frame_ns[NUM_TIMED_SECTIONS], s_heaviest_ns[NUM_TIMED_SECTIONS];
 static unsigned s_frame_count[NUM_TIMED_SECTIONS], s_heaviest_count[NUM_TIMED_SECTIONS];
 static unsigned s_vi_origins = 0;
+/* (01.78) Every new picture since the app started, never reset: the app's FPS counter (src/, a weak
+ * emusuni_n64_pictures_total) counts the game's own pictures, not ParaLLEl-RDP's one image per VI. */
+static unsigned long long s_pictures_total = 0;
 
 void emusuni_n64_vi_origin(void)
 {
   s_vi_origins++;
+  __atomic_store_n(&s_pictures_total, s_pictures_total + 1, __ATOMIC_RELAXED);  /* (one writer: the emulation) */
+}
+
+unsigned long long emusuni_n64_pictures_total(void)
+{
+  return __atomic_load_n(&s_pictures_total, __ATOMIC_RELAXED);
 }
 
 static long long now_ns(void)

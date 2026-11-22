@@ -77,6 +77,17 @@ set(GBLINK_CORE_OBJECT "" CACHE FILEPATH "SameBoy as one object (scripts/build-g
 # built by scripts/build-openbor-core.sh into one object whose libretro API is openbor_retro_*): in the app
 # (EMUSUNI_OPENBOR=1, its tab) only when scripts/build.sh is told with-openbor.
 set(OPENBOR_CORE_OBJECT "" CACHE FILEPATH "OpenBOR as one object (scripts/build-openbor-core.sh)")
+# The PS Vita (experimental: Vita3K's libretro core, built by scripts/build-vita-core.sh into one object whose
+# libretro API is vita3k_retro_*): in the app (EMUSUNI_VITA=1, its tab) only when scripts/build.sh is told with-vita.
+# Its code and data take about 28 MiB of the app's memory at load, game or no game.
+set(VITA_CORE_OBJECT "" CACHE FILEPATH "Vita3K as one object (scripts/build-vita-core.sh)")
+# with-vita-nokeys: that object without Sony's keys inside (EMUSUNI_VITA_NOKEYS=1); they come from a file of the
+# player's, taken by this SHA-256 (the core's build gives it: <build>/vita-nokeys/vita-keys.sha256). Empty: with-vita.
+set(VITA_KEYS_SHA256 "" CACHE STRING "The SHA-256 of the PS Vita's keys file, for a core without keys inside")
+# MUGEN (experimental, 01.27: Ikemen GO, a Go program, as a libretro core whose API is mugen_retro_*, with Go's test,
+# mugen_go_*, built by scripts/build-mugen-core.sh into one object): in the app (EMUSUNI_MUGEN=1, its tab, Roms/mugen,
+# src/MugenGo.cpp) only when scripts/build.sh is told with-mugen. About 14 MiB of code and data.
+set(MUGEN_CORE_OBJECT "" CACHE FILEPATH "MUGEN (Ikemen GO) as one object (scripts/build-mugen-core.sh)")
 # Atari's consoles (00.90: the 2600 on Stella, the 7800 on ProSystem, the Jaguar on Virtual Jaguar, built by
 # scripts/build-atari-cores.sh into one object each, their libretro APIs stella_retro_*, prosystem_retro_* and
 # vjaguar_retro_*): in the app (EMUSUNI_A2600, EMUSUNI_A7800, EMUSUNI_JAGUAR: their tabs) when scripts/build.sh passes
@@ -258,6 +269,8 @@ target_sources(emusuni PRIVATE src/CoverFiles.cpp)
 target_sources(emusuni PRIVATE src/GameDb.cpp)
 # Delete Game's work on the drive (01.19): src/GameDelete.h (the game's files, its empty folder, its recents' lines).
 target_sources(emusuni PRIVATE src/GameDelete.cpp)
+# Rename Files With My Names (01.81): src/GameRename.h (a console's games' files named as the player named them).
+target_sources(emusuni PRIVATE src/GameRename.cpp)
 # What a game has installed, from the game (01.22): src/GameExtras.h (the Arcade's patched romsets, the in-game menu's
 # asks for after the game).
 target_sources(emusuni PRIVATE src/GameExtras.cpp)
@@ -283,7 +296,7 @@ target_link_libraries(emusuni PRIVATE ${OPUS_DIR}/lib/libopus.a SceAudioIn)
 # Online play (00.23): src/Netplay.h (rooms on EmuSuNi's server - server/emusuni-netd.cpp -, the hole punch and the
 # relays, rollback; the voice chat's packets on its socket), its marks on the game's screen (src/NetplayUi.h), and the
 # anonymous statistics' heartbeat to its main server (src/UsageStats.h).
-target_sources(emusuni PRIVATE src/Netplay.cpp src/NetplayLibrary.cpp src/NetplayUi.cpp src/UsageStats.cpp src/MyStats.cpp)
+target_sources(emusuni PRIVATE src/Netplay.cpp src/Elo.cpp src/NetplayLibrary.cpp src/NetplayUi.cpp src/UsageStats.cpp src/MyStats.cpp)
 # The Game Boy link cable online's match (00.95: src/GbLink.h; its core only with GBLINK_CORE_OBJECT, below) and the
 # Game Boy Advance's (01.04: its core in GBA_CORE_OBJECT's).
 target_sources(emusuni PRIVATE src/GbLink.cpp)
@@ -387,6 +400,14 @@ if(THREEDS_CORE_OBJECT)
   # (01.09) The updates' and DLC's installer from the player's CIAs (src/ThreeDsCia.h): its calls into the core,
   # defined weakly there until the core's object brings its own.
   target_sources(emusuni PRIVATE src/ThreeDsCia.cpp)
+  # (01.42) A game's texture pack (src/ThreeDsTextures.h): Texture Pack On / Off, its install from the player's pack.
+  target_sources(emusuni PRIVATE src/ThreeDsTextures.cpp)
+  # (01.41) The CPU profile on the console, a test switch (the file /data/EmuSuNi/3ds-cpu-profile): dynarmic's hook
+  # for each block it translates, emusuni_3ds_jit_block, is defined there.
+  target_sources(emusuni PRIVATE port/ps4_3ds_profile.cpp)
+  # (01.50) The memory probe (2 MiB pages, TLB and code spread; the word off in /data/EmuSuNi/3ds-mem-probe), started
+  # once by that hook at the first 3DS game's first block.
+  target_sources(emusuni PRIVATE port/ps4_mem_probe.cpp)
   target_link_libraries(emusuni PRIVATE ${THREEDS_CORE_OBJECT})
 endif()
 if(SATURN_CORE_OBJECT)
@@ -426,6 +447,32 @@ if(OPENBOR_CORE_OBJECT)
   endif()
   target_compile_definitions(emusuni PRIVATE EMUSUNI_OPENBOR=1)
   target_link_libraries(emusuni PRIVATE ${OPENBOR_CORE_OBJECT})
+endif()
+# The PS Vita (with-vita): a core with its own threads (one for each of the game's), its own Vulkan renderer on the
+# app's device, and its own layer for the guest's memory, the page faults and the recompiler's code memory
+# (port/ps4_vita_sys.c, in the object). Of the app's it asks only emusuni_log_line. Its firmware isn't the app's to
+# give: src/Vita.cpp finds what the player has and downloads it from Sony's servers when the player asks.
+if(VITA_CORE_OBJECT)
+  if(NOT EXISTS "${VITA_CORE_OBJECT}")
+    message(FATAL_ERROR "VITA_CORE_OBJECT ${VITA_CORE_OBJECT} doesn't exist (scripts/build-vita-core.sh)")
+  endif()
+  target_sources(emusuni PRIVATE src/Vita.cpp)
+  target_compile_definitions(emusuni PRIVATE EMUSUNI_VITA=1)
+  target_link_libraries(emusuni PRIVATE ${VITA_CORE_OBJECT})
+  # (with-vita-nokeys: the app looks at the player's keys file itself before a game's start, src/Vita.cpp.)
+  if(VITA_KEYS_SHA256)
+    target_compile_definitions(emusuni PRIVATE EMUSUNI_VITA_NOKEYS=1 EMUSUNI_VITA_KEYS_SHA256="${VITA_KEYS_SHA256}")
+  endif()
+endif()
+# MUGEN (with-mugen): Go's runtime with its own threads, started only when src/MugenGo.cpp asks (not before main());
+# its memory from src/MugenGo.cpp (mugen_go_mmap), its log lines through it.
+if(MUGEN_CORE_OBJECT)
+  if(NOT EXISTS "${MUGEN_CORE_OBJECT}")
+    message(FATAL_ERROR "MUGEN_CORE_OBJECT ${MUGEN_CORE_OBJECT} doesn't exist (scripts/build-mugen-core.sh)")
+  endif()
+  target_sources(emusuni PRIVATE src/MugenGo.cpp)
+  target_compile_definitions(emusuni PRIVATE EMUSUNI_MUGEN=1)
+  target_link_libraries(emusuni PRIVATE ${MUGEN_CORE_OBJECT})
 endif()
 # Atari's consoles (00.90): plain cores (no threads, no recompiler, nothing of the app's but its heap).
 foreach(console A2600 A7800 JAGUAR)
